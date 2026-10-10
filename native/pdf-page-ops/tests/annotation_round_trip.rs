@@ -986,7 +986,6 @@ fn build_mutations(
             .expect("highlight should have geometry")
             .clone();
         mutations["markup"] = json!({
-            "overrides": [],
             "hints": [{
                 "subtype": entry["subtype"],
                 "pageIndex": entry["pageIndex"],

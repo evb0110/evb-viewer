@@ -4,7 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {createPageSourcePagedWheelNavigation} from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
+import {createPageSourcePagedWheelNavigation} from '@app/modules/document-viewer/page-source-renderer/createPageSourcePagedWheelNavigation';
 
 function createContainer() {
     return {

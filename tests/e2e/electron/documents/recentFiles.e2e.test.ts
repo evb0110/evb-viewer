@@ -48,6 +48,7 @@ import {
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     activatePaneByTab,
     createNewWorkspaceTab,
@@ -2030,6 +2031,62 @@ runDjvuRecentOrSkip('Electron E2E - Recent DjVu Files', () => {
         await waitForRecentDjvuOpen(session, sourcePath);
         await expectDjvuPlace(readingPage, readingZoomLabel);
         await expectFirstDrawnPageNear(session, readingPage);
+    });
+
+    it('reopens a DjVu at a later page through one skeleton, in the place its page is drawn', async () => {
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+        const sourcePath = djvuFixture.path;
+        const session = sessionFixture.getSession();
+        await openDjvuInApp(session.page, sourcePath, 90_000);
+        await waitForDjvuLoaded(session.page, 90_000);
+        // Zoomed past the viewport's width, the reopened page brings a
+        // horizontal scrollbar once it is drawn (#1319).
+        await goToPageViaToolbar(session.page, 7);
+        await clickVisibleToolbarButton(session.page, 'Zoom In');
+        await waitForViewportQuiet(session.page);
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await waitForRecentFileRow(session, sourcePath);
+
+        await installCommittedSurfaceSampler(session.page);
+        await markCommittedSurfaceInteractionCheckpoint(session.page, 'djvu-reopen');
+        await clickRecentFile(session, sourcePath);
+        await waitForRecentDjvuOpen(session, sourcePath);
+        await waitForToolbarCurrentPage(session.page, 7);
+        await waitForViewportQuiet(session.page);
+        const frames = (await stopCommittedSurfaceSampler(session.page)).frames
+            .filter(frame => frame.interactionCheckpoint === 'djvu-reopen');
+        // The open begins at its first pending frame; the closed tab's last frames come before it.
+        const opening = {frames: frames.slice(frames.findIndex(frame => frame.openSurfacePhase === 'pending'))};
+        const detail = JSON.stringify(opening.frames.map(frame => [
+            frame.frame,
+            frame.kind,
+            frame.openSurfacePhase,
+            frame.shellRect,
+        ]));
+        // T5: bare background until page 7's shape is known, then that shape, then the page in its place.
+        expect(findCommittedSurfaceCausalOpenViolations(opening, {
+            maxFirstCanvasMs: 60_000,
+            maxFirstPageShellMs: 60_000,
+            maxReadyAfterCanvasMs: 60_000,
+            requirePageShell: true,
+        }), detail).toEqual([]);
+        const shells = opening.frames.filter(frame => frame.kind === 'page-shell');
+        const page = opening.frames.find(frame => frame.kind === 'committed-canvas');
+        for (const frame of [
+            ...shells,
+            page,
+        ]) {
+            for (const key of [
+                'top',
+                'left',
+                'width',
+                'height',
+            ] as const) {
+                expect(Math.abs((frame?.shellRect?.[key] ?? Number.NaN) - (shells[0]?.shellRect?.[key] ?? Number.NaN)), detail).toBeLessThanOrEqual(1);
+            }
+        }
     });
 
     it('opens a persisted recent DjVu after restarting Electron', async () => {

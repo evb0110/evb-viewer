@@ -51,10 +51,10 @@ import {
     formatFailurePresentationDescription,
     type FailurePresentation,
 } from '@app/composables/useFailureToast';
-import type { IDocumentSearchMatch } from '@app/modules/document-viewer/public';
+import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
-import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
-import type { TDocumentPageSourceVisual } from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
+import DocumentPageSourceSearchLayer from '@app/modules/document-viewer/page-source-renderer/DocumentPageSourceSearchLayer.vue';
+import type { TDocumentPageSourceVisual } from '@app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation';
 
 const {
     contentHeight,

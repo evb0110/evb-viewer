@@ -10,6 +10,8 @@ import {
     createShutdownPhaseRunners,
 } from '@electron/bootstrap/shutdown';
 import type { IShutdownContext } from '@electron/bootstrap/shutdown';
+import { EventEmitter } from 'node:events';
+import { tmpdir } from 'node:os';
 import {
     drainCriticalMainOperations,
     registerMainOperation,
@@ -175,6 +177,22 @@ describe('shutdown coordinator', () => {
         expect(fixture.app.exit).not.toHaveBeenCalled();
     });
 
+    it('keeps the system deadline after a retryable preservation failure', async () => {
+        vi.useFakeTimers();
+        const fixture = createCoordinator({runPreservationSteps: async context => {
+            context.retryablePreservationFailure = true;
+        }});
+
+        fixture.coordinator.requestSystemShutdown();
+        await vi.advanceTimersByTimeAsync(4_499);
+        expect(fixture.app.exit).not.toHaveBeenCalled();
+        expect(fixture.app.quit).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(fixture.app.exit).toHaveBeenCalledExactlyOnceWith(0);
+        expect(fixture.app.quit).not.toHaveBeenCalled();
+    });
+
     it('allows a committed critical operation to finish after the former 20s deadline', async () => {
         vi.useFakeTimers();
         const logger = createLogger();
@@ -325,32 +343,51 @@ describe('shutdown coordinator', () => {
         );
     });
 
-    it('holds graceful quit for a retryable preservation failure', async () => {
+    it.each([
+        'Quit',
+        'repeated system shutdown',
+        'system shutdown followed by Quit',
+    ])('retains recovery state across retryable failure for %s', async request => {
         let attempt = 0;
-        const cleanup = vi.fn(async () => {});
+        const deleteRecoveryArtifacts = vi.fn();
+        const cleanup = vi.fn(async (context: IShutdownContext) => {
+            if (!context.preserveRecoveryState) {
+                deleteRecoveryArtifacts();
+            }
+        });
         const fixture = createCoordinator({
             runBestEffortCleanupSteps: cleanup,
             runPreservationSteps: async context => {
                 attempt += 1;
                 if (attempt === 1) {
+                    context.preserveRecoveryState = true;
                     context.retryablePreservationFailure = true;
                 }
             },
         });
 
-        fixture.coordinator.requestGracefulQuit();
+        if (request === 'Quit') {
+            fixture.coordinator.requestGracefulQuit();
+        } else {
+            fixture.coordinator.requestSystemShutdown();
+        }
         await vi.waitFor(() => {
             expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
         expect(cleanup).toHaveBeenCalledOnce();
 
-        fixture.coordinator.requestGracefulQuit();
+        if (request === 'repeated system shutdown') {
+            fixture.coordinator.requestSystemShutdown();
+        } else {
+            fixture.coordinator.requestGracefulQuit();
+        }
         await vi.waitFor(() => {
             expect(fixture.app.quit).toHaveBeenCalledOnce();
         });
         expect(cleanup).toHaveBeenCalledTimes(2);
         expect(fixture.app.exit).not.toHaveBeenCalled();
+        expect(deleteRecoveryArtifacts).toHaveBeenCalledTimes(request === 'Quit' ? 1 : 0);
     });
 
     it('holds graceful quit when assistant preservation times out while cleanup still runs', async () => {
@@ -566,5 +603,129 @@ describe('shutdown coordinator', () => {
         await vi.runOnlyPendingTimersAsync();
         expect(fixture.app.exit).toHaveBeenCalledOnce();
         expect(fixture.app.exit).toHaveBeenCalledWith(9);
+    });
+});
+
+describe('main process termination signals', () => {
+    it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
+        'SIGTERM',
+        'SIGHUP',
+    ] as const)('%s cancels pending and late restarts after preservation', async signal => {
+        const preservation = createDeferred();
+        const restart = vi.fn();
+        const fixture = createCoordinator({runPreservationSteps: () => preservation.promise});
+        const app = Object.assign(new EventEmitter(), fixture.app, {
+            name: 'EVB Viewer Dev',
+            getPath: () => tmpdir(),
+            setPath: vi.fn(),
+            setName: vi.fn(),
+            commandLine: {
+                appendSwitch: vi.fn(),
+                hasSwitch: () => false,
+            },
+            setActivationPolicy: vi.fn(),
+            whenReady: async () => {},
+        });
+        vi.resetModules();
+        vi.doMock('electron', () => ({
+            app,
+            BrowserWindow: {},
+            ipcMain: new EventEmitter(),
+            powerMonitor: new EventEmitter(),
+            protocol: {registerSchemesAsPrivileged: vi.fn()},
+        }));
+        vi.doMock('@electron/bootstrap/shutdown', () => ({
+            createShutdownCoordinator: () => fixture.coordinator,
+            createShutdownPhaseRunners,
+        }));
+        vi.doMock('@electron/bootstrap/runInitSequence', () => ({runInitSequence: () => new Promise<void>(() => undefined)}));
+        vi.doMock('@electron/utils/createLogger', () => ({
+            createLogger,
+            configureLogDirectory: vi.fn(),
+            flushPendingLogWrites: vi.fn(),
+        }));
+        vi.doMock('@electron/features/diagnostics/public', () => ({
+            captureMainFailure: vi.fn(),
+            consumeStartupCrashMarker: vi.fn(),
+            installStartupCrashMarker: () => vi.fn(),
+            readDiagnosticsPreferenceSync: vi.fn(),
+            setMainDiagnosticsPreference: vi.fn(),
+        }));
+        vi.doMock('@electron/utils/appTempDir', () => ({
+            cleanupStaleAppTempNamespaces: vi.fn(),
+            getAppTempDir: vi.fn(),
+            initializeAppTempNamespace: vi.fn(),
+        }));
+        vi.doMock('@electron/updates', () => ({
+            configureUpdateInstallShutdown: vi.fn(),
+            initializeUpdates: vi.fn(),
+            shutdownUpdates: vi.fn(),
+        }));
+        vi.doMock('@electron/platform-ipc/registerIpcHandlers', () => ({registerIpcHandlers: vi.fn()}));
+        vi.doMock('@electron/features/agent/public', () => ({
+            preserveAssistantStateForShutdownIfLoaded: vi.fn(),
+            shutdownAgentAssistantIfLoaded: vi.fn(),
+            shutdownLocalMcpServer: vi.fn(),
+            syncAgentMcpServerWithSettings: vi.fn(),
+        }));
+        vi.doMock('@electron/features/ocr/public', () => ({
+            recoverOcrJobManager: vi.fn(),
+            shutdownOcrJobManager: vi.fn(),
+        }));
+        vi.doMock('@electron/features/search/public', () => ({searchService: {}}));
+        vi.doMock('@electron/features/djvu/public', () => ({
+            performDjvuViewingShutdownCleanup: vi.fn(),
+            shutdownDjvuConversions: vi.fn(),
+            pruneStaleDjvuArtifactJobs: vi.fn(),
+        }));
+        vi.doMock('@electron/features/documents/public', () => ({
+            closeCachedRangeReadHandles: vi.fn(),
+            shutdownRetainedDocumentSaveUtilityProcesses: vi.fn(),
+            sweepStalePdfAnnotationParseArtifacts: vi.fn(),
+            sweepStalePdfEmbeddedShapeIndexArtifacts: vi.fn(),
+            sweepStaleDefaultAppTempPdfs: vi.fn(),
+            sweepStaleOcrTempArtifacts: vi.fn(),
+            shutdownSerializedPdfPersistence: vi.fn(),
+        }));
+        const processEvents: EventEmitter = process;
+        const listenersBefore = new Map(processEvents.eventNames().map(name => [
+            name,
+            processEvents.listeners(name),
+        ]));
+        try {
+            await import('@electron/bootstrap/mainProcess');
+            fixture.coordinator.requestGracefulQuit({afterCleanup: restart});
+            processEvents.emit(signal, signal, signal === 'SIGTERM' ? 15 : 1);
+            fixture.coordinator.requestGracefulQuit({afterCleanup: restart});
+            preservation.resolve();
+            await vi.waitFor(() => {
+                expect(fixture.app.quit.mock.calls.length + restart.mock.calls.length).toBe(1);
+            });
+            expect(restart).not.toHaveBeenCalled();
+            expect(fixture.app.quit).toHaveBeenCalledOnce();
+        } finally {
+            for (const name of processEvents.eventNames()) {
+                for (const listener of processEvents.listeners(name)) {
+                    if (!listenersBefore.get(name)?.includes(listener)) {
+                        processEvents.removeListener(name, listener as (...args: unknown[]) => void);
+                    }
+                }
+            }
+            preservation.resolve();
+            vi.doUnmock('electron');
+            vi.doUnmock('@electron/bootstrap/shutdown');
+            vi.doUnmock('@electron/bootstrap/runInitSequence');
+            vi.doUnmock('@electron/utils/createLogger');
+            vi.doUnmock('@electron/features/diagnostics/public');
+            vi.doUnmock('@electron/utils/appTempDir');
+            vi.doUnmock('@electron/updates');
+            vi.doUnmock('@electron/platform-ipc/registerIpcHandlers');
+            vi.doUnmock('@electron/features/agent/public');
+            vi.doUnmock('@electron/features/ocr/public');
+            vi.doUnmock('@electron/features/search/public');
+            vi.doUnmock('@electron/features/djvu/public');
+            vi.doUnmock('@electron/features/documents/public');
+            vi.resetModules();
+        }
     });
 });

@@ -1,3 +1,4 @@
+import type { ComputedRef } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
 import type {
@@ -48,14 +49,29 @@ export interface IDocumentOpeningPageFramePolicy {
     readonly continuousScroll: boolean;
 }
 
+/** The opening skeleton as the viewport draws it: the page the open presents, at its size and place. */
+export interface IDocumentOpeningPageShell {
+    readonly generation: number;
+    readonly height: number;
+    readonly id: string;
+    readonly ownerId: string;
+    readonly pageNumber: number;
+    readonly style: Readonly<Record<string, string>>;
+}
+
 export interface IDocumentOpeningPageFrame {
+    /** Null until the open knows its page's shape, and again once the open is done. */
+    readonly shell: ComputedRef<IDocumentOpeningPageShell | null>;
     prepareOpeningPageFrame(generation: number): boolean;
     /** The reader's wheel zoom of the opening view, before any page is shown. */
     zoomOpeningShell(interaction: IDocumentWheelInteraction): void;
 }
 
 interface ICreateDocumentOpeningPageFrameOptions {
+    /** The viewer runtime's instance, which keeps shell ids unique across panes. */
+    readonly instanceId: string;
     readonly openSurface: IDocumentOpenSurfaceSession;
+    readonly readRendererKind: () => 'pdfjs' | 'page-source';
     readonly readLayoutRevision?: () => number;
     readonly readPolicy: () => IDocumentOpeningPageFramePolicy;
     readonly readViewportSize: () => {
@@ -63,7 +79,6 @@ interface ICreateDocumentOpeningPageFrameOptions {
         height: number;
     };
     readonly readViewport?: () => HTMLElement | null;
-    readonly readShell?: () => HTMLElement | null;
     readonly emitZoomState?: (state: TPdfZoomState) => void;
 }
 
@@ -332,6 +347,57 @@ export function createDocumentOpeningPageFrame(
         ...options.readViewportSize(),
         scrollbar: readScrollbar(options.readViewport?.()),
     });
+    // The opening skeleton appears only once the page's shape is known. Until
+    // then the viewport shows its own background: a placeholder of a guessed
+    // shape would change shape again when the geometry arrives.
+    const shell = computed<IDocumentOpeningPageShell | null>(() => {
+        options.readLayoutRevision?.();
+        const snapshot = options.openSurface.snapshot.value;
+        const frame = snapshot.openingPageFrame;
+        if (!PREPARABLE_PHASES.has(snapshot.phase) || frame?.generation !== undefined && frame.generation !== snapshot.generation) {
+            return null;
+        }
+        // The page the open presents, which a restore or a navigation during the
+        // open can set before the viewport has shown any page.
+        const openingPage = options.openSurface.viewportSession.value.requestedPage;
+        const geometry = snapshot.openingPageGeometry;
+        const {
+            zoom,
+            zoomMode,
+        } = options.readPolicy();
+        const viewport = options.readViewportSize();
+        const rendererKind = options.readRendererKind();
+        // PDF Fit Width follows the widest page, which only the prepared frame knows.
+        const liveFrame = rendererKind === 'page-source' && geometry?.pageNumber === openingPage ? resolveDocumentPageSourceOpeningFrame({
+            geometry,
+            viewportWidth: viewport.width,
+            viewportHeight: viewport.height,
+            zoom,
+            zoomMode,
+        }) : null;
+        const style = liveFrame?.style ?? (frame?.pageNumber === openingPage ? frame.style : null);
+        if (style === null) {
+            return null;
+        }
+        // Both frames hold a positive, finite page size.
+        const liveWidth = Number.parseFloat(style.width);
+        const liveHeight = Number.parseFloat(style.height);
+        const margin = resolveDocumentOpeningPageMargin(geometry, rendererKind);
+        return {
+            generation: snapshot.generation,
+            height: liveHeight,
+            id: resolveDocumentOpeningPageShellId(options.instanceId, snapshot.generation),
+            ownerId: frame?.ownerId ?? 'chassis-provisional',
+            pageNumber: openingPage,
+            // A frame placed at its reader's point keeps that place.
+            style: {
+                top: `${String(margin)}px`,
+                left: `max(${String(margin)}px, calc(50% - ${String(liveWidth / 2)}px))`,
+                ...style,
+            },
+        };
+    });
+    const readShell = () => document.getElementById(shell.value?.id ?? '');
     // The reader's zoom of the opening view starts from the scale shown and
     // keeps the page point under the pointer: the open's restore navigation
     // then places that point, and the frame follows both.
@@ -339,7 +405,7 @@ export function createDocumentOpeningPageFrame(
         {get value() {
             // The shell's scale: its width over the page's width as the view shows it.
             const geometry = options.openSurface.snapshot.value.openingPageGeometry;
-            const width = options.readShell?.()?.getBoundingClientRect().width ?? 0;
+            const width = readShell()?.getBoundingClientRect().width ?? 0;
             return geometry && width > 0
                 ? width / projectPdfPageMetricForView(geometry, readFramePolicy(geometry).viewRotation ?? 0).width
                 : 1;
@@ -349,7 +415,7 @@ export function createDocumentOpeningPageFrame(
         }},
         (_event, state) => options.emitZoomState?.(state),
         {beforeZoom: ({event}) => {
-            const shellRect = options.readShell?.()?.getBoundingClientRect();
+            const shellRect = readShell()?.getBoundingClientRect();
             const viewport = options.readViewport?.();
             const page = options.openSurface.viewportSession.value.requestedPage;
             if (!shellRect?.width || !shellRect.height || !viewport || page === null) {
@@ -373,6 +439,7 @@ export function createDocumentOpeningPageFrame(
     );
 
     return Object.freeze({
+        shell,
         zoomOpeningShell,
         prepareOpeningPageFrame(generation: number) {
             const snapshot = options.openSurface.snapshot.value;

@@ -4,8 +4,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import { createDocumentPageMetricPublication } from '@app/modules/workspace-shell/viewers/createDocumentPageMetricPublication';
-import { createProvisionalDocumentPageMetrics } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+import { createDocumentPageMetricPublication } from '@app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication';
+import { createProvisionalDocumentPageMetrics } from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
 
 const metric = (widthPoints: number) => ({
     widthPoints,

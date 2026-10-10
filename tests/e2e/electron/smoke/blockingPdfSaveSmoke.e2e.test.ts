@@ -52,6 +52,8 @@ import {
     waitForAutomationEvent,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { readToolbarPageIndicator } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
+import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
 
 const BLOCKING_SMOKE_TIMEOUT_MS = 120_000;
 const SAVE_TIMEOUT_MS = 45_000;
@@ -501,6 +503,18 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             hasPdf: true,
             totalPages: 2,
         });
+
+        // Stopping the session is not a person's Quit, so the unsaved result
+        // must not hold the app open until the runner kills it after 10 s.
+        const electronPid = getSessionInfo(session.name)?.electronPid;
+        if (typeof electronPid !== 'number') throw new Error('The Electron pid was missing');
+        const stopping = session.stop();
+        session = null;
+        try {
+            await expect.poll(() => isProcessAlive(electronPid), {timeout: 8_000}).toBe(false);
+        } finally {
+            await stopping;
+        }
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
     it('saves a combined PDF whose open failed, and Retry opens the kept file', async () => {

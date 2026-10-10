@@ -419,6 +419,136 @@ describe('browserWindowTabsCapability', () => {
         await expect(claim).resolves.toBe(closed.checkpoint);
     });
 
+    it('does not adopt a record another window has just claimed and not yet checkpointed', async () => {
+        vi.setSystemTime(100_000);
+        const locks = new FakeLockManager();
+        const orphan = {
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            leaseRevision: 7,
+            updatedAt: 0,
+        };
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([orphan]);
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
+            claimed: true,
+            generation: 8,
+        });
+        // After a crash the first restored window claims the orphan and is
+        // still restoring it, so it has saved no lease yet.
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=111', locks);
+        const firstWindow = await import('@app/platform/browserWindowTabs');
+        const firstClaim = firstWindow.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+        await expect(firstClaim).resolves.toBe(orphan.checkpoint);
+
+        // The second window hears no answer to its discovery in time and
+        // finds the record under the first window's owner, freshly written.
+        MockBroadcastChannel.reset();
+        vi.resetModules();
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=222', locks);
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
+            ...orphan,
+            ownerId: 'window:111',
+            generation: 8,
+            leaseRevision: 8,
+            updatedAt: Date.now(),
+        }]);
+        const secondWindow = await import('@app/platform/browserWindowTabs');
+        const secondClaim = secondWindow.browserWindowTabsCapability.claimWorkspaceCheckpoint();
+        await vi.advanceTimersByTimeAsync(70);
+
+        await expect(secondClaim).resolves.toBeNull();
+    });
+
+    it('starts a duplicate of a frozen owner without waiting or claiming its recovery', async () => {
+        vi.setSystemTime(100_000);
+        const ownerLockName = 'evb-viewer:browser-lease-owner:window:321';
+        const locks = new FakeLockManager();
+        locks.holdElsewhere(ownerLockName);
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=321', locks);
+        const originalRecord = {
+            ownerId: 'window:321',
+            generation: 7,
+            checkpoint: {
+                version: 1,
+                tabs: [],
+            },
+            snapshotRefs: [],
+            leaseRevision: 7,
+            updatedAt: Date.now(),
+        };
+        recoveryMocks.loadBrowserWorkspaceRecovery.mockImplementation(async (ownerId: string) => (
+            ownerId === originalRecord.ownerId ? originalRecord : null
+        ));
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([originalRecord]);
+        recoveryMocks.claimBrowserWorkspaceRecoveryOwner.mockResolvedValue({
+            claimed: true,
+            generation: 8,
+        });
+        const module = await import('@app/platform/browserWindowTabs');
+        let completed = false;
+        const claim = module.browserWindowTabsCapability.claimWorkspaceCheckpoint().then(checkpoint => {
+            completed = true;
+            return checkpoint;
+        });
+        await vi.advanceTimersByTimeAsync(70);
+        try {
+            expect(completed, 'Startup waits for the frozen original to resume').toBe(true);
+            await expect(claim).resolves.toBeNull();
+            const ownerId = module.getBrowserWindowRecoveryOwnerId();
+            expect(ownerId).not.toBe(originalRecord.ownerId);
+            expect((await locks.query()).held.map(lock => lock.name).sort()).toEqual([
+                ownerLockName,
+                `evb-viewer:browser-lease-owner:${ownerId}`,
+            ].sort());
+            // Releasing the original must not grant a stale duplicate request.
+            locks.releaseElsewhere(ownerLockName);
+            await vi.advanceTimersByTimeAsync(0);
+            expect((await locks.query()).held).toEqual([{name: `evb-viewer:browser-lease-owner:${ownerId}`}]);
+        } finally {
+            locks.releaseElsewhere(ownerLockName);
+            await vi.advanceTimersByTimeAsync(70);
+            await claim;
+        }
+    });
+
+    it('gives up an owner whose lease lock another window holds, with its wait for that lock', async () => {
+        const ownerLockName = 'evb-viewer:browser-lease-owner:window:321';
+        const locks = new FakeLockManager();
+        locks.holdElsewhere(ownerLockName);
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=321', locks);
+        const originalWindow = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        const module = await import('@app/platform/browserWindowTabs');
+        const leases = await import('@app/platform/browser/browserDocumentLeaseStore');
+        expect(module.getBrowserWindowRecoveryOwnerId()).toBe('window:321');
+
+        // A copy of a frozen window hears no answer, keeps the id and waits
+        // for the original's lock at its first lease save.
+        const firstSave = leases.saveBrowserDocumentLiveLease('window:321', 0, 'active', []);
+        // The original resumes. Its nonce sorts last, so the nonces alone
+        // would keep the copy on the id.
+        originalWindow.postMessage({
+            type: 'announce',
+            windowId: 321,
+            instanceNonce: '~',
+            label: 'Original tab',
+            ready: true,
+        });
+
+        await expect(firstSave).rejects.toThrow('aborted');
+        const ownerId = module.getBrowserWindowRecoveryOwnerId();
+        expect(ownerId).not.toBe('window:321');
+        // When the original closes, its lock does not pass to the copy.
+        locks.releaseElsewhere(ownerLockName);
+        expect((await locks.query()).held).toEqual([{name: `evb-viewer:browser-lease-owner:${ownerId}`}]);
+        await expect(leases.saveBrowserDocumentLiveLease('window:321', 0, 'active', [])).rejects.toThrow('does not own');
+    });
+
     it('claims an expired recovery owner when live-peer discovery is unavailable', async () => {
         vi.setSystemTime(100_000);
         stubBrowserGlobals('http://localhost:3235/?evbWindowId=444');

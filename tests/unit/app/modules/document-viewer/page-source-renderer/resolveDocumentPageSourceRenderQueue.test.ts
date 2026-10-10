@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { resolveDocumentPageSourceRenderQueue } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderQueue';
+import { resolveDocumentPageSourceRenderQueue } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderQueue';
 
 describe('resolveDocumentPageSourceRenderQueue', () => {
     it('keeps navigation first and fills the forward runway farthest-first', () => {

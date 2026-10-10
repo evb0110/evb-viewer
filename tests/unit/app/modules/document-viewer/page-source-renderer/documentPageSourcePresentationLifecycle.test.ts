@@ -10,7 +10,7 @@ import {
 import {
     createDocumentPageSourcePresentation,
     type IDocumentPageSourceVisualState,
-} from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
+} from '@app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation';
 import type {
     IDocumentPageSource,
     IDocumentRenderLease,

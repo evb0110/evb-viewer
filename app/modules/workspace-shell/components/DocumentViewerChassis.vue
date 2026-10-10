@@ -22,7 +22,6 @@
         :data-viewport-visual-page="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.pageNumber : ''"
         :data-viewport-visual-presentation="chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page' ? chassisAuthority.openSurface.viewportSession.value.visual.presentation : ''"
         :data-chassis-current-page="chassisAuthority.currentPage.value"
-        :data-chassis-resize-anchor-page="retainedResizeAnchor?.pageNumber ?? ''"
         :data-chassis-resizing="props.isResizing === true"
         :aria-busy="isOpening ? 'true' : undefined"
         :class="{'document-viewer-chassis--fling-backdrop': hasViewportFlingBackdrop}"
@@ -31,6 +30,9 @@
         <DocumentViewportHost
             :viewport-id="viewportId"
             :set-viewport="chassisAuthority.bindViewportElement"
+            :opening-page-shell="openingPageFrameAuthority.shell.value"
+            :opening-page-visual="chassisAuthority.openingPageVisual.value"
+            :set-opening-page="chassisAuthority.bindOpeningPageElement"
             :class="chassisAuthority.viewportClass.value"
             :style="chassisViewportStyle"
             :data-open-surface-phase="chassisAuthority.openSurface.snapshot.value.phase"
@@ -45,26 +47,6 @@
             @contextmenu="chassisAuthority.dispatchViewportEvent('contextmenu', $event)"
             @selectstart="chassisAuthority.dispatchViewportEvent('selectstart', $event)"
         >
-            <div
-                v-if="chassisOpeningPageShell && shouldShowChassisOpeningPageSkeleton"
-                class="document-viewer-chassis__opening-layer"
-            >
-                <section
-                    :id="chassisOpeningPageShell.id"
-                    :ref="bindChassisOpeningPageElement"
-                    class="document-viewer-chassis__opening-page"
-                    :style="chassisOpeningPageShell.style"
-                    :data-page-number="chassisOpeningPageShell.pageNumber"
-                    :data-document-page-number="chassisOpeningPageShell.pageNumber"
-                    :data-document-opening-shell-id="chassisOpeningPageShell.id"
-                    :data-open-surface-generation="chassisOpeningPageShell.generation"
-                    :data-open-surface-frame-owner="chassisOpeningPageShell.ownerId"
-                    :data-page-source-visual="chassisAuthority.openingPageVisual.value"
-                    data-testid="document-page-source-page"
-                >
-                    <DocumentPageSkeleton :content-height="chassisOpeningPageShell.height" />
-                </section>
-            </div>
             <component
                 :is="activeFeaturePack"
                 ref="activeFeaturePackRef"
@@ -80,10 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    Component,
-    ComponentPublicInstance,
-} from 'vue';
+import type { Component } from 'vue';
 import {
     FIT_WIDTH_ZOOM_STATE,
     getZoomMode,
@@ -98,24 +77,20 @@ import {
     shouldAcceptFeaturePackRuntimePage,
     DocumentViewportHost ,
     injectDocumentOpenSurfaceSession,
+    isDocumentOpenEmptySurfaceTransition,
     resolveDocumentOpenSurfaceViewportPolicy,
     createDocumentOpeningPageFrame,
-    resolveDocumentOpeningPageMargin,
-    resolveDocumentOpeningPageShellId, resolveDocumentPageSourceOpeningFrame , observeDocumentViewportWheelInteraction,
-    captureDocumentViewportResizeAnchor,
-    resolveDocumentViewportResizeAnchorPosition,
+    observeDocumentViewportWheelInteraction,
 } from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageSource,
     TDocumentPageSourceKind,
-    IDocumentViewportResizeAnchor,
     IDocumentWheelInteraction,
 } from '@app/modules/document-viewer/public';
 import { workspaceViewerFeatureChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerFeatureChunkLoaders';
 import DocumentViewerFlingBackdrop from '@app/modules/workspace-shell/components/DocumentViewerFlingBackdrop.vue';
 import { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/public';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
-import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot';
 
 defineOptions({ inheritAttrs: false });
@@ -130,7 +105,6 @@ const props = defineProps<{
     isResizing?: boolean;
 }>();
 const emit = defineEmits<{
-    'feature-pack-ready': [authority: ReturnType<typeof createDocumentOpeningPageFrame>];
     'update:current-page': [pageNumber: number];
     'update:pageSource': [source: IDocumentPageSource | null];
     'update:total-pages': [pageCount: number];
@@ -162,13 +136,6 @@ const viewportId = computed(() => viewportIds[rendererKind.value]);
 const activeFeaturePack = computed(() => featurePacks[rendererKind.value]);
 const openingFrameLayoutRevision = ref(0);
 let openingFrameResizeObserver: ResizeObserver | null = null;
-const retainedResizeAnchor = shallowRef<IDocumentViewportResizeAnchor | null>(null);
-let retainedResizeAnchorFence: {
-    generation: number;
-    interactionEpoch: number;
-} | null = null;
-const RESIZE_ANCHOR_QUIET_MS = 120;
-let resizeAnchorReleaseTimer: ReturnType<typeof setTimeout> | null = null;
 const documentOpenSurface = injectDocumentOpenSurfaceSession();
 if (!documentOpenSurface) {
     throw new Error('DocumentViewerChassis requires the host-owned document open surface session');
@@ -178,106 +145,7 @@ const chassisAuthority = createDocumentViewerRuntime(
     props.currentPage ?? 1,
     documentOpenSurface,
 );
-function applyRetainedResizeAnchor(reason: string) {
-    const viewport = chassisAuthority.viewportElement.value;
-    const anchor = retainedResizeAnchor.value;
-    const fence = retainedResizeAnchorFence;
-    const session = chassisAuthority.openSurface.viewportSession.value;
-    if (
-        !viewport
-        || !anchor
-    ) {
-        return false;
-    }
-    if (
-        !fence
-        || session.lifecycle !== 'ready'
-        || session.requestedPage !== session.committedPage
-        || fence.generation !== session.generation
-        || session.committedPage !== anchor.pageNumber
-        || fence.interactionEpoch !== chassisAuthority.viewportWritePort.getInteractionEpoch()
-    ) {
-        releaseRetainedResizeAnchor();
-        return false;
-    }
-    const position = resolveDocumentViewportResizeAnchorPosition(viewport, anchor);
-    if (!position) {
-        return false;
-    }
-    if (
-        Math.abs(position.left - viewport.scrollLeft) < 0.5
-        && Math.abs(position.top - viewport.scrollTop) < 0.5
-    ) {
-        return true;
-    }
-    const intent = chassisAuthority.viewportWritePort.beginIntent(
-        `chassis-resize-anchor:${anchor.pageNumber}:${reason}`,
-    );
-    return chassisAuthority.viewportWritePort.apply(viewport, {
-        intent,
-        reason: 'chassis-resize-anchor',
-        left: position.left,
-        top: position.top,
-    });
-}
-
-function releaseRetainedResizeAnchor() {
-    if (resizeAnchorReleaseTimer !== null) {
-        clearTimeout(resizeAnchorReleaseTimer);
-        resizeAnchorReleaseTimer = null;
-    }
-    if (retainedResizeAnchor.value) {
-        openingFrameResizeObserver?.unobserve(retainedResizeAnchor.value.element);
-    }
-    retainedResizeAnchor.value = null;
-    retainedResizeAnchorFence = null;
-}
-
-function retainCurrentResizeAnchor() {
-    // PDF.js owns semantic resize projection together with its virtual page
-    // geometry. A second DOM anchor here races that projection and can restore
-    // a different page between preview and raster commit.
-    if (rendererKind.value === 'pdfjs') {
-        return;
-    }
-    const viewport = chassisAuthority.viewportElement.value;
-    if (!viewport) {
-        return;
-    }
-    const session = chassisAuthority.openSurface.viewportSession.value;
-    releaseRetainedResizeAnchor();
-    retainedResizeAnchor.value = captureDocumentViewportResizeAnchor(viewport, {preferredPageNumber: session.committedPage ?? session.requestedPage});
-    retainedResizeAnchorFence = retainedResizeAnchor.value ? {
-        generation: session.generation,
-        interactionEpoch: chassisAuthority.viewportWritePort.getInteractionEpoch(),
-    } : null;
-    if (retainedResizeAnchor.value) {
-        openingFrameResizeObserver?.observe(retainedResizeAnchor.value.element);
-    }
-}
-
-function scheduleResizeAnchorRelease() {
-    if (!retainedResizeAnchor.value || props.isResizing === true) {
-        return;
-    }
-    if (resizeAnchorReleaseTimer !== null) {
-        clearTimeout(resizeAnchorReleaseTimer);
-    }
-    resizeAnchorReleaseTimer = setTimeout(() => {
-        resizeAnchorReleaseTimer = null;
-        applyRetainedResizeAnchor('quiet-settle');
-        releaseRetainedResizeAnchor();
-    }, RESIZE_ANCHOR_QUIET_MS);
-}
-
-function releaseResizeAnchorForViewportInteraction() {
-    if (retainedResizeAnchor.value && props.isResizing !== true) {
-        releaseRetainedResizeAnchor();
-    }
-}
-
 function handleViewportWheel(interaction: IDocumentWheelInteraction) {
-    releaseResizeAnchorForViewportInteraction();
     // Physical scrolling must fence pending authored restores before the
     // browser mutates scrollTop. The inertial tail of a gesture that a newer
     // command superseded is not physical input and reaches no renderer.
@@ -289,7 +157,7 @@ function handleViewportWheel(interaction: IDocumentWheelInteraction) {
     if (owner === 'command-residue') {
         return;
     }
-    if (interaction.intent === 'zoom' && isOpening.value && chassisOpeningPageShell.value) {
+    if (interaction.intent === 'zoom' && openingPageFrameAuthority.shell.value) {
         interaction.event.preventDefault();
         openingPageFrameAuthority.zoomOpeningShell(interaction);
         return;
@@ -298,7 +166,6 @@ function handleViewportWheel(interaction: IDocumentWheelInteraction) {
 }
 
 function handleViewportInteraction(type: 'mousedown', event: Event) {
-    releaseResizeAnchorForViewportInteraction();
     chassisAuthority.viewportWritePort.observeUserInteraction(chassisAuthority.viewportElement.value ?? undefined);
     chassisAuthority.dispatchViewportEvent(type, event);
 }
@@ -332,7 +199,9 @@ function readOpeningViewportSize() {
     };
 }
 const openingPageFrameAuthority = createDocumentOpeningPageFrame({
+    instanceId: chassisAuthority.instanceId,
     openSurface: documentOpenSurface,
+    readRendererKind: () => rendererKind.value,
     readLayoutRevision: () => openingFrameLayoutRevision.value,
     readPolicy: () => ({
         ...readZoomPolicy(),
@@ -346,7 +215,6 @@ const openingPageFrameAuthority = createDocumentOpeningPageFrame({
     }),
     readViewportSize: readOpeningViewportSize,
     readViewport: () => chassisAuthority.viewportElement.value,
-    readShell: () => document.getElementById(chassisOpeningPageShell.value?.id ?? ''),
     emitZoomState: state => (attrs['onUpdate:zoomState'] as ((zoomState: TPdfZoomState) => void) | undefined)?.(state),
 });
 watch(
@@ -360,16 +228,11 @@ watch(
         }
         openingFrameResizeObserver = new ResizeObserver(() => {
             openingFrameLayoutRevision.value += 1;
-            applyRetainedResizeAnchor('resize-observer');
-            scheduleResizeAnchorRelease();
         });
         openingFrameResizeObserver.observe(viewport);
         const layoutHost = viewport.closest<HTMLElement>('.workspace-viewer-host');
         if (layoutHost) {
             openingFrameResizeObserver.observe(layoutHost);
-        }
-        if (retainedResizeAnchor.value) {
-            openingFrameResizeObserver.observe(retainedResizeAnchor.value.element);
         }
     },
     {
@@ -384,101 +247,10 @@ const unsubscribeWheelScrollSequenceChange = getHostCapability().onWheelScrollSe
 });
 onBeforeUnmount(() => {
     unsubscribeWheelScrollSequenceChange();
-    releaseRetainedResizeAnchor();
     openingFrameResizeObserver?.disconnect();
     openingFrameResizeObserver = null;
 });
-watch(
-    () => props.isResizing === true,
-    (isResizing, wasResizing) => {
-        if (isResizing && !wasResizing) {
-            retainCurrentResizeAnchor();
-            return;
-        }
-        if (!isResizing && wasResizing && retainedResizeAnchor.value) {
-            applyRetainedResizeAnchor('resize-end-sync');
-            // Split removal changes the viewport and page track in Vue's next
-            // patch. Reapply in that same microtask so the browser never paints
-            // the track at its reset scroll origin before ResizeObserver runs.
-            void nextTick(() => {
-                if (!retainedResizeAnchor.value || props.isResizing === true) {
-                    return;
-                }
-                applyRetainedResizeAnchor('resize-end-post-layout');
-                scheduleResizeAnchorRelease();
-            });
-        }
-    },
-    {flush: 'sync'},
-);
-watch(
-    () => chassisAuthority.openSurface.viewportSession.value.lifecycle,
-    (lifecycle) => {
-        if (lifecycle !== 'ready' && retainedResizeAnchor.value) {
-            releaseRetainedResizeAnchor();
-        }
-    },
-    {flush: 'sync'},
-);
-function bindChassisOpeningPageElement(element: Element | ComponentPublicInstance | null) {
-    chassisAuthority.bindOpeningPageElement(element instanceof HTMLElement ? element : null);
-}
-const isOpening = computed(() => [
-    'pending',
-    'geometry-committed',
-    'canvas-committed',
-    'viewport-committed',
-].includes(chassisAuthority.openSurface.snapshot.value.phase));
-// The opening skeleton appears only once the page's shape is known. Until then
-// the viewport shows its own background: a placeholder of a guessed shape
-// would change shape again when the geometry arrives.
-const chassisOpeningPageShell = computed(() => {
-    void openingFrameLayoutRevision.value;
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
-    const frame = snapshot.openingPageFrame;
-    if (!isOpening.value || frame?.generation !== undefined && frame.generation !== snapshot.generation) {
-        return null;
-    }
-    // The page the open presents, which a restore or a navigation during the
-    // open can set before the viewport has shown any page.
-    const openingPage = chassisAuthority.openSurface.viewportSession.value.requestedPage;
-    const geometry = snapshot.openingPageGeometry;
-    const {
-        zoom,
-        zoomMode,
-    } = readZoomPolicy();
-    const viewport = readOpeningViewportSize();
-    // PDF Fit Width follows the widest page, which only the prepared frame knows.
-    const liveFrame = rendererKind.value === 'page-source' && geometry?.pageNumber === openingPage ? resolveDocumentPageSourceOpeningFrame({
-        geometry,
-        viewportWidth: viewport.width,
-        viewportHeight: viewport.height,
-        zoom,
-        zoomMode,
-    }) : null;
-    const style = liveFrame?.style ?? (frame?.pageNumber === openingPage ? frame.style : null);
-    if (style === null) {
-        return null;
-    }
-    // Both frames hold a positive, finite page size.
-    const liveWidth = Number.parseFloat(style.width);
-    const liveHeight = Number.parseFloat(style.height);
-    const margin = resolveDocumentOpeningPageMargin(geometry, rendererKind.value);
-    return {
-        generation: snapshot.generation,
-        height: liveHeight,
-        id: resolveDocumentOpeningPageShellId(chassisAuthority.instanceId, snapshot.generation),
-        ownerId: frame?.ownerId ?? 'chassis-provisional',
-        pageNumber: openingPage,
-        // A frame placed at its reader's point keeps that place.
-        style: {
-            top: `${String(margin)}px`,
-            left: `max(${String(margin)}px, calc(50% - ${String(liveWidth / 2)}px))`,
-            ...style,
-        },
-    };
-});
-const shouldShowChassisOpeningPageSkeleton = computed(() => chassisAuthority.openingPageVisual.value !== 'fresh');
+const isOpening = computed(() => isDocumentOpenEmptySurfaceTransition(chassisAuthority.openSurface.snapshot.value));
 
 watch(
     [
@@ -504,11 +276,6 @@ watch(
         immediate: true,
     },
 );
-watch(activeFeaturePackRef, (featurePack) => {
-    if (featurePack) {
-        emit('feature-pack-ready', openingPageFrameAuthority);
-    }
-}, {flush: 'sync'});
 const chassisViewportStyle = computed(() => {
     const policy = resolveDocumentOpenSurfaceViewportPolicy(chassisAuthority.openSurface.snapshot.value);
     return [
@@ -681,20 +448,6 @@ defineExpose(createDocumentViewerExposeForwarder(activeFeaturePackRef, {
     background: transparent;
 }
 
-.document-viewer-chassis__opening-page {
-    position: absolute;
-
-    /* This is the sole visible owner until the joined canvas/viewport commit.
-       Keep the mounted live page track underneath so it can render without
-       occluding the shell before the atomic ready handoff. */
-    z-index: var(--app-workspace-transition-overlay-z-index);
-    overflow: hidden;
-    pointer-events: none;
-    background: var(--app-document-page-bg);
-    border-radius: var(--app-document-page-radius);
-    box-shadow: var(--app-document-page-shadow);
-}
-
 /* Until an open knows its page shape the viewer shows only its background
    (behavior contract T5). The renderer may already have laid its pages out
    underneath at a scale it has not fitted, at the page it has not reached. */
@@ -710,16 +463,4 @@ defineExpose(createDocumentViewerExposeForwarder(activeFeaturePackRef, {
 .document-viewer-chassis[data-open-surface-presentation='page-shell'] :deep(.document-source-viewer__page) {
     box-shadow: none;
 }
-
-.document-viewer-chassis__opening-layer {
-    position: sticky;
-    top: 0;
-    left: 0;
-    z-index: var(--app-workspace-transition-overlay-z-index);
-    width: 100%;
-    height: 0;
-    overflow: visible;
-    pointer-events: none;
-}
-
 </style>

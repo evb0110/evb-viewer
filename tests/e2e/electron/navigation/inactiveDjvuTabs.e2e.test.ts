@@ -11,6 +11,7 @@ import {
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     clickAsUser,
     clickFoundAsUser,
@@ -19,6 +20,7 @@ import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElect
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
 import {
+    clickVisibleToolbarButton,
     goToPageViaToolbar,
     openDjvuInApp,
     openPdfInApp,
@@ -933,4 +935,107 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         });
         expectSplitPaneCloseContinuity(continuity);
     }, 120_000);
+
+    it.each([
+        'toolbar',
+        'pointer',
+    ] as const)('keeps the DjVu reading point through window resizes after %s zoom', async (zoomInput) => {
+        const session = sessionFixture.getSession();
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        await goToPageViaToolbar(session.page, 7);
+        // Zoomed past the viewport's width, the page no longer re-centres
+        // itself when the window narrows (#1320).
+        await clickVisibleToolbarButton(session.page, 'Zoom In');
+        await waitForViewportQuiet(session.page);
+        if (zoomInput === 'pointer') {
+            await waitForActiveDjvuCommittedPage(session, 7);
+            const viewport = await session.page.$('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
+            const box = await viewport?.boundingBox();
+            if (!box) throw new Error('DjVu viewport was not found for pointer zoom');
+            await session.page.mouse.move(box.x + 100, box.y + 100);
+            await session.page.keyboard.down('Control');
+            try {
+                await session.page.mouse.wheel({deltaY: -120});
+            } finally {
+                await session.page.keyboard.up('Control');
+            }
+            // Settled rendering also outlasts the pointer gesture's grace period.
+            await waitForViewportQuiet(session.page);
+        }
+        // The page point at the unobscured viewport centre, then where that
+        // point is drawn relative to the centre.
+        const readCentre = (anchor: {
+            page: number;
+            x: number;
+            y: number
+        } | null) => session.page.evaluate((point) => {
+            const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
+            const box = viewport?.getBoundingClientRect();
+            if (!viewport || !box) {
+                return null;
+            }
+            const centreX = box.left + viewport.clientLeft + viewport.clientWidth / 2;
+            const centreY = box.top + viewport.clientTop + viewport.clientHeight / 2;
+            const pages = Array.from(viewport.querySelectorAll<HTMLElement>('.document-source-viewer__page[data-page-number]'));
+            const page = point
+                ? pages.find(candidate => candidate.dataset.pageNumber === String(point.page))
+                : pages.find((candidate) => {
+                    const rect = candidate.getBoundingClientRect();
+                    return rect.left <= centreX && centreX <= rect.right && rect.top <= centreY && centreY <= rect.bottom;
+                });
+            const rect = page?.getBoundingClientRect();
+            if (!page || !rect) {
+                return null;
+            }
+            return point
+                ? {
+                    page: point.page,
+                    x: rect.left + point.x * rect.width - centreX,
+                    y: rect.top + point.y * rect.height - centreY,
+                }
+                : {
+                    page: Number(page.dataset.pageNumber),
+                    x: (centreX - rect.left) / rect.width,
+                    y: (centreY - rect.top) / rect.height,
+                };
+        }, anchor);
+        const anchor = await readCentre(null);
+        expect(anchor).not.toBeNull();
+        for (const [
+            width,
+            height,
+        ] of [
+                [
+                    760,
+                    672,
+                ],
+                [
+                    760,
+                    560,
+                ],
+                [
+                    900,
+                    672,
+                ],
+            ] as const) {
+            await session.command('windowResize', [
+                width,
+                height,
+            ]);
+            await waitForViewportQuiet(session.page);
+            const drift = await readCentre(anchor);
+            const detail = JSON.stringify({
+                anchor,
+                drift,
+                height,
+                width,
+            });
+            expect(Math.abs(drift?.x ?? Number.NaN), detail).toBeLessThanOrEqual(1);
+            expect(Math.abs(drift?.y ?? Number.NaN), detail).toBeLessThanOrEqual(1);
+        }
+    });
 });

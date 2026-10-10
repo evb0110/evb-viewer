@@ -572,31 +572,6 @@ struct MarkupRewrite<'a> {
     geometry: Option<(&'a MarkupSubtypeHint, PdfRect, i64)>,
 }
 
-pub(crate) fn apply_markup_rewrite_to_object(
-    document: &mut Document,
-    candidate: &MarkupAnnotationCandidate,
-    target_subtype: &str,
-    color: Option<&str>,
-    contents: Option<&str>,
-    identity_name: Option<&str>,
-    modified_at: &str,
-) -> Result<bool> {
-    apply_markup_rewrite_to_object_with_options(
-        document,
-        candidate,
-        MarkupRewrite {
-            target_subtype,
-            color,
-            opacity: None,
-            contents,
-            author: None,
-            identity_name,
-            modified_at,
-            geometry: None,
-        },
-    )
-}
-
 fn apply_markup_rewrite_to_object_with_options(
     document: &mut Document,
     candidate: &MarkupAnnotationCandidate,
@@ -792,14 +767,7 @@ pub(crate) fn create_markup_candidate(
     })
 }
 
-pub(crate) type MarkupInputs = (HashMap<String, String>, HashMap<u32, Vec<MarkupHintState>>);
-
-pub(crate) fn build_markup_inputs(markup: &MarkupMutation) -> Result<MarkupInputs> {
-    let overrides = markup
-        .overrides
-        .iter()
-        .map(|(annotation_id, subtype)| (annotation_id.clone(), subtype.clone()))
-        .collect();
+fn markup_hints_by_page(markup: &MarkupMutation) -> Result<HashMap<u32, Vec<MarkupHintState>>> {
     let mut hints_by_page: HashMap<u32, Vec<MarkupHintState>> = HashMap::new();
     for hint_state in dedupe_markup_subtype_hints(&markup.hints)? {
         hints_by_page
@@ -807,20 +775,19 @@ pub(crate) fn build_markup_inputs(markup: &MarkupMutation) -> Result<MarkupInput
             .or_default()
             .push(hint_state);
     }
-    Ok((overrides, hints_by_page))
+    Ok(hints_by_page)
 }
 
 /// Resolve only the pages that a markup mutation can touch.
 ///
-/// Geometry-only hints identify a page by number. Explicit hint and override
-/// references can identify their owner through the annotation's `/P` back
-/// reference, which also lets a stale page hint reach the correct page. The
-/// returned map is keyed by page object so an owner page and a numbered page
-/// are processed at most once.
+/// Geometry-only hints identify a page by number. Explicit hint references can
+/// identify their owner through the annotation's `/P` back reference, which
+/// also lets a stale page hint reach the correct page. The returned map is
+/// keyed by page object so an owner page and a numbered page are processed at
+/// most once.
 fn resolve_markup_page_targets(
     document: &impl PdfObjectSource,
     page_resolver: &PageTreeResolver,
-    overrides: &HashMap<String, String>,
     hints_by_page: HashMap<u32, Vec<MarkupHintState>>,
 ) -> Result<BTreeMap<ObjectId, Vec<MarkupHintState>>> {
     let mut targets: BTreeMap<ObjectId, Vec<MarkupHintState>> = BTreeMap::new();
@@ -852,22 +819,12 @@ fn resolve_markup_page_targets(
         }
     }
 
-    for annotation_ref in overrides.keys() {
-        let Some(annotation_id) = parse_pdfjs_annotation_object_id(annotation_ref) else {
-            continue;
-        };
-        if let Some(page_id) = annotation_page_id(document, annotation_id) {
-            targets.entry(page_id).or_default();
-        }
-    }
-
     Ok(targets)
 }
 
 pub(crate) fn rewrite_page_markup_subtypes(
     document: &mut Document,
     candidates: &[MarkupAnnotationCandidate],
-    overrides: &HashMap<String, String>,
     page_hints: &mut [MarkupHintState],
     page_view: PdfRect,
     page_rotation: i64,
@@ -940,20 +897,6 @@ pub(crate) fn rewrite_page_markup_subtypes(
                     modified_at,
                     geometry: Some((&hint, page_view, page_rotation)),
                 },
-            )? || rewritten;
-            continue;
-        }
-
-        if let Some(override_subtype) = overrides.get(&candidate.ref_tag) {
-            consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
-            rewritten = apply_markup_rewrite_to_object(
-                document,
-                candidate,
-                override_subtype,
-                None,
-                None,
-                None,
-                modified_at,
             )? || rewritten;
             continue;
         }
@@ -1070,31 +1013,6 @@ fn create_new_markup_annotations_internal(
     Ok(true)
 }
 
-pub(crate) fn apply_markup_rewrite_to_incremental_object(
-    incremental: &mut IncrementalDocument,
-    candidate: &MarkupAnnotationCandidate,
-    target_subtype: &str,
-    color: Option<&str>,
-    contents: Option<&str>,
-    identity_name: Option<&str>,
-    modified_at: &str,
-) -> Result<bool> {
-    apply_markup_rewrite_to_incremental_object_with_options(
-        incremental,
-        candidate,
-        MarkupRewrite {
-            target_subtype,
-            color,
-            opacity: None,
-            contents,
-            author: None,
-            identity_name,
-            modified_at,
-            geometry: None,
-        },
-    )
-}
-
 fn apply_markup_rewrite_to_incremental_object_with_options(
     incremental: &mut IncrementalDocument,
     candidate: &MarkupAnnotationCandidate,
@@ -1139,7 +1057,6 @@ fn apply_markup_rewrite_to_incremental_object_with_options(
 pub(crate) fn rewrite_page_markup_subtypes_incremental(
     incremental: &mut IncrementalDocument,
     candidates: &[MarkupAnnotationCandidate],
-    overrides: &HashMap<String, String>,
     page_hints: &mut [MarkupHintState],
     page_view: PdfRect,
     page_rotation: i64,
@@ -1223,20 +1140,6 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                     modified_at,
                     geometry: Some((&hint, page_view, page_rotation)),
                 },
-            )? || rewritten;
-            continue;
-        }
-
-        if let Some(override_subtype) = overrides.get(&candidate.ref_tag) {
-            consume_exact_ref_hints(page_hints, candidate, &hints_by_ref);
-            rewritten = apply_markup_rewrite_to_incremental_object(
-                incremental,
-                candidate,
-                override_subtype,
-                None,
-                None,
-                None,
-                modified_at,
             )? || rewritten;
             continue;
         }
@@ -1381,10 +1284,9 @@ pub(crate) fn apply_markup_mutations_internal(
     modified_at: &str,
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
-    let (overrides, hints_by_page) = build_markup_inputs(markup)?;
+    let hints_by_page = markup_hints_by_page(markup)?;
     let page_resolver = PageTreeResolver::new(document)?;
-    let page_targets =
-        resolve_markup_page_targets(document, &page_resolver, &overrides, hints_by_page)?;
+    let page_targets = resolve_markup_page_targets(document, &page_resolver, hints_by_page)?;
     let mut modified = false;
 
     for (page_id, mut page_hints) in page_targets {
@@ -1411,7 +1313,6 @@ pub(crate) fn apply_markup_mutations_internal(
         modified = rewrite_page_markup_subtypes(
             document,
             &candidates,
-            &overrides,
             &mut page_hints,
             page_view,
             page_rotation,
@@ -1470,11 +1371,11 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
     modified_at: &str,
     mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
-    let (overrides, hints_by_page) = build_markup_inputs(markup)?;
+    let hints_by_page = markup_hints_by_page(markup)?;
     let page_targets = {
         let document = incremental.get_prev_documents();
         let page_resolver = PageTreeResolver::new(document)?;
-        resolve_markup_page_targets(document, &page_resolver, &overrides, hints_by_page)?
+        resolve_markup_page_targets(document, &page_resolver, hints_by_page)?
     };
     let mut modified = false;
 
@@ -1506,7 +1407,6 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
         modified = rewrite_page_markup_subtypes_incremental(
             incremental,
             &candidates,
-            &overrides,
             &mut page_hints,
             page_view,
             page_rotation,

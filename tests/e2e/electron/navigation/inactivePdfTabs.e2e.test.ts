@@ -9,6 +9,7 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {assertInactiveDocumentPressureReleased} from '@tests/e2e/electron/helpers/assertInactiveDocumentPressureReleased';
 import {waitForWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     observeRendererErrors,
     readRuntimeErrorReportDetails,
@@ -50,6 +51,46 @@ interface IWorkspaceHostPressure {
     freeTextEditors: number;
     noteWindows: number;
     popups: number;
+}
+
+interface IReadingPoint {
+    page: number;
+    offsetPx: number;
+    scrollTop: number;
+}
+
+// The page under the viewport centre and how far into it the centre sits.
+function readReadingPointFromPage(): IReadingPoint | null {
+    const viewport = document.querySelector<HTMLElement>(
+        '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+    )?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
+    if (!viewport) {
+        return null;
+    }
+    const centreY = viewport.getBoundingClientRect().top + viewport.clientHeight / 2;
+    let reading: IReadingPoint | null = null;
+    for (const container of viewport.querySelectorAll<HTMLElement>('.page_container[data-page]')) {
+        const top = container.getBoundingClientRect().top;
+        if (top <= centreY && (reading === null || centreY - top < reading.offsetPx)) {
+            reading = {
+                page: Number(container.dataset.page),
+                offsetPx: centreY - top,
+                scrollTop: viewport.scrollTop,
+            };
+        }
+    }
+    return reading;
+}
+
+async function readSettledReadingPoint(session: IElectronE2ESession) {
+    await waitForViewportQuiet(session.page);
+    const reading = await session.page.evaluate(readReadingPointFromPage);
+    expect(reading, 'No page under the viewport centre').not.toBeNull();
+    await session.page.waitForFunction((page: number) => document.querySelector(
+        `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container--rendered[data-page="${page}"] canvas`,
+    ) !== null, {timeout: 30_000}, reading!.page);
+    await waitForViewportQuiet(session.page);
+    return (await session.page.evaluate(readReadingPointFromPage))!;
 }
 
 interface IRightFileFlashProbeResult {flashCount: number;}
@@ -280,6 +321,55 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         expect(afterSecondReactivation.filter(host => !host.active).every(host => host.renderedPages === 0)).toBe(true);
         expect(activeAfterSecondReactivation?.renderedPages).toBeGreaterThan(0);
     });
+
+    it.each([
+        {
+            zoom: 'Fit Width',
+            zoomInSteps: 0,
+        },
+        {
+            zoom: 'a custom zoom',
+            zoomInSteps: 2,
+        },
+    ])('keeps the reading point at $zoom when switching tabs away and back', async ({zoomInSteps}) => {
+        const session = sessionFixture.getSession();
+        await setTabMemoryPolicyForE2E(session.page, 'conservative');
+        const pdfPath = await createMultiPageTextFixturePdf(`tab-reading-point-${Date.now()}.pdf`, 30);
+        await openPdfInApp(session.page, pdfPath);
+        await waitForPdfLoaded(session.page);
+        const documentTabId = await session.page.$eval(
+            '.tab-list .tab.is-active[data-tab-id]',
+            element => (element as HTMLElement).dataset.tabId!,
+        );
+        for (let step = 0; step < zoomInSteps; step += 1) {
+            await clickVisibleToolbarButton(session.page, 'Zoom In');
+            await waitForViewportQuiet(session.page);
+        }
+        await goToPageViaToolbar(session.page, 12);
+        // The reader then scrolls into the page, so the place is not a page top.
+        const viewportRect = await session.page.$eval(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]',
+            element => element.getBoundingClientRect().toJSON() as DOMRect,
+        );
+        await session.page.mouse.move(viewportRect.x + viewportRect.width / 2, viewportRect.y + viewportRect.height / 2);
+        await session.page.mouse.wheel({deltaY: 230});
+        const before = await readSettledReadingPoint(session);
+        const documentHost = await session.page.$(`.workspace-host[data-workspace-tab-id="${documentTabId}"]`);
+
+        await createNewTab(session);
+        await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${documentTabId}"]`);
+        const after = await readSettledReadingPoint(session);
+
+        // A reclaimed tab reopens at its page; this switch keeps its viewer.
+        expect(await documentHost!.evaluate(host => host.isConnected), 'The hidden PDF tab was reclaimed').toBe(true);
+        // T1 and R3: the tab shows the same document point where it was left.
+        const detail = JSON.stringify({
+            before,
+            after,
+        });
+        expect(after.page, detail).toBe(before.page);
+        expect(Math.abs(after.offsetPx - before.offsetPx), detail).toBeLessThanOrEqual(1);
+    }, 120_000);
 
     it('keeps every visible split-pane document rendered while releasing hidden resources', async () => {
         const session = sessionFixture.getSession();

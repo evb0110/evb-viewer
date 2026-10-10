@@ -87,6 +87,7 @@ import {
 import {
     callWorkspaceCommand,
     getLatestAutomationEventId,
+    getWorkspaceToolbarSnapshot,
     readWorkspaceStateValues,
     requireWorkspaceCommand,
     waitForAutomationEvent,
@@ -663,44 +664,82 @@ describe('Electron E2E - save pipeline diagnostics', () => {
     }, E2E_TIMEOUT_MS);
 
     it('writes Optimize As Copy to the chosen destination without changing the source', async () => {
-        const sourcePath = await createMultiPageTextFixturePdf(
-            `optimize-as-copy-source-${Date.now()}.pdf`,
-            2,
-        );
-        const destinationPath = sourcePath.replace(
-            '-source.pdf',
-            '-destination.pdf',
-        );
+        const stamp = Date.now();
+        const sourcePath = await createMultiPageTextFixturePdf(`optimize-as-copy-source-${stamp}.pdf`, 2);
+        const destinationPath = createFixturePath(`optimize-as-copy-destination-${stamp}.pdf`);
+        expect(existsSync(destinationPath)).toBe(false);
         const sourceBeforeBytes = await readFile(sourcePath);
-        const sourceBeforeHash = hashBytes(sourceBeforeBytes);
-        session = await startElectronE2ESession(`e2e-optimize-as-copy-${Date.now()}`, {
+        // The default preset rebuilds pages as images through the native
+        // combiner, which E2E launches leave off unless enabled.
+        session = await startElectronE2ESession(`e2e-optimize-as-copy-${stamp}`, {
             clean: true,
-            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
+            extraEnv: {
+                EVB_E2E_SAVE_DIALOG_PATH: destinationPath,
+                EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
+            },
             initialOpenPaths: [sourcePath],
         });
-        await waitForOpenedPdf(session.page, sourcePath);
+        const {page} = session;
+        await waitForOpenedPdf(page, sourcePath);
 
         await expect(callWorkspaceCommand<boolean>(
-            session.page,
+            page,
             'handleOptimizePdfForInteraction',
         )).resolves.toEqual({
             called: true,
             value: true,
         });
-        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll('button'))
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll('button'))
             .find(button => button.textContent?.trim() === 'Save Optimized Copy'), null, {
             description: 'Save Optimized Copy',
             timeoutMs: SAVE_TIMEOUT_MS,
         });
+        const outcome = await Promise.race([
+            page.waitForFunction(() => Array.from(document.querySelectorAll('[role="status"], [role="alert"]'))
+                .some(notification => notification.textContent?.includes('Optimized PDF saved')), {timeout: SAVE_TIMEOUT_MS})
+                .then(() => 'optimized'),
+            page.waitForSelector('[aria-label="Last save failed"]', {
+                timeout: SAVE_TIMEOUT_MS,
+                visible: true,
+            }).then(() => page.$eval(
+                '.app-toast-failure:not([data-state="closed"])',
+                element => `failed: ${element.textContent ?? ''}`,
+            ).catch(() => 'failed')),
+        ]);
+        expect(outcome).toBe('optimized');
 
-        await expect.poll(() => existsSync(destinationPath), {timeout: SAVE_TIMEOUT_MS}).toBe(true);
-        const destinationBytes = await readFile(destinationPath);
-        expect(destinationBytes.subarray(0, 5).toString('ascii')).toBe('%PDF-');
-        expect(await readPdfPageSnapshots(destinationPath)).toEqual(
-            await readPdfPageSnapshots(sourcePath),
-        );
-        expect(await hashFile(sourcePath)).toBe(sourceBeforeHash);
+        expect(await readPdfPageSnapshots(destinationPath)).toEqual([
+            1,
+            2,
+        ].map(pageNumber => ({
+            pageNumber,
+            rotation: 0,
+            textSnippet: '',
+        })));
         await expect(readFile(sourcePath)).resolves.toEqual(sourceBeforeBytes);
+
+        // A fresh session opens the copy and paints its first page.
+        await session.stop();
+        session = await startElectronE2ESession(`e2e-optimize-as-copy-reopen-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [destinationPath],
+        });
+        await waitForOpenedPdf(session.page, destinationPath);
+        expect(await getWorkspaceToolbarSnapshot(session.page)).toMatchObject({totalPages: 2});
+        await session.page.waitForFunction((selector) => {
+            const canvas = document.querySelector<HTMLCanvasElement>(selector);
+            const context = canvas && canvas.width > 0 && canvas.height > 0
+                ? canvas.getContext('2d', {willReadFrequently: true})
+                : null;
+            if (!canvas || !context) return false;
+            const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
+            for (let index = 0; index < data.length; index += 4) {
+                if ((data[index] ?? 255) < 128 && (data[index + 1] ?? 255) < 128 && (data[index + 2] ?? 255) < 128) {
+                    return true;
+                }
+            }
+            return false;
+        }, {timeout: SAVE_TIMEOUT_MS}, COMMITTED_FIRST_PAGE_CANVAS_SELECTOR);
     }, E2E_TIMEOUT_MS);
 
     // chmod directory refusal exercises POSIX publication; the Windows file-lock

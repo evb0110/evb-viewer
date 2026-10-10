@@ -266,7 +266,7 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
             return;
         }
-        if (quitOptions?.afterCleanup) {
+        if (quitOptions?.afterCleanup && shutdownContext?.reason !== 'system-shutdown') {
             gracefulQuitAfterCleanup = quitOptions.afterCleanup;
         }
         if (shutdownPromise && shutdownContext?.retryablePreservationFailure === true) {
@@ -280,15 +280,14 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                     return;
                 }
                 shutdownPromise = null;
-                shutdownContext = null;
                 requestGracefulQuit(quitOptions);
             });
             return;
         }
         isGracefulQuitRequested = true;
         const cleanupPromise = shutdownPromise ?? startShutdown({
-            preserveRecoveryState: quitOptions?.preserveRecoveryState === true,
-            reason: quitOptions?.reason ?? 'graceful',
+            preserveRecoveryState: shutdownContext?.reason === 'system-shutdown' || quitOptions?.preserveRecoveryState === true,
+            reason: shutdownContext?.reason === 'system-shutdown' ? 'system-shutdown' : quitOptions?.reason ?? 'graceful',
         }, true);
         const cleanupContext = shutdownContext;
 
@@ -299,13 +298,13 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             });
         }).then(async () => {
             clearGracefulQuitForceTimer();
-            clearSystemShutdownForceTimer();
             if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
                 return;
             }
             if (cleanupContext?.retryablePreservationFailure === true) {
                 return;
             }
+            clearSystemShutdownForceTimer();
             isQuittingAfterCleanup = true;
             const afterCleanup = gracefulQuitAfterCleanup;
             gracefulQuitAfterCleanup = null;

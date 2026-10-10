@@ -21,7 +21,7 @@ import {
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import DocumentPageSourceFeaturePack from '@app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue';
+import DocumentPageSourceFeaturePack from '@app/modules/document-viewer/page-source-renderer/DocumentPageSourceFeaturePack.vue';
 import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     createDocumentOpenSurfaceSession,

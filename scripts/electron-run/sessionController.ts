@@ -223,13 +223,19 @@ async function stopSessionElectronProcess(state: ISessionState | null) {
 
     const electronPid = state.electronProcess.pid ?? null;
     const shutdownStartedAt = Date.now();
-    if (state.browser.connected) {
+    // An app that a person's Quit already ended has no page left to ask.
+    if (state.browser.connected && electronPid && isProcessAlive(electronPid)) {
         logLauncher('info', 'electron', 'Requesting graceful app shutdown...');
-        // Browser.close enters Electron's coordinated before-quit path. Calling
-        // windowTabs.closeCurrentWindow here would instead run the user-facing
-        // dirty-document close handshake, which cannot receive a dialog decision
-        // from a hidden automation session.
-        void state.browser.close().catch(error => {
+        // CDP Browser.close reaches Electron as a person's Quit, which asks
+        // every window with unsaved work for a close decision that a hidden
+        // session cannot answer. This hook requests the coordinated quit.
+        void state.page.evaluate(() => {
+            const quit = (window as {__quitForAutomation?: () => Promise<void>}).__quitForAutomation;
+            if (typeof quit !== 'function') {
+                throw new Error('This session does not expose quit automation');
+            }
+            return quit();
+        }).catch(error => {
             console.warn(`[Electron] Graceful app shutdown request failed: ${getErrorMessage(error)}`);
         });
     }

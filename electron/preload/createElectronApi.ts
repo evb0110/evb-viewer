@@ -121,6 +121,7 @@ async function invokeWithStartupTrace<T>(label: string, invoke: () => Promise<T>
 }
 
 interface IElectronSystemMemoryInfo {
+    available?: number | undefined;
     fileBacked?: number | undefined;
     free: number;
     purgeable?: number | undefined;
@@ -142,7 +143,15 @@ export function decodeSystemMemoryInfo(memoryInfo: IElectronSystemMemoryInfo) {
 
     const reclaimable = normalizeMemoryKilobytes(memoryInfo.fileBacked)
         + normalizeMemoryKilobytes(memoryInfo.purgeable);
-    const available = Math.min(total, free + reclaimable);
+    // Linux reports the kernel's MemAvailable as `available`; its MemFree excludes page cache.
+    // macOS and Windows report no `available`, so they keep free plus reclaimable memory.
+    const kernelAvailable = memoryInfo.available;
+    const available = Math.min(
+        total,
+        typeof kernelAvailable === 'number' && Number.isFinite(kernelAvailable) && kernelAvailable >= 0
+            ? kernelAvailable
+            : free + reclaimable,
+    );
 
     return {
         availableBytes: Math.round(available * 1024),

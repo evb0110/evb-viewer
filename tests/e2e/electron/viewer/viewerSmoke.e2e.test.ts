@@ -85,9 +85,13 @@ import {
     readToolbarPageIndicator,
 } from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
+    isToolbarPageVisible,
     readViewportPageObservation,
+    VISIBLE_PAGE_MIN_COVERAGE_RATIO,
     waitForViewportQuiet,
 } from '@tests/e2e/electron/helpers/viewportPageObservation';
+import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrustedWheelFling';
+import { delay } from 'es-toolkit/promise';
 import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
@@ -4002,7 +4006,7 @@ describe('Electron E2E - Viewer Smoke', () => {
 
         const fixturePath = await createMultiPageTextFixturePdf(
             `viewer-sidebar-search-${Date.now()}.pdf`,
-            4,
+            30,
         );
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -4044,23 +4048,100 @@ describe('Electron E2E - Viewer Smoke', () => {
             accessibleName: 'Search document',
             placeholder: 'Search...',
         });
-        await searchInput!.type('Page 3 sample text');
+        // Every page matches; the run lands on the first result, near the top.
+        await searchInput!.type('sample text');
         await clickAsUser(session.page, SIDEBAR_SEARCH_RUN_BUTTON);
 
+        const targetPage = 27;
+        const targetText = `Page ${String(targetPage)} sample text`;
         await waitForFunctionInPage(session.page, () => (
+            document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-header-summary',
+            )?.textContent?.trim().startsWith('30 results') === true
+        ), { timeout: 15_000 });
+        await waitForToolbarCurrentPage(session.page, 1);
+        // Setup: bring the distant result's row into the list's view.
+        await session.page.evaluate(() => {
+            const list = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+            );
+            if (!list) {
+                throw new Error('Search results list was not found');
+            }
+            list.scrollTop = list.scrollHeight;
+            list.dispatchEvent(new Event('scroll'));
+        });
+        await waitForFunctionInPage(session.page, (text: string) => (
             Array.from(document.querySelectorAll<HTMLElement>(
                 '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
-            )).some(result => result.textContent?.includes('Page 3 sample text'))
-        ), { timeout: 15_000 });
-        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
-        )).find(candidate => candidate.textContent?.includes('Page 3 sample text')), null, {description: 'the Page 3 search result'});
-        await waitForToolbarCurrentPage(session.page, 3);
-        await waitForFunctionInPage(session.page, () => {
+            )).some(result => result.textContent?.includes(text))
+        ), { timeout: 5_000 }, targetText);
+        await session.page.evaluate((text: string) => {
+            const list = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+            );
+            const result = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+            )).find(candidate => candidate.textContent?.includes(text));
+            if (!list || !result) {
+                throw new Error('Search result target was not found');
+            }
+            list.scrollTop = Math.max(0, result.offsetTop - list.clientHeight / 2);
+            list.dispatchEvent(new Event('scroll'));
+        }, targetText);
+        const findTargetRow = (text: string) => {
+            const list = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+            );
+            const result = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+            )).find(candidate => candidate.textContent?.includes(text));
+            if (!list || !result) {
+                return null;
+            }
+            const listRect = list.getBoundingClientRect();
+            const rect = result.getBoundingClientRect();
+            return rect.top >= listRect.top && rect.bottom <= listRect.bottom
+                ? {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                }
+                : null;
+        };
+        await waitForFunctionInPage(session.page, findTargetRow, { timeout: 5_000 }, targetText);
+        const resultPoint = await session.page.evaluate(findTargetRow, targetText);
+        expect(resultPoint).not.toBeNull();
+        const viewerCentre = await session.page.evaluate(() => {
+            const rect = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer')
+                ?.getBoundingClientRect();
+            return rect
+                ? {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                }
+                : null;
+        });
+        expect(viewerCentre).not.toBeNull();
+
+        // The reader is scrolling the document with the wheel when they pick
+        // the distant result. Nothing that scroll does after the click may
+        // carry the window off the result (R2).
+        const fling = await startTrustedWheelFling(session.page, {
+            ...viewerCentre!,
+            initialDeltaY: 120,
+            finalDeltaY: 6,
+            durationMs: 2_000,
+        });
+        await delay(400);
+        await session.page.mouse.click(resultPoint!.x, resultPoint!.y);
+        await fling.finished;
+
+        await waitForToolbarCurrentPage(session.page, targetPage);
+        await waitForFunctionInPage(session.page, (pageNumber: number) => {
             const viewer = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .workspace-host #pdf-viewer',
             );
-            const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="3"]') ?? null;
+            const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(pageNumber)}"]`) ?? null;
             const currentResult = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[aria-current="true"]',
             );
@@ -4072,7 +4153,35 @@ describe('Electron E2E - Viewer Smoke', () => {
             const canvas = page.querySelector<HTMLCanvasElement>('.page_canvas canvas, canvas');
             return Math.min(viewerRect.bottom, pageRect.bottom) - Math.max(viewerRect.top, pageRect.top) > 8
                 && Boolean(canvas && canvas.width > 0 && canvas.height > 0);
-        }, {timeout: 15_000});
+        }, {timeout: 15_000}, targetPage);
+        // The result's highlight is drawn inside the viewport.
+        await waitForFunctionInPage(session.page, (pageNumber: number) => {
+            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer');
+            const viewerRect = viewer?.getBoundingClientRect();
+            const highlights = Array.from(viewer?.querySelectorAll<HTMLElement>(
+                `.page_container[data-page="${String(pageNumber)}"] :is(.pdf-search-highlight--current, .pdf-word-box--current)`,
+            ) ?? []).map(highlight => highlight.getBoundingClientRect())
+                .filter(rect => rect.width > 0 && rect.height > 0);
+            return Boolean(viewerRect)
+                && highlights.length > 0
+                && highlights.every(rect => (
+                    rect.top >= viewerRect!.top - 1
+                    && rect.bottom <= viewerRect!.bottom + 1
+                    && rect.left >= viewerRect!.left - 1
+                    && rect.right <= viewerRect!.right + 1
+                ));
+        }, {timeout: 15_000}, targetPage);
+
+        // Settled, the result's page is still on screen and the toolbar names
+        // a page the window shows (R1).
+        await waitForViewportQuiet(session.page);
+        const settled = await readViewportPageObservation(session.page);
+        const destination = settled.pages.find(entry => entry.page === targetPage);
+        expect(destination, JSON.stringify(settled)).toBeDefined();
+        expect(destination!.coveredHeight, JSON.stringify(settled)).toBeGreaterThanOrEqual(
+            VISIBLE_PAGE_MIN_COVERAGE_RATIO * Math.min(destination!.height, settled.viewportHeight),
+        );
+        expect(isToolbarPageVisible(settled), JSON.stringify(settled)).toBe(true);
     });
 
     // #928 F6: a damaged search cache is rebuilt instead of failing the search.

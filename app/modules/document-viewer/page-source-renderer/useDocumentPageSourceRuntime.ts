@@ -1,37 +1,50 @@
 import { useResizeObserver } from '@vueuse/core';
-import {
-    createPdfPageNavigationRequest,
-    type IDocumentViewerExpose,
-} from '@app/modules/pdf-viewer/public';
+import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import {
     createDocumentWheelZoomHandler,
-    createLazyIndexedCollection,
-    captureDocumentZoomAnchor,
-    createDocumentViewportWritePort,
-    isLazyIndexedCollection,
-    resolveDocumentContinuousScrollWindow,
-    resolveDocumentPageDisplayLayouts,
-    resolveDocumentPageDisplayScale,
-    resolveDocumentZoomAnchorScroll,
-    resolveNearestDocumentPageToViewportCenter,
-    shouldProjectDocumentViewportScroll,
-    useDocumentViewportLayoutLifecycle,
-    useDocumentWheelZoomSessionBoundaries,
-    DOCUMENT_PAGE_GUTTER_PX,
-    injectDocumentViewerRuntime,
-    clampDocumentManualZoom,
-    type IDocumentPageDisplayLayout,
-    type IDocumentPageMetrics,
-    type IDocumentPageSource,
-    type IDocumentNavigationTicket,
-    type IDocumentViewportSessionState,
     type IDocumentWheelInteraction,
+} from '@app/modules/document-viewer/input/documentWheelInteraction';
+import {
+    createLazyIndexedCollection,
+    isLazyIndexedCollection,
+    type ILazyIndexedCollection,
+} from '@app/modules/document-viewer/virtualization/pageVirtualization';
+import {
+    captureDocumentZoomAnchor,
+    resolveDocumentZoomAnchorScroll,
     type IDocumentZoomAnchor,
     type IDocumentZoomPageLayout,
-    type ILazyIndexedCollection,
+} from '@app/modules/document-viewer/zoomAnchor';
+import { createDocumentViewportWritePort } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import {
+    resolveDocumentContinuousScrollWindow,
+    resolveNearestDocumentPageToViewportCenter,
+} from '@app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
+import {
+    resolveDocumentPageDisplayLayouts,
+    resolveDocumentPageDisplayScale,
+    type IDocumentPageDisplayLayout,
+} from '@app/modules/document-viewer/layout/resolveDocumentPageDisplayLayout';
+import { shouldProjectDocumentViewportScroll } from '@app/modules/document-viewer/runtime/shouldProjectDocumentViewportScroll';
+import { useDocumentViewportLayoutLifecycle } from '@app/modules/document-viewer/lifecycle/useDocumentViewportLayoutLifecycle';
+import { useDocumentWheelZoomSessionBoundaries } from '@app/modules/document-viewer/input/useDocumentWheelZoomSessionBoundaries';
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import { clampDocumentManualZoom } from '@app/modules/document-viewer/zoomPolicy';
+import type {
+    IDocumentPageMetrics,
+    IDocumentPageSource,
+} from '@app/modules/document-viewer/source/documentPageSource';
+import {
+    createPageNavigationRequest,
+    type IDocumentNavigationRequest,
+    type IDocumentNavigationTicket,
+} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
+import type { IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
+import {
     workspaceSurfaceBudgetController,
     type TWorkspaceResourcePressureLevel,
-} from '@app/modules/document-viewer/public';
+} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 import {
     createColdOpenProvisionalDocumentPageMetrics,
@@ -39,15 +52,15 @@ import {
     isSparseDocumentPageMetrics,
     loadInitialDocumentPageMetric,
     type TDocumentPageMetricsCollection,
-} from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
-import { resolveDocumentPageSourceRenderDemand } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderDemand';
-import { resolveDocumentPageSourceRenderQueue } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceRenderQueue';
+} from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
+import { resolveDocumentPageSourceRenderDemand } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderDemand';
+import { resolveDocumentPageSourceRenderQueue } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceRenderQueue';
 import {
     createDocumentPageSourcePresentation,
     resolveDocumentPageSourceRenderWidthPx,
-} from '@app/modules/workspace-shell/viewers/documentPageSourcePresentation';
-import { createPageSourcePagedWheelNavigation } from '@app/modules/workspace-shell/viewers/createPageSourcePagedWheelNavigation';
-import { createDocumentPageMetricPublication } from '@app/modules/workspace-shell/viewers/createDocumentPageMetricPublication';
+} from '@app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation';
+import { createPageSourcePagedWheelNavigation } from '@app/modules/document-viewer/page-source-renderer/createPageSourcePagedWheelNavigation';
+import { createDocumentPageMetricPublication } from '@app/modules/document-viewer/page-source-renderer/createDocumentPageMetricPublication';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import {
@@ -57,7 +70,7 @@ import {
     type IDocumentPageSourceFeaturePackEmit,
     type TDocumentPageElement,
     type TDocumentPageSourceRuntimeProps,
-} from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
+} from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 const DOCUMENT_SOURCE_CONTINUOUS_MOUNT_RADIUS = 12;
 const DOCUMENT_SOURCE_MAX_MOUNTED_PAGES = 40;
 const DOCUMENT_SOURCE_MAX_RESIDENT_PAGES = 5;
@@ -904,6 +917,16 @@ export const useDocumentPageSourceRuntime = (options: {
             || props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
         }
+        // Widening the window clamps the offset and reports that scroll before
+        // ResizeObserver reports the resize. Measure the resize first, so the
+        // layout lifecycle keeps the reader's point rather than the clamped one.
+        if (
+            viewerContainer.value.clientWidth !== containerWidth.value
+            || viewerContainer.value.clientHeight !== containerHeight.value
+        ) {
+            measureViewport();
+            return;
+        }
         const nextScrollTop = viewerContainer.value.scrollTop;
         const scrollDelta = nextScrollTop - viewportScrollTop.value;
         if (Math.abs(scrollDelta) > 1) {
@@ -1101,7 +1124,11 @@ export const useDocumentPageSourceRuntime = (options: {
             pagedWheelNavigation.reset();
         }
         const normalized = Math.max(1, Math.min(source.value?.pageCount ?? 1, Math.trunc(pageNumber)));
-        const request = createPdfPageNavigationRequest(normalized, options);
+        // A page-source view lands on a page's top or, turning back by wheel, its bottom.
+        const request: IDocumentNavigationRequest = {
+            ...createPageNavigationRequest(normalized, options.navigationSource ?? 'toolbar'),
+            alignment: options.alignPageBottom ? 'page-bottom' : 'page-top',
+        };
         const ticket = existingTicket ?? chassisAuthority?.navigate(request) ?? null;
         if (ticket) {
             lastProjectedNavigationSignal = ticket.signal;
@@ -1462,6 +1489,9 @@ export const useDocumentPageSourceRuntime = (options: {
                     : exposeOptions.fallbackPage;
                 scrollToPage(Number.isFinite(page) ? page : exposeOptions.fallbackPage);
             },
+        } satisfies IDocumentViewerExpose & {
+            captureScrollSnapshot: () => unknown;
+            restoreScrollSnapshot: (snapshot: unknown, options: {fallbackPage: number}) => void;
         },
     };
 };

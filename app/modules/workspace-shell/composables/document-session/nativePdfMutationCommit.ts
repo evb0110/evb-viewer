@@ -10,8 +10,6 @@ import {normalizePdfNativeAnnotationIdentityBindings} from '@contracts/nativePdf
 export {collectExpectedNativeIdentityIds} from '@pdf-core/nativePdfMutationPolicy';
 
 const MAX_TARGETED_PDF_OBJECT_REFS = 128;
-const CANONICAL_PDF_OBJECT_REF_PATTERN = /(?:^|\D)(\d+)\s+(\d+)\s+R(?:$|\D)/i;
-const COMPACT_PDF_OBJECT_REF_PATTERN = /(?:^|\D)(\d+)R(\d+)?(?:$|\D)/i;
 
 export function createDocumentMutationRevisionOptions(
     expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
@@ -38,25 +36,9 @@ function collectChangedPdfObjectRefs(mutations: IPdfNativeMutationSet): string[]
         }
         refs.add(`${objectNumber} ${generationNumber} R`);
     };
-    const addStableKey = (value: unknown) => {
-        if (typeof value !== 'string' || refs.size >= MAX_TARGETED_PDF_OBJECT_REFS) {
-            return;
-        }
-        const normalizedValue = value.trim();
-        const canonicalMatch = CANONICAL_PDF_OBJECT_REF_PATTERN.exec(normalizedValue);
-        if (canonicalMatch) {
-            add(Number(canonicalMatch[1]), Number(canonicalMatch[2]));
-            return;
-        }
-        const compactMatch = COMPACT_PDF_OBJECT_REF_PATTERN.exec(normalizedValue);
-        if (compactMatch) {
-            add(Number(compactMatch[1]), Number(compactMatch[2] ?? 0));
-        }
-    };
-    for (const update of mutations.updates ?? []) add(update.objectNumber, update.generationNumber);
     // Deleted refs are expected to resolve to qpdf's `null`; the presence gate
     // applies only to objects that must survive in the new xref.
-    for (const [key] of mutations.markup?.overrides ?? []) addStableKey(key);
+    for (const update of mutations.updates ?? []) add(update.objectNumber, update.generationNumber);
     return [...refs];
 }
 

@@ -1045,35 +1045,50 @@ describe('document viewer chassis authority', () => {
         expect(authority.currentPage.value).toBe(8);
     });
 
-    it('delegates navigation dedupe to the owned open-surface session', () => {
+    it('publishes its navigation as the open surface\'s current ticket', () => {
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({
             documentId: 'scan.pdf',
             documentRevision: 'revision-1',
         });
-        const requestNavigation = vi.spyOn(openSurface, 'navigate');
         const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
         const request = createPageNavigationRequest(1, 'toolbar');
 
         const ticket = authority.navigate(request);
         expect(ticket).toBe(openSurface.navigationTicket.value);
         expect(ticket?.request).toEqual(request);
-        expect(requestNavigation).toHaveBeenCalledOnce();
-        expect(requestNavigation).toHaveBeenCalledWith(request);
+        expect(openSurface.isNavigationCurrent(ticket!)).toBe(true);
     });
 
-    it('does not fence the wheel gesture that owns a wheel navigation ticket', () => {
-        const openSurface = createDocumentOpenSurfaceSession();
-        openSurface.begin({
-            documentId: 'scan.pdf',
-            documentRevision: 'revision-1',
-        });
-        const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
-        const fence = vi.spyOn(authority.viewportWritePort, 'fenceCommandAgainstLiveGesture');
+    it('lets the wheel gesture that asked for a page keep scrolling', () => {
+        vi.useFakeTimers();
+        try {
+            const openSurface = createDocumentOpenSurfaceSession();
+            openSurface.begin({
+                documentId: 'scan.pdf',
+                documentRevision: 'revision-1',
+            });
+            const authority = createDocumentViewerRuntime(ref('pdf'), 1, openSurface);
+            const port = authority.viewportWritePort;
+            const container = createViewportContainer();
+            const send = () => observeDocumentViewportWheelInteraction(
+                port,
+                scrollInteraction(performance.now(), 40, 0, true),
+                container,
+            );
 
-        expect(authority.navigate(createPageNavigationRequest(2, 'wheel'))).not.toBeNull();
+            expect(send()).toBe('user-input');
+            expect(authority.navigate(createPageNavigationRequest(2, 'wheel'))).not.toBeNull();
 
-        expect(fence).not.toHaveBeenCalled();
+            expect(send()).toBe('user-input');
+            expect(port.userScrollSuppressed.value).toBe(false);
+
+            // A deliberate command, by contrast, wins over the rest of the gesture.
+            expect(authority.navigate(createPageNavigationRequest(5, 'toolbar'))).not.toBeNull();
+            expect(send()).toBe('command-residue');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('mounts on the latest opening-session intent while keeping physical page separate', () => {

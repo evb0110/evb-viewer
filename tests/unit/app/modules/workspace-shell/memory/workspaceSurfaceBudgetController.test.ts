@@ -10,7 +10,7 @@ import {
 import {
     DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS,
     shouldRetainInactiveDocumentPageSourceLease,
-} from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
+} from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
 import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
 import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 

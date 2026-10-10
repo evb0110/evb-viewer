@@ -43,13 +43,12 @@ import {
     FIT_WIDTH_ZOOM_STATE,
     getZoomMode,
 } from '@contracts/shared';
-import DocumentPageSourcePageVisual from '@app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue';
+import DocumentPageSourcePageVisual from '@app/modules/document-viewer/page-source-renderer/DocumentPageSourcePageVisual.vue';
 import type {
     IDocumentPageSourceFeaturePackEmit,
     IDocumentPageSourceFeaturePackProps,
-} from '@app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState';
-import { useDocumentPageSourceRuntime } from '@app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime';
-import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
+} from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
+import { useDocumentPageSourceRuntime } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
 
 defineOptions({inheritAttrs: false});
 const {
@@ -100,10 +99,7 @@ function getPageVisualProps(pageNumber: number, hostOwnsSkeleton = false) {
     };
 }
 
-defineExpose<IDocumentViewerExpose & {
-    captureScrollSnapshot: () => unknown;
-    restoreScrollSnapshot: (snapshot: unknown, options: {fallbackPage: number}) => void;
-}>(runtime.viewerExpose);
+defineExpose(runtime.viewerExpose);
 </script>
 
 <style scoped src="./DocumentPageSourceFeaturePack.css"></style>

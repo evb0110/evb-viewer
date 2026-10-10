@@ -5,13 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    ref,
-    type Ref,
-} from 'vue';
+import { ref } from 'vue';
 import { commitPdfPageSkeletonGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 function createElementShim(shape: Record<string, unknown>): HTMLElement {
     // The lifecycle reads only connectivity, scroll extent, selectors, and
@@ -24,40 +21,25 @@ function createCanvasShim(shape: Record<string, unknown>): HTMLCanvasElement {
     return Object.assign(Object.create(null), shape);
 }
 
-function createChassisAuthority(
-    snapshot: Ref<IDocumentOpenSurfaceSnapshot>,
-    commitGeometry: (generation: number, geometry: {
-        width: number;
-        height: number;
-        margin: number
-    }) => boolean,
-): IDocumentViewerRuntime {
-    // The lifecycle receives the full app authority in production but reads
-    // only this open-surface slice in the unit.
-    return {openSurface: {
-        snapshot,
-        commitGeometry,
-    }} as IDocumentViewerRuntime;
+function createOpeningSurface(documentId: string) {
+    const surface = createDocumentOpenSurfaceSession();
+    const generation = surface.begin({
+        documentId,
+        documentRevision: 'open:1',
+    });
+    return {
+        // The lifecycle receives the full app authority in production but
+        // reads only its open surface in the unit.
+        chassisAuthority: {openSurface: surface} as IDocumentViewerRuntime,
+        generation,
+        /** The page shell geometry the open surface presents. */
+        committedGeometry: () => surface.snapshot.value.geometry,
+    };
 }
 
 describe('commitPdfPageSkeletonGeometry', () => {
     it('keeps the previous surface until the expected virtual extent is mounted', () => {
-        const snapshot = ref<IDocumentOpenSurfaceSnapshot>({
-            generation: 4,
-            identity: {
-                documentId: '/tmp/scan.pdf',
-                documentRevision: 'open:4',
-            },
-            phase: 'pending',
-            presentation: 'idle',
-            geometry: null,
-            openingPageGeometry: null,
-            openingPageFrame: null,
-            committedRender: null,
-            committedViewport: null,
-            failure: null,
-        });
-        const commitGeometry = vi.fn(() => true);
+        const opening = createOpeningSurface('/tmp/scan.pdf');
         const pageSkeleton = createElementShim({ isConnected: true });
         const pageContainer = createElementShim({
             isConnected: true,
@@ -71,14 +53,14 @@ describe('commitPdfPageSkeletonGeometry', () => {
             scrollHeight: 1245,
             querySelector: vi.fn(() => pageContainer),
         });
-        const chassisAuthority = createChassisAuthority(snapshot, commitGeometry);
+        const {chassisAuthority} = opening;
         vi.stubGlobal('window', { getComputedStyle: vi.fn(() => ({
             display: 'block',
             visibility: 'visible',
         })) });
 
         const unresolvedOptions = {
-            expectedGeneration: 4,
+            expectedGeneration: opening.generation,
             minimumScrollHeight: null,
         };
         expect(commitPdfPageSkeletonGeometry(
@@ -89,10 +71,10 @@ describe('commitPdfPageSkeletonGeometry', () => {
             requirePageNumber(1),
             unresolvedOptions,
         )).toBe(false);
-        expect(commitGeometry).not.toHaveBeenCalled();
+        expect(opening.committedGeometry()).toBeNull();
 
         const options = {
-            expectedGeneration: 4,
+            expectedGeneration: opening.generation,
             minimumScrollHeight: 534900,
         };
         expect(commitPdfPageSkeletonGeometry(
@@ -103,7 +85,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             requirePageNumber(1),
             options,
         )).toBe(false);
-        expect(commitGeometry).not.toHaveBeenCalled();
+        expect(opening.committedGeometry()).toBeNull();
 
         Object.defineProperty(viewerContainer, 'scrollHeight', { value: 536245 });
         expect(commitPdfPageSkeletonGeometry(
@@ -114,7 +96,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             requirePageNumber(1),
             options,
         )).toBe(true);
-        expect(commitGeometry).toHaveBeenCalledExactlyOnceWith(4, {
+        expect(opening.committedGeometry()).toEqual({
             width: 760,
             height: 1224,
             margin: 20,
@@ -122,22 +104,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
     });
 
     it('recovers geometry for the surface-authoritative page after its skeleton is removed', () => {
-        const snapshot = ref<IDocumentOpenSurfaceSnapshot>({
-            generation: 7,
-            identity: {
-                documentId: '/tmp/large-scan.pdf',
-                documentRevision: 'open:7',
-            },
-            phase: 'pending',
-            presentation: 'idle',
-            geometry: null,
-            openingPageGeometry: null,
-            openingPageFrame: null,
-            committedRender: null,
-            committedViewport: null,
-            failure: null,
-        });
-        const commitGeometry = vi.fn(() => true);
+        const opening = createOpeningSurface('/tmp/large-scan.pdf');
         const canvas = createCanvasShim({
             isConnected: true,
             width: 1390,
@@ -159,7 +126,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             scrollHeight: 478942,
             querySelector: vi.fn(() => pageContainer),
         });
-        const chassisAuthority = createChassisAuthority(snapshot, commitGeometry);
+        const {chassisAuthority} = opening;
 
         expect(commitPdfPageSkeletonGeometry(
             chassisAuthority,
@@ -170,12 +137,12 @@ describe('commitPdfPageSkeletonGeometry', () => {
             requirePageNumber(6),
             {
                 authoritativePageNumber: 6,
-                expectedGeneration: 7,
+                expectedGeneration: opening.generation,
                 minimumScrollHeight: null,
                 requireVisibleSkeleton: false,
             },
         )).toBe(true);
-        expect(commitGeometry).toHaveBeenCalledExactlyOnceWith(7, {
+        expect(opening.committedGeometry()).toEqual({
             width: 860,
             height: 1112.94,
             margin: 20,
@@ -183,22 +150,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
     });
 
     it('rejects canvas recovery for a stale open-surface generation', () => {
-        const snapshot = ref<IDocumentOpenSurfaceSnapshot>({
-            generation: 9,
-            identity: {
-                documentId: '/tmp/replacement.pdf',
-                documentRevision: 'open:9',
-            },
-            phase: 'pending',
-            presentation: 'idle',
-            geometry: null,
-            openingPageGeometry: null,
-            openingPageFrame: null,
-            committedRender: null,
-            committedViewport: null,
-            failure: null,
-        });
-        const commitGeometry = vi.fn(() => true);
+        const opening = createOpeningSurface('/tmp/replacement.pdf');
         const canvas = createCanvasShim({
             isConnected: true,
             width: 1390,
@@ -220,7 +172,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             scrollHeight: 478942,
             querySelector: vi.fn(() => pageContainer),
         });
-        const chassisAuthority = createChassisAuthority(snapshot, commitGeometry);
+        const {chassisAuthority} = opening;
 
         expect(commitPdfPageSkeletonGeometry(
             chassisAuthority,
@@ -229,11 +181,11 @@ describe('commitPdfPageSkeletonGeometry', () => {
             ref(20),
             requirePageNumber(1),
             {
-                expectedGeneration: 8,
+                expectedGeneration: opening.generation - 1,
                 minimumScrollHeight: 478000,
                 requireVisibleSkeleton: false,
             },
         )).toBe(false);
-        expect(commitGeometry).not.toHaveBeenCalled();
+        expect(opening.committedGeometry()).toBeNull();
     });
 });

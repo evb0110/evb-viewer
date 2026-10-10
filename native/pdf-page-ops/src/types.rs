@@ -1050,9 +1050,6 @@ pub(crate) struct ShapesMutation {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct MarkupMutation {
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_shape_items")]
-    pub(crate) overrides: Vec<(String, String)>,
-    #[serde(default)]
     #[serde(deserialize_with = "deserialize_markup_hints")]
     pub(crate) hints: Vec<MarkupSubtypeHint>,
 }
