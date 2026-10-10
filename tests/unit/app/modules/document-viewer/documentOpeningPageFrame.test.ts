@@ -8,7 +8,6 @@ import {
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import {
     createDocumentOpeningPageFrame,
-    resolveDocumentOpeningPageMargin,
     resolveDocumentOpeningPageShellId,
 } from '@app/modules/document-viewer/runtime/documentOpeningPageFrame';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
@@ -61,14 +60,6 @@ describe('documentOpeningPageFrame', () => {
         expect(resolveDocumentOpeningPageShellId('chassis-b', 7)).not.toBe(
             resolveDocumentOpeningPageShellId('chassis-a', 7),
         );
-    });
-
-    it('uses one shared page gutter for every renderer before and after handoff', () => {
-        expect(resolveDocumentOpeningPageMargin(pdfGeometry, 'pdfjs')).toBe(DOCUMENT_PAGE_GUTTER_PX);
-        expect(resolveDocumentOpeningPageMargin({
-            ...pdfGeometry,
-            documentId: '/documents/scan.djvu',
-        }, 'page-source')).toBe(DOCUMENT_PAGE_GUTTER_PX);
     });
 
     it('commits the exact PDF page shell synchronously from trusted geometry and the live chassis viewport', () => {
@@ -476,6 +467,49 @@ describe('documentOpeningPageFrame', () => {
             width: '1200px',
             height: '1600px',
             top: '11px',
+        });
+    });
+
+    it('keeps a DjVu first page at its layout top when the restored point would scroll above the document', () => {
+        const surface = createDocumentOpenSurfaceSession();
+        const generation = surface.begin({
+            documentId: '/documents/scan.djvu',
+            documentRevision: 'pending',
+        }, {
+            ...pdfGeometry,
+            documentId: '/documents/scan.djvu',
+            pageNumber: 1,
+        }, 1);
+        // The restore's scroll is clamped at the document start, so the page's
+        // top sits at its gutter, not at the viewport's middle.
+        surface.navigate(createPageNavigationRequest(1, 'restore', {
+            page: 1,
+            pageXFraction: 0.5,
+            pageYFraction: 0,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center',
+        }));
+
+        expect(createDocumentOpeningPageFrame({
+            instanceId: 'chassis-test',
+            openSurface: surface,
+            readPolicy: () => ({
+                fitMode: 'width',
+                viewMode: 'single',
+                zoom: 2,
+                zoomMode: 'custom',
+                continuousScroll: true,
+            }),
+            readViewportSize: () => ({
+                width: 1_000,
+                height: 800,
+            }),
+        }).prepareOpeningPageFrame(generation)).toBe(true);
+        expect(surface.snapshot.value.openingPageFrame?.style).toMatchObject({
+            width: '1200px',
+            height: '1600px',
+            top: `${String(DOCUMENT_PAGE_GUTTER_PX)}px`,
         });
     });
 

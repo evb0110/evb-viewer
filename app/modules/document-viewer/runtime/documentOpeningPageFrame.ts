@@ -109,13 +109,6 @@ function isDjvuDocument(documentId: string) {
     return /\.djvu?$/iu.test(documentId);
 }
 
-export function resolveDocumentOpeningPageMargin(
-    _geometry: IDocumentOpenSurfacePageGeometry | null,
-    _rendererKind?: 'pdfjs' | 'page-source',
-) {
-    return DOCUMENT_PAGE_GUTTER_PX;
-}
-
 function resolvePdfOpeningPageFrameStyle(
     geometry: IDocumentOpenSurfacePageGeometry,
     viewport: {
@@ -126,7 +119,7 @@ function resolvePdfOpeningPageFrameStyle(
     policy: IDocumentOpeningPageFramePolicy,
     anchor: IPdfSemanticAnchor | undefined,
 ) {
-    const pageMargin = resolveDocumentOpeningPageMargin(geometry);
+    const pageMargin = DOCUMENT_PAGE_GUTTER_PX;
     if (
         !Number.isFinite(viewport.width)
         || !Number.isFinite(viewport.height)
@@ -322,9 +315,12 @@ function resolveOpeningPageFrameStyle(
     // restores this point into the final client box, scrollbar included.
     const width = Math.round(frame.width);
     const height = Math.round(frame.height);
+    const top = resolveAnchoredViewportHeight(width, viewport) * anchor.viewportYFraction - height * anchor.pageYFraction;
+    // The restore clamps its scroll at the document start, so the first page
+    // never rises above its gutter. Later pages' layout tops are not known here.
     return {
         ...frame.style,
-        top: `${String(resolveAnchoredViewportHeight(width, viewport) * anchor.viewportYFraction - height * anchor.pageYFraction)}px`,
+        top: `${String(geometry.pageNumber === 1 ? Math.min(top, DOCUMENT_PAGE_GUTTER_PX) : top)}px`,
     };
 }
 
