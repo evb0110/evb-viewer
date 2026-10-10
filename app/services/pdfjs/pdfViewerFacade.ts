@@ -16,7 +16,6 @@ export interface ICreatePdfjsAnnotationLayerOptions {
     div: HTMLDivElement;
     page: IPdfPage;
     viewport: IPdfViewport;
-    annotationCanvasMap?: Map<string, HTMLCanvasElement> | null | undefined;
     linkService: IPdfjsLinkService;
 }
 
@@ -60,7 +59,6 @@ export function createPdfjsAnnotationLayer(options: ICreatePdfjsAnnotationLayerO
         page: options.page,
         viewport: options.viewport,
         accessibilityManager: null,
-        annotationCanvasMap: options.annotationCanvasMap ?? null,
         annotationEditorUIManager: null,
         structTreeLayer: null,
         commentManager: null,

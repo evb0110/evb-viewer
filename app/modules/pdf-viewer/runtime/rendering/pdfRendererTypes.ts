@@ -98,7 +98,6 @@ export interface IPdfCanvasDomCommit {
 export interface IPdfLayerRenderResult {
     canvas: HTMLCanvasElement;
     viewport: ReturnType<IPdfPage['getViewport']>;
-    annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
     scaleX: number;
     scaleY: number;
     rawDims: {

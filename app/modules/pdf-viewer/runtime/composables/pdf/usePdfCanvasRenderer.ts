@@ -18,7 +18,6 @@ import { until } from '@vueuse/core';
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
     viewport: ReturnType<IPdfPage['getViewport']>;
-    annotationCanvasMap: null;
     scaleX: number;
     scaleY: number;
     rawDims: {
@@ -327,7 +326,6 @@ export const usePdfCanvasRenderer = (deps: {
         return {
             canvas,
             viewport,
-            annotationCanvasMap: null,
             scaleX: canvasScale.scaleX,
             scaleY: canvasScale.scaleY,
             rawDims,
