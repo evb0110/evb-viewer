@@ -97,6 +97,16 @@ export interface IScanCleanupTextLayerInstruction {
     outputPageIndex: number;
     /** PDF `cm` operands mapping source-page user space to output-page user space. */
     matrix: [number, number, number, number, number, number];
+    /** Source-half ownership before cleanup and canvas placement. */
+    sourceRegion?: {
+        rect: {
+            x: number;
+            y: number;
+            width: number;
+            height: number
+        };
+        matrix: IScanCleanupTextLayerInstruction['matrix'];
+    };
     /**
      * Drop source text whose positioned origin maps outside the output page.
      * Split outputs need this because PDF extractors do not honor page-content

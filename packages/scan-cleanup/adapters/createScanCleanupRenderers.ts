@@ -4,7 +4,6 @@ import {
 } from 'node:fs/promises';
 import type {
     IScanCleanupRasterRenderLimits,
-    IScanCleanupRunCommandOptions,
     TScanCleanupRenderPage,
     TScanCleanupRunCommand,
 } from '@evb/scan-cleanup/core/types';
@@ -17,14 +16,6 @@ import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
     SCAN_CLEANUP_MAX_DIMENSION_PX,
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
-
-interface IRenderCommandOptions extends IScanCleanupRunCommandOptions {onTerminationProof?: (proof: Promise<boolean>) => void;}
-
-type TRenderCommand = (
-    command: string,
-    args: string[],
-    options?: IRenderCommandOptions,
-) => ReturnType<TScanCleanupRunCommand>;
 
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const DEFAULT_RASTER_LIMITS = {
@@ -81,7 +72,7 @@ function validateCrop(crop: Parameters<TScanCleanupRenderPage>[8]) {
 }
 
 async function renderPage(
-    runCommand: TRenderCommand,
+    runCommand: TScanCleanupRunCommand,
     format: 'png' | 'ppm',
     [
         paths,
@@ -157,7 +148,7 @@ async function renderPage(
 }
 
 export function createScanCleanupRenderers(
-    runCommand: TRenderCommand,
+    runCommand: TScanCleanupRunCommand,
     fallbackLimits: Pick<IScanCleanupRasterRenderLimits, 'maxDimensionPx' | 'maxPixels'> = DEFAULT_RASTER_LIMITS,
     // The platform that observes termination supplies its existing error policy.
     // Shared renderers do not know Electron's native-termination marker.
@@ -195,7 +186,7 @@ export function createScanCleanupRenderers(
             ...(format === 'png' ? [popplerPpmPath(outputPath)] : []),
         ].map(path => rm(path, {force: true}).catch(() => undefined)));
         try {
-            await renderPage(runCommand, format, args, proof => { terminationProof = proof; });
+            await renderPage(runCommand, format, args, proof => { terminationProof = proof; args[12]?.(proof); });
             signal?.throwIfAborted();
             await validateRenderedDimensions(format, outputPath, args[9]);
             signal?.throwIfAborted();

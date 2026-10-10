@@ -1774,3 +1774,388 @@ fn overlay_refuses_links_to_pages_outside_the_output_and_keeps_existing_bytes() 
         let _ = remove_file(file);
     }
 }
+
+#[test]
+fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
+    let source = path("source-region-note", "pdf");
+    let input = path("source-region-target", "pdf");
+    let output = path("source-region-output", "pdf");
+    let instructions = path("source-region", "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 400.into(), 100.into()]);
+    let note = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => vec![195.into(), 45.into(), 205.into(), 55.into()], "Contents" => Object::string_literal("Seam note"),
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(note)]);
+    document.save(&source).unwrap();
+    let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
+    for id in target.get_pages().values() {
+        target
+            .get_dictionary_mut(*id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 210.into(), 110.into()]);
+    }
+    target.save(&input).unwrap();
+    write(&instructions, serde_json::to_vec(&serde_json::json!({"pages": [
+        {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,5,5],"filterToOutputPage":true,
+         "sourceRegion":{"rect":{"x":0,"y":0,"width":200,"height":100},"matrix":[1,0,0,-1,0,100]}},
+        {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-195,5],"filterToOutputPage":true,
+         "sourceRegion":{"rect":{"x":200,"y":0,"width":200,"height":100},"matrix":[1,0,0,-1,0,100]}}
+    ]})).unwrap()).unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    let counts = saved
+        .get_pages()
+        .values()
+        .map(|id| {
+            saved
+                .get_dictionary(*id)
+                .unwrap()
+                .get(b"Annots")
+                .ok()
+                .map_or(0, |annots| {
+                    saved
+                        .dereference(annots)
+                        .unwrap()
+                        .1
+                        .as_array()
+                        .unwrap()
+                        .len()
+                })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(counts, vec![0, 1]);
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+fn red_pixels(pdf: &Path) -> Vec<(f64, f64)> {
+    let rendered = Command::new(external_tool::tool_path(
+        "PDFTOPPM_PATH",
+        "poppler",
+        "pdftoppm",
+    ))
+    .args(["-r", "72", "-singlefile"])
+    .arg(pdf)
+    .output()
+    .unwrap();
+    assert!(
+        rendered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rendered.stderr)
+    );
+    let mut header = rendered.stdout.splitn(4, |byte| *byte == b'\n');
+    assert_eq!(header.next().unwrap(), b"P6");
+    let dimensions = std::str::from_utf8(header.next().unwrap()).unwrap();
+    let width: usize = dimensions
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(header.next().unwrap(), b"255");
+    header
+        .next()
+        .unwrap()
+        .chunks_exact(3)
+        .enumerate()
+        .filter(|(_, rgb)| rgb[0] > 200 && rgb[1] < 30 && rgb[2] < 30)
+        .map(|(index, _)| ((index % width) as f64, (index / width) as f64))
+        .collect()
+}
+
+#[test]
+fn overlay_composes_appearance_placement_in_rewrite_and_incremental_outputs() {
+    for (incremental, flags, form_matrix, transform) in [
+        (
+            false,
+            4,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+        ),
+        (
+            true,
+            4,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+        ),
+        (
+            false,
+            20,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+        ),
+        (
+            false,
+            6,
+            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+        ),
+        (
+            false,
+            4,
+            [
+                0.70710677,
+                0.70710677,
+                -0.70710677,
+                0.70710677,
+                35.3553385,
+                0.0,
+            ],
+            [1.0, 0.2, 0.3, 1.0, 0.0, 0.0],
+        ),
+    ] {
+        let source = path("appearance-source", "pdf");
+        let input = path("appearance-input", "pdf");
+        let output = path("appearance-output", "pdf");
+        let expected = path("appearance-expected", "pdf");
+        let instructions = path("appearance-instructions", "json");
+        let triangle = b"1 0 0 rg 0 0 m 50 0 l 0 50 l h f";
+        let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = document.get_pages()[&1];
+        let appearance = document.add_object(Stream::new(dictionary! {
+            "Type" => "XObject", "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 50.into(), 50.into()],
+            "Matrix" => form_matrix.into_iter().map(|value| Object::Real(value as f32)).collect::<Vec<_>>(),
+            "Resources" => Dictionary::new(),
+        }, triangle.to_vec()));
+        let annotation = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Stamp", "P" => page,
+            "Rect" => vec![40.into(), 30.into(), 90.into(), 80.into()], "F" => flags,
+            "AP" => dictionary! {"N" => appearance},
+        });
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annotation)]);
+        document.save(&source).unwrap();
+        if incremental {
+            write_sparse_source(&input, 1, None, None);
+        } else {
+            save_empty_pages(&input, 1);
+        }
+        write(
+            &instructions,
+            serde_json::to_vec(&serde_json::json!({"pages":[{
+                "sourcePageIndex":0,"outputPageIndex":0,"matrix":transform,
+            }]}))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        // A page-content control applies the source appearance fitting, then the
+        // requested affine. It does not use the annotation writer under test.
+        let fit = if form_matrix[0] == 1.0 {
+            1.0
+        } else {
+            0.7071067933730954
+        };
+        let numbers = |values: &[f64]| {
+            values
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let content = if flags & 2 != 0 {
+            Vec::new()
+        } else {
+            format!(
+                "q {} cm {fit} 0 0 {fit} 40 30 cm {} cm {} Q",
+                numbers(&transform),
+                numbers(&form_matrix),
+                std::str::from_utf8(triangle).unwrap()
+            )
+            .into_bytes()
+        };
+        save_single_page(&expected, content, Dictionary::new());
+        let actual = red_pixels(&output);
+        let control = red_pixels(&expected);
+        if control.is_empty() {
+            assert!(actual.is_empty());
+        } else {
+            assert!(!actual.is_empty());
+            let centroid = |pixels: &[(f64, f64)]| {
+                pixels
+                    .iter()
+                    .fold((0.0, 0.0), |sum, point| (sum.0 + point.0, sum.1 + point.1))
+            };
+            let a = centroid(&actual);
+            let c = centroid(&control);
+            assert!((a.0 / actual.len() as f64 - c.0 / control.len() as f64).abs() < 0.5);
+            assert!((a.1 / actual.len() as f64 - c.1 / control.len() as f64).abs() < 0.5);
+        }
+        if !incremental {
+            let saved = Document::load(&output).unwrap();
+            let annotation = saved
+                .get_dictionary(saved.get_pages()[&1])
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .as_array()
+                .unwrap()[0]
+                .as_reference()
+                .unwrap();
+            assert_eq!(
+                saved
+                    .get_dictionary(annotation)
+                    .unwrap()
+                    .get(b"F")
+                    .unwrap()
+                    .as_i64()
+                    .unwrap(),
+                flags
+            );
+        }
+        for file in [source, input, output, expected, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+fn run_text_box_command(operation: &str, input: &Path, output: &Path, mutations: Option<&Path>) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
+    command
+        .args([operation, "--input"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .args(["--modified-at", "D:19700101000000Z", "--qpdf"])
+        .arg(qpdf_path());
+    if let Some(mutations) = mutations {
+        command.arg("--mutations-file").arg(mutations);
+    }
+    let result = command.output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+fn overlay_preserves_editable_text_box_geometry_and_refuses_unrepresentable_affines() {
+    let blank = path("canonical-blank", "pdf");
+    let source = path("canonical-source", "pdf");
+    let mutations = path("canonical-mutations", "json");
+    save_empty_pages(&blank, 1);
+    write(&mutations, br#"{"textBoxes":[{"pageIndex":0,"stableKey":"canonical-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
+    run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
+    for (incremental, matrix, expected_rotation, expected_rect, font_size) in [
+        (
+            false,
+            [1.0, 0.0, 0.0, 1.0, 5.0, 5.0],
+            0,
+            [25.0, 35.0, 65.0, 50.0],
+            6,
+        ),
+        (
+            true,
+            [1.0, 0.0, 0.0, 1.0, 5.0, 5.0],
+            0,
+            [25.0, 35.0, 65.0, 50.0],
+            6,
+        ),
+        (
+            false,
+            [0.0, 1.0, -1.0, 0.0, 120.0, 0.0],
+            270,
+            [62.5, 32.5, 102.5, 47.5],
+            6,
+        ),
+        (
+            false,
+            [2.0, 0.0, 0.0, 2.0, 0.0, 0.0],
+            0,
+            [40.0, 60.0, 120.0, 90.0],
+            12,
+        ),
+    ] {
+        let input = path("canonical-input", "pdf");
+        let output = path("canonical-output", "pdf");
+        let edited = path("canonical-edited", "pdf");
+        let instructions = path("canonical-instructions", "json");
+        let parsed = path("canonical-parse", "jsonl");
+        if incremental {
+            write_sparse_source(&input, 1, None, None);
+        } else {
+            save_empty_pages(&input, 1);
+        }
+        write(&instructions, serde_json::to_vec(&serde_json::json!({"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":matrix}]})).unwrap()).unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        run_text_box_command("parse-annotations", &output, &parsed, None);
+        let entries = fs::read_to_string(&parsed)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .flat_map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                    .as_array()
+                    .unwrap()
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["kind"], "text-box");
+        assert_eq!(
+            entries[0]["fontSize"].as_f64().unwrap(),
+            f64::from(font_size)
+        );
+        assert_eq!(entries[0]["rotation"], expected_rotation);
+        write(&mutations, serde_json::to_vec(&serde_json::json!({"textBoxes":[{
+            "pageIndex":0,"stableKey":"canonical-box","annotationId":format!("{}R{}", entries[0]["objectNumber"], entries[0]["generationNumber"]),
+            "text":"Edited after cleanup","rect":expected_rect,"rotation":expected_rotation,"fontSize":font_size,"color":[0,0,0],
+        }]})).unwrap()).unwrap();
+        run_text_box_command("save-mutations", &output, &edited, Some(&mutations));
+        run_text_box_command("parse-annotations", &edited, &parsed, None);
+        let saved: serde_json::Value =
+            serde_json::from_str(fs::read_to_string(&parsed).unwrap().lines().nth(1).unwrap())
+                .unwrap();
+        assert_eq!(saved["entries"].as_array().unwrap().len(), 1);
+        assert_eq!(saved["entries"][0]["kind"], "text-box");
+        assert_eq!(saved["entries"][0]["text"], "Edited after cleanup");
+        for file in [input, output, edited, instructions, parsed] {
+            remove_file(file).unwrap();
+        }
+    }
+    let output = path("canonical-refused", "pdf");
+    let instructions = path("canonical-refused", "json");
+    write(&output, b"existing output").unwrap();
+    write(
+        &instructions,
+        br#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0.2,1,0,0]}]}"#,
+    )
+    .unwrap();
+    let result = run_overlay_text(&blank, &source, &output, &instructions);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr)
+        .contains("cannot preserve editable text-box geometry"));
+    assert_eq!(fs::read(&output).unwrap(), b"existing output");
+    for file in [blank, source, mutations, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}

@@ -1,5 +1,4 @@
 use super::*;
-use lopdf::dictionary;
 
 /// PDF's standard sticky-note icon is a 20 point square. The mutation
 /// protocol still carries the marker's normalized anchor, so the writer
@@ -1247,11 +1246,13 @@ fn set_text_box_fields(
     existing_appearance: Option<Dictionary>,
     existing_default_appearance: Option<Vec<u8>>,
 ) {
-    dict.set("Rect", rect_object(rect));
-    dict.set("EVBTextGeometry", lopdf::dictionary! {
-        "Version" => 1, "Rotation" => i64::from(editor.rotation), "PageRotation" => page_rotation,
-        "Rect" => Object::Array(editor.rect.iter().map(|value| number_object(*value)).collect()),
-    });
+    crate::text_box_font::write_editor_geometry(
+        dict,
+        editor.rect,
+        i64::from(editor.rotation),
+        page_rotation,
+        rect,
+    );
     dict.set(
         "Contents",
         Object::String(
@@ -1268,16 +1269,8 @@ fn set_text_box_fields(
         write_annotation_name(dict, name);
     }
     if is_new {
-        dict.set(
-            "Border",
-            Object::Array(vec![
-                Object::Integer(0),
-                Object::Integer(0),
-                Object::Integer(0),
-            ]),
-        );
+        dict.set("Border", vec![0.into(), 0.into(), 0.into()]);
     }
-    dict.set("Rotate", Object::Integer(i64::from(editor.rotation)));
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     let default_appearance = if is_new {
         format!(
@@ -2350,6 +2343,7 @@ pub(crate) fn set_rgb_color(dict: &mut Dictionary, key: &str, color: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lopdf::dictionary;
 
     #[test]
     fn indexes_text_and_named_free_text_without_page_geometry() {

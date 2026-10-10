@@ -285,48 +285,44 @@ export async function runLosslessScanCleanup(
                 : dependencies.renderPage;
             const pageSize = pageSizeByNumber.get(plan.pageNumber)!;
             const analysisDpi = analysisDpiByPage.get(plan.pageNumber)!;
-            try {
-                await renderer(
-                    paths,
-                    log,
-                    plan.pageNumber,
-                    preparedPdfPath,
-                    inputPath,
-                    analysisDpi,
-                    undefined,
-                    signal,
-                    undefined,
-                    resolveScanCleanupRasterRenderLimits(pageSize, analysisDpi),
-                    pageSize.renderBox ?? 'cropbox',
-                    'exclude',
-                );
-                rasterizedCount += 1;
-                rasterizedPageNumbers.add(plan.pageNumber);
-                emitProgress('rasterizing', rasterizedCount, pageNumbers.length, rasterizedPageNumbers);
-                return {
-                    inputPath,
-                    analysisInputPath: inputPath,
-                    analysisDpi,
-                    pageNumber: plan.pageNumber,
-                    dpi: analysisDpi,
-                    ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
-                        ? {}
-                        : {observedLayout: request.layoutByPage[String(plan.pageNumber)]!}),
-                    ...pagePlanResolver.resolve(plan.pageNumber),
-                    pdfPage: {
-                        xPoints: pageSize.xPoints,
-                        yPoints: pageSize.yPoints,
-                        widthPoints: pageSize.widthPoints,
-                        heightPoints: pageSize.heightPoints,
-                        rotation: pageSize.rotation,
-                        sourceDpi: plan.dpi,
-                    },
-                    pageMetadataPath: join(scratch, `analysis-${plan.pageNumber}.json`),
-                };
-            } catch (error) {
-                await rm(inputPath, {force: true}).catch(() => undefined);
-                throw error;
-            }
+            await renderer(
+                paths,
+                log,
+                plan.pageNumber,
+                preparedPdfPath,
+                inputPath,
+                analysisDpi,
+                undefined,
+                signal,
+                undefined,
+                resolveScanCleanupRasterRenderLimits(pageSize, analysisDpi),
+                pageSize.renderBox ?? 'cropbox',
+                'exclude',
+                context.onRecoveryPending,
+            );
+            rasterizedCount += 1;
+            rasterizedPageNumbers.add(plan.pageNumber);
+            emitProgress('rasterizing', rasterizedCount, pageNumbers.length, rasterizedPageNumbers);
+            return {
+                inputPath,
+                analysisInputPath: inputPath,
+                analysisDpi,
+                pageNumber: plan.pageNumber,
+                dpi: analysisDpi,
+                ...(request.layoutByPage?.[String(plan.pageNumber)] === undefined
+                    ? {}
+                    : {observedLayout: request.layoutByPage[String(plan.pageNumber)]!}),
+                ...pagePlanResolver.resolve(plan.pageNumber),
+                pdfPage: {
+                    xPoints: pageSize.xPoints,
+                    yPoints: pageSize.yPoints,
+                    widthPoints: pageSize.widthPoints,
+                    heightPoints: pageSize.heightPoints,
+                    rotation: pageSize.rotation,
+                    sourceDpi: plan.dpi,
+                },
+                pageMetadataPath: join(scratch, `analysis-${plan.pageNumber}.json`),
+            };
         });
         const manifest = buildRunnableNativeScanCleanupManifest({
             operation: 'analyze',

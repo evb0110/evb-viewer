@@ -84,6 +84,10 @@ import {
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {formatScanCleanupWarningEvent} from '@evb/scan-cleanup/core/policy/scanCleanupWarningEvents';
+import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
+import {
+    markUnprovenNativeTermination, getUnprovenNativeTerminationDetail,
+} from '@electron/utils/nativeTerminationProof';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {
     assertScanCleanupCompactSourceBudget,
@@ -5785,4 +5789,56 @@ describe.skipIf(combineBinary === null)('scan cleanup combine output limit', () 
 
         expect((await stat(outputPath)).size).toBeGreaterThan(PDF_COMBINE_MAX_OUTPUT_BYTES);
     });
+});
+
+
+it.each([
+    true,
+    false,
+])('retains producer scratch until every termination proof is affirmative (lossless=%s)', async (lossless) => {
+    const dir = await mkdtemp(join(tmpdir(), 'scan-cleanup-producer-proof-'));
+    dirs.push(dir);
+    const source = join(dir, 'source.pdf');
+    await writeFile(source, '%PDF-source');
+    const proofs = [
+        Promise.withResolvers<boolean>(),
+        Promise.withResolvers<boolean>(),
+    ];
+    const outputs: string[] = [];
+    const deps = dependencies(vi.fn());
+    const renderers = createScanCleanupRenderers(async (_command, args, commandOptions) => {
+        const pageIndex = Number(args[args.indexOf('-f') + 1]) - 1;
+        const output = args.at(-1)! + '.ppm';
+        outputs[pageIndex] = output;
+        await writeFile(output, PPM);
+        commandOptions?.onTerminationProof?.(proofs[pageIndex]!.promise);
+        throw markUnprovenNativeTermination(new Error('producer still alive'), 'pending proof');
+    }, undefined, error => getUnprovenNativeTerminationDetail(error) !== undefined);
+    deps.renderPage = renderers.renderPage;
+    deps.renderPagePpm = renderers.renderPagePpm;
+    await expect(runScanCleanupPipeline({
+        sourcePdfPath: source,
+        outputPdfPath: join(dir, 'output.pdf'),
+        options: {
+            ...options,
+            outputMode: 'color',
+            matchPageSize: false,
+            preserveOriginalQuality: lossless,
+        },
+    },
+    pipelinePaths(dir), new AbortController().signal, vi.fn(),
+    {
+        rasterConcurrency: 2,
+        logicalCpus: 2,
+        totalRamBytes: 1024 ** 3,
+    }, vi.fn(), deps)).rejects.toThrow('producer still alive');
+    expect(outputs).toHaveLength(2);
+    for (const output of outputs) await expect(readFile(output)).resolves.toEqual(PPM);
+    const scratch = join(outputs[1]!, '..');
+    proofs[0]!.resolve(true);
+    await expect.poll(() => stat(outputs[0]!).then(() => true, () => false)).toBe(false);
+    await expect(readFile(outputs[1]!)).resolves.toEqual(PPM);
+    await expect(stat(scratch)).resolves.toBeDefined();
+    proofs[1]!.resolve(true);
+    await expect.poll(() => stat(scratch).then(() => true, () => false)).toBe(false);
 });

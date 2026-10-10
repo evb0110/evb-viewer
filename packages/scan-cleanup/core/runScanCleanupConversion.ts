@@ -1706,36 +1706,31 @@ export async function runScanCleanupConversion(
     let losslessRun = request.options.preserveOriginalQuality === true;
     let preserveScratchForDiagnostics = false;
     let pendingSidecarRecovery: Promise<boolean> | null = null;
-    let sidecarRecoveryResult: boolean | null = null;
-    let scratchCleanupReady = false;
     let scratchCleanupPromise: Promise<void> | null = null;
     let pageSizeStore: IPdfPageSizeStore | null = null;
     const cleanupScratch = () => {
-        if (!ownsScratch) {
-            return Promise.resolve();
-        }
-        scratchCleanupPromise ??= rm(scratch, {
-            recursive: true,
-            force: true,
-        });
-        return scratchCleanupPromise;
+        if (!ownsScratch) return Promise.resolve();
+        scratchCleanupPromise ??= (pendingSidecarRecovery ?? Promise.resolve(true))
+            .then(proven => (proven ? rm(scratch, {
+                recursive: true,
+                force: true,
+            }) : undefined))
+            .catch(error => {
+                log('warn', `Failed to cleanup scan cleanup recovery scratch: ${getErrorMessage(error)}`);
+            });
+        return pendingSidecarRecovery === null ? scratchCleanupPromise : Promise.resolve();
     };
     const retainScratchUntilRecovery = (recovery: Promise<boolean>) => {
-        if (pendingSidecarRecovery !== null) return Promise.resolve();
-        pendingSidecarRecovery = recovery;
-        return recovery.then(recovered => {
-            sidecarRecoveryResult = recovered;
-            if (recovered && scratchCleanupReady && !preserveScratchForDiagnostics) {
-                return cleanupScratch().catch(error => {
-                    log('warn', `Failed to cleanup scan cleanup recovery scratch: ${getErrorMessage(error)}`);
-                });
-            }
-            return undefined;
-        }, error => {
-            sidecarRecoveryResult = false;
-            log('warn', `Scan cleanup publication recovery did not complete: ${getErrorMessage(error)}`);
-            return undefined;
+        const observed = recovery.catch(error => {
+            log('warn', `Scan cleanup recovery did not complete: ${getErrorMessage(error)}`);
+            return false;
         });
+        pendingSidecarRecovery = pendingSidecarRecovery === null ? observed
+            : Promise.all([
+                pendingSidecarRecovery,
+                observed,
+            ]).then(proofs => proofs.every(Boolean));
+        return observed.then(() => scratchCleanupPromise).then(() => undefined);
     };
     const emitProgress = createScanCleanupProgressReporter(onProgress, () => losslessRun);
     try {
@@ -2191,16 +2186,13 @@ export async function runScanCleanupConversion(
         await preserveScanCleanupJsonEvidence(scratch, log, dependencies.evidenceDirectory).catch(error => {
             log('warn', `Failed to preserve scan cleanup JSON evidence: ${getErrorMessage(error)}`);
         });
-        scratchCleanupReady = true;
-        if (
-            !preserveScratchForDiagnostics
-            && (pendingSidecarRecovery === null || sidecarRecoveryResult === true)
-        ) {
-            await cleanupScratch().catch(() => undefined);
-        } else if (pendingSidecarRecovery !== null && sidecarRecoveryResult !== true) {
-            log('warn', `Retaining scan cleanup publication recovery scratch until the sidecar closes: ${scratch}`);
-        } else {
+        if (preserveScratchForDiagnostics) {
             log('warn', `Preserving invalid staged scan cleanup PDF for diagnostics: ${stagedPdfPath}`);
+        } else {
+            if (pendingSidecarRecovery !== null) {
+                log('warn', `Retaining scan cleanup recovery scratch until producer termination and recovery are proven: ${scratch}`);
+            }
+            await cleanupScratch();
         }
     }
 }
@@ -2322,28 +2314,27 @@ async function executeScanCleanupBatch({
         if (guardrail === undefined && requiresBilevelQuality(pageNumber)) {
             signal.throwIfAborted();
             const probePath = join(scratch, `size-probe-${pageNumber}.png`);
-            try {
-                await dependencies.renderPage(
-                    paths,
-                    log,
-                    pageNumber,
-                    preparedPdfPath,
-                    probePath,
-                    SCAN_CLEANUP_SIZE_PROBE_DPI,
-                    undefined,
-                    signal,
-                    undefined,
-                    undefined,
-                    page.renderBox ?? 'cropbox',
-                    'exclude',
-                );
-                guardrail = {
-                    dpi: SCAN_CLEANUP_SIZE_PROBE_DPI,
-                    ...await readPngDimensions(probePath),
-                };
-            } finally {
-                await rm(probePath, {force: true}).catch(() => undefined);
-            }
+            await dependencies.renderPage(
+                paths,
+                log,
+                pageNumber,
+                preparedPdfPath,
+                probePath,
+                SCAN_CLEANUP_SIZE_PROBE_DPI,
+                undefined,
+                signal,
+                undefined,
+                undefined,
+                page.renderBox ?? 'cropbox',
+                'exclude',
+                onRecoveryPending,
+            );
+            guardrail = {
+                dpi: SCAN_CLEANUP_SIZE_PROBE_DPI,
+                ...await readPngDimensions(probePath),
+            };
+            await rm(probePath, {force: true}).catch(() => undefined);
+
         }
         if (guardrail === undefined) {
             throw new ScanCleanupContractError(
@@ -2767,6 +2758,7 @@ async function executeScanCleanupBatch({
                     limits,
                     pageGeometryByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
                     'exclude',
+                    onRecoveryPending,
                 );
                 const dimensions = rasterHandoff.format === 'ppm'
                     ? await readPpmDimensions(page.inputPath)
@@ -2808,6 +2800,7 @@ async function executeScanCleanupBatch({
                         analysisLimits,
                         pageGeometryByNumber.get(plan.pageNumber)?.renderBox ?? 'cropbox',
                         'exclude',
+                        onRecoveryPending,
                     );
                 }
                 rasterizedCount += 1;

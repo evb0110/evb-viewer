@@ -610,6 +610,98 @@ pub(crate) fn geometry(source: PdfRect, rotation: i64, page_rotation: i64) -> Re
     })
 }
 
+/// One writer keeps the private layout rectangle and visible PDF bounds in
+/// the same canonical frame for saves and page-coordinate operations.
+pub(crate) fn write_editor_geometry(
+    annotation: &mut Dictionary,
+    rect: [f64; 4],
+    rotation: i64,
+    page_rotation: i64,
+    bounds: PdfRect,
+) {
+    annotation.set("Rect", rect_object(bounds));
+    annotation.set("Rotate", rotation);
+    annotation.set(
+        "EVBTextGeometry",
+        dictionary! {
+            "Version" => 1, "Rotation" => rotation, "PageRotation" => page_rotation,
+            "Rect" => Object::Array(rect.into_iter().map(number_object).collect()),
+        },
+    );
+}
+
+pub(crate) fn transform_editor_geometry(
+    document: &impl PdfObjectSource,
+    annotation: &mut Dictionary,
+    visible: PdfRect,
+    matrix: [f64; 6],
+    page_rotation: i64,
+) -> Result<()> {
+    if annotation.get(b"EVBTextGeometry").is_err() {
+        return Ok(());
+    }
+    let rotation = annotation.get(b"Rotate")?.as_i64()?.rem_euclid(360);
+    let (source, rotation) =
+        stored_editor_geometry(document, annotation, visible, rotation, page_rotation)?;
+    let original = geometry(source, rotation, page_rotation)?;
+    let transform = crate::split_pages::PdfMatrix::from_values(matrix);
+    let scale = transform.a.hypot(transform.b);
+    let angle = transform.b.atan2(transform.a).to_degrees();
+    let quarter_turn = (angle / 90.0).round() * 90.0;
+    let tolerance = 1e-6 * scale.max(1.0);
+    if (angle - quarter_turn).abs() > 1e-6
+        || scale <= 0.0
+        || (transform.c + transform.b).abs() > tolerance
+        || (transform.d - transform.a).abs() > tolerance
+    {
+        return Err("Affine transform cannot preserve editable text-box geometry".into());
+    }
+    let orientation = transform.concat(crate::split_pages::PdfMatrix::from_values(original.matrix));
+    let rotation = (page_rotation
+        - (orientation.b.atan2(orientation.a).to_degrees() / 90.0).round() as i64 * 90)
+        .rem_euclid(360);
+    let (width, height) = if page_rotation % 180 == 0 {
+        (original.width * scale, original.height * scale)
+    } else {
+        (original.height * scale, original.width * scale)
+    };
+    let (x, y) = transform.transform((source.x1 + source.x2) / 2.0, (source.y1 + source.y2) / 2.0);
+    if (scale - 1.0).abs() > 1e-6 {
+        let mut bytes = document
+            .resolved(annotation.get(b"DA")?)?
+            .as_str()?
+            .to_vec();
+        let tokens = crate::annotations::tokenize_default_appearance(&bytes);
+        for (index, &(start, end)) in tokens.iter().enumerate().rev() {
+            if &bytes[start..end] == b"Tf" {
+                let &(start, end) = index
+                    .checked_sub(1)
+                    .and_then(|index| tokens.get(index))
+                    .ok_or("Missing text-box font size")?;
+                let size = std::str::from_utf8(&bytes[start..end])?.parse::<f64>()? * scale;
+                if !size.is_finite() || size <= 0.0 || size > 512.0 {
+                    return Err("Transformed text-box font size is unsupported".into());
+                }
+                bytes.splice(start..end, number_to_content(size).into_bytes());
+            }
+        }
+        annotation.set("DA", Object::string_literal(bytes));
+    }
+    write_editor_geometry(
+        annotation,
+        [
+            x - width / 2.0,
+            y - height / 2.0,
+            x + width / 2.0,
+            y + height / 2.0,
+        ],
+        rotation,
+        page_rotation,
+        transform.bounds(visible),
+    );
+    Ok(())
+}
+
 pub(crate) fn stored_editor_geometry(
     document: &impl PdfObjectSource,
     dictionary: &Dictionary,

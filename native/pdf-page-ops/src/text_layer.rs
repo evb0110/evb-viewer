@@ -35,6 +35,19 @@ pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
         if determinant.abs() <= f64::EPSILON {
             return Err("overlay-text matrix must be invertible".into());
         }
+        if let Some(region) = instruction.source_region {
+            crate::split_pages::validate_crop_rect(region.rect)?;
+            let determinant =
+                region.matrix[0] * region.matrix[3] - region.matrix[1] * region.matrix[2];
+            if !region.matrix.iter().all(|value| value.is_finite())
+                || !determinant.is_finite()
+                || determinant.abs() <= f64::EPSILON
+            {
+                return Err(
+                    "overlay-text sourceRegion matrix must be finite and invertible".into(),
+                );
+            }
+        }
         if !output_pages.insert(instruction.output_page_index) {
             return Err("overlay-text outputPageIndex values must be unique".into());
         }
@@ -517,90 +530,7 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
     })
 }
 
-#[derive(Clone, Copy)]
-struct TextMatrix {
-    a: f64,
-    b: f64,
-    c: f64,
-    d: f64,
-    e: f64,
-    f: f64,
-}
-
-impl TextMatrix {
-    const IDENTITY: Self = Self {
-        a: 1.0,
-        b: 0.0,
-        c: 0.0,
-        d: 1.0,
-        e: 0.0,
-        f: 0.0,
-    };
-
-    fn from_values(values: [f64; 6]) -> Self {
-        Self {
-            a: values[0],
-            b: values[1],
-            c: values[2],
-            d: values[3],
-            e: values[4],
-            f: values[5],
-        }
-    }
-
-    fn from_operation(operation: &ContentOperation) -> Option<Self> {
-        let values = operation
-            .operands
-            .iter()
-            .map(|operand| object_to_f64(operand).ok())
-            .collect::<Option<Vec<_>>>()?;
-        let values: [f64; 6] = values.try_into().ok()?;
-        Some(Self::from_values(values))
-    }
-
-    fn concat(self, rhs: Self) -> Self {
-        Self {
-            a: self.a * rhs.a + self.c * rhs.b,
-            b: self.b * rhs.a + self.d * rhs.b,
-            c: self.a * rhs.c + self.c * rhs.d,
-            d: self.b * rhs.c + self.d * rhs.d,
-            e: self.a * rhs.e + self.c * rhs.f + self.e,
-            f: self.b * rhs.e + self.d * rhs.f + self.f,
-        }
-    }
-
-    fn translation(x: f64, y: f64) -> Self {
-        Self {
-            e: x,
-            f: y,
-            ..Self::IDENTITY
-        }
-    }
-
-    fn transform(self, x: f64, y: f64) -> (f64, f64) {
-        (
-            self.a * x + self.c * y + self.e,
-            self.b * x + self.d * y + self.f,
-        )
-    }
-
-    fn operands(self) -> Vec<Object> {
-        [self.a, self.b, self.c, self.d, self.e, self.f]
-            .into_iter()
-            .map(number_object)
-            .collect()
-    }
-
-    fn local_horizontal_offset(self, line: Self) -> Option<f64> {
-        let determinant = line.a * line.d - line.b * line.c;
-        if determinant.abs() <= f64::EPSILON {
-            return None;
-        }
-        let delta_x = self.e - line.e;
-        let delta_y = self.f - line.f;
-        Some((delta_x * line.d - line.c * delta_y) / determinant)
-    }
-}
+use crate::split_pages::PdfMatrix as TextMatrix;
 
 #[derive(Clone)]
 struct TextFilterState {
@@ -1905,10 +1835,19 @@ fn append_source_annotations(
             .ok()
             .and_then(|owner| resolved_dictionary(source, owner))
             .unwrap_or(&geometry);
-        let mut owner = owner.clone();
-        crate::split_pages::transform_annotation_geometry(source, &mut owner, instruction.matrix);
         if let Some(view) = view {
-            if let Some(rect) = read_pdf_rect_from_dict(source, &owner) {
+            if let Some(rect) = read_pdf_rect_from_dict(source, owner) {
+                let (rect, view) = if let Some(region) = instruction.source_region {
+                    (
+                        TextMatrix::from_values(region.matrix).bounds(rect),
+                        crate::split_pages::validate_crop_rect(region.rect)?,
+                    )
+                } else {
+                    (
+                        TextMatrix::from_values(instruction.matrix).bounds(rect),
+                        view,
+                    )
+                };
                 let subtype = resolved_name(source, geometry.get(b"Subtype")?);
                 let belongs = if matches!(subtype, Some(b"Text" | b"Popup")) {
                     let x = (rect.x1 + rect.x2) / 2.0;
@@ -1936,7 +1875,9 @@ fn append_source_annotations(
                 target,
                 annotation,
                 instruction.matrix,
-            );
+                None,
+                resolve_page_rotation(target, target_page_id)?,
+            )?;
             annotation.set("P", target_page_id);
         }
     }
@@ -1949,7 +1890,9 @@ fn append_source_annotations(
                     target,
                     &mut annotation,
                     instruction.matrix,
-                );
+                    None,
+                    resolve_page_rotation(target, target_page_id)?,
+                )?;
                 annotation.set("P", target_page_id);
                 target.set_object(target_id, annotation);
             }
@@ -2074,6 +2017,7 @@ pub(crate) fn prepare_incremental_overlay_page(
 fn prepare_overlay_page(base: &Document, target: &mut Document, page_id: ObjectId) -> Result<()> {
     let parent = base.get_dictionary(page_id)?.get(b"Parent").ok().cloned();
     let mut page = materialized_page_dictionary(base, page_id)?;
+    page.set("Rotate", resolve_page_rotation(base, page_id)?);
     if let Some(parent) = parent {
         page.set("Parent", parent);
     }
@@ -2322,6 +2266,7 @@ fn rebase_overlay_source_instructions(
                     matrix: instruction.matrix,
                     filter_to_output_page: instruction.filter_to_output_page,
                     normalize_greek_micro_sign: instruction.normalize_greek_micro_sign,
+                    source_region: instruction.source_region,
                 })
         })
         .collect::<Vec<_>>();

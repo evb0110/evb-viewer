@@ -944,7 +944,7 @@
                     output_page_index,
                     matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                     filter_to_output_page: false,
-                    normalize_greek_micro_sign: false,
+                    normalize_greek_micro_sign: false, source_region: None,
                 }],
             };
 
@@ -982,14 +982,14 @@
                     output_page_index: 0,
                     matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                     filter_to_output_page: false,
-                    normalize_greek_micro_sign: false,
+                    normalize_greek_micro_sign: false, source_region: None,
                 },
                 TextLayerInstruction {
                     source_page_index: 1,
                     output_page_index: 1,
                     matrix: [1.0, 0.0, 0.0, 1.0, 20.0, 0.0],
                     filter_to_output_page: false,
-                    normalize_greek_micro_sign: false,
+                    normalize_greek_micro_sign: false, source_region: None,
                 },
             ],
         };
@@ -1016,7 +1016,7 @@
                 output_page_index,
                 matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
                 filter_to_output_page: false,
-                normalize_greek_micro_sign: false,
+                normalize_greek_micro_sign: false, source_region: None,
             }],
         };
 
@@ -1096,7 +1096,7 @@
                 output_page_index: 1,
                 matrix: [0.0, 2.0, -3.0, 0.0, 180.0, -10.0],
                 filter_to_output_page: false,
-                normalize_greek_micro_sign: false,
+                normalize_greek_micro_sign: false, source_region: None,
             }],
         };
         for append in [false, true] {
@@ -1256,7 +1256,7 @@
             let instructions = TextLayerFile { pages: (0..2).map(|output_page_index| TextLayerInstruction {
                 source_page_index: 0, output_page_index,
                 matrix: [1.0, 0.0, 0.0, 1.0, -(output_page_index as f64) * 200.0, 0.0],
-                filter_to_output_page: true, normalize_greek_micro_sign: false,
+                filter_to_output_page: true, normalize_greek_micro_sign: false, source_region: None,
             }).collect() };
             if append {
                 let mut bytes = Vec::new();

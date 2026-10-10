@@ -307,6 +307,7 @@ export interface IScanCleanupRunCommandOptions {
     cancelGroup?: string;
     commandLabel?: string;
     onStdout?: (chunk: string) => void;
+    onTerminationProof?: (proof: Promise<boolean>) => void;
     log?: TScanCleanupLog;
 }
 
@@ -390,6 +391,7 @@ export type TScanCleanupRenderPage = (
     limits?: IScanCleanupRasterRenderLimits,
     renderBox?: 'auto' | 'cropbox' | 'mediabox',
     annotations?: 'include' | 'exclude',
+    onTerminationProof?: (proof: Promise<boolean>) => void,
 ) => Promise<void>;
 
 /**
