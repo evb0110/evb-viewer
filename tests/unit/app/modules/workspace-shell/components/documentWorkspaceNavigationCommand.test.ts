@@ -404,6 +404,78 @@ describe('DocumentWorkspace navigation command', () => {
         });
     });
 
+    it.each([
+        [
+            'page-operation',
+            'nothing',
+        ],
+        [
+            'page-operation',
+            'save',
+        ],
+        [
+            'page-operation',
+            'save-as',
+        ],
+        [
+            'ocr-apply',
+            'nothing',
+        ],
+        [
+            'ocr-apply',
+            'save',
+        ],
+        [
+            'ocr-apply',
+            'save-as',
+        ],
+    ] as const)('keeps the page a %s places when %s waits behind it', async (kind, queuedSave) => {
+        const path = requireDocumentRef('/tmp/queued-save.pdf');
+        const workspace = await mountDocumentWorkspace({
+            pendingDocumentPath: path,
+            openSurfaceDocument: path,
+        });
+        const source = {
+            kind: 'path' as const,
+            path,
+            size: 400,
+        };
+        const file = workspace.documentContext.file;
+        file.pdfSrc.value = source;
+        file.workingCopyPath.value = path;
+        file.originalPath.value = path;
+        file.isDirty.value = true;
+        workspace.documentSession.markPresented();
+        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
+        await nextTick();
+
+        let releaseOperation!: () => void;
+        const gate = new Promise<void>(resolve => {
+            releaseOperation = resolve;
+        });
+        const operation = workspace.documentSession.operationLease.runExclusive(kind, () => gate);
+        await vi.waitFor(() => expect(workspace.documentSession.operationLease.activeKind.value).toBe(kind));
+        const {saveService} = workspace.documentContext;
+        const save = queuedSave === 'save-as'
+            ? saveService.handleSaveAs()
+            : queuedSave === 'save' ? saveService.handleSave() : null;
+        try {
+            // The queued save joins the operation lease within the next microtask.
+            await nextTick();
+            workspace.expose.handleGoToPage(4);
+            file.pdfSrc.value = {...source};
+            await nextTick();
+            expect(readToolbarNavigationTicket()?.request.target).toEqual({
+                kind: 'page',
+                page: 4,
+            });
+        } finally {
+            releaseOperation();
+            await operation;
+            await save?.catch(() => false);
+        }
+    });
+
     it('does not mount the reader presentation in scan-cleanup mode', async () => {
         await mountDocumentWorkspace({
             initialSurfaceMode: 'scan-cleanup',

@@ -614,7 +614,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         const expectedOriginalPath = queuedTarget.expectedOriginalPath;
         const expectedWorkingPath = queuedTarget.expectedWorkingPath;
         let saveSucceeded = false;
-        indicator.value = true;
 
         /**
          * A save outlives its own document: every failure below is reported
@@ -711,6 +710,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 );
                 return false;
             }
+            // Set once the lease admits this save: a page operation's reload is not this save's.
+            indicator.value = true;
             let lastPlan: TWorkspaceSavePlan | null = null;
             try {
                 for (let attempt = 0; attempt <= MAX_STALE_REVISION_SAVE_RETRIES; attempt += 1) {
@@ -767,7 +768,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         acknowledgedUnencryptedSaveSessions,
                     );
                     if (unencryptedSaveAbort) {
-                        indicator.value = false;
                         saveSucceeded = await completeWorkspaceSave(
                             lastPlan,
                             unencryptedSaveAbort,
