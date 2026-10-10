@@ -62,6 +62,24 @@ function preventAutomaticWorkingCopyMaterialization() {
     vi.resetModules();
 }
 
+// Restored lazy references remain readable on every platform even when new
+// Windows opens finish their private copy before publishing the reference.
+async function createLazyWorkingCopy(originalPath: TOpenPath, ownerWebContentsId: number) {
+    const {createWorkingDirectory} = await import('@electron/file-access/workingCopyDirectory');
+    const {initializeFreshWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+    const {
+        captureWorkingCopyAdmissionSnapshot,
+        setWorkingCopyOriginalPath,
+    } = await import('@electron/file-access/workingCopyStore');
+    const workingPath = join(createWorkingDirectory(), 'document.pdf');
+    await setWorkingCopyOriginalPath(workingPath, originalPath, ownerWebContentsId, {
+        admissionSnapshot: await captureWorkingCopyAdmissionSnapshot(originalPath),
+        backingState: 'lazy-original',
+    });
+    await initializeFreshWorkingCopyRevision(workingPath, ownerWebContentsId);
+    return workingPath;
+}
+
 // Another program swaps in same-size bytes and restores the old mtime.
 // The witness must still distinguish the replacement from the admitted file.
 function replaceSourceKeepingSizeAndMtime(sourcePath: string, bytes: Buffer, mtime: Date) {
@@ -221,7 +239,7 @@ describe('workingCopy', () => {
         )).rejects.toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
     });
 
-    it('publishes unsupported durable PDFs as lazy and fingerprints the original as it materializes', async () => {
+    it('publishes independent Windows copies and materializes POSIX copies lazily', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         preventAutomaticWorkingCopyMaterialization();
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
@@ -240,16 +258,18 @@ describe('workingCopy', () => {
 
         const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
 
-        expect(existsSync(workingPath)).toBe(false);
+        const eager = process.platform === 'win32';
+        const fingerprint = `sha256-full-v1:${createOriginalFileContentFingerprintHash(originalBytes.byteLength).update(originalBytes).digest('hex')}`;
+        expect(existsSync(workingPath)).toBe(eager);
         expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
             admissionSnapshot: {size: BigInt(originalBytes.byteLength)},
-            backingState: 'lazy-original',
+            backingState: eager ? 'eager' : 'lazy-original',
             originalPath: realpathSync.native(originalPath),
         });
         // The registration keeps the witnessed revision; the copy that reads
         // the source in full is the one that fingerprints it.
         expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({size: originalBytes.byteLength});
-        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBeUndefined();
+        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(eager ? fingerprint : undefined);
 
         await ensureWorkingCopyMaterialized(workingPath, {
             ownerWebContentsId: 7,
@@ -257,9 +277,13 @@ describe('workingCopy', () => {
         });
 
         expect(readFileSync(workingPath).equals(originalBytes)).toBe(true);
-        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(
-            `sha256-full-v1:${createOriginalFileContentFingerprintHash(originalBytes.byteLength).update(originalBytes).digest('hex')}`,
-        );
+        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(fingerprint);
+        const changedBytes = Buffer.from(originalBytes);
+        changedBytes[700_000] = 18;
+        replaceSourceKeepingSizeAndMtime(originalPath, changedBytes, statSync(originalPath).mtime);
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.toBeNull();
+        expect(readFileSync(workingPath).equals(originalBytes)).toBe(true);
     });
 
     it('fails the open when the source is replaced with same-size, same-mtime bytes during a rewrite', async () => {
@@ -367,12 +391,7 @@ describe('workingCopy', () => {
     });
 
     it('serializes explicit directory ensures with background materialization', async () => {
-        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        preventAutomaticWorkingCopyMaterialization();
-        const {
-            createWorkingCopy,
-            ensureWorkingCopyDirectory,
-        } = await import(
+        const {ensureWorkingCopyDirectory} = await import(
             '@electron/file-access/workingCopyCreation'
         );
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
@@ -382,7 +401,7 @@ describe('workingCopy', () => {
         const originalPath = join(tempRoot, 'serialized-ensure.pdf');
         writeFileSync(originalPath, Buffer.alloc(1024 * 1024 + 17, 23));
         const trustedOriginalPath = allowOpenPath(originalPath);
-        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        const workingPath = await createLazyWorkingCopy(trustedOriginalPath!, 7);
         const operationIds = new Set<string>();
         const removeProgressListener = onWorkingCopyMaterializationProgress(event => {
             if (event.phase === 'copying') {
@@ -460,7 +479,7 @@ describe('workingCopy', () => {
         expect(keyBeforeFileExists).toBe(normalizePathForLookup(join(realParent, 'pdf-work-lazy', 'document.pdf')));
     });
 
-    it('uses background materialization by default after publishing lazy state', async () => {
+    it('finishes copying originals through the platform admission path', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
@@ -473,7 +492,7 @@ describe('workingCopy', () => {
 
         const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
         await vi.waitFor(() => {
-            expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe('materialized');
+            expect(getWorkingCopyBackingEntry(workingPath, 7)?.backingState).toBe(process.platform === 'win32' ? 'eager' : 'materialized');
         });
 
         expect(readFileSync(workingPath).equals(originalBytes)).toBe(true);
@@ -627,30 +646,35 @@ describe('workingCopy', () => {
         writeFileSync(workingPath, Buffer.from('working edit'));
         let replacementError: unknown;
         let replaced = false;
-        vi.doMock('@electron/file-access/createOriginalFileContentFingerprintHash', async importOriginal => {
-            const original = await importOriginal<typeof CreateOriginalFileContentFingerprintHash>();
+        vi.doMock('fs/promises', async importOriginal => {
+            const original = await importOriginal<typeof FsPromises>();
             const {execFileSync} = await vi.importActual<typeof NodeChildProcess>('node:child_process');
-            return {createOriginalFileContentFingerprintHash: (size: number) => {
-                const hash = original.createOriginalFileContentFingerprintHash(size);
-                const update = hash.update.bind(hash);
-                hash.update = ((...args: Parameters<typeof hash.update>) => {
-                    if (!replaced && Buffer.isBuffer(args[0])) {
-                        replaced = true;
-                        try {
-                            execFileSync(process.execPath, [
-                                '-e',
-                                'require("node:fs").renameSync(process.argv[1], process.argv[2])',
-                                replacementPath,
-                                originalPath,
-                            ], {stdio: 'pipe'});
-                        } catch (error) {
-                            replacementError = error;
-                        }
-                    }
-                    return update(...args);
-                }) as typeof hash.update;
-                return hash;
-            }};
+            return {
+                ...original,
+                open: async (...args: Parameters<typeof original.open>) => {
+                    const handle = await original.open(...args);
+                    return Object.assign(Object.create(handle), {
+                        close: () => handle.close(),
+                        read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+                            const result = await handle.read(buffer, offset, length, position);
+                            if (!replaced) {
+                                replaced = true;
+                                try {
+                                    execFileSync(process.execPath, [
+                                        '-e',
+                                        'require("node:fs").renameSync(process.argv[1], process.argv[2])',
+                                        replacementPath,
+                                        originalPath,
+                                    ], {stdio: 'pipe'});
+                                } catch (error) {
+                                    replacementError = error;
+                                }
+                            }
+                            return result;
+                        },
+                    }) as Awaited<ReturnType<typeof original.open>>;
+                },
+            };
         });
         vi.resetModules();
         const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
@@ -672,7 +696,7 @@ describe('workingCopy', () => {
             await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.toBeNull();
         } finally {
             await clearAllWorkingCopies();
-            vi.doUnmock('@electron/file-access/createOriginalFileContentFingerprintHash');
+            vi.doUnmock('fs/promises');
             vi.resetModules();
         }
     });
@@ -799,7 +823,7 @@ describe('workingCopy', () => {
         }
     });
 
-    it('fingerprints an eager copy\'s original from the copy, reading it once', async () => {
+    it('keeps the original fingerprint when decryption changes the eager copy', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         const originalPath = join(tempRoot, 'eager-fingerprint-original.pdf');
         const originalBytes = Buffer.concat([
@@ -808,34 +832,16 @@ describe('workingCopy', () => {
         ]);
         writeFileSync(originalPath, originalBytes);
         const resolvedOriginalPath = realpathSync.native(originalPath);
-        let originalBytesRead = 0;
-        vi.doMock('fs/promises', async (importOriginal) => {
-            const original = await importOriginal<typeof FsPromises>();
-            return {
-                ...original,
-                open: vi.fn(async (...args: Parameters<typeof original.open>) => {
-                    const handle = await original.open(...args);
-                    if (String(args[0]) !== resolvedOriginalPath) {
-                        return handle;
-                    }
-                    return Object.assign(Object.create(handle), {
-                        close: () => handle.close(),
-                        read: async (buffer: Buffer, offset: number, length: number, position: number | bigint) => {
-                            const result = await handle.read(buffer, offset, length, position);
-                            originalBytesRead += result.bytesRead;
-                            return result;
-                        },
-                        stat: (...statArgs: Parameters<typeof handle.stat>) => handle.stat(...statArgs),
-                    }) as Awaited<ReturnType<typeof original.open>>;
-                }),
-            };
-        });
+        const decryptedBytes = Buffer.from('%PDF-1.7 decrypted copy');
         vi.doMock('@electron/file-access/workingCopyDecryption', () => ({
-            decryptWorkingCopyWithWriter: vi.fn(async () => ({
-                outcome: 'decrypted' as const,
-                wasEncrypted: true as const,
-                revision: null,
-            })),
+            decryptWorkingCopyWithWriter: vi.fn(async (path: string) => {
+                writeFileSync(path, decryptedBytes);
+                return {
+                    outcome: 'decrypted' as const,
+                    wasEncrypted: true as const,
+                    revision: null,
+                };
+            }),
             PdfDecryptAttemptError: class PdfDecryptAttemptError extends Error {},
         }));
         vi.resetModules();
@@ -859,10 +865,8 @@ describe('workingCopy', () => {
                     size: originalBytes.byteLength,
                 },
             });
-            // The copy and the encryption probe read it; a second full pass
-            // to fingerprint the same bytes would double this.
-            expect(originalBytesRead).toBeGreaterThanOrEqual(originalBytes.byteLength);
-            expect(originalBytesRead).toBeLessThan(2 * originalBytes.byteLength);
+            expect(readFileSync(workingPath).equals(decryptedBytes)).toBe(true);
+            expect(readFileSync(originalPath).equals(originalBytes)).toBe(true);
         } finally {
             vi.doUnmock('fs/promises');
             vi.doUnmock('@electron/file-access/workingCopyDecryption');
@@ -890,25 +894,14 @@ describe('workingCopy', () => {
             const original = await importOriginal<typeof FsPromises>();
             return {
                 ...original,
-                open: vi.fn(async (...args: Parameters<typeof original.open>) => {
-                    const handle = await original.open(...args);
-                    if (String(args[0]) !== resolvedOriginalPath) {
-                        return handle;
+                copyFile: async (...args: Parameters<typeof original.copyFile>) => {
+                    await original.copyFile(...args);
+                    if (!changed && String(args[0]) === resolvedOriginalPath) {
+                        changed = true;
+                        writeFileSync(originalPath, changedBytes);
+                        utimesSync(originalPath, pinnedMtime, pinnedMtime);
                     }
-                    return Object.assign(Object.create(handle), {
-                        close: () => handle.close(),
-                        read: async (buffer: Buffer, offset: number, length: number, position: number | bigint) => {
-                            const result = await handle.read(buffer, offset, length, position);
-                            if (!changed && Number(position) === 1024 * 1024) {
-                                changed = true;
-                                writeFileSync(originalPath, changedBytes);
-                                utimesSync(originalPath, pinnedMtime, pinnedMtime);
-                            }
-                            return result;
-                        },
-                        stat: (...statArgs: Parameters<typeof handle.stat>) => handle.stat(...statArgs),
-                    }) as Awaited<ReturnType<typeof original.open>>;
-                }),
+                },
             };
         });
         vi.doMock('@electron/file-access/workingCopyDecryption', () => ({
@@ -1284,12 +1277,7 @@ describe('workingCopy', () => {
     });
 
     it('accepts a lazy managed ref without recreating or revising it', async () => {
-        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        preventAutomaticWorkingCopyMaterialization();
-        const {
-            createWorkingCopy,
-            requireManagedWorkingCopyPath,
-        } = await import('@electron/file-access/workingCopyCreation');
+        const {requireManagedWorkingCopyPath} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
         const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
@@ -1297,7 +1285,7 @@ describe('workingCopy', () => {
         writeFileSync(originalPath, Buffer.alloc(64 * 1024, 23));
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
-        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        const workingPath = await createLazyWorkingCopy(trustedOriginalPath!, 7);
         const before = await getWorkingCopyRevision(workingPath, 7);
 
         await expect(requireManagedWorkingCopyPath(realpathSync.native(dirname(workingPath)) + `/${basename(workingPath)}`, 7))
@@ -1309,9 +1297,6 @@ describe('workingCopy', () => {
     });
 
     it('runs lazy working-copy reads against the witnessed original without materializing', async () => {
-        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
-        preventAutomaticWorkingCopyMaterialization();
-        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
         const {runWithWorkingCopyReadBacking} = await import('@electron/file-access/runWithWorkingCopyReadBacking');
@@ -1320,7 +1305,7 @@ describe('workingCopy', () => {
         writeFileSync(originalPath, originalBytes);
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
-        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+        const workingPath = await createLazyWorkingCopy(trustedOriginalPath!, 7);
         let physicalReadPath = '';
 
         const result = await runWithWorkingCopyReadBacking(

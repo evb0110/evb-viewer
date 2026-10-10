@@ -215,10 +215,10 @@ async function createWorkingCopyWithOutcomeInternal(
             admissionSnapshot = afterProbe;
             if (normalized) {
                 backingState = 'eager';
-            } else if (encrypted || !isPdf) {
-                // The copy reads every source byte verbatim, so it fingerprints
-                // the original for the registration; decryption changes only
-                // the copy afterwards.
+            } else if (encrypted || !isPdf || process.platform === 'win32') {
+                // Windows cannot replace an open original. Finish its copy
+                // before admission and fingerprint those source bytes for
+                // the registration; decryption changes only the copy.
                 copiedSourceFingerprint = await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
                     copyFileFromStableSource(originalPath, workingPath, {fingerprintSource: true}));
                 if (isPdf) {

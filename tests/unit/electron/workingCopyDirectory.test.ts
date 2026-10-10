@@ -175,51 +175,40 @@ describe('workingCopyDirectory', () => {
         expect(copyFile).toHaveBeenNthCalledWith(2, '/source.pdf', '/target.pdf');
     });
 
-    it('rejects a source replacement during the streamed unsupported-clone fallback', async () => {
+    it('rejects a source replacement during the unsupported-clone fallback', async () => {
         const root = mkdtempSync(join(tmpdir(), 'evb-stable-copy-test-'));
         const sourcePath = join(root, 'source.pdf');
         const targetPath = join(root, 'target.pdf');
         const replacementPath = join(root, 'replacement.pdf');
         writeFileSync(sourcePath, Buffer.alloc(3 * 1024 * 1024 + 17, 41));
         writeFileSync(replacementPath, Buffer.alloc(3 * 1024 * 1024 + 17, 97));
-        let notifyFirstRead!: () => void;
-        const firstReadStarted = new Promise<void>(resolve => {
-            notifyFirstRead = resolve;
+        let notifyCopy!: () => void;
+        const copyStarted = new Promise<void>(resolve => {
+            notifyCopy = resolve;
         });
-        let releaseFirstRead!: () => void;
-        const firstReadRelease = new Promise<void>(resolve => {
-            releaseFirstRead = resolve;
+        let releaseCopy!: () => void;
+        const copyRelease = new Promise<void>(resolve => {
+            releaseCopy = resolve;
         });
         try {
             vi.doMock('fs/promises', async importOriginal => {
                 const original = await importOriginal<typeof FsPromises>();
                 return {
                     ...original,
-                    open: async (...args: Parameters<typeof original.open>) => {
-                        const handle = await original.open(...args);
-                        if (args[0] === sourcePath && args[1] === 'r') {
-                            const read = handle.read.bind(handle);
-                            let isFirstRead = true;
-                            handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
-                                if (isFirstRead) {
-                                    isFirstRead = false;
-                                    notifyFirstRead();
-                                    await firstReadRelease;
-                                }
-                                return read(...readArgs);
-                            }) as typeof handle.read;
-                        }
-                        return handle;
+                    copyFile: async (...args: Parameters<typeof original.copyFile>) => {
+                        await original.copyFile(...args);
+                        notifyCopy();
+                        await copyRelease;
                     },
                 };
             });
             vi.resetModules();
             const {copyFileFromStableSource} = await import('@electron/file-access/workingCopyDirectory');
             const copy = copyFileFromStableSource(sourcePath, targetPath);
-            await firstReadStarted;
+            await copyStarted;
             renameSync(sourcePath, join(root, 'old-source.pdf'));
             renameSync(replacementPath, sourcePath);
-            releaseFirstRead();
+            releaseCopy();
 
             await expect(copy).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
             expect(() => readFileSync(targetPath)).toThrow();
