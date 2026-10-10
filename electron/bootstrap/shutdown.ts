@@ -299,13 +299,13 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             });
         }).then(async () => {
             clearGracefulQuitForceTimer();
-            clearSystemShutdownForceTimer();
             if (isQuittingAfterCleanup || isFatalShutdownInProgress) {
                 return;
             }
             if (cleanupContext?.retryablePreservationFailure === true) {
                 return;
             }
+            clearSystemShutdownForceTimer();
             isQuittingAfterCleanup = true;
             const afterCleanup = gracefulQuitAfterCleanup;
             gracefulQuitAfterCleanup = null;
