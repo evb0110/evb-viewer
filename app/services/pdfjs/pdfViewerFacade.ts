@@ -59,6 +59,8 @@ export function createPdfjsAnnotationLayer(options: ICreatePdfjsAnnotationLayerO
         page: options.page,
         viewport: options.viewport,
         accessibilityManager: null,
+        // Appearances are painted by the page raster, so no canvases are collected.
+        annotationCanvasMap: null,
         annotationEditorUIManager: null,
         structTreeLayer: null,
         commentManager: null,
