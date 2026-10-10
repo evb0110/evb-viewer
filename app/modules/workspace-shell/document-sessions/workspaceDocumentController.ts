@@ -88,7 +88,7 @@ export interface IWorkspaceDocumentController {
     readonly views: Readonly<ShallowRef<ReadonlyMap<string, IWorkspaceDocumentView>>>;
     readonly operationLease: IDocumentOperationLease;
     assign(document: TWorkspaceDocumentAssignment): void;
-    claimOpen(request: IWorkspaceOpenRequest): string;
+    claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void): string;
     runOpen(request: IWorkspaceOpenRequest, run: (shape: IPdfOpeningGeometry | null, transactionId: string) => Promise<boolean>): Promise<boolean>;
     setOpeningLabel(label: string | null): void;
     commitDocument(document: IWorkspaceCommittedDocument): void;
@@ -322,7 +322,7 @@ export function createWorkspaceDocumentController(options: {
         }, true);
     }
 
-    function claimOpen(request: IWorkspaceOpenRequest) {
+    function claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void) {
         supersedeActiveTransaction();
         nextTransactionIndex += 1;
         const transaction: IWorkspaceDocumentTransaction = {
@@ -332,7 +332,15 @@ export function createWorkspaceDocumentController(options: {
             acceptDocumentWithoutVisual: request.acceptDocumentWithoutVisual === true,
         };
         const settled = Promise.withResolvers<boolean>();
-        settleWaiters.set(transaction.id, settled);
+        // Commands for this open are captured at presentation, before an
+        // awaiting caller can start another open in the same workspace.
+        settleWaiters.set(transaction.id, {
+            ...settled,
+            resolve: (presented) => {
+                if (presented === true) onPresented?.();
+                settled.resolve(presented);
+            },
+        });
         update({
             activeTransaction: transaction,
             openingLabel: null,

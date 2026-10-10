@@ -45,6 +45,7 @@ interface IIncomingTransferTargetTab {
 interface IIncomingTransferTarget {
     pane: IPaneLike;
     transactionId: string;
+    commandTarget: TWorkspaceCommandTarget | null;
     tab: IIncomingTransferTargetTab;
     previousActivePaneId: string | null;
 }
@@ -58,7 +59,7 @@ interface IPreparedTransferItem {
 
 interface IRestoreWorkspacePayloadOptions {
     retainPayloadOnFailure?: boolean;
-    transactionId?: string;
+    target: IIncomingTransferTarget;
 }
 
 interface IUseWindowTabTransfersOptions {
@@ -250,17 +251,22 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return null;
         }
 
-        return {
+        const session = getDocumentSession(targetTab.tabId)!;
+        const target: IIncomingTransferTarget = {
             pane: targetPane,
             // The controller occupies the tab synchronously, before this async
             // preparation returns and before another incoming event picks a tab.
-            transactionId: getDocumentSession(targetTab.tabId)!.claimOpen({
+            transactionId: session.claimOpen({
                 kind: transfer.payload.kind === 'pdfSnapshot' && transfer.payload.isDirty ? 'restore' : 'open',
                 target: transfer.tab,
+            }, () => {
+                target.commandTarget = session.createCommandTarget(targetTab.tabId);
             }),
+            commandTarget: null,
             tab: targetTab,
             previousActivePaneId: options.activePaneId.value,
         };
+        return target;
     }
 
     function restoreTransferFocus(target: IIncomingTransferTarget) {
@@ -395,26 +401,29 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function tryRestoreWorkspacePayload(tabId: string, payload: TSplitPayload, transactionId?: string) {
+    async function tryRestoreWorkspacePayload(tabId: string, payload: TSplitPayload, target: IIncomingTransferTarget) {
         try {
             const workspace = await waitForWorkspace(tabId);
             const session = getDocumentSession(tabId);
-            if (!workspace || (transactionId !== undefined && session?.snapshot.value.activeTransaction?.id !== transactionId)) {
-                return false;
+            if (!workspace || !session || session.snapshot.value.activeTransaction?.id !== target.transactionId) {
+                return null;
             }
-            const outcome = await workspace.restoreSplitPayload(payload, transactionId);
+            const outcome = await workspace.restoreSplitPayload(payload, target.transactionId, () => {
+                const commandTarget = target.commandTarget;
+                return () => commandTarget !== null && isCommandTargetCurrent(session, commandTarget);
+            });
             if (outcome.status !== 'opened') {
                 BrowserLogger.warn('tabs', 'Split payload restore returned a non-success outcome', {
                     tabId,
                     payloadKind: payload.kind,
                     status: outcome.status,
                 });
-                return false;
+                return null;
             }
-            const commandTarget = session?.createCommandTarget(tabId) ?? null;
+            const commandTarget = target.commandTarget;
             await nextTick();
-            if (!isCommandTargetCurrent(session, commandTarget)) {
-                return false;
+            if (!commandTarget || !isCommandTargetCurrent(session, commandTarget)) {
+                return null;
             }
 
             if (payload.kind === 'pdfSnapshot' && payload.viewState) {
@@ -433,17 +442,17 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                     tabId,
                     payloadKind: payload.kind,
                 });
-                return false;
+                return null;
             }
 
-            return true;
+            return commandTarget;
         } catch (error) {
             BrowserLogger.error('tabs', 'Failed to restore split payload', {
                 tabId,
                 payloadKind: payload.kind,
                 error,
             }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
-            return false;
+            return null;
         }
     }
 
@@ -458,20 +467,20 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
     async function restoreWorkspacePayload(
         tabId: string,
         payload: TSplitPayload | null,
-        restoreOptions: IRestoreWorkspacePayloadOptions = {},
+        restoreOptions: IRestoreWorkspacePayloadOptions,
     ) {
         if (!payload) {
-            return false;
+            return null;
         }
         if (payload.kind === 'empty') {
             BrowserLogger.warn('tabs', 'Rejected empty split payload for workspace restore', { tabId });
-            return false;
+            return null;
         }
 
         options.workspaceRestoreTracker.start(tabId);
-        let restored = false;
+        let restored: TWorkspaceCommandTarget | null = null;
         try {
-            restored = await tryRestoreWorkspacePayload(tabId, payload, restoreOptions.transactionId);
+            restored = await tryRestoreWorkspacePayload(tabId, payload, restoreOptions.target);
             return restored;
         } finally {
             if (!restored && !restoreOptions.retainPayloadOnFailure) {
@@ -710,15 +719,15 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             if (canUseNativeWindowTabTransfers()) {
                 const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {
                     retainPayloadOnFailure: true,
-                    transactionId: target.transactionId,
+                    target,
                 });
-                if (!restored) {
+                if (!restored || !isCommandTargetCurrent(getDocumentSession(target.tab.tabId), restored)) {
                     await rollbackIncomingTransferTarget(target, transfer.payload, false);
                     await ackIncomingTransferFailure(transfer.transferId, t('tabs.transferErrors.restoreFailed'));
                     return;
                 }
                 const session = getDocumentSession(target.tab.tabId);
-                const commandTarget = session?.createCommandTarget(target.tab.tabId) ?? null;
+                const commandTarget = restored;
                 const committed = await ackIncomingTransferSuccess(transfer.transferId);
                 if (committed === null || !committed) {
                     if (isCommandTargetCurrent(session, commandTarget)) {
@@ -744,7 +753,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 transferCommitted = true;
                 const restored = await restoreWorkspacePayload(target.tab.tabId, transfer.payload, {
                     retainPayloadOnFailure: true,
-                    transactionId: target.transactionId,
+                    target,
                 });
                 if (!restored) {
                     return;

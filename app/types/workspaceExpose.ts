@@ -293,7 +293,7 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handleConvertToPdf: () => void;
     /** Captures the document at `page`, by default the page this view reads. */
     captureSplitPayload: (page?: number) => Promise<TSplitPayload>;
-    restoreSplitPayload: (payload: TSplitPayload, transactionId?: string) => Promise<TDocumentOpenOutcome>;
+    restoreSplitPayload: (payload: TSplitPayload, transactionId?: string, captureOpenedTarget?: () => () => boolean) => Promise<TDocumentOpenOutcome>;
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
     getOpenFailure: () => IWorkspaceOpenFailure | null;

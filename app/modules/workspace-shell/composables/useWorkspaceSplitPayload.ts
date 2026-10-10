@@ -360,7 +360,11 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             : payload;
     }
 
-    async function restoreSplitPayload(payload: TSplitPayload, transactionId?: string): Promise<TDocumentOpenOutcome> {
+    async function restoreSplitPayload(
+        payload: TSplitPayload,
+        transactionId?: string,
+        captureOpenedTarget?: () => () => boolean,
+    ): Promise<TDocumentOpenOutcome> {
         if (payload.kind === 'empty') {
             return {status: 'cancelled'};
         }
@@ -385,11 +389,15 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             if (outcome.status !== 'opened') {
                 return outcome;
             }
+            const isCurrent = captureOpenedTarget?.();
             if (pageToRestore) {
                 await nextTick();
+                if (isCurrent?.() === false) {
+                    return {status: 'cancelled'};
+                }
                 options.documentViewerRef.value?.scrollToPage(pageToRestore);
             }
-            return outcome;
+            return isCurrent?.() === false ? {status: 'cancelled'} : outcome;
         }
 
         if (!isPdfSplitPayload(payload) || !PDF_VIEWER_ADAPTER.capabilities.pdfDocument) {
@@ -421,12 +429,16 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         if (outcome.status !== 'opened') {
             return outcome;
         }
+        const isCurrent = captureOpenedTarget?.();
+        if (isCurrent?.() === false) {
+            return {status: 'cancelled'};
+        }
         options.originalPath.value = payload.originalPath;
 
         if (restorePagePromise) {
             await restorePagePromise;
         }
-        return outcome;
+        return isCurrent?.() === false ? {status: 'cancelled'} : outcome;
     }
 
     return {

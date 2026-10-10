@@ -7,7 +7,7 @@ import {
     PDFDocument, StandardFonts, rgb,
 } from 'pdf-lib';
 import {
-    afterEach, describe, expect, it,
+    afterEach, describe, expect, it, onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
@@ -18,7 +18,15 @@ import {
     ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
-import type {Page} from 'puppeteer-core';
+import type * as Pdfjs from 'pdfjs-dist';
+import type {
+    ConsoleMessage, Page,
+} from 'puppeteer-core';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {
+    requireDocumentRef, type TDocumentRef,
+} from '@contracts/documentRef';
+import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {electronAppTempDirPath} from '@scripts/electron-run/electronRunSessionPaths';
 
 const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-move-tab-view-state-${Date.now()}`});
@@ -80,7 +88,7 @@ async function moveTabToNewWindow(page: Page) {
     return destination;
 }
 
-function createSlowTransferFixture(filePath: string) {
+function createSlowTransferFixture(filePath: string, fontMapBytes = 64 * 1024 * 1024) {
     const name = 'Slow transfer';
     const count = 20;
     const objects = new Map<number, Buffer>();
@@ -90,7 +98,7 @@ function createSlowTransferFixture(filePath: string) {
     let next = 4;
     let fonts = '/F 3 0 R';
     {
-        const decoded = Buffer.alloc(64 * 1024 * 1024, 0x20);
+        const decoded = Buffer.alloc(fontMapBytes, 0x20);
         decoded.write('/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0000> <FFFF> <0000>\nendbfrange\nendcmap\nend\nend\n', 'latin1');
         const stream = deflateSync(decoded);
         const descendant = next++;
@@ -258,6 +266,114 @@ describe('Move Tab to New Window view state', () => {
                 'slow-transfer.pdf',
                 'fast-transfer.pdf',
             ]));
+    }, 180_000);
+
+    it('keeps the replacement document view and source copy when an incoming open is superseded', async () => {
+        const session = sessions.getSession();
+        const target = session.page;
+        const appTempDirectory = electronAppTempDirPath(session.name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'superseded-tab-transfer-')));
+        const slowPath = join(outputDirectory, 'superseded-slow.pdf');
+        const replacementPath = join(outputDirectory, 'replacement.pdf');
+        createSlowTransferFixture(slowPath, 4 * 1024 * 1024);
+        await createTwelvePageFixture(replacementPath);
+        await openPdfInApp(target, slowPath, 120_000);
+        const source = await moveTabToNewWindow(target);
+        await goToPageViaToolbar(source, 12);
+        await clickAsUser(source, '#editor-global-toolbar-host .zoom-controls-display');
+        await clickAsUser(source, '.zoom-chip-custom-input', {count: 3});
+        await source.keyboard.type('200');
+        await source.keyboard.press('Enter');
+        await clickAsUser(source, '.tab-new');
+        await clickAsUser(source, '.tab-list [role="tab"]:first-child');
+
+        // Recent remembers B's own zoom. A's later view restoration must not
+        // overwrite it when B replaces the incoming document in the same tab.
+        await openPdfInApp(target, replacementPath);
+        await clickAsUser(target, '#editor-global-toolbar-host .zoom-controls-display');
+        await clickAsUser(target, '.zoom-chip-custom-input', {count: 3});
+        await target.keyboard.type('80');
+        await target.keyboard.press('Enter');
+        await waitForFunctionInPage(target, () => document.querySelector('.zoom-controls-display-value')?.textContent?.trim() === '80%');
+        await clickAsUser(target, '.tab.is-active .tab-close');
+
+        // Inject the first-page raster failure through PDF.js's continuation,
+        // as in the failed-raster lane. The real viewer presents the error
+        // and ends A's open while its reload waiter awaits a ready viewport.
+        const restoreRender = await target.evaluate(async () => {
+            const pdfjs = (window as Window & {pdfjsLib?: typeof Pdfjs}).pdfjsLib;
+            if (!pdfjs) throw new Error('PDF.js is not loaded in the renderer');
+            pdfjs.GlobalWorkerOptions.workerSrc ||= new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
+            const probe = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
+            const proxy = await (await probe.promise).getPage(1);
+            const prototype = Object.getPrototypeOf(proxy) as typeof proxy;
+            await probe.destroy();
+            const render = prototype.render;
+            prototype.render = function (...args: Parameters<typeof render>) {
+                const task = render.apply(this, args);
+                if (this.pageNumber === 1) Object.defineProperty(task, 'onContinue', {
+                    configurable: true,
+                    get: () => () => {throw new Error('Transfer fixture: first-page raster failed');},
+                    set: () => {},
+                });
+                return task;
+            };
+            (window as Window & {__restoreTransferRender?: () => void}).__restoreTransferRender = () => {
+                prototype.render = render;
+            };
+            return true;
+        });
+        expect(restoreRender).toBe(true);
+        const transferFailed = Promise.withResolvers<undefined>();
+        const onTransferFailure = (message: ConsoleMessage) => {
+            if (message.text().includes('Cross-window transfer failed')) transferFailed.resolve(undefined);
+        };
+        source.on('console', onTransferFailure);
+        onTestFinished(() => {source.off('console', onTransferFailure);});
+        try {
+            const targetTitle = await target.title();
+            await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
+            await clickFoundAsUser(source, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(item => item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`)), targetTitle,
+            {description: `Move Tab to Window: ${targetTitle}`});
+            await waitForFunctionInPage(target, () => {
+                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot();
+                return toolbar?.initialVisualReady === true
+                    && document.querySelector('.pdf-page-render-error') !== null;
+            }, {timeout: 120_000});
+            expect(await source.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())))
+                .toContain('superseded-slow.pdf');
+        } finally {
+            await target.evaluate(() => (window as Window & {__restoreTransferRender?: () => void}).__restoreTransferRender?.());
+        }
+
+        // This public workspace open replaces A in its tab, rather than the
+        // shell's ordinary open dispatcher which creates another tab for B.
+        await target.evaluate(async (path: TDocumentRef) => {
+            await window.__allowRendererFileOpenForAutomation?.(path);
+        }, requireDocumentRef(replacementPath));
+        const opened = await callWorkspaceCommand(target, 'handleOpenFileDirectWithPersist', [replacementPath]);
+        expect(opened).toMatchObject({
+            called: true,
+            value: true,
+        });
+        await waitForPdfLoaded(target);
+        // Wait for the actual transfer decision before checking the copies.
+        await Promise.race([
+            transferFailed.promise,
+            waitForFunctionInPage(source, () => !Array.from(document.querySelectorAll('.tab-label'))
+                .some(tab => tab.textContent?.trim() === 'superseded-slow.pdf'), {timeout: 15_000}),
+        ]);
+        const outcome = {
+            replacement: await readView(target),
+            sourceTabs: await source.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
+            targetTabs: await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
+        };
+        console.log('SUPERSEDED_TRANSFER', JSON.stringify(outcome));
+        expect(outcome.replacement.zoomText).toBe('80%');
+        expect(outcome.sourceTabs).toContain('superseded-slow.pdf');
+        expect(outcome.targetTabs).toContain('replacement.pdf');
     }, 180_000);
 
     it('preserves page, custom zoom, and open sidebar in the destination', async () => {

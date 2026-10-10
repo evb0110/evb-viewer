@@ -18,6 +18,11 @@ import type {
 } from '@contracts/editorPanes';
 import { requirePaneId } from '@contracts/editorPanes';
 import { requireDocumentRef } from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import {useWorkspaceSplitPayload} from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
 import { requireTabId } from '@contracts/windowTabs';
 import type { IWindowTabIncomingTransfer } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
@@ -273,6 +278,164 @@ describe('window tab transfer orchestration helpers', () => {
         ]);
         expect(createdTabs).toBe(2);
     });
+
+    it.each([
+        'another document',
+        'the same file reopened',
+        'a new revision',
+        'no replacement',
+    ])(
+        'keeps view restoration and acknowledgement on the opened document with %s', async (replacement) => {
+            vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+            onTestFinished(() => {vi.unstubAllGlobals();});
+            transferAckMock.mockClear();
+            const pane = {
+                paneId: 'pane-1',
+                tabIds: ['tab-1'],
+                activeTabId: 'tab-1',
+            };
+            const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+            const a = requireDocumentRef('/docs/a.pdf');
+            const b = replacement === 'the same file reopened' ? a : requireDocumentRef('/docs/b.pdf');
+            const originalPath = ref(a);
+            const zoom = ref(0.8);
+            const aPresented = Promise.withResolvers<undefined>();
+            const finishPageRestore = Promise.withResolvers<undefined>();
+            const document = {
+                fileName: 'a.pdf',
+                originalPath: a,
+                isDjvu: false,
+                revisionInfo: {
+                    version: 1 as const,
+                    documentRef: a,
+                    authority: 'electron-working-copy' as const,
+                    token: requireDocumentRevisionToken('revision-1'),
+                    contentRevision: 1,
+                    mintedAt: requireEpochMs(1),
+                },
+            };
+            const split = useWorkspaceSplitPayload(cast({
+                originalPath,
+                totalPages: ref(12),
+                currentPage: ref(1),
+                waitForPdfReload: () => finishPageRestore.promise,
+                openFileWithViewerLifecycle: async (_result: TOpenFileResult, transactionId?: string) => {
+                    const opened = await controller.runOpen({
+                        kind: 'open',
+                        target: {originalPath: a},
+                        transactionId,
+                    }, async () => {
+                        controller.commitDocument(document);
+                        controller.markPresented();
+                        return true;
+                    });
+                    aPresented.resolve(undefined);
+                    return {status: opened ? 'opened' : 'cancelled'};
+                },
+            }));
+            let outcome: TDocumentOpenOutcome | null = null;
+            controller.attachWorkspace('tab-1', createWorkspaceExposeFixture({
+                restoreViewState: state => {zoom.value = state.zoom ?? zoom.value;},
+                restoreSplitPayload: async (...args) => {
+                    outcome = await split.restoreSplitPayload(...args);
+                    return outcome;
+                },
+            }));
+            const transfers = useWindowTabTransfers({
+                activePaneId: ref('pane-1'),
+                panes: ref([pane]),
+                tabs: ref([{id: 'tab-1'}]),
+                layout: ref(null),
+                createTab: () => {throw new Error('The incoming transfer must use the empty tab');},
+                getPaneById: () => pane,
+                getTabById: () => ({id: 'tab-1'}),
+                getPaneByTabId: () => pane,
+                activatePane: () => undefined,
+                activateTab: () => undefined,
+                removeTabFromState: () => undefined,
+                cleanupEmptyPanes: () => undefined,
+                closeTabInState: () => undefined,
+                documentSessions: cast({getSession: () => controller}),
+                workspaceRestoreTracker: {
+                    start: () => undefined,
+                    finish: () => undefined,
+                },
+                handleCloseTab: async () => undefined,
+                handoffActiveTabBeforeClose: async () => undefined,
+            });
+            const incoming = transfers.handleIncomingTabTransfer(cast({
+                transferId: 'transfer-a',
+                sourceWindowId: 2,
+                targetWindowId: 1,
+                tab: {
+                    fileName: 'a.pdf',
+                    originalPath: a,
+                    isDirty: true,
+                    isDjvu: false,
+                },
+                payload: {
+                    kind: 'pdfSnapshot',
+                    snapshotPath: a,
+                    originalPath: a,
+                    isDirty: true,
+                    currentPage: 6,
+                    viewState: {
+                        zoom: 2,
+                        effectiveZoom: 2,
+                        zoomMode: 'custom',
+                        viewMode: 'single',
+                        viewRotation: 0,
+                        showSidebar: false,
+                        continuousScroll: true,
+                    },
+                },
+            }));
+            // B can claim its open before A's open wrapper has even returned,
+            // or replace its revision while A is waiting for page placement.
+            await aPresented.promise;
+            if (replacement === 'a new revision') {
+                controller.commitDocument({
+                    ...document,
+                    revisionInfo: {
+                        ...document.revisionInfo,
+                        token: requireDocumentRevisionToken('revision-2'),
+                        contentRevision: 2,
+                    },
+                });
+            } else if (replacement !== 'no replacement') {
+                await controller.runOpen({
+                    kind: 'open',
+                    target: {originalPath: b},
+                }, async () => {
+                    originalPath.value = b;
+                    controller.commitDocument({
+                        ...document,
+                        originalPath: b,
+                        revisionInfo: null,
+                    });
+                    controller.markPresented();
+                    return true;
+                });
+            }
+            finishPageRestore.resolve(undefined);
+            await incoming;
+            const superseded = replacement !== 'no replacement';
+            expect(zoom.value).toBe(superseded ? 0.8 : 2);
+            expect(outcome).toMatchObject({status: superseded ? 'cancelled' : 'opened'});
+            expect(controller.snapshot.value.identity.originalPath).toBe(
+                replacement === 'another document' ? b : a,
+            );
+            expect(originalPath.value).toBe(replacement === 'another document' ? b : a);
+            expect(transferAckMock.mock.calls.map(([ack]) => ({
+                transferId: ack.transferId,
+                success: ack.success,
+            })))
+                .toEqual([{
+                    transferId: 'transfer-a',
+                    success: !superseded,
+                }]);
+        },
+    );
 
     // Sweep #845 item 9: Merge This Window Into captures every tab without
     // activating it. Two linked views of one document each go at their own page.
