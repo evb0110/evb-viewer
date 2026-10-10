@@ -1820,13 +1820,16 @@ fn append_source_annotations(
     let annotations = source.dereference(annots)?.1.as_array()?;
     let view = instruction
         .filter_to_output_page
-        .then(|| resolve_page_view(target, target_page_id))
+        .then(|| match instruction.source_region {
+            Some(region) => crate::split_pages::validate_crop_rect(region.rect),
+            None => resolve_page_view(target, target_page_id),
+        })
         .transpose()?;
     let mut copied = HashMap::from([(source_page_id, target_page_id)]);
     let mut output = Vec::new();
-    for annotation in annotations {
-        let (_, object) = source.dereference(annotation)?;
-        let geometry = object.as_dict()?.clone();
+    for (annotation, geometry) in annotations.iter().filter_map(|annotation| {
+        resolved_dictionary(source, annotation).map(|geometry| (annotation, geometry))
+    }) {
         // Replies and popup windows follow their owner's placement, even when
         // their own window rectangle lies on the other half of a split.
         let owner = geometry
@@ -1834,21 +1837,17 @@ fn append_source_annotations(
             .or_else(|_| geometry.get(b"Parent"))
             .ok()
             .and_then(|owner| resolved_dictionary(source, owner))
-            .unwrap_or(&geometry);
+            .unwrap_or(geometry);
         if let Some(view) = view {
             if let Some(rect) = read_pdf_rect_from_dict(source, owner) {
-                let (rect, view) = if let Some(region) = instruction.source_region {
-                    (
-                        TextMatrix::from_values(region.matrix).bounds(rect),
-                        crate::split_pages::validate_crop_rect(region.rect)?,
-                    )
-                } else {
-                    (
-                        TextMatrix::from_values(instruction.matrix).bounds(rect),
-                        view,
-                    )
-                };
-                let subtype = resolved_name(source, geometry.get(b"Subtype")?);
+                let rect = TextMatrix::from_values(
+                    instruction
+                        .source_region
+                        .map_or(instruction.matrix, |region| region.matrix),
+                )
+                .bounds(rect);
+                let subtype =
+                    resolved_name(source, geometry.get(b"Subtype").unwrap_or(&Object::Null));
                 let belongs = if matches!(subtype, Some(b"Text" | b"Popup")) {
                     let x = (rect.x1 + rect.x2) / 2.0;
                     let y = (rect.y1 + rect.y2) / 2.0;

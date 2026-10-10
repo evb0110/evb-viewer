@@ -11,16 +11,14 @@ import type {
     IScanCleanupPagePlanEvidence,
     IScanCleanupSourcePageMetadata,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import type {
-    IScanCleanupPlacementAnchorSample,
-    TScanCleanupPlacementAnchorsByPage,
-} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
     SCAN_CLEANUP_OUTPUT_HALVES,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
+    type IScanCleanupPlacementAnchorSample,
+    type TScanCleanupPlacementAnchorsByPage,
     resolveScanCleanupPlacementAnchors,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
     usesScanCleanupInkAlignment,

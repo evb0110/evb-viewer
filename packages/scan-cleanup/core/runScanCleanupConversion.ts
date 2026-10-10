@@ -43,7 +43,10 @@ import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { isRecord } from '@contracts/runtimeGuards';
 import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {resolveScanCleanupOutputPlacement} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {
+    resolveScanCleanupOutputPlacement,
+    usesScanCleanupInkAlignment,
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     resolveScanCleanupPlacementAnchorFromSummary,
     resolveScanCleanupSheetHeightPoints,
@@ -326,24 +329,6 @@ function resolvePageRasterSource(
     return source;
 }
 
-function scanCleanupUsesInkPlacement(
-    options: IRunScanCleanupPipelineRequest['options'],
-) {
-    if (!options.matchPageSize) {
-        return false;
-    }
-    if (options.pageAlignment === 'ink') {
-        return true;
-    }
-    if (Object.values(options.pageOverrideDefaults?.placementOverrides ?? {})
-        .some(alignment => alignment === 'ink')) {
-        return true;
-    }
-    return Object.values(options.pageOverrides).some(override => Object
-        .values(override.placementOverrides ?? {})
-        .some(alignment => alignment === 'ink'));
-}
-
 function assertScanCleanupInkAnchorCapacity(
     pageCount: number,
     options: IRunScanCleanupPipelineRequest['options'],
@@ -351,7 +336,7 @@ function assertScanCleanupInkAnchorCapacity(
 ) {
     if (
         pageCount > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES
-        && scanCleanupUsesInkPlacement(options)
+        && usesScanCleanupInkAlignment(options)
         && placementAnchorSummary === undefined
     ) {
         throw new ScanCleanupTooLargeError();
@@ -3378,6 +3363,7 @@ async function executeScanCleanupBatch({
         dependencies,
         provenanceStampHex,
         textLayerPlan,
+        onRecoveryPending,
     );
     if (textLayerPlan.skippedNonAffine.length > 0) {
         log(

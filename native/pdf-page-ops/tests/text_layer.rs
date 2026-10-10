@@ -2159,3 +2159,146 @@ fn overlay_preserves_editable_text_box_geometry_and_refuses_unrepresentable_affi
         remove_file(file).unwrap();
     }
 }
+
+fn assert_overlay_accepts_annotation_entries(entries: &[Object]) {
+    for malformed in entries {
+        let source = path("unreadable-annotation-source", "pdf");
+        let input = path("unreadable-annotation-input", "pdf");
+        let output = path("unreadable-annotation-output", "pdf");
+        let instructions = path("unreadable-annotation-plan", "json");
+        let mut doc = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = doc.get_pages()[&1];
+        let good = doc.add_object(dictionary! {"Type"=>"Annot", "Subtype"=>"Text", "P"=>page,
+            "Rect"=>vec![30.into(),30.into(),40.into(),40.into()], "Contents"=>Object::string_literal("valid note")});
+        doc.get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![malformed.clone(), Object::Reference(good)]);
+        doc.save(&source).unwrap();
+        save_empty_pages(&input, 1);
+        write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,5,7],"filterToOutputPage":true}]}"#).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let annots = saved
+            .get_dictionary(saved.get_pages()[&1])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let note = annots
+            .iter()
+            .map(|a| saved.dereference(a).unwrap().1.as_dict().unwrap())
+            .find(|a| a.get(b"Contents").is_ok())
+            .unwrap();
+        assert_eq!(
+            note.get(b"Contents").unwrap().as_str().unwrap(),
+            b"valid note"
+        );
+        assert_eq!(
+            note.get(b"Rect")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|n| n.as_float().unwrap())
+                .collect::<Vec<_>>(),
+            vec![35., 37., 45., 47.]
+        );
+        for file in [source, input, output, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_skips_unreadable_annotation_entries() {
+    assert_overlay_accepts_annotation_entries(&[
+        Object::Reference((999_999, 0)),
+        Object::Integer(42),
+    ]);
+}
+
+#[test]
+fn overlay_accepts_a_missing_annotation_subtype() {
+    assert_overlay_accepts_annotation_entries(&[Object::Dictionary(
+        dictionary! {"Rect"=>vec![10.into(),10.into(),20.into(),20.into()]},
+    )]);
+}
+
+#[test]
+fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
+    let blank = path("missing-rotation-blank", "pdf");
+    let source = path("missing-rotation-source", "pdf");
+    let output = path("missing-rotation-output", "pdf");
+    let mutations = path("missing-rotation-mutations", "json");
+    save_empty_pages(&blank, 1);
+    write(&mutations, r#"{"textBoxes":[{"pageIndex":0,"stableKey":"rotation-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
+    run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
+    let original = Document::load(&source).unwrap();
+    let id = original
+        .get_dictionary(original.get_pages()[&1])
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .as_reference()
+        .unwrap();
+    write(
+        &mutations,
+        serde_json::to_vec(&serde_json::json!({"geometryUpdates":[{
+            "objectNumber":id.0,"generationNumber":id.1,"pageIndex":0,
+            "markerRect":{"left":0.1,"top":0.625,"width":0.2,"height":0.125}
+        }]}))
+        .unwrap(),
+    )
+    .unwrap();
+    for invalid in [false, true] {
+        let mut doc = original.clone();
+        if invalid {
+            doc.get_dictionary_mut(id)
+                .unwrap()
+                .set("Rotate", Object::string_literal("invalid"));
+        } else {
+            doc.get_dictionary_mut(id).unwrap().remove(b"Rotate");
+        }
+        doc.save(&source).unwrap();
+        fs::copy(&source, &output).unwrap();
+        let previous = fs::read(&output).unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .arg("save-mutations")
+            .arg("--input")
+            .arg(&source)
+            .arg("--output")
+            .arg(&output)
+            .arg("--mutations-file")
+            .arg(&mutations)
+            .args(["--append", "--modified-at", "D:19700101000000Z"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            result.status.success(),
+            !invalid,
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        if invalid {
+            assert_eq!(fs::read(&output).unwrap(), previous);
+        } else {
+            assert!(Document::load(&output)
+                .unwrap()
+                .get_dictionary(id)
+                .unwrap()
+                .get(b"EVBTextGeometry")
+                .is_ok());
+        }
+    }
+    for file in [blank, source, output, mutations] {
+        remove_file(file).unwrap();
+    }
+}

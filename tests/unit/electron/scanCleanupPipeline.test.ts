@@ -242,7 +242,15 @@ async function setup() {
 
 // These conversion controls are rasters; the native read must not write an
 // assembler output or invent positioned source text on their refused pages.
-async function rasterTextVisibilityResult(args: readonly string[]) {
+async function rasterSourceInspectionResult(args: readonly string[]) {
+    if (args[0] === '--empty') {
+        await writeFile(args.at(-1)!, await readFile(args[args.indexOf('--pages') + 1]!));
+        return {
+            exitCode: 0,
+            stderr: '',
+            stdout: '',
+        };
+    }
     if (args[0] === 'parse-annotations') {
         await writeFile(args[args.indexOf('--output') + 1]!, `${JSON.stringify({
             format: 'evb-pdf-annotation-parse',
@@ -364,7 +372,7 @@ function dependencies(
         getAvailableScratchBytes: vi.fn(async () => null),
         hashNativeBinary: vi.fn(async (path: string) => createHash('sha256').update(path, 'utf8').digest('hex')),
         runCommand: vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -596,7 +604,7 @@ async function measurePipelineRasterPeak(
         ));
     }
     pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-        const visibility = await rasterTextVisibilityResult(args);
+        const visibility = await rasterSourceInspectionResult(args);
         if (visibility) return visibility;
         if (args[0] === '--check') {
             return {
@@ -668,6 +676,89 @@ afterEach(async () => {
 });
 
 describe('scan cleanup pipeline', () => {
+    it('checks only refused source pages and reports their original page number', async () => {
+        const {
+            PDFDocument, PDFName,
+        } = await import('pdf-lib');
+        const fixture = await setup();
+        const source = await PDFDocument.create();
+        for (let index = 0; index < 100; index += 1) source.addPage([
+            200,
+            120,
+        ]);
+        const page = source.getPage(72);
+        page.node.set(PDFName.of('Annots'), source.context.obj([source.context.register(source.context.obj({
+            Type: 'Annot',
+            Subtype: 'Text',
+            Rect: [
+                10,
+                10,
+                20,
+                20,
+            ],
+            P: page.ref,
+        }))]));
+        await writeFile(fixture.sourcePdfPath, await source.save());
+        const raster = join(fixture.dir, 'rasterized.pdf');
+        const staged = join(fixture.dir, 'staged.pdf');
+        await writeFile(raster, 'unpublished raster');
+        const inspectedPageCounts: number[] = [];
+        const deps = dependencies(vi.fn());
+        deps.runCommand = async (_binary, args) => {
+            if (args[0] === '--empty') {
+                const subset = await PDFDocument.create();
+                const original = await PDFDocument.load(await readFile(args[args.indexOf('--pages') + 1]!));
+                const selected = args[args.indexOf('--pages') + 2]!.split(',').map(value => Number(value) - 1);
+                for (const selectedPage of await subset.copyPages(original, selected)) subset.addPage(selectedPage);
+                await writeFile(args.at(-1)!, await subset.save());
+            } else if (args[0] === 'parse-annotations') {
+                const parsed = await PDFDocument.load(await readFile(args[args.indexOf('--input') + 1]!));
+                inspectedPageCounts.push(parsed.getPageCount());
+                const entries = parsed.getPages().flatMap((candidate, pageIndex) => candidate.node.Annots() === undefined ? [] : [{
+                    kind: 'foreign',
+                    pageIndex,
+                    objectNumber: 1,
+                    generationNumber: 0,
+                    name: 'source-annotation',
+                    subtype: 'Text',
+                    reason: 'foreign note',
+                }]);
+                await writeFile(args[args.indexOf('--output') + 1]!, [
+                    {
+                        format: 'evb-pdf-annotation-parse',
+                        schemaVersion: 1,
+                        pageCount: parsed.getPageCount(),
+                        chunkBytes: 4 * 1024 * 1024,
+                    },
+                    {
+                        chunkIndex: 0,
+                        entries,
+                    },
+                ].map(value => JSON.stringify(value)).join('\n') + '\n');
+            }
+            return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
+        };
+        await expect(assembleWithCompactSourcePages(
+            [], pipelinePaths(fixture.dir), fixture.sourcePdfPath, raster, staged,
+            fixture.dir, new AbortController().signal, vi.fn(), deps, undefined,
+            {
+                pages: [],
+                skippedNonAffine: [
+                    5,
+                    73,
+                ],
+                alreadyPreserved: [],
+            },
+        )).rejects.toThrow('Cannot preserve annotations on source page 73 without affine cleanup geometry');
+        expect(inspectedPageCounts).toEqual([2]);
+        await expect(stat(staged)).rejects.toMatchObject({code: 'ENOENT'});
+        expect(await readFile(raster, 'utf8')).toBe('unpublished raster');
+    });
+
     it.each([
         'Text',
         'Ink',
@@ -678,6 +769,11 @@ describe('scan cleanup pipeline', () => {
         await writeFile(raster, 'unpublished raster');
         const deps = dependencies(vi.fn());
         deps.runCommand = async (_binary, args) => {
+            if (args[0] === '--empty') return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
             await writeFile(args[args.indexOf('--output') + 1]!, [
                 {
                     format: 'evb-pdf-annotation-parse',
@@ -1349,7 +1445,7 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -1578,7 +1674,7 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -1781,7 +1877,7 @@ describe('scan cleanup pipeline', () => {
             },
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -2213,7 +2309,7 @@ describe('scan cleanup pipeline', () => {
         );
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -2338,7 +2434,7 @@ describe('scan cleanup pipeline', () => {
             await writeFile(outputPath, PPM);
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -2491,7 +2587,7 @@ describe('scan cleanup pipeline', () => {
             ]),
         ));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -2587,7 +2683,7 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -2696,7 +2792,7 @@ describe('scan cleanup pipeline', () => {
         const pdfimagesDetector = pipelineDependencies.detectSourceDpi;
         const baseRunCommand = pipelineDependencies.runCommand;
         pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -2808,7 +2904,7 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -2974,7 +3070,7 @@ describe('scan cleanup pipeline', () => {
         const baseRunCommand = pipelineDependencies.runCommand;
         let stagedPdfPath: string | undefined;
         pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 stagedPdfPath = args[1];
@@ -3062,7 +3158,7 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -3235,7 +3331,7 @@ describe('scan cleanup pipeline', () => {
             return layers;
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -3430,7 +3526,7 @@ describe('scan cleanup pipeline', () => {
             return layers;
         });
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -3591,7 +3687,7 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -3696,7 +3792,7 @@ describe('scan cleanup pipeline', () => {
             ],
         ]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -3947,7 +4043,7 @@ describe('scan cleanup pipeline', () => {
             }
         }));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -4120,7 +4216,7 @@ describe('scan cleanup pipeline', () => {
             300,
         ]]));
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -4199,7 +4295,7 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -4320,7 +4416,7 @@ describe('scan cleanup pipeline', () => {
             if (breakPageOps) {
                 const baseRunCommand = pipelineDependencies.runCommand;
                 pipelineDependencies.runCommand = vi.fn(async (command, args, commandOptions) => {
-                    const visibility = await rasterTextVisibilityResult(args);
+                    const visibility = await rasterSourceInspectionResult(args);
                     if (visibility) return visibility;
                     if (args[0] === '--check') {
                         return {
@@ -4452,7 +4548,7 @@ describe('scan cleanup pipeline', () => {
             pipelineDependencies.detectSourceDpi = scopedDetector(pageGeometry, sourceDpiByPage);
         }
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {
@@ -4980,7 +5076,7 @@ describe('scan cleanup pipeline', () => {
         });
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
-            const visibility = await rasterTextVisibilityResult(args);
+            const visibility = await rasterSourceInspectionResult(args);
             if (visibility) return visibility;
             if (args[0] === '--check') {
                 return {

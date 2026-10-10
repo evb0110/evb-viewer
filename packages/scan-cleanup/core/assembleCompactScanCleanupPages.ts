@@ -27,6 +27,7 @@ import type {
     IRunScanCleanupPipelineDependencies,
     IRunScanCleanupPipelineRequest,
     IScanCleanupWorkerPaths,
+    IScanCleanupRunCommandOptions,
 } from '@evb/scan-cleanup/core/types';
 import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix';
 import {
@@ -215,16 +216,32 @@ async function assertSourceAnnotationsHaveGeometry(
     signal: AbortSignal,
     log: TScanCleanupLog,
     dependencies: IRunScanCleanupPipelineDependencies,
+    onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
     if (pages.length === 0) return;
     if (!paths.pdfPageOpsBinary || isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
+    const sourcePagesPath = join(scratch, 'source-annotation-pages.pdf');
+    await dependencies.runCommand(paths.qpdfBinary, [
+        '--empty',
+        '--pages',
+        preparedPdfPath,
+        pages.join(','),
+        '--',
+        sourcePagesPath,
+    ], {
+        signal,
+        log,
+        ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
+        commandLabel: 'qpdf(scan-cleanup:refused-annotation-pages)',
+        timeoutMs: 10 * 60 * 1000,
+    });
     const sidecarPath = join(scratch, 'source-annotations.jsonl');
     await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'parse-annotations',
         '--input',
-        preparedPdfPath,
+        sourcePagesPath,
         '--qpdf',
         paths.qpdfBinary,
         '--output',
@@ -236,8 +253,8 @@ async function assertSourceAnnotationsHaveGeometry(
         commandLabel: 'evb-pdf-page-ops(parse-annotations:scan-cleanup)',
         timeoutMs: 10 * 60 * 1000,
         log,
+        ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
     });
-    const refusedPages = new Set(pages);
     const source = createReadStream(sidecarPath, {signal});
     let protocolError: Error | undefined;
     const protocol = createScanCleanupSidecarProtocolHandler({
@@ -266,12 +283,12 @@ async function assertSourceAnnotationsHaveGeometry(
             expectedChunkIndex += 1;
             for (const entry of value.entries) {
                 const annotation = v.parse(PDF_ANNOTATION_PARSE_ENTRY_SCHEMA, entry);
-                if (refusedPages.has(annotation.pageIndex + 1)) {
-                    throw new ScanCleanupContractError(
-                        `Cannot preserve annotations on source page ${String(annotation.pageIndex + 1)} `
-                        + 'without affine cleanup geometry. Disable dewarping or preserve original quality.',
-                    );
-                }
+                const pageNumber = pages[annotation.pageIndex];
+                if (pageNumber === undefined) throw new ScanCleanupContractError('Invalid source annotation page index');
+                throw new ScanCleanupContractError(
+                    `Cannot preserve annotations on source page ${String(pageNumber)} `
+                    + 'without affine cleanup geometry. Disable dewarping or preserve original quality.',
+                );
             }
         }
         if (protocolError) throw protocolError;
@@ -294,9 +311,10 @@ export async function assembleWithCompactSourcePages(
     dependencies: IRunScanCleanupPipelineDependencies,
     provenanceStampHex: string | undefined,
     textLayerPlan: IScanCleanupTextLayerPlan,
+    onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
     await assertSourceAnnotationsHaveGeometry(
-        textLayerPlan.skippedNonAffine, paths, preparedPdfPath, scratch, signal, log, dependencies,
+        textLayerPlan.skippedNonAffine, paths, preparedPdfPath, scratch, signal, log, dependencies, onTerminationProof,
     );
     const preservedPages = outputPages.flatMap(output => (
         output.preservedSource === undefined ? [] : [output.preservedSource]
@@ -340,6 +358,7 @@ export async function assembleWithCompactSourcePages(
             commandLabel: 'evb-pdf-page-ops(split-pages:compact-scan-cleanup-pages)',
             timeoutMs: 10 * 60 * 1000,
             log,
+            ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
         });
 
         const qpdfArgs = [
@@ -387,6 +406,7 @@ export async function assembleWithCompactSourcePages(
             commandLabel: 'qpdf(scan-cleanup:retain-compact-source-pages)',
             timeoutMs: 10 * 60 * 1000,
             log,
+            ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
         });
         log(
             'debug',
@@ -421,6 +441,7 @@ export async function assembleWithCompactSourcePages(
             commandLabel: 'evb-pdf-page-ops(overlay-text:scan-cleanup)',
             timeoutMs: 10 * 60 * 1000,
             log,
+            ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
         });
         await rename(textLayerPdfPath, stagedPdfPath);
         log(
