@@ -5,6 +5,130 @@ use evb_scan_cleanup::{
 use std::{fs, path::Path};
 
 #[test]
+fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() {
+    use evb_scan_cleanup::{engine::render::clean_page, LayoutMode};
+    use scan_primitives::GrayImage;
+
+    // Issue #1338's full-size 300 DPI title page, including the scanner blur.
+    let blur = |source: &GrayImage| {
+        let kernel = [1u32, 4, 6, 4, 1];
+        let mut horizontal = vec![0u32; source.width() * source.height()];
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                horizontal[y * source.width() + x] = kernel
+                    .iter()
+                    .enumerate()
+                    .map(|(i, weight)| {
+                        let column = (x + i).saturating_sub(2).min(source.width() - 1);
+                        weight * u32::from(source.get(column, y))
+                    })
+                    .sum();
+            }
+        }
+        let mut output = source.clone();
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                let sum: u32 = kernel
+                    .iter()
+                    .enumerate()
+                    .map(|(i, weight)| {
+                        let row = (y + i).saturating_sub(2).min(source.height() - 1);
+                        weight * horizontal[row * source.width() + x]
+                    })
+                    .sum();
+                output.set(x, y, ((sum + 128) / 256) as u8);
+            }
+        }
+        output
+    };
+    let mut print = GrayImage::new(1700, 2400, 224);
+    for (top, glyphs) in [(600, 8), (900, 6), (1200, 9)] {
+        for glyph in 0..glyphs {
+            let left = 300 + glyph * 120;
+            for y in top..top + 90 {
+                for x in left..left + 70 {
+                    if x < left + 14 || x >= left + 56 || y < top + 12 {
+                        print.set(x, y, 40);
+                    }
+                }
+            }
+        }
+    }
+    let options = CleanupOptions {
+        dpi: 300.0,
+        output_mode: OutputMode::Auto,
+        layout: LayoutMode::Single,
+        crop_content: false,
+        match_page_size: false,
+        margins_mm: None,
+        ..CleanupOptions::default()
+    };
+    for value in [190, 175, 160] {
+        let mut page = print.clone();
+        for x in 1150..=1530 {
+            let y = (940.0 + 40.0 * ((x - 1150) as f64 * 18.0 / 380.0).sin()).round() as usize;
+            for row in y - 1..=y + 1 {
+                page.set(x, row, value);
+            }
+        }
+        let page = blur(&page);
+        let note_depth = (895..986)
+            .flat_map(|y| (1150..=1530).map(move |x| (x, y)))
+            .map(|(x, y)| 224 - page.get(x, y))
+            .max()
+            .unwrap();
+        let cleaned = clean_page(&page, &options, 0).unwrap();
+        let output = &cleaned.outputs[0].image;
+        let kept_columns = (1150..=1530)
+            .filter(|&x| (895..986).any(|y| output.get(x, y) < 250))
+            .count();
+        assert_eq!(
+            kept_columns, 381,
+            "pencil value {value}: only {kept_columns} of 381 columns survived"
+        );
+        assert!(output.get(306, 640) < 60, "dark print lost its tone");
+        assert_eq!(output.get(1400, 1400), 255, "unmarked paper stayed gray");
+
+        // Disconnected reverse-side glyphs at the same depth, mirrored and
+        // blurred twice, must not borrow continuity across their paper gaps.
+        let mut verso = GrayImage::new(1700, 2400, 224);
+        for row in 0..5 {
+            for glyph in 0..10 {
+                let left = 150 + glyph * 38;
+                let top = 1450 + row * 55;
+                for y in top..top + 30 {
+                    for x in left..left + 18 {
+                        if x < left + 3 || y < top + 3 || (top + 14..top + 17).contains(&y) {
+                            verso.set(1699 - x, y, value);
+                        }
+                    }
+                }
+            }
+        }
+        let verso = blur(&blur(&verso));
+        let verso_depth = 224 - verso.data().iter().min().unwrap();
+        let mut control = blur(&print);
+        for (ink, &back) in control.data_mut().iter_mut().zip(verso.data()) {
+            let depth = (u32::from(224 - back) * u32::from(note_depth)
+                + u32::from(verso_depth) / 2)
+                / u32::from(verso_depth);
+            *ink = (*ink).min(224 - depth as u8);
+        }
+        let cleaned = clean_page(&control, &options, 0).unwrap();
+        let output = &cleaned.outputs[0].image;
+        assert!(
+            output.bilevel().is_some(),
+            "verso value {value} made Auto grayscale"
+        );
+        let remaining = (1440..1710)
+            .flat_map(|y| (1140..1555).map(move |x| (x, y)))
+            .filter(|&(x, y)| output.get(x, y) < 250)
+            .count();
+        assert_eq!(remaining, 0, "verso value {value} left {remaining} pixels");
+    }
+}
+
+#[test]
 fn luther_low_resolution_scans_keep_soft_text_in_grayscale() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/split");
     let mut recommendations = Vec::new();
