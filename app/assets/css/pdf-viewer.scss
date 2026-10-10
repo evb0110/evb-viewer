@@ -779,6 +779,10 @@
 }
 
 
+/* A hidden page parks wholly left of the scroll origin, which no scroll
+ * position reaches. A fixed offset is not enough: zoom makes a page wider
+ * than any offset, and a reader that hit-tests page boxes, such as the zoom
+ * anchor or crop selection, would then find the hidden page under the view. */
 .pdfViewer .page_container--buffered {
     position: absolute;
     top: 0;
@@ -786,7 +790,7 @@
     margin: 0;
     visibility: hidden;
     pointer-events: none;
-    transform: translateX(-200vw);
+    transform: translateX(calc(-100% - 100vw));
 }
 
 /* Paged fit-height navigation owns the vertical page transition. Buffered
