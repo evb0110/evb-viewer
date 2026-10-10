@@ -1,3 +1,8 @@
+import {createCanvas as createRasterCanvas} from '@napi-rs/canvas';
+import {
+    PDFDocument, degrees,
+} from 'pdf-lib';
+import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
     afterEach,
     describe,
@@ -9,9 +14,7 @@ import {
     ref,
     type Ref,
 } from 'vue';
-import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { usePdfCanvasRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer';
-import {cast} from '@tests/helpers/cast';
 
 vi.mock('@app/services/pdfjs/runtimeLib', () => ({ AnnotationMode: {
     DISABLE: 0,
@@ -93,67 +96,117 @@ async function renderScenario({
     };
 }
 
+async function renderedAppearancePixels({
+    contentIntent = 'full-visible', projectionReady = true, flags = 16, subtype = 'FreeText', hidden = false,
+}: {
+    contentIntent?: 'full-visible' | 'canvas-only-buffer' | 'canvas-only-refine';
+    projectionReady?: boolean;
+    flags?: number;
+    subtype?: string;
+    hidden?: boolean;
+} = {}) {
+    const canvas = Object.assign(createRasterCanvas(1, 1), {
+        style: {},
+        remove: () => {},
+    });
+    (globalThis as Record<string, unknown>).document = {createElement: () => canvas};
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([
+        200,
+        100,
+    ]);
+    page.setRotation(degrees(90));
+    const appearance = pdf.context.register(pdf.context.stream('0 0 1 rg 0 0 80 20 re f', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [
+            0,
+            0,
+            80,
+            20,
+        ],
+    }));
+    page.node.set(pdf.context.obj('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+        Type: 'Annot',
+        Subtype: subtype,
+        Rect: [
+            20,
+            20,
+            100,
+            40,
+        ],
+        F: flags,
+        AP: {N: appearance},
+        P: page.ref,
+        ...(subtype === 'Widget' ? {FT: 'Tx'} : {}),
+    }))]));
+    const loading = getDocument({data: await pdf.save()});
+    try {
+        const document = await loading.promise;
+        const pdfPage = await document.getPage(1);
+        const [annotation] = await pdfPage.getAnnotations();
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 1,
+            annotationProjectionReady: ref(projectionReady),
+        });
+        await renderer.renderCanvas(pdfPage as never, 1, {
+            contentIntent,
+            ...(hidden ? {hiddenAnnotationIds: new Set([annotation!.id])} : {}),
+        });
+        const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+        let bluePixels = 0;
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+            if (pixels[offset] === 0 && pixels[offset + 1] === 0 && pixels[offset + 2] === 255) bluePixels += 1;
+        }
+        return bluePixels;
+    } finally {
+        await loading.destroy();
+    }
+}
+
 describe('usePdfCanvasRenderer', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         delete (globalThis as Record<string, unknown>).document;
     });
 
-    it('requests separate annotation canvases for appearance-backed annotations', async () => {
-        const {
-            canvas,
-            pdfPage,
-            result,
-        } = await renderScenario();
-
-        expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1,
-            annotationCanvasMap: expect.any(Map),
-            canvas,
-        }));
-        expect(result?.annotationCanvasMap).toBeInstanceOf(Map);
+    it.each([
+        {
+            contentIntent: 'full-visible' as const,
+            projectionReady: false,
+            flags: 0,
+            subtype: 'FreeText',
+        },
+        {
+            contentIntent: 'full-visible' as const,
+            projectionReady: true,
+            flags: 16,
+            subtype: 'FreeText',
+        },
+        {
+            contentIntent: 'canvas-only-buffer' as const,
+            projectionReady: true,
+            flags: 16,
+            subtype: 'FreeText',
+        },
+        {
+            contentIntent: 'canvas-only-refine' as const,
+            projectionReady: true,
+            flags: 16,
+            subtype: 'FreeText',
+        },
+        {
+            contentIntent: 'full-visible' as const,
+            projectionReady: true,
+            flags: 4,
+            subtype: 'Widget',
+        },
+    ])('keeps $subtype appearance pixels in $contentIntent (ready=$projectionReady, flags=$flags)', async (scenario) => {
+        expect(await renderedAppearancePixels(scenario)).toBeGreaterThan(100);
     });
 
-    it('renders canvas-only buffers with filtered foreign annotation appearances', async () => {
-        const { canvas } = installCanvasDocument();
-        const pdfPage = createPdfPage({ getOperatorList: vi.fn() });
-        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
-        const result = await renderer.renderCanvas(pdfPage as never, 1, {
-            contentIntent: 'canvas-only-buffer',
-            hiddenAnnotationIds: new Set(['hidden']),
-        });
-
-        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
-        expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode.ENABLE_FORMS,
-            hiddenAnnotationIds: new Set(['hidden']),
-            canvas,
-        }));
-        // Vitest records PDF.js render options as an untyped mock argument.
-        const renderContext = pdfPage.render.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
-        expect(renderContext).not.toHaveProperty('annotationCanvasMap');
-        expect(result?.annotationCanvasMap).toBeNull();
-    });
-
-    it('disables annotation appearances while the canonical projection is pending', async () => {
-        const { canvas } = installCanvasDocument();
-        const annotationProjectionReady = ref(false);
-        const pdfPage = createPdfPage({ getOperatorList: vi.fn() });
-        const renderer = usePdfCanvasRenderer({
-            outputScale: 1,
-            annotationProjectionReady,
-        });
-
-        const result = await renderer.renderCanvas(pdfPage as never, 1);
-
-        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
-        expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode.DISABLE,
-            canvas,
-        }));
-        const renderContext = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls)[0]?.[0];
-        expect(renderContext).not.toHaveProperty('annotationCanvasMap');
-        expect(result?.annotationCanvasMap).toBeNull();
+    it('leaves an owned annotation out of the page raster', async () => {
+        expect(await renderedAppearancePixels({hidden: true})).toBe(0);
     });
 
     it('applies the settled-render default canvas pixel budget', async () => {
@@ -324,20 +377,11 @@ describe('usePdfCanvasRenderer', () => {
 
     it('cleans prepared canvases when renderCanvas fails before mounting', async () => {
         const { canvas } = installCanvasDocument();
-        const annotationCanvas = {
-            width: 32,
-            height: 16,
-            style: {} as CSSStyleDeclaration,
-            remove: vi.fn(),
-        };
         const renderError = new Error('cancelled');
-        const pdfPage = createPdfPage({render: vi.fn((context: { annotationCanvasMap: Map<string, HTMLCanvasElement>; }) => {
-            context.annotationCanvasMap.set('annotation-1', annotationCanvas as never);
-            return {
-                cancel: vi.fn(),
-                promise: Promise.reject(renderError),
-            };
-        })});
+        const pdfPage = createPdfPage({render: vi.fn(() => ({
+            cancel: vi.fn(),
+            promise: Promise.reject(renderError),
+        }))});
 
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
 
@@ -350,43 +394,6 @@ describe('usePdfCanvasRenderer', () => {
             0,
         ]);
         expect(canvas.remove).toHaveBeenCalled();
-        expect([
-            annotationCanvas.width,
-            annotationCanvas.height,
-        ]).toEqual([
-            0,
-            0,
-        ]);
-        expect(annotationCanvas.remove).toHaveBeenCalled();
-    });
-
-    // PDF.js matches hiddenAnnotationIds against the ids getAnnotations()
-    // reports, so every form the store holds reaches it in that one form.
-    it('asks PDF.js to leave the hidden annotations out, in its own id form', async () => {
-        installCanvasDocument();
-        const pdfPage = createPdfPage({render: vi.fn(() => ({
-            cancel: vi.fn(),
-            promise: Promise.resolve(),
-        }))});
-        const renderer = usePdfCanvasRenderer({ outputScale: 1 });
-
-        await renderer.renderCanvas(pdfPage as never, 1, {hiddenAnnotationIds: new Set([
-            '12R0',
-            '7 0 R',
-            '',
-        ])});
-        await renderer.renderCanvas(pdfPage as never, 1, {hiddenAnnotationIds: new Set()});
-
-        expect(pdfPage.render).toHaveBeenCalledTimes(2);
-        const renderContexts = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls);
-        expect(renderContexts[0]?.[0]).toEqual(expect.objectContaining({
-            annotationMode: AnnotationMode.ENABLE_FORMS,
-            hiddenAnnotationIds: new Set([
-                '12R',
-                '7R',
-            ]),
-        }));
-        expect(renderContexts[1]?.[0]).not.toHaveProperty('hiddenAnnotationIds');
     });
 
     it('does not allocate a canvas when preparation is aborted', async () => {
