@@ -718,7 +718,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         })));
         await expect(readFile(sourcePath)).resolves.toEqual(sourceBeforeBytes);
 
-        // A fresh session opens the copy and paints its first page.
+        // A fresh session opens the copy and paints both pages.
         await session.stop();
         session = await startElectronE2ESession(`e2e-optimize-as-copy-reopen-${Date.now()}`, {
             clean: true,
@@ -726,20 +726,34 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         });
         await waitForOpenedPdf(session.page, destinationPath);
         expect(await getWorkspaceToolbarSnapshot(session.page)).toMatchObject({totalPages: 2});
-        await session.page.waitForFunction((selector) => {
-            const canvas = document.querySelector<HTMLCanvasElement>(selector);
-            const context = canvas && canvas.width > 0 && canvas.height > 0
-                ? canvas.getContext('2d', {willReadFrequently: true})
-                : null;
-            if (!canvas || !context) return false;
-            const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
-            for (let index = 0; index < data.length; index += 4) {
-                if ((data[index] ?? 255) < 128 && (data[index + 1] ?? 255) < 128 && (data[index + 2] ?? 255) < 128) {
-                    return true;
-                }
+        for (const pageNumber of [
+            1,
+            2,
+        ]) {
+            if (pageNumber === 2) {
+                await clickVisibleToolbarButton(session.page, 'Next Page');
+                await waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 2}, {timeoutMs: SAVE_TIMEOUT_MS});
             }
-            return false;
-        }, {timeout: SAVE_TIMEOUT_MS}, COMMITTED_FIRST_PAGE_CANVAS_SELECTOR);
+            const committedCanvasSelector = [
+                '.editor-pane.is-active #pdf-viewer',
+                `.page_container[data-page="${pageNumber}"].page_container--rendered`,
+                '.page_canvas__render-layer canvas',
+            ].join(' ');
+            await session.page.waitForFunction((selector) => {
+                const canvas = document.querySelector<HTMLCanvasElement>(selector);
+                const context = canvas && canvas.width > 0 && canvas.height > 0
+                    ? canvas.getContext('2d', {willReadFrequently: true})
+                    : null;
+                if (!canvas || !context) return false;
+                const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
+                for (let index = 0; index < data.length; index += 4) {
+                    if ((data[index] ?? 255) < 128 && (data[index + 1] ?? 255) < 128 && (data[index + 2] ?? 255) < 128) {
+                        return true;
+                    }
+                }
+                return false;
+            }, {timeout: SAVE_TIMEOUT_MS}, committedCanvasSelector);
+        }
     }, E2E_TIMEOUT_MS);
 
     // chmod directory refusal exercises POSIX publication; the Windows file-lock
