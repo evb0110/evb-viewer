@@ -5,6 +5,97 @@ use evb_scan_cleanup::{
 use std::{fs, path::Path};
 
 #[test]
+fn auto_renders_a_blank_sheet_with_a_fold_crease_as_black_and_white() {
+    use evb_scan_cleanup::{engine::render::clean_page, LayoutMode};
+    use scan_primitives::GrayImage;
+
+    // Issue #1325: 1700 x 2400 at 300 DPI, paper 236, a five-pixel
+    // vertical crease with depth 70 - 15 * distance from its centre.
+    let mut page = GrayImage::new(1700, 2400, 236);
+    for y in 300..=2100 {
+        for x in 298usize..=302 {
+            page.set(x, y, 236 - (70 - 15 * x.abs_diff(300)) as u8);
+        }
+    }
+    for dpi in [150.0, 300.0] {
+        let source = if dpi == 150.0 {
+            page.resample_to_dimensions(850, 1200)
+        } else {
+            page.clone()
+        };
+        let cleaned = clean_page(
+            &source,
+            &CleanupOptions {
+                dpi,
+                output_mode: OutputMode::Auto,
+                layout: LayoutMode::Single,
+                crop_content: false,
+                match_page_size: false,
+                margins_mm: None,
+                ..CleanupOptions::default()
+            },
+            0,
+        )
+        .unwrap();
+        let output = &cleaned.outputs[0];
+        assert!(
+            output.image.bilevel().is_some(),
+            "{dpi} DPI crease-only page stayed continuous-tone: {:?}",
+            cleaned.output_mode_recommendation,
+        );
+        assert_eq!(output.image.get(500, 500), 255, "paper stayed gray");
+    }
+}
+
+#[test]
+fn auto_cleans_a_crease_fragment_but_keeps_a_single_serifed_page_number() {
+    use evb_scan_cleanup::{engine::render::clean_page, LayoutMode};
+    use scan_primitives::GrayImage;
+
+    let options = CleanupOptions {
+        dpi: 300.0,
+        output_mode: OutputMode::Auto,
+        layout: LayoutMode::Single,
+        crop_content: false,
+        match_page_size: false,
+        margins_mm: None,
+        ..CleanupOptions::default()
+    };
+    let mut fragment = GrayImage::new(1700, 2400, 236);
+    for y in 900..940 {
+        for x in 298usize..=302 {
+            fragment.set(x, y, 236 - (70 - 15 * x.abs_diff(300)) as u8);
+        }
+    }
+    let cleaned = clean_page(&fragment, &options, 0).unwrap();
+    assert!(
+        cleaned.outputs[0]
+            .image
+            .to_gray()
+            .data()
+            .iter()
+            .all(|&value| value == 255),
+        "a short fragment of the fold was mistaken for a standalone glyph",
+    );
+
+    for width in [12, 16] {
+        let mut numbered = fragment.clone();
+        for y in 1600..1664 {
+            for x in 900..900 + width {
+                if x == 906 || x == 907 || !(1604..1660).contains(&y) {
+                    numbered.set(x, y, 32);
+                }
+            }
+        }
+        let cleaned = clean_page(&numbered, &options, 0).unwrap();
+        assert!(
+            cleaned.outputs[0].image.get(906, 1630) < 60,
+            "the blank-page decision erased a narrow serifed page number",
+        );
+    }
+}
+
+#[test]
 fn auto_keeps_faint_connected_pencil_beside_dark_print_but_removes_verso_text() {
     use evb_scan_cleanup::{engine::render::clean_page, LayoutMode};
     use scan_primitives::GrayImage;

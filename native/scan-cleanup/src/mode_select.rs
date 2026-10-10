@@ -821,24 +821,23 @@ pub(crate) fn recommend_output_mode(
             );
         }
 
-        // A few glyphs can occupy far below one percent of a page. On otherwise
+        // A few glyphs or a crease occupy far below one percent of a page. On
         // flat paper, absolute luminance is irrelevant: the dark Otsu class,
-        // separation from the dominant paper tone, and coherent edge structure
+        // separation from the dominant paper tone, and thin edge structure
         // are the useful evidence. Route that case to binary before the broad
         // midtone fallback interprets a gray sheet as continuous-tone content.
         let sparse_ink_fraction = (MIN_SPARSE_TEXT_INK_FRACTION..=MAX_SPARSE_TEXT_INK_FRACTION)
             .contains(&luminance.ink_fraction);
-        let few_line_ink_fraction = evidence.text_line_count <= FLAT_FEW_LINE_TEXT_MAX_LINES
+        let few_line_ink_fraction = (1..=FLAT_FEW_LINE_TEXT_MAX_LINES)
+            .contains(&evidence.text_line_count)
             && (MAX_SPARSE_TEXT_INK_FRACTION..=FLAT_FEW_LINE_TEXT_MAX_INK_FRACTION)
                 .contains(&luminance.ink_fraction);
-        let sparse_text_on_flat_paper = evidence.text_line_count >= 1
-            && picture_fraction + PICTURE_HYSTERESIS < picture_floor
+        let sparse_text_on_flat_paper = picture_fraction + PICTURE_HYSTERESIS < picture_floor
             && luminance.robust_luminance_range <= BLANK_MAX_ROBUST_LUMINANCE_RANGE
             && ((sparse_ink_fraction && luminance.mode_distance >= MIN_SPARSE_TEXT_MODE_DISTANCE)
                 || (few_line_ink_fraction
                     && luminance.mode_distance >= FLAT_FEW_LINE_TEXT_MIN_MODE_DISTANCE))
-            && luminance.edge_fraction >= luminance.ink_fraction * MIN_TEXT_EDGE_TO_INK_RATIO
-            && has_coherent_edge_structure(evidence.analysis);
+            && luminance.edge_fraction >= luminance.ink_fraction * MIN_TEXT_EDGE_TO_INK_RATIO;
         if sparse_text_on_flat_paper {
             let separation_margin =
                 ((luminance.mode_distance - MIN_SPARSE_TEXT_MODE_DISTANCE) / 96.0).clamp(0.0, 1.0);
@@ -1391,17 +1390,16 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
         })
         .collect::<Vec<_>>();
 
-    // A single dust fleck can be as compact as a tiny glyph, but it generally
-    // lacks either the scale of a standalone mark or neighbouring glyphs on a
-    // shared baseline. Preserve both larger standalone characters and very
-    // short aligned text while allowing isolated scan dirt to remain blank.
+    // Isolated narrow filled edges are crease fragments, not characters.
+    // Preserve compact marks and narrow glyphs with paper inside their box,
+    // or short text whose neighbouring glyphs share a baseline.
     if candidates.iter().any(|component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
         height >= minimum_height.saturating_mul(3)
             && component.area >= minimum_area.saturating_mul(2)
-            && width.saturating_mul(8) >= height
-            && height.saturating_mul(8) >= width
+            && (width.min(height).saturating_mul(4) >= width.max(height)
+                || component.area.saturating_mul(2) < width.saturating_mul(height))
     }) {
         return true;
     }
