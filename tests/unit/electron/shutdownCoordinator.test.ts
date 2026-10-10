@@ -343,32 +343,51 @@ describe('shutdown coordinator', () => {
         );
     });
 
-    it('holds graceful quit for a retryable preservation failure', async () => {
+    it.each([
+        'Quit',
+        'repeated system shutdown',
+        'system shutdown followed by Quit',
+    ])('retains recovery state across retryable failure for %s', async request => {
         let attempt = 0;
-        const cleanup = vi.fn(async () => {});
+        const deleteRecoveryArtifacts = vi.fn();
+        const cleanup = vi.fn(async (context: IShutdownContext) => {
+            if (!context.preserveRecoveryState) {
+                deleteRecoveryArtifacts();
+            }
+        });
         const fixture = createCoordinator({
             runBestEffortCleanupSteps: cleanup,
             runPreservationSteps: async context => {
                 attempt += 1;
                 if (attempt === 1) {
+                    context.preserveRecoveryState = true;
                     context.retryablePreservationFailure = true;
                 }
             },
         });
 
-        fixture.coordinator.requestGracefulQuit();
+        if (request === 'Quit') {
+            fixture.coordinator.requestGracefulQuit();
+        } else {
+            fixture.coordinator.requestSystemShutdown();
+        }
         await vi.waitFor(() => {
             expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
         expect(cleanup).toHaveBeenCalledOnce();
 
-        fixture.coordinator.requestGracefulQuit();
+        if (request === 'repeated system shutdown') {
+            fixture.coordinator.requestSystemShutdown();
+        } else {
+            fixture.coordinator.requestGracefulQuit();
+        }
         await vi.waitFor(() => {
             expect(fixture.app.quit).toHaveBeenCalledOnce();
         });
         expect(cleanup).toHaveBeenCalledTimes(2);
         expect(fixture.app.exit).not.toHaveBeenCalled();
+        expect(deleteRecoveryArtifacts).toHaveBeenCalledTimes(request === 'Quit' ? 1 : 0);
     });
 
     it('holds graceful quit when assistant preservation times out while cleanup still runs', async () => {
@@ -591,7 +610,7 @@ describe('main process termination signals', () => {
     it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
         'SIGTERM',
         'SIGHUP',
-    ] as const)('%s cancels a pending restart after preservation', async signal => {
+    ] as const)('%s cancels pending and late restarts after preservation', async signal => {
         const preservation = createDeferred();
         const restart = vi.fn();
         const fixture = createCoordinator({runPreservationSteps: () => preservation.promise});
@@ -677,6 +696,7 @@ describe('main process termination signals', () => {
             await import('@electron/bootstrap/mainProcess');
             fixture.coordinator.requestGracefulQuit({afterCleanup: restart});
             processEvents.emit(signal, signal, signal === 'SIGTERM' ? 15 : 1);
+            fixture.coordinator.requestGracefulQuit({afterCleanup: restart});
             preservation.resolve();
             await vi.waitFor(() => {
                 expect(fixture.app.quit.mock.calls.length + restart.mock.calls.length).toBe(1);
