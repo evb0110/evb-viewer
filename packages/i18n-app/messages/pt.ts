@@ -1733,6 +1733,7 @@ export default {
             'workingCopyMissing': 'A cópia temporária do documento foi removida, por isso estas alterações não podem ser guardadas. Volte a abrir o ficheiro.',
             'notCompleted': 'Não foi possível escrever o documento.',
             'permissionDenied': 'A permissão de escrita do ficheiro foi recusada. Escolha «Guardar como» para guardar as alterações noutro local.',
+            'fileBusy': 'O ficheiro está em uso por outro programa, por isso não foi possível escrevê-lo. Feche esse programa e tente novamente, ou escolha «Guardar como» para guardar as alterações noutro local.',
             'diskFull': 'O disco está cheio. Liberte espaço ou use «Guardar como» noutro disco.',
             'writeFailed': 'Não foi possível escrever o ficheiro. Verifique as permissões de escrita e o espaço livre, ou guarde-o noutro local.',
             'nativeFailure': 'O motor PDF não conseguiu aplicar as alterações. As suas edições continuam abertas aqui.',

@@ -1733,6 +1733,7 @@ export default {
             'workingCopyMissing': 'La copie temporaire du document a été supprimée, donc ces modifications ne peuvent pas être enregistrées. Rouvrez le fichier.',
             'notCompleted': 'Le document n’a pas pu être écrit.',
             'permissionDenied': 'L’autorisation d’écrire le fichier a été refusée. Choisissez « Enregistrer sous » pour enregistrer vos modifications ailleurs.',
+            'fileBusy': 'Le fichier est utilisé par un autre programme, il n’a donc pas pu être écrit. Fermez ce programme et réessayez, ou choisissez « Enregistrer sous » pour enregistrer vos modifications ailleurs.',
             'diskFull': 'Le disque est plein. Libérez de l’espace ou utilisez « Enregistrer sous » sur un autre disque.',
             'writeFailed': 'Le fichier n’a pas pu être écrit. Vérifiez les autorisations d’écriture et l’espace libre, ou enregistrez-le ailleurs.',
             'nativeFailure': 'Le moteur PDF n’a pas pu appliquer vos modifications. Elles restent ouvertes ici.',

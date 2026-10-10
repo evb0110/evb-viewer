@@ -1722,6 +1722,7 @@ export default {
             'workingCopyMissing': 'La copia temporal del documento se eliminó, por lo que estos cambios no se pueden guardar. Vuelva a abrir el archivo.',
             'notCompleted': 'No se pudo escribir el documento.',
             'permissionDenied': 'Se ha denegado el permiso para escribir el archivo. Elige «Guardar como» para guardar los cambios en otro lugar.',
+            'fileBusy': 'El archivo está en uso por otro programa, así que no se pudo escribir. Cierra ese programa y vuelve a intentarlo, o elige «Guardar como» para guardar los cambios en otro lugar.',
             'diskFull': 'El disco está lleno. Libera espacio o usa «Guardar como» en otro disco.',
             'writeFailed': 'No se pudo escribir el archivo. Comprueba los permisos de escritura y el espacio libre, o guárdalo en otro lugar.',
             'nativeFailure': 'El motor PDF no pudo aplicar los cambios. Tus ediciones siguen abiertas aquí.',

@@ -1722,6 +1722,7 @@ export default {
             'workingCopyMissing': 'De tijdelijke kopie van het document is verwijderd, dus deze wijzigingen kunnen niet worden opgeslagen. Open het bestand opnieuw.',
             'notCompleted': 'Het document kon niet worden weggeschreven.',
             'permissionDenied': 'Toestemming om het bestand te schrijven is geweigerd. Kies «Opslaan als» om uw wijzigingen elders op te slaan.',
+            'fileBusy': 'Het bestand wordt gebruikt door een ander programma, daarom kon het niet worden geschreven. Sluit dat programma en probeer het opnieuw, of kies «Opslaan als» om uw wijzigingen elders op te slaan.',
             'diskFull': 'De schijf is vol. Maak ruimte vrij of gebruik «Opslaan als» op een andere schijf.',
             'writeFailed': 'Het bestand kon niet worden geschreven. Controleer de schrijfrechten en vrije schijfruimte, of sla het elders op.',
             'nativeFailure': 'De PDF-schrijver kon uw wijzigingen niet toepassen. Uw bewerkingen blijven hier open.',

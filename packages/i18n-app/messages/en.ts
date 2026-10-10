@@ -1722,6 +1722,7 @@ export default {
             'workingCopyMissing': 'The temporary copy of the document was removed, so these changes cannot be saved. Reopen the file.',
             'notCompleted': 'The document could not be written.',
             'permissionDenied': 'Permission to write the file was denied. Choose Save As to save your changes elsewhere.',
+            'fileBusy': 'The file is in use by another program, so it could not be written. Close that program and try again, or choose Save As to save your changes elsewhere.',
             'diskFull': 'The disk is full. Free up space or use Save As on another disk.',
             'writeFailed': 'The file could not be written. Check write permissions and free disk space, or use Save As elsewhere.',
             'nativeFailure': 'The PDF writer could not apply your changes. Your edits remain open here.',

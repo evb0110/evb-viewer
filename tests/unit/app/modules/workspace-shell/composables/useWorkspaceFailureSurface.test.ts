@@ -187,9 +187,15 @@ describe('useWorkspaceFailureSurface', () => {
     });
 
     it.each([
-        'EACCES: permission denied',
-        'EBUSY: resource busy or locked, rename source.pdf -> source.pdf.bak',
-    ])('keeps the native bridge receipt and cause for %s in the save presentation', message => {
+        [
+            'EACCES: permission denied',
+            'errors.save.permissionDenied',
+        ],
+        [
+            'EBUSY: resource busy or locked, rename source.pdf -> source.pdf.bak',
+            'errors.save.fileBusy',
+        ],
+    ])('keeps the native bridge receipt and cause for %s in the save presentation', (message, description) => {
         const receipt = {
             code: 'UNCLASSIFIED_RENDERER_ERROR',
             eventId: '0123456789abcdef0123456789abcdef',
@@ -208,7 +214,7 @@ describe('useWorkspaceFailureSurface', () => {
         });
         expect(surface.saveFailurePresentation.value).toMatchObject({
             failure: receipt,
-            description: 'errors.save.permissionDenied',
+            description,
             technicalDetails: expect.stringContaining(cause.message),
         });
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({id: receipt.eventId}));

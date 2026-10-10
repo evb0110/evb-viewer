@@ -1722,6 +1722,7 @@ export default {
             'workingCopyMissing': 'La copia temporanea del documento è stata rimossa, quindi queste modifiche non possono essere salvate. Riapri il file.',
             'notCompleted': 'Non è stato possibile scrivere il documento.',
             'permissionDenied': 'Il permesso di scrivere il file è stato negato. Scegli «Salva con nome» per salvare le modifiche altrove.',
+            'fileBusy': 'Il file è in uso da un altro programma, quindi non è stato possibile scriverlo. Chiudi quel programma e riprova, oppure scegli «Salva con nome» per salvare le modifiche altrove.',
             'diskFull': 'Il disco è pieno. Libera spazio o usa «Salva con nome» su un altro disco.',
             'writeFailed': 'Impossibile scrivere il file. Controlla i permessi di scrittura e lo spazio libero, oppure salvalo altrove.',
             'nativeFailure': 'Il motore PDF non ha potuto applicare le modifiche. Restano aperte qui.',

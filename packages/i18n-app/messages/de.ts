@@ -1722,6 +1722,7 @@ export default {
             'workingCopyMissing': 'Die temporäre Kopie des Dokuments wurde entfernt, daher können diese Änderungen nicht gespeichert werden. Öffnen Sie die Datei erneut.',
             'notCompleted': 'Das Dokument konnte nicht geschrieben werden.',
             'permissionDenied': 'Die Schreibberechtigung für die Datei wurde verweigert. Wählen Sie «Speichern unter», um Ihre Änderungen an einem anderen Ort zu speichern.',
+            'fileBusy': 'Die Datei wird gerade von einem anderen Programm verwendet, daher konnte sie nicht geschrieben werden. Schließen Sie das Programm und versuchen Sie es erneut, oder wählen Sie «Speichern unter», um Ihre Änderungen an einem anderen Ort zu speichern.',
             'diskFull': 'Der Datenträger ist voll. Geben Sie Speicherplatz frei oder verwenden Sie «Speichern unter» auf einem anderen Datenträger.',
             'writeFailed': 'Die Datei konnte nicht geschrieben werden. Prüfen Sie Schreibberechtigungen und freien Speicherplatz oder speichern Sie die Datei an einem anderen Ort.',
             'nativeFailure': 'Der PDF-Writer konnte Ihre Änderungen nicht anwenden. Ihre Bearbeitungen bleiben hier geöffnet.',

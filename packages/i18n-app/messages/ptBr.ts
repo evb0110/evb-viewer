@@ -1733,6 +1733,7 @@ export default {
             'workingCopyMissing': 'A cópia temporária do documento foi removida, então estas alterações não podem ser salvas. Abra o arquivo novamente.',
             'notCompleted': 'Não foi possível gravar o documento.',
             'permissionDenied': 'A permissão para gravar o arquivo foi negada. Escolha «Salvar como» para salvar as alterações em outro local.',
+            'fileBusy': 'O arquivo está em uso por outro programa, por isso não foi possível gravá-lo. Feche esse programa e tente novamente, ou escolha «Salvar como» para salvar as alterações em outro local.',
             'diskFull': 'O disco está cheio. Libere espaço ou use «Salvar como» em outro disco.',
             'writeFailed': 'Não foi possível gravar o arquivo. Verifique as permissões de gravação e o espaço livre, ou salve-o em outro local.',
             'nativeFailure': 'O mecanismo PDF não conseguiu aplicar as alterações. Suas edições continuam abertas aqui.',
