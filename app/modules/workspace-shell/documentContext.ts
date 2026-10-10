@@ -592,7 +592,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         currentPage,
         totalPages,
         pdfDocument,
-        pdfViewerRef,
+        views,
         isDjvuMode: file.isDjvuMode,
         djvuSourcePath: file.djvuSourcePath,
         pdfSrc,
