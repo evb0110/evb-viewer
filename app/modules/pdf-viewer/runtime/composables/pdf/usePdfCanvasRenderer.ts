@@ -17,7 +17,7 @@ import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
     viewport: ReturnType<IPdfPage['getViewport']>;
-    annotationCanvasMap: null;
+    annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
     scaleX: number;
     scaleY: number;
     rawDims: {
@@ -94,10 +94,17 @@ export const usePdfCanvasRenderer = (deps: {
         canvas.remove();
     }
 
-    function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'surfaceReservation'>) {
-        renderResult.surfaceReservation?.release();
-        renderResult.surfaceReservation = undefined;
+    function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap'>) {
+        const resultWithReservation = renderResult as Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap' | 'surfaceReservation'>;
+        resultWithReservation.surfaceReservation?.release();
+        resultWithReservation.surfaceReservation = undefined;
         cleanupCanvas(renderResult.canvas);
+        renderResult.annotationCanvasMap?.forEach((annotationCanvas) => {
+            if (annotationCanvas !== renderResult.canvas) {
+                cleanupCanvas(annotationCanvas);
+            }
+        });
+        renderResult.annotationCanvasMap?.clear();
     }
 
     function isValidViewportSize(width: number, height: number) {
@@ -205,12 +212,33 @@ export const usePdfCanvasRenderer = (deps: {
         ] : undefined;
     }
 
-    function createAnnotationRenderOptions(options?: IRenderCanvasOptions) {
-        // Foreign appearances belong to the committed raster. Ownership refresh
-        // and layer-only hydration can replace DOM without another raster draw.
-        // The canonical store's PDF refs suppress only the appearances it owns.
+    function createAnnotationRenderOptions(
+        options?: IRenderCanvasOptions,
+    ) {
+        if (
+            options?.contentIntent === 'canvas-only-buffer'
+            || options?.contentIntent === 'canvas-only-refine'
+        ) {
+            return {
+                annotationCanvasMap: null,
+                // Buffer and refinement canvases have no annotation layer to
+                // receive PDF.js appearance canvases. Keep annotations in the
+                // committed raster so foreign appearances remain visible.
+                annotationMode: AnnotationMode.ENABLE_FORMS,
+                hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(options.hiddenAnnotationIds),
+            };
+        }
+        if (toValue(deps.annotationProjectionReady ?? true) === false) {
+            return {
+                annotationCanvasMap: null,
+                annotationMode: AnnotationMode?.DISABLE ?? 0,
+                hiddenAnnotationIds: undefined,
+            };
+        }
+        const annotationCanvasMap = new Map<string, HTMLCanvasElement>();
         return {
-            annotationMode: AnnotationMode.ENABLE,
+            annotationCanvasMap,
+            annotationMode: AnnotationMode.ENABLE_FORMS,
             hiddenAnnotationIds: toPdfjsHiddenAnnotationIds(options?.hiddenAnnotationIds),
         };
     }
@@ -310,6 +338,9 @@ export const usePdfCanvasRenderer = (deps: {
             transform: createOutputTransform(canvasScale),
             viewport,
             annotationMode: annotationOptions.annotationMode,
+            ...(annotationOptions.annotationCanvasMap
+                ? {annotationCanvasMap: annotationOptions.annotationCanvasMap}
+                : {}),
             ...(annotationOptions.hiddenAnnotationIds
                 ? {hiddenAnnotationIds: annotationOptions.hiddenAnnotationIds}
                 : {}),
@@ -320,7 +351,7 @@ export const usePdfCanvasRenderer = (deps: {
         return {
             canvas,
             viewport,
-            annotationCanvasMap: null,
+            annotationCanvasMap: annotationOptions.annotationCanvasMap,
             scaleX: canvasScale.scaleX,
             scaleY: canvasScale.scaleY,
             rawDims,
