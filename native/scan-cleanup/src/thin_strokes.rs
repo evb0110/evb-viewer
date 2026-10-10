@@ -28,7 +28,9 @@ const MIN_VALLEY_DEPTH: i16 = 40;
 /// A stroke's valley depth must reach this fraction of the page's ink depth.
 const VALLEY_DEPTH_FRACTION: f64 = 0.375;
 /// Both sides of a valley must rise by this fraction of the page's ink depth.
-const VALLEY_RISE_FRACTION: f64 = 0.125;
+/// A weakly printed stem beside a glyph's own interior rises little on that
+/// side, yet it is a line; the depth above still keeps show-through out.
+const VALLEY_RISE_FRACTION: f64 = 0.08;
 /// Each profile direction with the direction along the stroke it would cross.
 const DIRECTIONS: [((isize, isize), (isize, isize)); 4] = [
     ((1, 0), (0, 1)),
@@ -464,6 +466,32 @@ mod tests {
 
         let completed = complete(&cut, &image);
 
+        assert_eq!(component_count(&completed), 1);
+        for y in 0..60 {
+            for x in 0..80 {
+                if completed.get(x, y) && !cut.get(x, y) {
+                    assert_eq!(y, 14, "added ink at ({x}, {y})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn restores_a_hairline_that_runs_beside_a_gray_shoulder() {
+        // A weakly printed stem rises only a little on the side where the
+        // glyph's own blur lies; it is still a line.
+        let mut sheet = Sheet::new(80, 60);
+        sheet.fill(10, 10, 15, 50, 1.0);
+        sheet.fill(50, 10, 55, 50, 1.0);
+        sheet.fill(16, 11, 49, 13, 0.33);
+        sheet.fill(16, 14, 49, 14, 0.525);
+        let image = sheet.scan(&SHARP);
+        let cut = threshold(&image);
+        assert!(
+            component_count(&cut) > 1,
+            "the midpoint must drop the hairline"
+        );
+        let completed = complete(&cut, &image);
         assert_eq!(component_count(&completed), 1);
         for y in 0..60 {
             for x in 0..80 {
