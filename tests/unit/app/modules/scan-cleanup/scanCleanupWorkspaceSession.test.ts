@@ -43,7 +43,7 @@ import type {
     TScanCleanupJobState,
     TScanCleanupPageOutputMapping,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import type * as scanCleanupPageOverridesModule from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import type * as scanCleanupPageOverridesModule from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {useScanCleanupWorkspaceSession} from '@app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession';
 import {createScanCleanupPreviewCacheKey} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
 import {
@@ -68,7 +68,7 @@ const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | nu
 // under test in `derives the document's layouts once per change`.
 const layoutReductions = vi.hoisted(() => ({count: 0}));
 
-vi.mock('@contracts/scan-cleanup/scanCleanupPageOverrides', async importOriginal => {
+vi.mock('@evb/scan-cleanup/core/policy/scanCleanupPagePolicy', async importOriginal => {
     const original = await importOriginal<typeof scanCleanupPageOverridesModule>();
     return {
         ...original,

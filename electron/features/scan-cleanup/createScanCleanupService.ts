@@ -76,8 +76,8 @@ import {
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
-    usesScanCleanupInkAlignment,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     claimScanCleanupDetectionResultStore,
     isScanCleanupDetectionResultStoreRegistered,

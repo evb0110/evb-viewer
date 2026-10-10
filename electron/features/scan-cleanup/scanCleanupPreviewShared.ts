@@ -27,11 +27,11 @@ import type { TNativeScanCleanupPreviewOutputArtifactMetadataV3 } from '@contrac
 
 import type { TScanCleanupProgress } from '@contracts/scan-cleanup/progress';
 
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
-    getScanCleanupPageOverride,
     resolveScanCleanupPageLayout,
     scanCleanupLayoutSignature,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import type { getPdfPageCount } from '@electron/pdf/pdfPageCount';
 import type {
     createPdfPageSizeStore,

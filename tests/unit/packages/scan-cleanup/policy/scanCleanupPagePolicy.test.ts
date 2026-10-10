@@ -11,15 +11,17 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
     createScanCleanupPageOverride,
-    estimateScanCleanupOutputPages,
     getScanCleanupPageOverride,
+    setScanCleanupPageOverride,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
+    estimateScanCleanupOutputPages,
     resolveScanCleanupPageLayout,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
     resolveScanCleanupPlacementAnchors,
-    setScanCleanupPageOverride,
     shouldShowScanCleanupOutputEstimate,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 
 describe('scan cleanup page overrides', () => {
     it('keeps detection settings stable across an options serialization boundary', () => {

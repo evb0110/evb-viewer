@@ -29,15 +29,17 @@ import {
     type TRequestId,
 } from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
     resolveScanCleanupOutputPlacement,
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import type {
     ComputedRef,
     Ref,

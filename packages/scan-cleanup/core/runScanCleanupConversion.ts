@@ -42,10 +42,8 @@ import {
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { isRecord } from '@contracts/runtimeGuards';
-import {
-    getScanCleanupPageOverride,
-    resolveScanCleanupOutputPlacement,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {resolveScanCleanupOutputPlacement} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
     resolveScanCleanupPlacementAnchorFromSummary,
     resolveScanCleanupSheetHeightPoints,

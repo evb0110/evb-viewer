@@ -11,10 +11,8 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import { decodeNativeScanCleanupPreviewOutputMetadataJson } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type { INativeScanCleanupReusableGeometryV3 } from '@contracts/scan-cleanup/nativeProtocolV3';
-import {
-    getScanCleanupPageOverride,
-    resolveScanCleanupMarginsMm,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {resolveScanCleanupMarginsMm} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import { PREVIEW_DPI } from '@evb/scan-cleanup/core/detection';
 import {
     logRasterHandoff,
