@@ -43,7 +43,6 @@ function createAuthority(
     return createDocumentOpeningPageFrame({
         instanceId: 'chassis-test',
         openSurface: surface,
-        readRendererKind: () => 'pdfjs',
         ...(readLayoutRevision ? {readLayoutRevision} : {}),
         readPolicy: () => ({
             fitMode: 'width',
@@ -189,7 +188,6 @@ describe('documentOpeningPageFrame', () => {
         createDocumentOpeningPageFrame({
             instanceId: 'chassis-test',
             openSurface: surface,
-            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',
@@ -273,7 +271,6 @@ describe('documentOpeningPageFrame', () => {
         createDocumentOpeningPageFrame({
             instanceId: 'chassis-test',
             openSurface: surface,
-            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',
@@ -364,7 +361,6 @@ describe('documentOpeningPageFrame', () => {
         createDocumentOpeningPageFrame({
             instanceId: 'chassis-test',
             openSurface: surface,
-            readRendererKind: () => 'pdfjs',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',
@@ -445,7 +441,6 @@ describe('documentOpeningPageFrame', () => {
         const authority = createDocumentOpeningPageFrame({
             instanceId: 'chassis-test',
             openSurface: surface,
-            readRendererKind: () => 'page-source',
             readPolicy: () => ({
                 fitMode: 'width',
                 viewMode: 'single',

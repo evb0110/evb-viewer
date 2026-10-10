@@ -201,7 +201,6 @@ function readOpeningViewportSize() {
 const openingPageFrameAuthority = createDocumentOpeningPageFrame({
     instanceId: chassisAuthority.instanceId,
     openSurface: documentOpenSurface,
-    readRendererKind: () => rendererKind.value,
     readLayoutRevision: () => openingFrameLayoutRevision.value,
     readPolicy: () => ({
         ...readZoomPolicy(),

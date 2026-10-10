@@ -71,7 +71,6 @@ interface ICreateDocumentOpeningPageFrameOptions {
     /** The viewer runtime's instance, which keeps shell ids unique across panes. */
     readonly instanceId: string;
     readonly openSurface: IDocumentOpenSurfaceSession;
-    readonly readRendererKind: () => 'pdfjs' | 'page-source';
     readonly readLayoutRevision?: () => number;
     readonly readPolicy: () => IDocumentOpeningPageFramePolicy;
     readonly readViewportSize: () => {
