@@ -218,10 +218,9 @@ export const useDocumentViewportLayoutLifecycle = (
     };
 
     const refreshLayoutTransactionAnchor = () => {
-        const anchor = activePointerAnchor ?? captureCurrentAnchor();
-        retainedAnchor = anchor;
+        retainedAnchor = captureCurrentAnchor();
         if (activeLayoutTransaction !== null) {
-            layoutTransactionAnchor = anchor;
+            layoutTransactionAnchor = activePointerAnchor ?? retainedAnchor;
         }
     };
 
@@ -246,7 +245,7 @@ export const useDocumentViewportLayoutLifecycle = (
         if (!applyAnchor(anchor, epoch, options.pageLayouts.value, generation)) {
             return;
         }
-        retainedAnchor = anchor;
+        retainedAnchor = captureCurrentAnchor();
     };
 
     if (options.isResizing) {

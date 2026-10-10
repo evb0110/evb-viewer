@@ -475,6 +475,88 @@ describe('useDocumentViewportLayoutLifecycle', () => {
         scope.stop();
     });
 
+    it.each([
+        'refresh',
+        'complete',
+    ] as const)('centres a resize after a pointer zoom settles via %s', async (retention) => {
+        vi.useFakeTimers();
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
+        const scope = effectScope();
+        const viewport = createViewport(300);
+        Object.defineProperties(viewport, {
+            clientWidth: {
+                value: 900,
+                writable: true,
+            },
+            clientHeight: {value: 700},
+            offsetWidth: {
+                value: 900,
+                writable: true,
+            },
+            offsetHeight: {value: 700},
+        });
+        viewport.scrollLeft = 100;
+        viewport.getBoundingClientRect = () => ({
+            left: 0,
+            top: 0,
+        } as DOMRect);
+        const pageLayouts = ref([{
+            left: 16,
+            top: 16,
+            width: 1200,
+            height: 2000,
+        }]);
+        const lifecycle = scope.run(() => useDocumentViewportLayoutLifecycle({
+            viewerContainer: ref<HTMLElement | null>(viewport),
+            pageLayouts,
+            captureRestoreEpoch: () => 1,
+            canRestore: () => true,
+            applyRestoredScroll: restored => {
+                viewport.scrollLeft = restored.left;
+                viewport.scrollTop = restored.top;
+                return true;
+            },
+        }));
+        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        try {
+            const transaction = retention === 'complete' ? lifecycle.beginLayoutTransaction() : null;
+            lifecycle.capturePointerAnchor({
+                clientX: 100,
+                clientY: 100,
+            });
+            pageLayouts.value = [{
+                left: 16,
+                top: 16,
+                width: 1800,
+                height: 3000,
+            }];
+            await nextTick();
+            await nextTick();
+            // The zoom still keeps the original page point under the pointer.
+            expect(viewport.scrollLeft).toBe(192);
+            expect(viewport.scrollTop).toBe(492);
+            if (transaction === null) lifecycle.refreshLayoutTransactionAnchor();
+            else await lifecycle.endLayoutTransaction(transaction);
+            await vi.advanceTimersByTimeAsync(200);
+            const centreX = viewport.scrollLeft + viewport.clientWidth / 2;
+            const centreY = viewport.scrollTop + viewport.clientHeight / 2;
+            Object.defineProperties(viewport, {
+                clientWidth: {value: 760},
+                offsetWidth: {value: 760},
+            });
+            pageLayouts.value = pageLayouts.value.map(layout => ({...layout}));
+            await nextTick();
+            await nextTick();
+            expect(viewport.scrollLeft + viewport.clientWidth / 2).toBeCloseTo(centreX, 5);
+            expect(viewport.scrollTop + viewport.clientHeight / 2).toBeCloseTo(centreY, 5);
+        } finally {
+            scope.stop();
+        }
+    });
+
     it('keeps one gesture anchor and recaptures when the wheel session explicitly restarts', async () => {
         vi.useFakeTimers();
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
