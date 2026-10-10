@@ -1,0 +1,19 @@
+tests/e2e/electron/navigation/inactivePdfTabs.e2e.test.ts
+  s_4d188619137033::t_f92b469c91f19f 380
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6911f09573965fe1ca1961e51e10d8b483b73e0e",
+  "prompts": {},
+  "sessions": {
+    "s_4d188619137033": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a123a7-1af7-7212-9bc7-3d482dc6985a",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
