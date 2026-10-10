@@ -1385,14 +1385,6 @@ fn has_coherent_edge_structure(image: &GrayImage) -> bool {
             && component.area >= minimum_area.saturating_mul(2)
             && width.saturating_mul(8) >= height
             && height.saturating_mul(8) >= width
-            // A fold crease splits into short fragments stacked in one column;
-            // no glyph is taller than maximum_height, so such a stack is a line.
-            && candidates
-                .iter()
-                .filter(|other| other.left <= component.right && component.left <= other.right)
-                .map(|other| other.bottom + 1 - other.top)
-                .sum::<usize>()
-                <= maximum_height
     }) {
         return true;
     }
