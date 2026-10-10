@@ -52,7 +52,12 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
-import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {wheelPdfViewportAndWaitForSettlement} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
+import {
+    callWorkspaceCommand,
+    getWorkspaceToolbarSnapshot,
+    waitForWorkspaceToolbarSnapshot,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     activatePaneByTab,
     splitActiveTabFromTabMenu,
@@ -411,6 +416,85 @@ describe('Electron E2E - OCR journey', () => {
         ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
         await clickAsUser(page, `${ACTIVE_HOST} .document-search-result`);
         await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
+    }, 300_000);
+
+
+    // Owner report 2026-10-10: after OCR of the current page, the page under
+    // the dialog moved to its blank top. Applying the searchable PDF rewrites
+    // the pages the reader is looking at; it must not move the reading point.
+    it('keeps the page, zoom and reading point when OCR replaces the current page', async () => {
+        const session = sessionFixture.getSession();
+        const {page} = session;
+        const sourcePath = await createScannedPagesFixturePdf('ocr-reading-point-scan.pdf', 8);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1440,
+            900,
+        ]);
+        await callWorkspaceCommand(page, 'handleGoToPage', [6]);
+        await waitForWorkspaceToolbarSnapshot(page, {currentPage: 6});
+        await callWorkspaceCommand(page, 'setCustomZoomFromDisplay', [2.5]);
+        await waitForWorkspaceToolbarSnapshot(page, {
+            currentPage: 6,
+            effectiveZoom: 2.5,
+        });
+        const readCentre = () => page.evaluate((host: string) => {
+            const viewport = document.querySelector<HTMLElement>(`${host} #pdf-viewer`);
+            if (!viewport) {
+                return null;
+            }
+            const viewportRect = viewport.getBoundingClientRect();
+            const x = viewportRect.left + viewport.clientWidth / 2;
+            const y = viewportRect.top + viewport.clientHeight / 2;
+            const shown = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)'))
+                .find((element) => {
+                    const rect = element.getBoundingClientRect();
+                    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+                });
+            const rect = shown?.getBoundingClientRect();
+            return {
+                page: Number(shown?.dataset.page) || null,
+                pageXFraction: rect ? (x - rect.left) / rect.width : null,
+                pageYFraction: rect ? (y - rect.top) / rect.height : null,
+            };
+        }, ACTIVE_HOST);
+        // The reader scrolls into the text in the middle of the page.
+        await wheelPdfViewportAndWaitForSettlement(page, 800);
+        const before = await readCentre();
+        expect(before?.page, JSON.stringify(before)).toBe(6);
+        expect(before?.pageYFraction ?? 0, JSON.stringify(before)).toBeGreaterThan(0.2);
+
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        const currentPageOption = await page.waitForFunction(() => (
+            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
+                .find(label => label.textContent?.trim() === 'Current page (6)' && label.checkVisibility())
+        ), {timeout: 30_000});
+        await clickAsUser(page, currentPageOption.asElement() as ElementHandle<HTMLElement>);
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+        ), {timeout: OCR_TIMEOUT_MS});
+        await clickVisibleButton(page, '[role="dialog"]', 'Close');
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await waitForFunctionInPage(page, (host: string) => (
+            document.querySelector(`${host} .page_container[data-page="6"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                ?.textContent?.toLocaleLowerCase().includes('page 6') === true
+        ), {timeout: 30_000}, ACTIVE_HOST);
+
+        const after = await readCentre();
+        const toolbar = await getWorkspaceToolbarSnapshot(page);
+        const diagnostics = JSON.stringify({
+            after,
+            before,
+            toolbar,
+        });
+        expect(toolbar?.currentPage, diagnostics).toBe(6);
+        expect(toolbar?.effectiveZoom ?? 0, diagnostics).toBeCloseTo(2.5, 3);
+        expect(after?.page, diagnostics).toBe(6);
+        expect(Math.abs((after?.pageXFraction ?? 0) - (before?.pageXFraction ?? 1)), diagnostics).toBeLessThan(0.01);
+        expect(Math.abs((after?.pageYFraction ?? 0) - (before?.pageYFraction ?? 1)), diagnostics).toBeLessThan(0.01);
     }, 300_000);
 
     // #928 F1: the pages OCR may replace are the pages whose existing text is
