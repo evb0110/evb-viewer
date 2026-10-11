@@ -769,6 +769,45 @@ describe('processMcpRequest', () => {
         expect(options.runCommand).not.toHaveBeenCalled();
     });
 
+    it('dispatches a page capture to the tab named in its advertised input', async () => {
+        const options = createOptions();
+
+        await callTool(options, 'evb_run_action', {
+            id: 'document.capture_page_image',
+            input: {
+                tabId: 'tab-2',
+                page: 1,
+            },
+        }, 'nested-capture');
+
+        expect(options.runCommand).toHaveBeenCalledWith({
+            name: 'run_action',
+            arguments: {
+                tabId: 'tab-2',
+                id: 'document.capture_page_image',
+                input: {
+                    tabId: 'tab-2',
+                    page: 1,
+                },
+            },
+        }, undefined);
+    });
+
+    it('lets a top-level tabId override a nested one for page capture', async () => {
+        const options = createOptions();
+
+        await callTool(options, 'evb_run_action', {
+            id: 'document.capture_page_image',
+            tabId: 'tab-1',
+            input: {
+                tabId: 'tab-2',
+                page: 1,
+            },
+        }, 'top-level-capture');
+
+        expect(options.runCommand).toHaveBeenCalledWith(expect.objectContaining({arguments: expect.objectContaining({tabId: 'tab-1'})}), undefined);
+    });
+
     it('returns MCP image content for rendered page capture results', async () => {
         const options = createOptions();
         options.runCommand.mockResolvedValueOnce({
