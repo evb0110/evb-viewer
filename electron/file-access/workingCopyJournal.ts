@@ -304,7 +304,41 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     return true;
 }
 
-/** Removes original backups a crash left before their journal named them. */
+const UUID_LENGTH = 36;
+const NAME_MAX_BYTES = 255;
+
+/** Keeps the longest prefix of `text` whose UTF-8 form fits in `maxBytes`, never splitting a code point. */
+function truncateToUtf8Bytes(text: string, maxBytes: number) {
+    let result = '';
+    let bytes = 0;
+    for (const character of text) {
+        bytes += Buffer.byteLength(character, 'utf8');
+        if (bytes > maxBytes) {
+            break;
+        }
+        result += character;
+    }
+    return result;
+}
+
+/**
+ * An original backup is named for the working copy whose transition made it:
+ * the `pdf-work-*` directory key is part of the name, so a sweep can tell its
+ * own orphans from a backup another working copy's journal still names. The
+ * original basename leads only as far as the name stays within NAME_MAX; a
+ * UTF-8 byte bound also bounds the UTF-16 units NTFS counts.
+ */
+function getOriginalBackupNamePrefix(originalPath: string, workingCopyPath: string) {
+    const ownerSegment = `.evb-transition-${basename(dirname(workingCopyPath))}-`;
+    const basenameBudget = NAME_MAX_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - UUID_LENGTH - '.bak'.length;
+    return `${truncateToUtf8Bytes(basename(originalPath), basenameBudget)}${ownerSegment}`;
+}
+
+export function createOriginalTransitionBackupPath(originalPath: string, workingCopyPath: string) {
+    return join(dirname(originalPath), `${getOriginalBackupNamePrefix(originalPath, workingCopyPath)}${randomUUID()}.bak`);
+}
+
+/** Removes original backups this working copy's crash left before its journal named them. */
 export async function sweepOrphanedOriginalBackups(originalPath: string, workingCopyPath: string) {
     // Recovery runs immediately before this sweep. Recheck the journal so a
     // transition that starts between those steps keeps its backup.
@@ -312,7 +346,7 @@ export async function sweepOrphanedOriginalBackups(originalPath: string, working
         return;
     }
     const originalDirectory = dirname(originalPath);
-    const backupPrefix = `${basename(originalPath)}.evb-transition-`;
+    const backupPrefix = getOriginalBackupNamePrefix(originalPath, workingCopyPath);
     let entries;
     try {
         entries = await readdir(originalDirectory, {withFileTypes: true});

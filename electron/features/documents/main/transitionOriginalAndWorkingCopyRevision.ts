@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {rm} from 'node:fs/promises';
 import type {TDocumentRevisionChangeReason} from '@contracts/documentRevision';
 import {
@@ -7,6 +6,7 @@ import {
 } from '@electron/file-access/documentFileWriteAtomic';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import {
+    createOriginalTransitionBackupPath,
     recordWorkingCopyJournalOriginal,
     recoverWorkingCopyTransition,
     type IWorkingCopyJournal,
@@ -56,8 +56,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         if (input.captureOriginalWitness && !witness) {
             return null;
         }
-        const suffix = `${process.pid}-${randomUUID()}`;
-        const originalBackupPath = `${input.originalPath}.evb-transition-${suffix}.bak`;
+        const originalBackupPath = createOriginalTransitionBackupPath(input.originalPath, input.workingCopyPath);
         let backupCreated = false as boolean;
         let committed = false as boolean;
         let shouldRestoreOriginal = false as boolean;

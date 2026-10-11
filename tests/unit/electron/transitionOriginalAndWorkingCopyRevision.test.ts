@@ -1,6 +1,7 @@
 import {
     appendFile,
     link,
+    mkdir,
     mkdtemp,
     open,
     readFile,
@@ -106,10 +107,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         });
     });
 
-    async function prepare(initialOriginal = 'old-original', initialWorking = 'old-working') {
-        const originalPath = join(tempRoot, 'original.pdf');
-        const workingCopyPath = join(tempRoot, 'working.pdf');
+    async function prepare(
+        initialOriginal = 'old-original',
+        initialWorking = 'old-working',
+        originalName = 'original.pdf',
+        workingDirectory = tempRoot,
+    ) {
+        const originalPath = join(tempRoot, originalName);
+        const workingCopyPath = join(workingDirectory, 'working.pdf');
         const stagedPath = join(tempRoot, 'staged.pdf');
+        await mkdir(workingDirectory, {recursive: true});
         await Promise.all([
             writeFile(originalPath, initialOriginal),
             writeFile(workingCopyPath, initialWorking),
@@ -274,6 +281,49 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             stat(workingCopyPath, {bigint: true}),
         ]);
         expect(originalStat.ino).not.toBe(workingStat.ino);
+    });
+
+    it.each([
+        [
+            '242-byte',
+            `${'é'.repeat(80)}${'source'.repeat(13)}.pdf`,
+        ],
+        [
+            '146-byte',
+            `${'é'.repeat(50)}${'source'.repeat(7)}.pdf`,
+        ],
+    ])('saves in place when the %s original name is near the name limit', async (_length, originalName) => {
+        const {
+            originalPath,
+            stagedPath,
+            workingCopyPath,
+        } = await prepare(
+            'old-original',
+            'old-working',
+            originalName,
+            // A real working copy lives in its own pdf-work-<uuid> directory, whose name is part of the backup name.
+            join(tempRoot, 'pdf-work-00000000-0000-4000-8000-000000000001'),
+        );
+        const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        let namesDuringPublish: string[] = [];
+
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            publishOriginal: async () => {
+                // The transition backup exists here: it is the only entry naming the transition.
+                namesDuringPublish = await readdir(dirname(originalPath));
+                await publishImmutableFileAtomic(stagedPath, originalPath);
+            },
+        })).resolves.toMatchObject({contentRevision: 2});
+
+        expect(namesDuringPublish.some(name => name.includes('.evb-transition-'))).toBe(true);
+        expect(namesDuringPublish.every(name => Buffer.byteLength(name, 'utf8') <= 255)).toBe(true);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('new-committed-pdf');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
     });
 
     it('retains combined recovery evidence when working-copy rollback fails', async () => {
