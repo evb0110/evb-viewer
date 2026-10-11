@@ -1,7 +1,14 @@
+import {createHash} from 'node:crypto';
 import {
     existsSync,
+    readFileSync,
     statSync,
 } from 'node:fs';
+import {
+    mkdtemp, rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {
     describe,
     expect,
@@ -9,7 +16,12 @@ import {
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {activateWorkspaceTab} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     createLargeScannedFixturePdf,
     readPdfPageSnapshots,
@@ -392,4 +404,61 @@ describe('scan cleanup toolbar contract', () => {
             ).toBe(true);
         }
     }, 360_000);
+});
+
+// SC-04 (#1364): the completion toast's Save As saves the cleaned output it was
+// raised for, even after another tab is active. The toast lasts only a few
+// seconds, so the test clicks it as soon as the state it needs is on screen.
+describe('scan cleanup completion Save As', () => {
+    const startCleanupSession = async (savedPath: string, sourcePath: string) => {
+        const session = await startElectronE2ESession(`e2e-scan-cleanup-save-as-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: savedPath},
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await clickVisibleToolbarButton(page, 'Scan cleanup');
+        await page.waitForSelector('.scan-cleanup-surface', {
+            timeout: 10_000,
+            visible: true,
+        });
+        await waitForFunctionInPage(page, (primaryActionSelector: string) => {
+            const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
+            return action?.disabled === false && (action.textContent ?? '').includes('Clean up');
+        }, {timeout: 120_000}, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+        await waitForFunctionInPage(page, () => Array.from(
+            document.querySelectorAll<HTMLElement>('[data-slot="title"]'),
+        ).some(title => (title.textContent ?? '').trim() === 'Scan cleanup complete'), {timeout: 180_000});
+        return session;
+    };
+    const clickToastSaveAs = (page: Page) => clickFoundAsUser(page, () => Array.from(
+        document.querySelectorAll<HTMLButtonElement>('button'),
+    ).filter(button => button.textContent?.trim() === 'Save as…' && button.checkVisibility()).at(-1), null, {description: 'toast Save As'});
+
+    it('saves the cleaned output, not the tab that is active when the toast is clicked', async () => {
+        const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-save-as-'));
+        const savedPath = join(scratch, 'saved-from-toast.pdf');
+        const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-save-as-source.pdf', 6, 0);
+        const sourceSha = createHash('sha256').update(readFileSync(sourcePath)).digest('hex');
+        const session = await startCleanupSession(savedPath, sourcePath);
+        try {
+            const outputPath = (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath;
+            if (typeof outputPath !== 'string' || !outputPath.endsWith('— cleaned.pdf')) {
+                throw new Error(`The cleanup output is not the active document: ${String(outputPath)}`);
+            }
+            await activateWorkspaceTab(session, 0);
+            await clickToastSaveAs(session.page);
+            await expect.poll(() => existsSync(savedPath), {timeout: 60_000}).toBe(true);
+            expect(createHash('sha256').update(readFileSync(savedPath)).digest('hex')).not.toBe(sourceSha);
+        } finally {
+            await session.stop();
+            await rm(scratch, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 600_000);
 });
