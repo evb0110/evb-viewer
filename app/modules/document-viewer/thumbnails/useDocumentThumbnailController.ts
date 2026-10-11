@@ -108,7 +108,13 @@ async function measureSlotAspectRatio(source: IDocumentPageSource, signal: Abort
         Math.ceil(source.pageCount / 2),
         source.pageCount,
     ])].filter(page => page >= 1);
-    const sizes = await Promise.all(pages.map(page => source.getPageMetrics(page, signal).catch(() => null)));
+    const sizes = await Promise.all(pages.map(async (page) => {
+        try {
+            return await source.getPageMetrics(page, signal);
+        } catch {
+            return null;
+        }
+    }));
     return resolveDocumentThumbnailAspectRatio(sizes.filter(size => size !== null));
 }
 
@@ -647,6 +653,23 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
     }
 
+    // The slot shape follows the document's pages and is measured again for
+    // every source, a reload after page operations included; until then the
+    // previous shape stands. Once it lands, the current page is revealed again
+    // unless the user has scrolled the rail or a resize holds the anchor.
+    function measureSlotShape(source: IDocumentPageSource | null) {
+        slotShapeRequest?.abort();
+        slotShapeRequest = null;
+        if (!source) return;
+        const request = new AbortController();
+        slotShapeRequest = request;
+        void measureSlotAspectRatio(source, request.signal).then((aspectRatio) => {
+            if (request.signal.aborted) return;
+            updateLayoutGeometry(cssWidth.value, itemChromeHeight.value, aspectRatio);
+            if (!resizeAnchorLifecycle.isActive()) revealPage(options.currentPage.value);
+        });
+    }
+
     const virtualItems = computed<IDocumentThumbnailVirtualItem[]>(() => {
         void layoutRevision.value;
         void viewportRevision.value;
@@ -717,6 +740,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     watch(
         options.source,
         async (source, previous) => {
+            measureSlotShape(source);
             // With page revisions, a reloaded source of the same document keeps
             // the rows and their thumbnails; pages re-render as keys change.
             if (
@@ -740,18 +764,6 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
                 pageCount: source?.pageCount ?? 0,
                 renderWidth: cssWidth.value,
             });
-            // The slot shape follows the document's pages. It is measured once
-            // per source; until then the previous shape stands.
-            slotShapeRequest?.abort();
-            if (source) {
-                const request = new AbortController();
-                slotShapeRequest = request;
-                void measureSlotAspectRatio(source, request.signal).then((aspectRatio) => {
-                    if (!request.signal.aborted) {
-                        updateLayoutGeometry(cssWidth.value, itemChromeHeight.value, aspectRatio);
-                    }
-                });
-            }
             activeScrollSegmentIndex.value = source
                 ? layout.getScrollSegmentIndexForPage(options.currentPage.value)
                 : 0;

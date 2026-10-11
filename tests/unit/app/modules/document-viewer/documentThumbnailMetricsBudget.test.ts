@@ -13,6 +13,7 @@ import {
 import {
     countDocumentThumbnailCalls,
     createDocumentThumbnailSourceHarness,
+    documentThumbnailRow,
     installDocumentThumbnailListEnvironment,
     mountDocumentThumbnailList,
     restoreDocumentThumbnailListEnvironment,
@@ -73,6 +74,73 @@ describe('document thumbnail retained surfaces', () => {
             2500,
             5000,
         ]);
+    });
+
+    it('shapes the slots like the source\'s pages and again when a reload turns them', async () => {
+        const frameAspect = (host: HTMLElement) => host
+            .querySelector<HTMLElement>('[data-thumbnail-page="1"] .document-thumbnail-list__frame')
+            ?.style.aspectRatio ?? '';
+        const spreads = createDocumentThumbnailSourceHarness(12, '/book.pdf', {
+            widthPoints: 793,
+            heightPoints: 566,
+        });
+        const {
+            host,
+            setSource,
+        } = mountDocumentThumbnailList(spreads.source, true, () => 'revision');
+        await settleDocumentThumbnailList();
+        expect(parseFloat(frameAspect(host))).toBeCloseTo(793 / 566, 3);
+
+        // Every page turned by a page operation: the same document reloads.
+        const turned = createDocumentThumbnailSourceHarness(12, '/book.pdf', {
+            widthPoints: 566,
+            heightPoints: 793,
+        });
+        setSource(turned.source);
+        await settleDocumentThumbnailList();
+        expect(parseFloat(frameAspect(host))).toBeCloseTo(566 / 793, 3);
+    });
+
+    it('keeps the current page in view when a later-measured slot shape moves it', async () => {
+        const spreads = createDocumentThumbnailSourceHarness(12, '/spreads.pdf', {
+            widthPoints: 793,
+            heightPoints: 566,
+        });
+        const {
+            host,
+            setCurrentPage,
+            setSource,
+        } = mountDocumentThumbnailList(spreads.source);
+        await settleDocumentThumbnailList();
+
+        // A portrait book opened at page 4 whose page sizes arrive late: it is
+        // first laid out in the spread book's short slots.
+        let reportSizes!: () => void;
+        const sizesReported = new Promise<void>((resolve) => {
+            reportSizes = resolve;
+        });
+        const portrait = createDocumentThumbnailSourceHarness(12, '/portrait.pdf');
+        setCurrentPage(4);
+        setSource({
+            ...portrait.source,
+            getPageMetrics: async (pageNumber, signal) => {
+                await sizesReported;
+                return portrait.source.getPageMetrics(pageNumber, signal);
+            },
+        });
+        await settleDocumentThumbnailList();
+        reportSizes();
+        await settleDocumentThumbnailList();
+
+        const rail = host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+        const row = documentThumbnailRow(host, 4)!;
+        const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
+        const bottom = top + parseFloat(row.style.height);
+        expect(parseFloat(host.querySelector<HTMLElement>('[data-thumbnail-page="4"] .document-thumbnail-list__frame')!
+            .style.aspectRatio)).toBeCloseTo(500 / 700, 3);
+        expect(top, `page 4 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`)
+            .toBeGreaterThanOrEqual(rail.scrollTop);
+        expect(bottom).toBeLessThanOrEqual(rail.scrollTop + 600);
     });
 
     it('starts a replacement document from an empty budget instead of stacking documents', async () => {
