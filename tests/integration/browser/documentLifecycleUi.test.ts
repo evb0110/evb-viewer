@@ -3916,6 +3916,45 @@ describe('browser document lifecycle UI', () => {
     }, 90_000);
 
 
+    it('preserves the regex budget across normalization at the page-text cap', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            const url = `${origin}/__search-normalization`;
+            await page.route(url, route => route.fulfill({
+                contentType: 'text/html',
+                body: '<!doctype html><html><body>Search normalization</body></html>',
+            }));
+            await page.goto(url, {waitUntil: 'domcontentloaded'});
+            const results = await page.evaluate<Array<{
+                size: number;
+                remainingMs: number;
+                nextMatches?: number;
+                error?: string
+            }>>(`(async () => {
+                const {matchBrowserSearchPageWindow: match} = await import('/_nuxt/platform/browser-api/matchBrowserSearchPageWindow.ts');
+                const options = {useRegex: true, matchCase: false, wholeWord: false};
+                const results = [];
+                for (const size of [1000000, 8388608]) {
+                    const budget = {remainingMs: 250};
+                    const started = performance.now();
+                    try {
+                        await match('a'.repeat(size), '^Z', options, 501, 0, budget, new AbortController().signal);
+                        const next = await match('Z', '^Z', options, 501, 0, budget, new AbortController().signal);
+                        results.push({size, elapsedMs: Math.round(performance.now() - started), remainingMs: budget.remainingMs, nextMatches: next.matches.length});
+                    } catch (error) {
+                        results.push({size, remainingMs: budget.remainingMs, error: String(error)});
+                    }
+                }
+                return results;
+            })()`);
+            console.info('Normalization budget', JSON.stringify(results));
+            expect(results.every(result => !result.error && result.remainingMs > 0 && result.nextMatches === 1)).toBe(true);
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
     it.each([
         true,
         false,

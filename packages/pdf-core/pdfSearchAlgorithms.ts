@@ -695,13 +695,14 @@ export function findPdfSearchMatches(
     matcherOrQuery: RegExp | string,
     options?: ISearchMatchOptions,
 ) {
-    return Array.from(iteratePdfSearchMatches(text, matcherOrQuery, options));
+    return [...iteratePdfSearchMatches(text, matcherOrQuery, options)];
 }
 
 export function* iteratePdfSearchMatches(
     text: string,
     matcherOrQuery: RegExp | string,
     options?: ISearchMatchOptions,
+    onMatchingStarted?: () => void,
 ) {
     if (matcherOrQuery instanceof RegExp && options?.useRegex === true) {
         assertSafePdfSearchRegex(matcherOrQuery.source, {
@@ -719,14 +720,10 @@ export function* iteratePdfSearchMatches(
             useRegex: Boolean(options?.useRegex),
         })
         : matcherOrQuery;
-    const flags = sourceMatcher.flags.includes('g')
-        ? sourceMatcher.flags
-        : `${sourceMatcher.flags}g`;
-    const matcher = new RegExp(sourceMatcher.source, flags);
+    const matcher = new RegExp(sourceMatcher.source, `${sourceMatcher.flags.replace('g', '')}g`);
 
-    let match: RegExpExecArray | null;
     const matchedText = normalizedText?.text ?? text;
-    // Started after normalization, so the budget pays for matching only.
+    onMatchingStarted?.();
     const regexDeadline = options?.useRegex === true
         ? Date.now() + (options.regexBudgetMs ?? SEARCH_REGEX_MAX_EXECUTION_MS)
         : null;
@@ -736,7 +733,7 @@ export function* iteratePdfSearchMatches(
                 `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms page budget`,
             );
         }
-        match = matcher.exec(matchedText);
+        const match = matcher.exec(matchedText);
         if (match === null) {
             break;
         }

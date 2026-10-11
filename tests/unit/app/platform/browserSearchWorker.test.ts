@@ -31,6 +31,7 @@ async function loadWorker() {
 
 describe('browserSearch worker', () => {
     afterEach(() => {
+        vi.restoreAllMocks();
         vi.resetModules();
         vi.unstubAllGlobals();
     });
@@ -191,6 +192,58 @@ describe('browserSearch worker', () => {
             expect(response.data.matchCount).toBe(560);
             expect(response.data.truncated).toBe(truncated);
         }
+    });
+
+    it('preserves the next-page matching budget after slow normalization', async () => {
+        const {
+            handler, postMessage,
+        } = await loadWorker();
+        let clockMs = 0;
+        const normalize = String.prototype.normalize;
+        vi.spyOn(Date, 'now').mockImplementation(() => clockMs);
+        vi.spyOn(String.prototype, 'normalize').mockImplementation(function (this: string, form) {
+            clockMs += 300;
+            return normalize.call(this, form);
+        });
+        const payload = {
+            text: 'a',
+            query: '^Z',
+            options: {
+                matchCase: true,
+                wholeWord: false,
+                useRegex: true,
+            },
+            maxMatches: 2,
+            budgetMs: 250,
+        };
+        handler({data: {
+            id: 11,
+            type: 'matchPageText',
+            payload,
+        }} as MessageEvent<unknown>);
+        const first = postMessage.mock.lastCall?.[0];
+        expect(first.ok).toBe(true);
+        expect(first.data.matchingMs).toBe(0);
+        handler({data: {
+            id: 12,
+            type: 'matchPageText',
+            payload: {
+                ...payload,
+                text: 'Z',
+                budgetMs: payload.budgetMs - first.data.matchingMs,
+            },
+        }} as MessageEvent<unknown>);
+        expect(postMessage.mock.lastCall?.[0]).toMatchObject({
+            ok: true,
+            data: {
+                matchingMs: 0,
+                matches: [{
+                    pageMatchIndex: 0,
+                    startOffset: 0,
+                    endOffset: 1,
+                }],
+            },
+        });
     });
 
     it('returns a typed protocol code for an unsafe regex before matching', async () => {

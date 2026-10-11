@@ -22,13 +22,19 @@ function handleMatchPageTextRequest(
     } = request.payload;
     validateSearchQuery(query, options);
 
-    const startedAtMs = Date.now();
+    let startedAtMs = 0;
 
     return {
         ...matchPdfSearchPageWindow(text, query, {
             ...options,
             ...(budgetMs === undefined ? {} : {regexBudgetMs: budgetMs}),
-        }, maxMatches, resultOffset),
+        }, maxMatches, resultOffset, () => {
+            startedAtMs = Date.now();
+            self.postMessage({
+                id: request.id,
+                started: true,
+            } satisfies TBrowserSearchWorkerResponse);
+        }),
         matchingMs: Date.now() - startedAtMs,
     };
 }
@@ -48,10 +54,6 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
     }
 
     try {
-        self.postMessage({
-            id: request.id,
-            started: true,
-        } satisfies TBrowserSearchWorkerResponse);
         const data = handleMatchPageTextRequest(request);
         const response = {
             id: request.id,
