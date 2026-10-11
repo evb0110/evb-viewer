@@ -402,6 +402,22 @@ describe('browserWorkspaceRecoveryStore', () => {
             }
         });
 
+        it('does not reclaim a lease whose owner holds its lock, even under an earlier lock snapshot', async () => {
+            await liveLeases.holdLeaseOwnerLock('window:new');
+            await liveLeases.createBrowserDocumentLiveLease('window:new', [{ref: requireDocumentRef('browser://documents/source.pdf')}]);
+            // A snapshot taken before the owner published, reporting no held owner.
+            vi.spyOn(locks, 'query').mockResolvedValue({held: []});
+
+            await liveLeases.reclaimOrphanedBrowserDocumentLiveLeases();
+
+            const database = recoveryDbFactory.getDatabase(DB_NAME);
+            expect(database?.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:new')).toMatchObject({
+                status: 'active',
+                generation: 1,
+                protectedDependencies: [{ref: requireDocumentRef('browser://documents/source.pdf')}],
+            });
+        });
+
         it('takes over a fresh journal once its owner context has released the lock', async () => {
             await saveBrowserWorkspaceRecovery(
                 'window:closed',

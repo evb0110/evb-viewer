@@ -1,5 +1,7 @@
 import {BROWSER_LIVE_LEASES_STORE} from '@app/platform/browser/browserDocumentConstants';
-import {runObjectStoreTransaction} from '@app/platform/browser/browserDocumentIdb';
+import {
+    runObjectStoreTransaction, withObjectStoreReadResult,
+} from '@app/platform/browser/browserDocumentIdb';
 import type {
     IBrowserDocumentLeaseDependency,
     IBrowserDocumentLiveLease,
@@ -213,34 +215,32 @@ export async function withLeaseOwnerLock<T>(ownerId: string, use: (lock: TLeaseO
 // whose lock nobody holds therefore has no owner left to speak for it, and its
 // refs are released in the same sweep.
 export async function reclaimOrphanedBrowserDocumentLiveLeases() {
-    const liveOwnerIds = await loadLiveLeaseOwnerIds();
-    if (!liveOwnerIds) {
-        return;
-    }
-    await runObjectStoreTransaction<null>(
-        BROWSER_LIVE_LEASES_STORE,
-        'readwrite',
-        (store) => {
-            const request = store.getAll();
-            request.onsuccess = () => {
-                const leases = (Array.isArray(request.result) ? request.result : [])
-                    .flatMap(value => {
-                        const lease = decodeLease(value);
-                        return lease ? [lease] : [];
-                    });
-                for (const lease of leases) {
-                    if (lease.status === 'dead' || liveOwnerIds.has(lease.ownerId)) {
-                        continue;
+    const rows = await withObjectStoreReadResult(BROWSER_LIVE_LEASES_STORE, store => store.getAll());
+    const ownerIds = (Array.isArray(rows.value) ? rows.value : []).flatMap(value => {
+        const lease = decodeLease(value);
+        return lease && lease.status !== 'dead' ? [lease.ownerId] : [];
+    });
+    // Each owner is judged by its lock now, never by a snapshot taken before its row was read.
+    for (const ownerId of ownerIds) {
+        await withLeaseOwnerLock(ownerId, async lock => {
+            if (lock !== 'acquired') {
+                return;
+            }
+            await runObjectStoreTransaction<null>(BROWSER_LIVE_LEASES_STORE, 'readwrite', store => {
+                const request = store.get(leaseId(ownerId));
+                request.onsuccess = () => {
+                    const lease = decodeLease(request.result);
+                    if (lease && lease.status !== 'dead') {
+                        store.put({
+                            ...lease,
+                            generation: lease.generation + 1,
+                            leaseRevision: lease.leaseRevision + 1,
+                            status: 'dead',
+                            protectedDependencies: [],
+                        } satisfies IBrowserDocumentLiveLease);
                     }
-                    store.put({
-                        ...lease,
-                        generation: lease.generation + 1,
-                        leaseRevision: lease.leaseRevision + 1,
-                        status: 'dead',
-                        protectedDependencies: [],
-                    } satisfies IBrowserDocumentLiveLease);
-                }
-            };
-        },
-    );
+                };
+            });
+        });
+    }
 }
