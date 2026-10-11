@@ -154,6 +154,7 @@
                                     <span class="recent-col recent-col--actions" role="cell" />
                                 </div>
                             </template>
+                            <!-- eslint-disable custom/app-tooltip-only -- Recent rows use native titles without per-row tooltip lifecycles. -->
                             <div
                                 v-for="file in filteredRecentFiles"
                                 v-else
@@ -168,44 +169,38 @@
                                 @click="openRecentFromRow(file, $event)"
                             >
                                 <span class="recent-col recent-col--name" role="cell">
-                                    <AppTooltip :text="file.fileName" :delay-duration="800" usefulness="always">
-                                        <button
-                                            type="button"
-                                            class="recent-open"
-                                            :disabled="isRecentRowDisabled(file)"
-                                            @click.stop="openRecent(file, $event)"
-                                        >
-                                            <span class="recent-file-icon" aria-hidden="true">
-                                                <FileTypeIcon :kind="getFileKind(file)" />
-                                            </span>
-                                            <span class="recent-file-name">
-                                                <span class="recent-file-name-prefix">{{ displayRecentFileName(file.fileName).prefix }}</span>
-                                                <span class="recent-file-name-suffix">{{ displayRecentFileName(file.fileName).suffix }}</span>
-                                            </span>
-                                        </button>
-                                    </AppTooltip>
+                                    <button
+                                        type="button"
+                                        class="recent-open"
+                                        :title="file.fileName"
+                                        :disabled="isRecentRowDisabled(file)"
+                                        @click.stop="openRecent(file, $event)"
+                                    >
+                                        <span class="recent-file-icon" aria-hidden="true">
+                                            <FileTypeIcon :kind="getFileKind(file)" />
+                                        </span>
+                                        <span class="recent-file-name">
+                                            <span class="recent-file-name-prefix">{{ displayRecentFileName(file.fileName).prefix }}</span>
+                                            <span class="recent-file-name-suffix">{{ displayRecentFileName(file.fileName).suffix }}</span>
+                                        </span>
+                                    </button>
                                 </span>
                                 <span
                                     v-if="shouldShowRecentLocationColumn"
                                     class="recent-col recent-col--location"
                                     role="cell"
                                 >
-                                    <AppTooltip
+                                    <button
                                         v-if="canRevealInFolder(file)"
-                                        :text="t('status.showInFolder')"
-                                        :delay-duration="600"
-                                        usefulness="always"
+                                        type="button"
+                                        class="recent-location recent-location--reveal"
+                                        :aria-label="t('status.showInFolder')"
+                                        :title="t('status.showInFolder')"
+                                        @click.stop="revealRecent(file)"
                                     >
-                                        <button
-                                            type="button"
-                                            class="recent-location recent-location--reveal"
-                                            :aria-label="t('status.showInFolder')"
-                                            @click.stop="revealRecent(file)"
-                                        >
-                                            <UIcon name="i-ph-folder" class="recent-location-icon" aria-hidden="true" />
-                                            <span class="recent-location-path">{{ getParentFolder(file.originalPath) }}</span>
-                                        </button>
-                                    </AppTooltip>
+                                        <UIcon name="i-ph-folder" class="recent-location-icon" aria-hidden="true" />
+                                        <span class="recent-location-path">{{ getParentFolder(file.originalPath) }}</span>
+                                    </button>
                                     <span v-else class="recent-location recent-location--static">
                                         <UIcon name="i-ph-globe" class="recent-location-icon" aria-hidden="true" />
                                         <span class="recent-location-path">{{ t('emptyState.locationBrowser') }}</span>
@@ -215,18 +210,18 @@
                                     {{ formatRelativeTimeLocalized(file.timestamp) }}
                                 </span>
                                 <span class="recent-col recent-col--actions" role="cell">
-                                    <AppTooltip :text="t('emptyState.removeFromRecent')" :delay-duration="1200">
-                                        <button
-                                            type="button"
-                                            class="recent-action recent-action--remove"
-                                            :aria-label="t('emptyState.removeFromRecent')"
-                                            @click.stop="removeRecent(file)"
-                                        >
-                                            <UIcon name="i-ph-x" />
-                                        </button>
-                                    </AppTooltip>
+                                    <button
+                                        type="button"
+                                        class="recent-action recent-action--remove"
+                                        :aria-label="t('emptyState.removeFromRecent')"
+                                        :title="t('emptyState.removeFromRecent')"
+                                        @click.stop="removeRecent(file)"
+                                    >
+                                        <UIcon name="i-ph-x" />
+                                    </button>
                                 </span>
                             </div>
+                            <!-- eslint-enable custom/app-tooltip-only -->
                         </div>
 
                         <!-- A list that could not load says so in its own box, where its rows would be. -->

@@ -19,6 +19,26 @@ import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-
 import { readToastDescription } from '@tests/helpers/toastDescription';
 
 describe('workspace document controller views', () => {
+    it('makes the tab empty at the close commit while file cleanup is pending', async () => {
+        const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
+        controller.assign({
+            fileName: 'closed.pdf',
+            originalPath: requireDocumentRef('/docs/closed.pdf'),
+            isDirty: false,
+            isDjvu: false,
+        });
+        const cleanup = Promise.withResolvers<boolean>();
+        controller.attachWorkspace('tab-1', createWorkspaceExposeFixture({handleCloseFileFromUi: async (options) => {
+            options?.onCloseCommit?.();
+            return cleanup.promise;
+        }}));
+        const closing = controller.close({persist: false});
+        expect(controller.snapshot.value.phase).toBe('empty');
+        expect(snapshotOccupiesTab(controller.snapshot.value)).toBe(false);
+        cleanup.resolve(true);
+        await expect(closing).resolves.toBe(true);
+    });
+
     it('occupies an empty tab before mounting and presents the claimed open', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
         const target = {

@@ -561,32 +561,15 @@ export function createWorkspaceDocumentController(options: {
             resetToEmpty();
             return true;
         }
-        const previous = snapshot.value;
-        const closed = await workspace.handleCloseFileFromUi({
+        return workspace.handleCloseFileFromUi({
             ...request,
             onCloseCommit: () => {
                 supersedeActiveTransaction();
-                nextTransactionIndex += 1;
-                update({
-                    phase: 'closing',
-                    activeTransaction: {
-                        id: `workspace-document-transaction:${tabId}:close:${nextTransactionIndex}`,
-                        kind: 'close',
-                        target: null,
-                        acceptDocumentWithoutVisual: false,
-                    },
-                }, true);
+                // Persistence has committed the close. Start can paint when
+                // the file clears its source, before derived viewer teardown.
+                resetToEmpty();
             },
         });
-        if (closed) {
-            resetToEmpty();
-        } else if (snapshot.value.phase === 'closing') {
-            update({
-                phase: previous.phase === 'opening' ? restingPhase() : previous.phase,
-                activeTransaction: null,
-            }, true);
-        }
-        return closed;
     }
 
     function close(request: {persist: boolean}) {

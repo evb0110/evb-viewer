@@ -91,16 +91,12 @@ export async function rememberReadingView(controller: IWorkspaceDocumentControll
 }
 
 /**
- * The document's file lifecycle remembers the place before a close releases
- * it, and seeds a normal open when its source is admitted. (An open that
+ * The file lifecycle seeds a normal open when its source is admitted. (An open that
  * replaces the document remembers it before it claims the view, while the
  * view still shows the old place.)
  */
 export function createReadingViewLifecycleHooks(controller: IWorkspaceDocumentController): IWorkspaceViewerLifecycleHooks {
-    return {
-        beforeClose: () => rememberReadingView(controller),
-        beforeSourcePresented: (source, pageCount) => seedOpeningSource(controller, source, pageCount),
-    };
+    return {beforeSourcePresented: (source, pageCount) => seedOpeningSource(controller, source, pageCount)};
 }
 
 type TOpeningSurface = Pick<IDocumentOpenSurfaceSession, 'navigate'>;

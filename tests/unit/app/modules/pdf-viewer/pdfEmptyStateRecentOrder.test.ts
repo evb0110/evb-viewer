@@ -147,7 +147,7 @@ describe('PdfEmptyState recent-file order', () => {
 
         const names = Array.from(host.querySelectorAll<HTMLElement>('.recent-file-name'));
         expect(names).toHaveLength(2);
-        expect(names.map(name => name.closest('[data-tooltip-text]')?.getAttribute('data-tooltip-text'))).toEqual([
+        expect(names.map(name => name.closest('[title]')?.getAttribute('title'))).toEqual([
             standard.fileName,
             optimized.fileName,
         ]);
