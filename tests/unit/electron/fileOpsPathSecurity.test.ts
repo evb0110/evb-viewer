@@ -1238,6 +1238,52 @@ describe('fileOps path security', () => {
         expect(secondClose).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps every handle owned when a stale cached handle closes under a concurrent reopen', async () => {
+        let mtimeMs = 1;
+        mocks.statSync.mockImplementation(() => ({
+            size: 123,
+            mtimeMs,
+        }));
+        const firstRead = deferred<undefined>();
+        const firstReadEntered = deferred<undefined>();
+        const closes: Array<ReturnType<typeof vi.fn>> = [];
+        mocks.open.mockImplementation(async () => {
+            const blocks = closes.length === 0;
+            const close = vi.fn(async () => {});
+            closes.push(close);
+            return {
+                close,
+                read: vi.fn(async (buffer: Buffer) => {
+                    if (blocks) {
+                        firstReadEntered.resolve(undefined);
+                        await firstRead.promise;
+                    }
+                    buffer.fill(1);
+                    return { bytesRead: buffer.byteLength };
+                }),
+            };
+        });
+
+        const blockedRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
+        await firstReadEntered.promise;
+        mtimeMs = 2;
+        const staleRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 2, 2);
+        for (let turn = 0; turn < 50 && getRangeReadCacheStatsForTests().handles > 0; turn += 1) {
+            await new Promise(resolve => setImmediate(resolve));
+        }
+        expect(getRangeReadCacheStatsForTests().handles).toBe(0);
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 4, 2);
+        firstRead.resolve(undefined);
+        await Promise.all([
+            blockedRead,
+            staleRead,
+        ]);
+        await clearCachedRangeReadHandlesForTests();
+
+        expect(closes).toHaveLength(2);
+        expect(closes.every(close => close.mock.calls.length === 1)).toBe(true);
+    });
+
     it('closes cached range read handles after working copy mutations settle', async () => {
         const close = vi.fn(async () => {});
         mocks.open.mockResolvedValue({

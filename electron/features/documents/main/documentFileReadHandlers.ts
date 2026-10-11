@@ -384,7 +384,9 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
             ) {
                 return acquireRangeReadHandleEntry(cacheKey, cachedEntry);
             }
+            // Another acquisition may cache a fresh handle while this one waits.
             await requestRangeReadHandleClose(resolvedPath, cachedEntry);
+            continue;
         }
 
         const pendingOpen = rangeReadHandleOpens.get(cacheKey);
