@@ -12,6 +12,7 @@ import {
 } from 'path';
 import {
     rmdir,
+    stat,
     rm,
     writeFile,
 } from 'fs/promises';
@@ -55,7 +56,9 @@ import {
     type INormalizePdfAppendBaseOptions,
 } from '@electron/pdf/pdfAppendBase';
 import {captureOpenSourceWitness} from '@electron/file-access/originalPathSaveWitness';
-import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
+import {
+    hashContentFingerprintFilePath, OriginalPathSaveConflictError,
+} from '@electron/file-access/originalPathSnapshot';
 import {
     initializeFreshWorkingCopyRevision,
     markWorkingCopyContentChanged,
@@ -156,10 +159,6 @@ export async function createWorkingCopyWithOutcome(
     try {
         const workingPath = join(workDir, getWorkingCopyFileName(basename(originalPath)));
         const isPdf = workingPath.toLowerCase().endsWith('.pdf');
-        const normalizeOptions: INormalizePdfAppendBaseOptions = {
-            ...(signal === undefined ? {} : {signal}),
-            ...(admitRewrite === undefined ? {} : {admitRewrite}),
-        };
         // Capture the original before qpdf reads it, check it again before
         // registration, and retain it as the save baseline.
         const sourceWitness = isPdf
@@ -170,6 +169,19 @@ export async function createWorkingCopyWithOutcome(
         let backingState: 'cloned' | 'eager' | 'lazy-original';
         let copiedSourceFingerprint: ICopiedSourceFingerprint | null = null;
         let encrypted = false;
+        let rawContentFingerprint: string | undefined;
+        const retainRawCopyFingerprint = async () => {
+            rawContentFingerprint ??= copiedSourceFingerprint?.contentFingerprint
+                ?? await hashContentFingerprintFilePath(workingPath, (await stat(workingPath, {bigint: true})).size, signal);
+        };
+        const normalizeOptions: INormalizePdfAppendBaseOptions = {
+            ...(signal === undefined ? {} : {signal}),
+            admitRewrite: async () => {
+                await retainRawCopyFingerprint();
+                await admitRewrite?.();
+            },
+        };
+
 
         const cloneOutcome = await measureWorkingCopyPhase(phaseTimings, 'copy-on-write', () =>
             attemptWorkingCopyClone(originalPath, workingPath));
@@ -180,68 +192,48 @@ export async function createWorkingCopyWithOutcome(
                 ? await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
                     isPdfFileEncrypted(originalPath))
                 : false;
-            // A lazy copy reads the original until it materializes, so a
-            // source that needs a rewrite gets one before its registration.
-            const normalized = isPdf && !encrypted
-                && await normalizeWorkingCopyAppendBase(originalPath, workingPath, phaseTimings, normalizeOptions);
+            const needsRewrite = isPdf && !encrypted
+                && await pdfNeedsAppendBaseRewrite(originalPath, signal);
             const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
                 captureWorkingCopyAdmissionSnapshot(originalPath));
             if (!await workingCopyAdmissionSnapshotsMatch(beforeProbe, afterProbe)) {
                 throw new OriginalPathSaveConflictError();
             }
             admissionSnapshot = afterProbe;
-            if (normalized) {
-                backingState = 'eager';
-            } else if (encrypted || !isPdf) {
+            if (encrypted || needsRewrite || !isPdf) {
                 // The copy reads every source byte verbatim, so it fingerprints
                 // the original for the registration; decryption changes only
                 // the copy afterwards.
                 copiedSourceFingerprint = await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
                     copyFileFromStableSource(originalPath, workingPath, {fingerprintSource: true}));
-                if (isPdf) {
-                    const decryption = await decryptPdfWorkingCopy(
-                        workingPath,
-                        password,
-                        phaseTimings,
-                        signal,
-                    );
-                    encrypted = decryption.wasEncrypted;
-                    await normalizeWorkingCopyAppendBase(workingPath, workingPath, phaseTimings, normalizeOptions);
-                }
                 backingState = 'eager';
             } else {
                 backingState = 'lazy-original';
             }
         } else {
-            let normalized = false;
-            if (isPdf) {
-                const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal);
-                encrypted = decryption.wasEncrypted;
-                normalized = await normalizeWorkingCopyAppendBase(workingPath, workingPath, phaseTimings, normalizeOptions);
+            backingState = cloneOutcome === 'cloned' ? 'cloned' : 'eager';
+        }
+        if (isPdf && backingState !== 'lazy-original') {
+            if (await isPdfFileEncrypted(workingPath)) {
+                await retainRawCopyFingerprint();
             }
-            backingState = cloneOutcome === 'cloned' && !encrypted && !normalized ? 'cloned' : 'eager';
+            const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal);
+            encrypted = decryption.wasEncrypted;
+            const normalized = await normalizeWorkingCopyAppendBase(workingPath, workingPath, phaseTimings, normalizeOptions);
+            if (encrypted || normalized) backingState = 'eager';
         }
 
         // Only the content has to be the one that was copied. macOS writes
         // extended attributes (macl, lastuseddate, quarantine) as it hands a
         // file to an app, which moves ctime alone; a moved ctime is accepted
         // only with the copy's bytes as proof, and an unchanged one needs none.
-        const copyProof = copiedSourceFingerprint
-            ? {
-                kind: 'open-copy' as const,
-                source: {contentFingerprint: copiedSourceFingerprint.contentFingerprint},
-            }
-            : backingState === 'cloned'
-                ? {
-                    kind: 'open-copy' as const,
-                    source: {path: workingPath},
-                }
-                : backingState === 'lazy-original'
-                    ? {
-                        kind: 'open-copy' as const,
-                        source: null,
-                    }
-                    : {kind: 'open-rewrite' as const};
+        const contentFingerprint = rawContentFingerprint ?? copiedSourceFingerprint?.contentFingerprint;
+        const copyProof = {
+            kind: 'open-copy' as const,
+            source: contentFingerprint
+                ? {contentFingerprint}
+                : backingState === 'lazy-original' ? null : {path: workingPath},
+        };
         await measureWorkingCopyPhase(phaseTimings, 'source-witness-check', async () =>
             sourceWitness?.rebaseOnUnchangedContent(copyProof));
         await measureWorkingCopyPhase(phaseTimings, 'register-source', () => setWorkingCopyOriginalPath(

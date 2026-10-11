@@ -201,8 +201,7 @@ export type TOriginalRebaseProof =
     | {
         kind: 'open-copy';
         source: {contentFingerprint: string} | {path: string} | null
-    }
-    | {kind: 'open-rewrite'};
+    };
 
 /**
  * Rebases an admitted snapshot after a metadata change that is not a content
@@ -237,7 +236,7 @@ export async function rebaseUnchangedSnapshot(
         ?? (proof.kind === 'open-copy' && proof.source && 'contentFingerprint' in proof.source
             ? proof.source.contentFingerprint : undefined);
     if (baselineFingerprint !== undefined) snapshot.contentFingerprint = baselineFingerprint;
-    if ((ctimeMoved || identityMoved) && proof.kind !== 'open-rewrite') {
+    if (ctimeMoved || identityMoved) {
         const source = proof.kind === 'own-backup-link'
             ? {contentFingerprint: admitted.contentFingerprint}
             : proof.source;

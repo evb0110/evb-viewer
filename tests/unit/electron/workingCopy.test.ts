@@ -290,7 +290,9 @@ describe('workingCopy', () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         preventAutomaticWorkingCopyMaterialization();
         const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
-        const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+        const {
+            normalizePdfAppendBase, pdfNeedsAppendBaseRewrite,
+        } = await import('@electron/pdf/pdfAppendBase');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
         const originalPath = join(tempRoot, 'replaced-during-rewrite.pdf');
@@ -300,6 +302,7 @@ describe('workingCopy', () => {
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
         let rewrittenWorkingPath = '';
+        vi.mocked(pdfNeedsAppendBaseRewrite).mockResolvedValueOnce(true);
         vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath) => {
             rewrittenWorkingPath = workingPath;
             writeFileSync(workingPath, Buffer.alloc(64 * 1024, 31));
@@ -314,6 +317,43 @@ describe('workingCopy', () => {
         expect(getWorkingCopyBackingEntry(rewrittenWorkingPath, 7)).toBeNull();
     });
 
+    it.each([
+        'unsupported',
+        'success',
+    ])('refuses an unsampled edit during normalization after a %s copy', async (cloneResult) => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = cloneResult;
+        preventAutomaticWorkingCopyMaterialization();
+        const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+        const {
+            normalizePdfAppendBase, pdfNeedsAppendBaseRewrite,
+        } = await import('@electron/pdf/pdfAppendBase');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'unsampled-rewrite.pdf');
+        const bytes = Buffer.alloc(1024 * 1024, 65);
+        const fixedTime = new Date('2026-09-01T00:00:00Z');
+        writeFileSync(originalPath, bytes);
+        utimesSync(originalPath, fixedTime, fixedTime);
+        if (cloneResult === 'unsupported') vi.mocked(pdfNeedsAppendBaseRewrite).mockResolvedValueOnce(true);
+        let rewrittenPath = '';
+        vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath, options) => {
+            await options?.admitRewrite?.();
+            rewrittenPath = workingPath;
+            writeFileSync(workingPath, Buffer.from('%PDF-rewritten working copy'));
+            const changed = Buffer.from(bytes);
+            changed.write('EXTERNAL-EDIT', 262144);
+            rewriteSourceInPlaceKeepingSizeAndMtime(originalPath, changed, fixedTime);
+            return true;
+        });
+
+        await expect(createWorkingCopyWithOutcome(allowOpenPath(originalPath)!, 7))
+            .rejects.toMatchObject({code: 'source-changed'});
+        expect(rewrittenPath).not.toBe('');
+        expect(existsSync(dirname(rewrittenPath))).toBe(false);
+        expect(getWorkingCopyBackingEntry(rewrittenPath, 7)).toBeNull();
+        expect(readFileSync(originalPath).subarray(262144, 262157).toString()).toBe('EXTERNAL-EDIT');
+    });
+
     // A download that the browser or messenger opens as soon as it lands gets
     // its quarantine and last-used attributes while the open runs. That moves
     // the file's ctime and nothing else.
@@ -321,7 +361,9 @@ describe('workingCopy', () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         preventAutomaticWorkingCopyMaterialization();
         const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
-        const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+        const {
+            normalizePdfAppendBase, pdfNeedsAppendBaseRewrite,
+        } = await import('@electron/pdf/pdfAppendBase');
         const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
         const {getWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
         const originalPath = join(tempRoot, 'metadata-touched-during-open.pdf');
@@ -329,6 +371,7 @@ describe('workingCopy', () => {
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
         const ctimeBefore = statSync(originalPath, {bigint: true}).ctimeNs;
+        vi.mocked(pdfNeedsAppendBaseRewrite).mockResolvedValueOnce(true);
         vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async (_sourcePath, workingPath) => {
             writeFileSync(workingPath, Buffer.alloc(64 * 1024, 51));
             // Read-only and back: a mode change on POSIX, an attribute change
