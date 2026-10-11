@@ -6,12 +6,16 @@ import {
 } from 'vitest';
 import type {
     IScanCleanupOptions,
+    IScanCleanupPageOverride,
     TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_PLACEMENT_ANCHORS_SCHEMA} from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
+import {
+    createScanCleanupDetectionSignature,
+    createScanCleanupPlacementAnchorCalibrationSignature,
+} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
@@ -55,6 +59,42 @@ describe('scan cleanup page overrides', () => {
         expect(createScanCleanupDetectionSignature(serializedOptions))
             .toBe(createScanCleanupDetectionSignature(options));
         expect(options.pageOverrides).toEqual({});
+    });
+
+    it('identifies all-pages defaults even when no page has a sparse entry', () => {
+        const detectionOptions = (pageOverrideDefaults: IScanCleanupPageOverride): IScanCleanupOptions => ({
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'bw',
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'ink',
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            readingOrder: 'ltr',
+            skipBlankPages: false,
+            pageOverrides: {},
+            pageOverrideDefaults,
+        });
+        const zeroRotation = detectionOptions(createScanCleanupPageOverride());
+        const ninetyRotation = detectionOptions(createScanCleanupPageOverride({rotationDegrees: 90}));
+        const manualSplit = detectionOptions(createScanCleanupPageOverride({manualSplit: {
+            xNormalized: 0.5,
+            rotationDegrees: 0,
+        }}));
+        const excluded = detectionOptions(createScanCleanupPageOverride({excluded: true}));
+
+        expect(createScanCleanupDetectionSignature(ninetyRotation))
+            .not.toBe(createScanCleanupDetectionSignature(zeroRotation));
+        expect(createScanCleanupDetectionSignature(manualSplit))
+            .not.toBe(createScanCleanupDetectionSignature(zeroRotation));
+        expect(createScanCleanupPlacementAnchorCalibrationSignature(excluded))
+            .not.toBe(createScanCleanupPlacementAnchorCalibrationSignature(detectionOptions(createScanCleanupPageOverride())));
     });
 
     it('estimates a million-page scalar exclusion without expanding page state', () => {

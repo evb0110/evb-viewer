@@ -1,5 +1,4 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
-import {parsePageNumber} from '@contracts/pageNumbers';
 
 import type {
     IScanCleanupPageOverride,
@@ -88,30 +87,8 @@ export function setScanCleanupPageOverrideDefaults(
     return normalized;
 }
 
-function isPageOverrideRecord(
-    value: TScanCleanupPageOverrides | IScanCleanupPageOverride,
-): value is TScanCleanupPageOverrides {
-    return Object.keys(value).some(key => parsePageNumber(Number(key)) !== null);
-}
-
-export function getScanCleanupPageOverrideDefaults(
-    overrides: TScanCleanupPageOverrides,
-): IScanCleanupPageOverride;
-export function getScanCleanupPageOverrideDefaults(
-    defaults: IScanCleanupPageOverride | undefined,
-    documentMargins?: IScanCleanupMarginsMm,
-): IScanCleanupPageOverride;
-export function getScanCleanupPageOverrideDefaults(
-    value: TScanCleanupPageOverrides | IScanCleanupPageOverride | undefined,
-    documentMargins?: IScanCleanupMarginsMm,
-): IScanCleanupPageOverride {
-    if (value !== undefined && isPageOverrideRecord(value)) {
-        return createScanCleanupPageOverride(
-            scanCleanupPageOverrideDefaults.get(value),
-            documentMargins,
-        );
-    }
-    return createScanCleanupPageOverride(value, documentMargins);
+export function getScanCleanupPageOverrideDefaults(overrides: TScanCleanupPageOverrides): IScanCleanupPageOverride {
+    return createScanCleanupPageOverride(scanCleanupPageOverrideDefaults.get(overrides));
 }
 
 export function getScanCleanupPageOverride(
