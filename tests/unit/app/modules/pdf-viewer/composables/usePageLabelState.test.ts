@@ -457,6 +457,41 @@ describe('usePageLabelState', () => {
         ]);
     });
 
+    it('reads compact imported ranges before formatting a huge alphabetic label', async () => {
+        const pdfDocument = createPdfDocumentRef(1, async () => ['M'.repeat(38_461_539)]);
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(1),
+            workingCopyPath: ref(requireDocumentRef('/tmp/imported.pdf')),
+            markDirty: vi.fn(),
+            readPageLabelRanges: async () => [{
+                startPage: 1,
+                style: 'A',
+                prefix: 'Imported-',
+                startNumber: 1_000_000_000,
+            }],
+        });
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+        expect(state.pageLabelsResolved.value).toBe(true);
+        // The catalog's compact range wins over the dense PDF.js label. Its
+        // full text is kept; only the shown label is cut (pdfPageLabels).
+        expect(state.labelAt(1)).toMatch(/^Imported-/);
+        expect(state.pageLabelsDirty.value).toBe(false);
+    });
+
+    it('keeps a failed compact catalog read unresolved instead of adopting absent labels', async () => {
+        const pdfDocument = createPdfDocumentRef(1, async () => null);
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(1),
+            workingCopyPath: ref(requireDocumentRef('/tmp/imported.pdf')),
+            markDirty: vi.fn(),
+            readPageLabelRanges: async () => { throw new Error('Catalog could not be read'); },
+        });
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+        expect(state.pageLabelsResolved.value).toBe(false);
+    });
+
     it('marks page labels dirty only when label ranges actually change', () => {
         const markDirty = vi.fn();
         const onPageLabelsDirty = vi.fn();

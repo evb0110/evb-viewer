@@ -1,4 +1,8 @@
 import {
+    readFile, writeFile,
+} from 'node:fs/promises';
+import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
     describe, expect, it,
 } from 'vitest';
 import {readFileSync} from 'node:fs';
@@ -8,6 +12,7 @@ import {
     PDFDocument,
     PDFName,
     PDFNumber,
+    PDFString,
 } from 'pdf-lib';
 import {
     createMultiPageTextFixturePdf,
@@ -29,6 +34,29 @@ const PAGES_PANEL = '.workspace-host[data-workspace-active="true"]';
 
 describe('Electron E2E - page numbering start limit', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-page-start-limit-${Date.now()}`});
+
+    it('opens huge imported alphabetic labels without formatting the dense PDF.js label', async () => {
+        const {page} = sessions.getSession();
+        const fixture = await createMultiPageTextFixturePdf(`imported-label-${Date.now()}.pdf`, 1);
+        const document = await PDFDocument.load(await readFile(fixture));
+        document.catalog.set(PDFName.of('PageLabels'), document.context.obj({Nums: [
+            0,
+            {
+                S: PDFName.of('A'),
+                P: PDFString.of('Imported-'),
+                St: 1_000_000_000,
+            },
+        ]}));
+        await writeFile(fixture, await document.save());
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await expect.poll(async () => (await readWorkspaceStateValues<{pageLabelsResolved: boolean}>(page, ['pageLabelsResolved'])).pageLabelsResolved,
+            {timeout: 15_000}).toBe(true);
+        expect((await readToolbarPageIndicator(page)).primaryText?.startsWith('Imported-')).toBe(true);
+        await openDocumentSidebarTab(page, 'Pages');
+        await goToPageViaToolbar(page, 1);
+        await waitForToolbarCurrentPage(page, 1);
+    }, 90_000);
 
     it('corrects a letter-style start value too large to print and keeps the document usable', async () => {
         const {page} = sessions.getSession();

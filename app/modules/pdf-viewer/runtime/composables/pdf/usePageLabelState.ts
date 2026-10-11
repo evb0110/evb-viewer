@@ -153,27 +153,14 @@ export const usePageLabelState = (deps: {
         pageLabelsResolved.value = false;
         let resolvedThisSync = false;
 
-        const readCompactRanges = async () => {
-            if (!readPageLabelRanges || sourcePath === null) {
-                return null;
-            }
-            try {
-                const ranges = await readPageLabelRanges();
-                return isCurrentSync() ? ranges : null;
-            } catch (error) {
-                BrowserLogger.debug(
-                    'page-labels',
-                    'Failed to read compact page labels from PDF catalog',
-                    error,
-                );
-                return null;
-            }
-        };
-
         try {
             let labels: string[] | null = null;
             let compactRanges: IPdfPageLabelRange[] | null = null;
-            if (doc.numPages <= PAGE_LABEL_DENSE_READ_MAX_PAGES) {
+            if (readPageLabelRanges && sourcePath !== null) {
+                // Read the compact catalog first: even one PDF.js label can
+                // expand an alphabetic /St into millions of characters.
+                compactRanges = await readPageLabelRanges();
+            } else if (doc.numPages <= PAGE_LABEL_DENSE_READ_MAX_PAGES) {
                 try {
                     const raw = await doc.getPageLabels();
                     if (raw === null) {
@@ -197,11 +184,8 @@ export const usePageLabelState = (deps: {
                     return;
                 }
             } else {
-                compactRanges = await readCompactRanges();
-                if (compactRanges === null) {
-                    BrowserLogger.debug('page-labels', 'Skipped dense PDF.js page-label read', {pageCount: doc.numPages});
-                    return;
-                }
+                BrowserLogger.debug('page-labels', 'Skipped dense PDF.js page-label read', {pageCount: doc.numPages});
+                return;
             }
 
             if (!isCurrentSync()) {
@@ -216,6 +200,8 @@ export const usePageLabelState = (deps: {
             lastResolvedPath = sourcePath;
             resolvedDocumentBytes = sourceBytes;
             resolvedThisSync = true;
+        } catch (error) {
+            BrowserLogger.debug('page-labels', 'Failed to resolve page labels from PDF catalog', error);
         } finally {
             if (isCurrentSync() && resolvedThisSync) {
                 pageLabelsResolved.value = true;
