@@ -3916,6 +3916,83 @@ describe('browser document lifecycle UI', () => {
     }, 90_000);
 
 
+    it.each([
+        true,
+        false,
+    ])('paints authoritative regex highlights while trusted input stays responsive (known text: %s)', async (knownText) => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            // The blank renderer fixture loads product CSS directly.
+            const page = await browser.newPage({bypassCSP: true});
+            const url = `${origin}/__highlight-responsiveness`;
+            await page.route(url, route => route.fulfill({
+                contentType: 'text/html',
+                body: '<!doctype html><html><body><button id="highlight">Highlight</button><button id="respond">Respond</button><output id="response">Ready</output><div class="pdfViewer"><div id="page-ink"></div><div id="text-layer" class="textLayer"></div></div></body></html>',
+            }));
+            await page.goto(url, {waitUntil: 'domcontentloaded'});
+            await page.evaluate(`Promise.all([
+                import('/_nuxt/assets/css/main.css'),
+                import('/_nuxt/assets/css/pdf-search-highlights.scss'),
+            ]).then(() => undefined)`);
+            await page.addStyleTag({content: '.pdfViewer {position: relative} .textLayer {position: absolute; inset: 0; color: transparent}'});
+            await page.evaluate(`(async () => {
+                const {usePdfSearchHighlight} = await import('/_nuxt/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight.ts');
+                const {registerTextLayerTextMapping} = await import('/_nuxt/modules/pdf-viewer/engine/search/pdfSearchHighlightDom.ts');
+                const layer = document.querySelector('#text-layer');
+                const span = document.createElement('span');
+                const text = 'needle ' + 'a'.repeat(250000) + '!';
+                document.querySelector('#page-ink').textContent = text;
+                span.textContent = text;
+                layer.append(span);
+                registerTextLayerTextMapping(layer, {textDivs: [span], textContentItemsStr: [text]});
+                const highlight = usePdfSearchHighlight();
+                document.querySelector('#highlight').addEventListener('click', event => {
+                    if (!event.isTrusted) throw new Error('Highlight requires trusted input');
+                    highlight.highlightPage(layer, {
+                        pageIndex: 0, pageText: ${knownText ? 'text' : '\'\''}, searchQuery: 'needle|a+.a+$',
+                        searchOptions: {useRegex: true, matchCase: false, wholeWord: false},
+                        matches: [{start: 0, end: 6, matchIndex: 0, pageMatchIndex: 0}],
+                    }, null);
+                });
+                document.querySelector('#respond').addEventListener('click', event => {
+                    if (!event.isTrusted) throw new Error('Response requires trusted input');
+                    document.querySelector('#response').textContent = 'Responded';
+                });
+            })()`);
+            // Containment also bounds the pre-fix renderer when its click handler
+            // runs the pathological failure tail after the valid needle match.
+            let containment: ReturnType<typeof setTimeout> | undefined;
+            const action = (async () => {
+                const started = performance.now();
+                await page.locator('#highlight').click();
+                await page.locator('#respond').click();
+                await expect.poll(() => page.locator('#response').textContent(), {timeout: 1_000}).toBe('Responded');
+                const acknowledgementMs = performance.now() - started;
+                expect(acknowledgementMs).toBeLessThan(1_000);
+                expect(await page.locator('.pdf-search-highlight').allTextContents()).toEqual(['needle']);
+                const painted = await page.locator('.pdf-search-highlight').evaluate(element => ({
+                    background: getComputedStyle(element).backgroundColor,
+                    width: element.getBoundingClientRect().width,
+                }));
+                expect(painted.background).not.toBe('rgba(0, 0, 0, 0)');
+                expect(painted.width).toBeGreaterThan(0);
+                console.info('Highlight trusted click acknowledgement', acknowledgementMs);
+            })();
+            try {
+                await Promise.race([
+                    action,
+                    new Promise<never>((_resolve, reject) => {
+                        containment = setTimeout(() => reject(new Error('Renderer highlight blocked trusted input for 3 seconds')), 3_000);
+                    }),
+                ]);
+            } finally {
+                clearTimeout(containment);
+            }
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
     it('stops a catastrophic DjVu regex at the search budget and keeps the page responsive', async () => {
         const browser = await chromium.launch({headless: true});
         try {

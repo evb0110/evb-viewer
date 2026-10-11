@@ -22,15 +22,30 @@ function createRegexBudgetError() {
     );
 }
 
+export async function matchBrowserSearchPageWindow(
+    ...args: Parameters<typeof matchBrowserSearchPageWindowInWorker>
+): Promise<ReturnType<typeof matchPdfSearchPageWindow>> {
+    const [
+        text,
+        query,
+        options,
+        maxMatches,
+        resultOffset,
+    ] = args;
+    return options.useRegex
+        ? matchBrowserSearchPageWindowInWorker(...args)
+        : matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset);
+}
+
 /**
  * One page's match window for a browser search. A regular expression runs in
  * the search worker, so a catastrophic one cannot hold the renderer: a worker
  * still matching at its bound is terminated and reported as the budget error,
- * and aborting `signal` terminates a running match. A literal query is linear
- * and stays here. `regexBudget` is the matching time left in the caller's
+ * and aborting `signal` terminates a running match. Highlight reconciliation
+ * also uses this boundary for literal queries. `regexBudget` is the matching time left in the caller's
  * budget; the time the worker reports is taken from it.
  */
-export async function matchBrowserSearchPageWindow(
+export async function matchBrowserSearchPageWindowInWorker(
     text: string,
     query: string,
     options: IResolvedSearchMatchOptions,
@@ -39,15 +54,12 @@ export async function matchBrowserSearchPageWindow(
     regexBudget: {remainingMs: number},
     signal: AbortSignal,
 ): Promise<ReturnType<typeof matchPdfSearchPageWindow>> {
-    if (!options.useRegex) {
-        return matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset);
-    }
-    if (regexBudget.remainingMs <= 0) {
+    if (options.useRegex && regexBudget.remainingMs <= 0) {
         throw createRegexBudgetError();
     }
     if (!canUseBrowserSearchWorker()) {
         throw new BrowserSearchWorkerUnavailableError(
-            'Browser search worker is required for regular expression search',
+            'Browser search worker is required for page-text matching',
         );
     }
 
@@ -62,7 +74,7 @@ export async function matchBrowserSearchPageWindow(
             options,
             maxMatches,
             resultOffset,
-            budgetMs: regexBudget.remainingMs,
+            ...(options.useRegex ? {budgetMs: regexBudget.remainingMs} : {}),
         },
         {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS},
     );
@@ -76,7 +88,7 @@ export async function matchBrowserSearchPageWindow(
             matchingMs,
             ...result
         } = await workerRequest.promise;
-        regexBudget.remainingMs -= matchingMs;
+        if (options.useRegex) regexBudget.remainingMs -= matchingMs;
         return result;
     } catch (error) {
         throw error instanceof BrowserSearchWorkerTimeoutError ? createRegexBudgetError() : error;

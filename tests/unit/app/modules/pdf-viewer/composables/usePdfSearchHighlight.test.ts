@@ -4,12 +4,13 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
-import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
+import { reconcileVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import {
     clearTextLayerTextMapping,
@@ -21,9 +22,19 @@ import {
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { assembleSearchablePageText } from '@pdf-core';
+import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
+import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
+
+vi.mock('@app/platform/browser-api/public', () => ({matchBrowserSearchPageWindowInWorker: vi.fn(async (...[
+    text,
+    query,
+    options,
+    maxMatches,
+    resultOffset,
+]: Parameters<typeof matchPdfSearchPageWindow>) => matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset))}));
 
 describe('usePdfSearchHighlight', () => {
-    it('bounds drifted visual matches to the supplied window and preserves a later page ordinal', () => {
+    it('bounds drifted visual matches to the supplied window and preserves a later page ordinal', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -35,7 +46,7 @@ describe('usePdfSearchHighlight', () => {
                 end: 11 + (index + 500) * 6,
             })),
         };
-        const result = buildVisualMatchesWithCurrent(pageMatches, {
+        const result = await reconcileVisualMatchesWithCurrent(pageMatches, {
             pageIndex: requirePageIndex(0),
             pageMatchIndex: 999,
             matchIndex: 999,
@@ -56,7 +67,7 @@ describe('usePdfSearchHighlight', () => {
         expect(result.filter(match => match.isCurrent)).toHaveLength(1);
     });
 
-    it('keeps backend identity instead of re-finding matches in the rendered layer', () => {
+    it('keeps backend identity instead of re-finding matches in the rendered layer', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -87,7 +98,7 @@ describe('usePdfSearchHighlight', () => {
             endOffset: 5,
         };
 
-        const result = buildVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha beta alpha');
+        const result = await reconcileVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha beta alpha');
 
         expect(result).toEqual([
             {
@@ -103,7 +114,7 @@ describe('usePdfSearchHighlight', () => {
         ]);
     });
 
-    it('keeps compatible backend offsets instead of adding extra local matches', () => {
+    it('keeps compatible backend offsets instead of adding extra local matches', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -115,7 +126,7 @@ describe('usePdfSearchHighlight', () => {
             }],
         };
 
-        const result = buildVisualMatchesWithCurrent(pageMatches, null, 'alpha beta alpha');
+        const result = await reconcileVisualMatchesWithCurrent(pageMatches, null, 'alpha beta alpha');
 
         expect(result).toEqual([{
             start: 0,
@@ -124,7 +135,7 @@ describe('usePdfSearchHighlight', () => {
         }]);
     });
 
-    it('reconciles backend ranges with the rendered layer before selecting the current occurrence', () => {
+    it('reconciles backend ranges with the rendered layer before selecting the current occurrence', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -155,7 +166,7 @@ describe('usePdfSearchHighlight', () => {
             endOffset: 17,
         };
 
-        const result = buildVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha alpha alpha');
+        const result = await reconcileVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha alpha alpha');
 
         expect(result).toEqual([
             {
@@ -171,7 +182,7 @@ describe('usePdfSearchHighlight', () => {
         ]);
     });
 
-    it('maps rendered-layer fallback matches back to raw text-run offsets', () => {
+    it('maps rendered-layer fallback matches back to raw text-run offsets', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -194,7 +205,7 @@ describe('usePdfSearchHighlight', () => {
             {text: 'Lezgian'},
         ]);
 
-        expect(buildVisualMatchesWithCurrent(
+        expect(await reconcileVisualMatchesWithCurrent(
             pageMatches,
             currentMatch,
             'prefixLezgian',
@@ -206,7 +217,7 @@ describe('usePdfSearchHighlight', () => {
         }]);
     });
 
-    it('rejects in-bounds backend offsets that point at different rendered text', () => {
+    it('rejects in-bounds backend offsets that point at different rendered text', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -222,7 +233,7 @@ describe('usePdfSearchHighlight', () => {
             {text: 'Lezgian'},
         ]);
 
-        expect(buildVisualMatchesWithCurrent(
+        expect(await reconcileVisualMatchesWithCurrent(
             pageMatches,
             null,
             'prefixLezgian',
@@ -234,7 +245,7 @@ describe('usePdfSearchHighlight', () => {
         }]);
     });
 
-    it('keeps the page-local current occurrence when equal-count native offsets drift', () => {
+    it('keeps the page-local current occurrence when equal-count native offsets drift', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -260,7 +271,7 @@ describe('usePdfSearchHighlight', () => {
             endOffset: 14,
         };
 
-        expect(buildVisualMatchesWithCurrent(
+        expect(await reconcileVisualMatchesWithCurrent(
             pageMatches,
             currentMatch,
             'needle prefix needle extra',
@@ -278,7 +289,7 @@ describe('usePdfSearchHighlight', () => {
         ]);
     });
 
-    it('does not preserve backend identity after falling back from shifted reversed ranges', () => {
+    it('does not preserve backend identity after falling back from shifted reversed ranges', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -304,7 +315,7 @@ describe('usePdfSearchHighlight', () => {
             endOffset: 17,
         };
 
-        expect(buildVisualMatchesWithCurrent(
+        expect(await reconcileVisualMatchesWithCurrent(
             pageMatches,
             currentMatch,
             'alpha beta alpha',
@@ -322,7 +333,7 @@ describe('usePdfSearchHighlight', () => {
         ]);
     });
 
-    it('requires distinct rendered occurrences for duplicate backend ranges', () => {
+    it('requires distinct rendered occurrences for duplicate backend ranges', async () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -341,7 +352,7 @@ describe('usePdfSearchHighlight', () => {
             ],
         };
 
-        expect(buildVisualMatchesWithCurrent(
+        expect(await reconcileVisualMatchesWithCurrent(
             pageMatches,
             null,
             'alpha beta alpha',
@@ -359,7 +370,7 @@ describe('usePdfSearchHighlight', () => {
         ]);
     });
 
-    it('maps collapsed fake-bold text to one authoritative highlight set', () => {
+    it('maps collapsed fake-bold text to one authoritative highlight set', async () => {
         const segment = 'alpha beta gamma delta '.repeat(8);
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
@@ -372,7 +383,7 @@ describe('usePdfSearchHighlight', () => {
             }],
         };
 
-        expect(buildVisualMatchesWithCurrent(pageMatches, null, segment.repeat(2))).toEqual([{
+        expect(await reconcileVisualMatchesWithCurrent(pageMatches, null, segment.repeat(2))).toEqual([{
             start: 0,
             end: 5,
             isCurrent: false,
@@ -381,7 +392,99 @@ describe('usePdfSearchHighlight', () => {
 });
 
 describe('pdfSearchHighlightDom text-layer mapping', () => {
-    it('preserves positioned text spans inside PDF.js marked-content wrappers', () => {
+    it.each([
+        1,
+        2,
+    ])('paints authoritative regex ranges without matching the failure tail (%i snippets)', (count) => {
+        const textLayer = document.createElement('div');
+        const span = document.createElement('span');
+        const text = 'needle '.repeat(count) + 'a'.repeat(250_000) + '!';
+        span.textContent = text;
+        textLayer.append(span);
+        registerTextLayerTextMapping(textLayer, {
+            textDivs: [span],
+            textContentItemsStr: [text],
+        });
+        const searchOptions = {
+            useRegex: true,
+            matchCase: false,
+            wholeWord: false,
+        };
+        const result = usePdfSearchHighlight().highlightPage(textLayer, {
+            pageIndex: requirePageIndex(0),
+            pageText: text,
+            searchQuery: 'needle|a+.a+$',
+            searchOptions,
+            matches: [{
+                start: 0,
+                end: 6,
+                matchIndex: 0,
+                pageMatchIndex: 0,
+            }],
+        }, null);
+        expect(result.elements.map(element => element.textContent)).toEqual(['needle']);
+        expect(createTextLayerRangeForSearchMatch(textLayer, {
+            startOffset: 0,
+            endOffset: 6,
+        })?.toString()).toBe('needle');
+        const occurrence = createTextLayerRangeForSearchOccurrence(textLayer, {
+            text: 'needle',
+            searchQuery: 'needle|a+.a+$',
+            searchOptions,
+            pageMatchIndex: 0,
+            expectedPageMatchCount: 1,
+        });
+        expect(occurrence).toBeNull();
+        expect(textLayer.textContent).toBe(text);
+    });
+
+    it('keeps the new painted selection when an older drift reconciliation completes', async () => {
+        const completion = Promise.withResolvers<undefined>();
+        vi.mocked(matchBrowserSearchPageWindowInWorker).mockImplementationOnce(async (
+            text, query, options, maxMatches, resultOffset,
+        ) => {
+            await completion.promise;
+            return matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset);
+        });
+        const layer = document.createElement('div');
+        const span = document.createElement('span');
+        span.textContent = 'alpha beta';
+        layer.append(span);
+        registerTextLayerTextMapping(layer, {
+            textDivs: [span],
+            textContentItemsStr: ['alpha beta'],
+        });
+        const highlight = usePdfSearchHighlight();
+        highlight.highlightPage(layer, {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'alpha',
+            matches: [{
+                matchIndex: 0,
+                start: 100,
+                end: 105,
+            }],
+        }, null);
+        highlight.highlightPage(layer, {
+            pageIndex: requirePageIndex(0),
+            pageText: 'alpha beta',
+            searchQuery: 'beta',
+            matches: [{
+                matchIndex: 0,
+                start: 6,
+                end: 10,
+            }],
+        }, null);
+        await expect.poll(() => layer.querySelector('.pdf-search-highlight')?.textContent).toBe('beta');
+        completion.resolve(undefined);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect([...layer.querySelectorAll('.pdf-search-highlight')].map(element => element.textContent)).toEqual(['beta']);
+        expect(layer.textContent).toBe('alpha beta');
+        highlight.clearHighlights(layer);
+        expect(layer.querySelector('.pdf-search-highlight')).toBeNull();
+    });
+
+    it('preserves positioned text spans inside PDF.js marked-content wrappers', async () => {
         const textLayer = document.createElement('div');
         const markedContent = document.createElement('span');
         markedContent.className = 'markedContent';
@@ -420,7 +523,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         expect(markedContent.children).toHaveLength(2);
         expect(markedContent.firstElementChild).toBe(prefixSpan);
         expect(markedContent.lastElementChild).toBe(matchSpan);
-        expect(matchSpan.querySelector('.pdf-search-highlight')?.textContent).toBe('Lezgian');
+        await expect.poll(() => matchSpan.querySelector('.pdf-search-highlight')?.textContent).toBe('Lezgian');
     });
 
     it('uses pdf.js text mapping instead of reconstructed span text', () => {
@@ -564,7 +667,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
     it.each([
         'اللغة العربية',
         'fragmented words',
-    ])('highlights and navigates whole and fragmented occurrences for %s', (text) => {
+    ])('highlights and navigates whole and fragmented occurrences for %s', async (text) => {
         const textLayer = document.createElement('div');
         const items = [
             text,
@@ -606,7 +709,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             startOffset: text.length + 1,
             endOffset: pageText.length,
         });
-        expect(result.currentMatchElements.map(element => element.textContent).join('')).toBe(text);
+        await expect.poll(() => result.currentMatchElements.map(element => element.textContent).join('')).toBe(text);
         expect(createTextLayerRangeForSearchOccurrence(textLayer, {
             text,
             searchQuery: text,

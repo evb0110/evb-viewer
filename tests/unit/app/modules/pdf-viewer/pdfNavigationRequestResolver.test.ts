@@ -318,7 +318,7 @@ describe('PDF navigation request resolver', () => {
         }
     });
 
-    it('uses the case-sensitive indexed occurrence when the canonical range has the wrong case', () => {
+    it('keeps page-level regex navigation when the canonical range has the wrong case', () => {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = '2';
@@ -375,12 +375,7 @@ describe('PDF navigation request resolver', () => {
                     startOffset: 0,
                     endOffset: 'needle'.length,
                 },
-            })).toEqual({
-                left: 0.4,
-                top: 0.5,
-                width: 0.2,
-                height: 0.05,
-            });
+            })).toBeNull();
         } finally {
             Range.prototype.getBoundingClientRect = originalGetBoundingClientRect;
         }

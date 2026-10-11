@@ -7,6 +7,7 @@ export { browserScanCleanupCapability } from '@app/platform/browser-api/browserS
 export { browserSettingsCapability } from '@app/platform/browser-api/browserSettingsCapability';
 export { createBrowserDocumentsCapability } from '@app/platform/browser-api/createBrowserDocumentsCapability';
 export { isBrowserFilePickerSetupDeniedError } from '@app/platform/browser-api/browserFilePickerAdapter';
+export { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/matchBrowserSearchPageWindow';
 export { createBrowserSearchCapability } from '@app/platform/browser-api/createBrowserSearchCapability';
 export { createDjvuPagePreviewSourceFromPath } from '@app/platform/browser-api/createDjvuWorkerFromPath';
 export {

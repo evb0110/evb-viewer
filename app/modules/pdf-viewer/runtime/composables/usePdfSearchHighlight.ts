@@ -26,7 +26,10 @@ import {
     updateHighlightAPI,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
 import type { ICssHighlightState } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss';
-import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
+import {
+    buildVisualMatchesWithCurrent,
+    reconcileVisualMatchesWithCurrent,
+} from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 
 const HIGHLIGHT_CLASS = 'pdf-search-highlight';
 const HIGHLIGHT_CURRENT_CLASS = 'pdf-search-highlight--current';
@@ -142,11 +145,30 @@ function renderDomHighlights(
 
 export const usePdfSearchHighlight = () => {
     const cssState = createCssHighlightState();
+    const pendingHighlights = new WeakMap<HTMLElement, AbortController>();
 
-    function clearHighlights(container: HTMLElement) {
+    function clearPaint(container: HTMLElement) {
         clearHighlightAPIForLayer(cssState, container, HIGHLIGHT_API_NAME, HIGHLIGHT_API_CURRENT_NAME);
         clearDomHighlights(container, HIGHLIGHT_CLASS);
         resetTextLayerMappedText(container);
+    }
+
+    function clearHighlights(container: HTMLElement) {
+        pendingHighlights.get(container)?.abort();
+        pendingHighlights.delete(container);
+        clearPaint(container);
+    }
+
+    function paintMatches(
+        textLayerDiv: HTMLElement,
+        pageIndex: TPageIndex,
+        matchesWithCurrent: IHighlightMatchRange[],
+    ) {
+        const {runs} = getCachedTextLayerIndex(textLayerDiv);
+        const runOverlaps = buildRunMatchOverlaps(runs, matchesWithCurrent);
+        return canUseHighlightAPI() && getHighlightMode() === 'css'
+            ? renderCssHighlights(cssState, textLayerDiv, pageIndex, runs, matchesWithCurrent, runOverlaps)
+            : renderDomHighlights(runs, matchesWithCurrent, runOverlaps);
     }
 
     function highlightPage(
@@ -168,7 +190,7 @@ export const usePdfSearchHighlight = () => {
         const assembledLayerText = assembleTextLayerSearchText({
             text: layerText,
             runs,
-        }, pageMatches.searchQuery, pageMatches.searchOptions, pageMatches.matches.length);
+        });
         const matchesWithCurrent = buildVisualMatchesWithCurrent(
             pageMatches,
             currentMatch,
@@ -176,24 +198,25 @@ export const usePdfSearchHighlight = () => {
             assembledLayerText,
         );
 
-        if (matchesWithCurrent.length === 0) {
-            return createHighlightResult();
-        }
-
-        const runOverlaps = buildRunMatchOverlaps(runs, matchesWithCurrent);
-
-        if (canUseHighlightAPI() && getHighlightMode() === 'css') {
-            return renderCssHighlights(
-                cssState,
-                textLayerDiv,
-                pageMatches.pageIndex,
-                runs,
-                matchesWithCurrent,
-                runOverlaps,
-            );
-        }
-
-        return renderDomHighlights(runs, matchesWithCurrent, runOverlaps);
+        const result = paintMatches(textLayerDiv, pageMatches.pageIndex, matchesWithCurrent);
+        const controller = new AbortController();
+        pendingHighlights.set(textLayerDiv, controller);
+        void reconcileVisualMatchesWithCurrent(
+            pageMatches, currentMatch, layerText, assembledLayerText, controller.signal,
+        ).then((reconciled) => {
+            if (controller.signal.aborted) return;
+            clearPaint(textLayerDiv);
+            const completed = paintMatches(textLayerDiv, pageMatches.pageIndex, reconciled);
+            result.elements.splice(0, result.elements.length, ...completed.elements);
+            result.currentMatchElements.splice(0, result.currentMatchElements.length, ...completed.currentMatchElements);
+            result.currentMatchRanges.splice(0, result.currentMatchRanges.length, ...completed.currentMatchRanges);
+        }).catch(() => {
+            // Decoration retains the admitted ranges if reconciliation is unavailable
+            // or exceeds the match owner's bound. Search results stay authoritative.
+        }).finally(() => {
+            if (!controller.signal.aborted) pendingHighlights.delete(textLayerDiv);
+        });
+        return result;
     }
 
     function getCurrentMatchRanges(textLayerDiv: HTMLElement): Range[] {

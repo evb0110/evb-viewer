@@ -74,7 +74,7 @@ export function assembleTextLayerSearchText(
     expectedPageMatchCount?: number,
 ): IAssembledSearchablePageText {
     const separated = assembleSearchablePageText(index.runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
-    if (query) {
+    if (query && !options?.useRegex) {
         try {
             const pattern = buildPdfSearchRegex(query, {
                 matchCase: options?.matchCase ?? false,
@@ -305,6 +305,7 @@ export function createTextLayerRangeForSearchOccurrence(
     },
 ): Range | null {
     const index = getCachedTextLayerIndex(textLayerDiv);
+    if (options.searchOptions?.useRegex) return null;
     const query = options.searchQuery ?? options.text;
     const assembled = assembleTextLayerSearchText(index, query, options.searchOptions, options.expectedPageMatchCount);
     if (!query) {
