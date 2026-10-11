@@ -3645,3 +3645,73 @@ fn r9_indirect_raster_widgets_keep_their_final_field_parents() {
         }
     }
 }
+
+#[test]
+fn r9_identity_tags_drop_when_an_objr_annotation_is_cropped_away() {
+    let mut source = review_catalog_source();
+    for page in [(3, 0), (4, 0), (5, 0)] {
+        source
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", Vec::<Object>::new());
+    }
+    source.catalog_mut().unwrap().remove(b"AcroForm");
+    let root = source
+        .catalog()
+        .unwrap()
+        .get(b"StructTreeRoot")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let note = source.add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Text","P"=>(3,0),"StructParent"=>10,
+        "Rect"=>vec![150.into(),60.into(),170.into(),80.into()],"Contents"=>Object::string_literal("outside crop note")});
+    let kept = source.add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Text","P"=>(3,0),"StructParent"=>11,
+        "Rect"=>vec![20.into(),60.into(),40.into(),80.into()],"Contents"=>Object::string_literal("inside crop note")});
+    let element = source.add_object(
+        dictionary! {"Type"=>"StructElem","S"=>"Annot","P"=>root,"Pg"=>(3,0),
+        "K"=>dictionary! {"Type"=>"OBJR","Pg"=>(3,0),"Obj"=>note}},
+    );
+    let tree = source.add_object(dictionary! {"Nums"=>vec![10.into(),element.into()]});
+    source.get_dictionary_mut(root).unwrap().set("K", element);
+    source
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("ParentTree", tree);
+    source
+        .get_dictionary_mut((3, 0))
+        .unwrap()
+        .set("CropBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    source.get_dictionary_mut((3, 0)).unwrap().set(
+        "Annots",
+        vec![Object::Reference(note), Object::Reference(kept)],
+    );
+    let input = path("r9-tags-input", "pdf");
+    let output = path("r9-tags-output", "pdf");
+    let instructions = path("r9-tags-plan", "json");
+    source.save(&input).unwrap();
+    write(&instructions,serde_json::json!({"pages":(0..3).map(|index|serde_json::json!({"sourcePageIndex":index,"rotationQuarterTurns":0,
+        "outputs":[{"cropRect":{"x":0,"y":0,"width":if index==0 {100} else {200},"height":120}}]})).collect::<Vec<_>>()} ).to_string()).unwrap();
+    let result = run_split_pages_output(&input, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    assert!(!saved.catalog().unwrap().has(b"StructTreeRoot"));
+    assert!(!saved.catalog().unwrap().has(b"MarkInfo"));
+    for page in saved.get_pages().values() {
+        assert!(!saved.get_dictionary(*page).unwrap().has(b"StructParents"));
+    }
+    let annotations = split_page_annotations(&saved, 1);
+    assert_eq!(annotations.len(), 1);
+    assert!(!annotations[0].1.has(b"StructParent"));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&result.stdout).unwrap()
+            ["accessibilityTagsRemoved"],
+        true
+    );
+    for file in [input, output, instructions] {
+        let _ = remove_file(file);
+    }
+}

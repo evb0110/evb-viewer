@@ -21,6 +21,18 @@ pub(super) fn split_tags(
                     return false;
                 };
                 page.source_id == *source_id
+                    && crate::split_navigation::source_annotation_entries(source, *source_id)
+                        .iter()
+                        .all(|entry| {
+                            source
+                                .dereference(entry)
+                                .ok()
+                                .and_then(|(id, _)| id)
+                                .and_then(|id| annotations.get(&id))
+                                .is_some_and(|copies| {
+                                    copies.iter().any(|(owner, _)| *owner == page.id)
+                                })
+                        })
                     && [page.crop.x1, page.crop.y1, page.crop.x2, page.crop.y2]
                         == [view.x1, view.y1, view.x2, view.y2]
                     && split_annotation_matrix(page.transform) == [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
