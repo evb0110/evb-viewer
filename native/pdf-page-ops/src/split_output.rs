@@ -198,21 +198,20 @@ pub(crate) fn allocate_split_annotations(
             if !crate::annotation_threads::keep_split_annotation(source, output, &annotation)? {
                 continue;
             }
-            let copy_id = match source_id
-                .and_then(|id| copies.get(&id))
-                .and_then(|copies| copies.iter().find(|(page, _)| *page == output.id))
-            {
-                Some((_, id)) => {
+            let copy_id = if let Some(source_id) = source_id {
+                let copies = copies.entry(source_id).or_default();
+                if let Some((_, id)) = copies.iter().find(|(page, _)| *page == output.id) {
                     kept.push(Object::Reference(*id));
                     continue;
                 }
-                None => target.new_object_id(),
+                let id = target.new_object_id();
+                copies.push((output.id, id));
+                id
+            } else {
+                target.new_object_id()
             };
-            if let Some(source_id) = source_id {
-                copies
-                    .entry(source_id)
-                    .or_default()
-                    .push((output.id, copy_id));
+            if let Ok(subtype) = annotation.get(b"Subtype") {
+                annotation.set("Subtype", source.resolved(subtype)?.clone());
             }
             annotation.set(
                 crate::split_navigation::SOURCE_ANNOTATION_SLOT,

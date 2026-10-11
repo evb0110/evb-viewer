@@ -3299,3 +3299,32 @@ fn r8_assert_radio_exports(split: &Document, order: &[usize]) {
     );
     assert!(form.get(b"NeedAppearances").unwrap().as_bool().unwrap());
 }
+
+#[test]
+fn r8_indirect_link_targets_an_active_output_page() {
+    let mut source = review_catalog_source();
+    let subtype = source.add_object(Object::Name(b"Link".to_vec()));
+    source
+        .get_dictionary_mut((23, 0))
+        .unwrap()
+        .set("Subtype", subtype);
+    let split = review_split(&mut source, &[2, 0], false, false);
+    let link = split_page_annotations(&split, 2)
+        .into_iter()
+        .find(|(_, a)| {
+            split
+                .dereference(a.get(b"Subtype").unwrap())
+                .unwrap()
+                .1
+                .as_name()
+                .ok()
+                == Some(b"Link")
+        })
+        .unwrap()
+        .1;
+    let destination = link.get(b"Dest").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    assert!(split.get_pages().values().any(|id| *id == destination));
+    assert!(!link.has(b"EVBDestinationPage"));
+}
