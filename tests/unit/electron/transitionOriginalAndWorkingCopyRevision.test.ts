@@ -18,6 +18,7 @@ import {
 import type * as WorkingCopyManifestModule from '@electron/file-access/workingCopyManifest';
 import type * as WorkingCopyJournalModule from '@electron/file-access/workingCopyJournal';
 import type * as DocumentFileWriteAtomicModule from '@electron/file-access/documentFileWriteAtomic';
+import type * as OriginalPathSaveWitnessModule from '@electron/file-access/originalPathSaveWitness';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -574,6 +575,65 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+    });
+
+    it('keeps an external edit made while recovery checks the original against its intended bytes', async () => {
+        let replaceAfterHash: (() => Promise<void>) | null = null;
+        vi.doMock('@electron/file-access/originalPathSaveWitness', async (importOriginal) => {
+            const actual = await importOriginal<typeof OriginalPathSaveWitnessModule>();
+            return {
+                ...actual,
+                hashContentFingerprintFilePath: async (
+                    ...args: Parameters<typeof actual.hashContentFingerprintFilePath>
+                ) => {
+                    const fingerprint = await actual.hashContentFingerprintFilePath(...args);
+                    const replace = replaceAfterHash;
+                    replaceAfterHash = null;
+                    await replace?.();
+                    return fingerprint;
+                },
+            };
+        });
+        try {
+            const {
+                originalPath,
+                stagedPath,
+                workingCopyPath,
+            } = await prepare('old-original', 'old-working');
+            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {captureIntendedContentFingerprint} = await import('@electron/file-access/workingCopyJournalOriginal');
+            const {
+                prepareWorkingCopyTransition,
+                recordWorkingCopyJournalOriginal,
+                recoverWorkingCopyTransition,
+            } = await import('@electron/file-access/workingCopyJournal');
+            const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+            const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+
+            const journal = await prepareWorkingCopyTransition(workingCopyPath, requireDocumentRevisionToken('drt1:crash:2:next'));
+            const backupPath = `${originalPath}.evb-transition-crash.bak`;
+            await writeFile(backupPath, 'old-original');
+            await recordWorkingCopyJournalOriginal(journal, {
+                path: originalPath,
+                backupPath,
+                state: 'prepared',
+                preparedSnapshot: (await capturePathSaveWitness(originalPath))!.getSnapshotForJournal(),
+                intendedFingerprint: await captureIntendedContentFingerprint(stagedPath),
+            });
+            await rename(stagedPath, originalPath);
+            // Another program replaces the original while recovery hashes it.
+            replaceAfterHash = async () => {
+                const externalPath = join(tempRoot, 'external.pdf');
+                await writeFile(externalPath, 'external-edit');
+                await rename(externalPath, originalPath);
+            };
+
+            await expect(recoverWorkingCopyTransition(workingCopyPath)).rejects.toThrow();
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('external-edit');
+            await expect(stat(getWorkingCopyJournalPath(workingCopyPath))).resolves.toBeTruthy();
+        } finally {
+            vi.doUnmock('@electron/file-access/originalPathSaveWitness');
+        }
     });
 
     it('restores every durable record when manifest publication fails', async () => {

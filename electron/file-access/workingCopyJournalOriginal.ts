@@ -37,15 +37,22 @@ export async function captureIntendedContentFingerprint(sourcePath: string) {
  * A crash can publish the original and die before the journal records it. An
  * original holding exactly the intended bytes is EVB's own publication, so
  * recovery rolls it back like a recorded one instead of reporting a conflict.
+ * The witness is taken before hashing and still current after it, so it can
+ * guard the rollback: a replacement made while hashing is never overwritten.
  */
-async function holdsIntendedContent(original: IWorkingCopyJournalOriginal) {
+async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
     if (original.intendedFingerprint === undefined) {
-        return false;
+        return null;
     }
     try {
-        return await captureIntendedContentFingerprint(original.path) === original.intendedFingerprint;
+        const witness = await capturePathSaveWitness(original.path);
+        if (!witness || await captureIntendedContentFingerprint(original.path) !== original.intendedFingerprint) {
+            return null;
+        }
+        await witness.assertCurrent();
+        return witness;
     } catch {
-        return false;
+        return null;
     }
 }
 
@@ -67,7 +74,8 @@ export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
             // The original still contains the published bytes.
         }
     }
-    const expectedSnapshot = original.state === 'prepared' && !await holdsIntendedContent(original)
+    const intendedWitness = original.state === 'prepared' ? await witnessIntendedContent(original) : null;
+    const expectedSnapshot = original.state === 'prepared' && !intendedWitness
         ? original.preparedSnapshot
         : original.publishedSnapshot;
     if (expectedSnapshot !== undefined) {
@@ -87,7 +95,7 @@ export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
             return;
         }
     }
-    const witness = await capturePathSaveWitness(original.path);
+    const witness = intendedWitness ?? await capturePathSaveWitness(original.path);
     if (!witness) {
         throw new OriginalPathSaveConflictError();
     }
