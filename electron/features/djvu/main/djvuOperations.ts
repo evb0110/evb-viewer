@@ -490,22 +490,18 @@ async function runCoalescedPreviewRequest<TResult>(
 function requireDjvuOpenPath(
     path: unknown,
     owner?: WebContents,
-    options: { requireExists?: boolean } = {},
 ): TOpenPath {
-    const rawPath = typeof path === 'string' ? path.trim() : '';
-    const normalizedPath = rawPath
-        ? (normalizeExistingPath(rawPath) ?? rawPath)
-        : '';
-    if (!normalizedPath) {
+    const rawPath = typeof path === 'string' ? path : '';
+    if (!rawPath.trim()) {
         throw new Error('Invalid DjVu path');
     }
-    if (!isDjvuPath(normalizedPath)) {
+    if (!isDjvuPath(rawPath)) {
         throw new Error('Invalid DjVu file type');
     }
-    if (options.requireExists !== false && !existsSync(normalizedPath)) {
-        throw new Error(`DjVu file not found: ${normalizedPath}`);
+    if (!existsSync(rawPath)) {
+        throw new Error(`DjVu file not found: ${rawPath}`);
     }
-    return requireOpenPath(normalizedPath, owner);
+    return requireOpenPath(rawPath, owner);
 }
 
 /**
@@ -519,9 +515,8 @@ async function requireDjvuPageSourceInfoPath(path: unknown, owner: WebContents) 
     try {
         return requireDjvuOpenPath(path, owner);
     } catch (error) {
-        const rawPath = typeof path === 'string' ? path.trim() : '';
-        const normalizedPath = rawPath
-            ? normalizeExistingPath(rawPath)
+        const normalizedPath = typeof path === 'string' && path.trim()
+            ? normalizeExistingPath(path)
             : null;
         if (!normalizedPath || !isDjvuPath(normalizedPath)) {
             throw error;
@@ -538,8 +533,8 @@ async function requireDjvuPageSourceInfoPath(path: unknown, owner: WebContents) 
 }
 
 function normalizeDjvuReleasePath(path: unknown, owner?: WebContents) {
-    const normalizedPath = typeof path === 'string' ? path.trim() : '';
-    if (!normalizedPath) {
+    const normalizedPath = typeof path === 'string' ? path : '';
+    if (!normalizedPath.trim()) {
         throw new Error('Invalid DjVu path');
     }
     if (!isDjvuPath(normalizedPath)) {

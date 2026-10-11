@@ -14,10 +14,13 @@ import {
     openDjvuInApp, waitForDjvuLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import {waitForWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    waitForWorkspaceToolbarSnapshot, readWorkspaceStateValues,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
+
 
 /** Two DjVu pages: a tall page 1 (1200x4000) and a short page 2 (1200x400), each one black rule. */
 const TALL_THEN_SHORT_DJVU = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'djvu-fixtures', 'tall-then-short.djvu');
@@ -53,6 +56,31 @@ async function readPageGeometry(page: Page) {
 
 describe('Electron E2E - DjVu visible page indicator', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-visible-indicator-${Date.now()}`});
+
+    it('renders the requested two-page DjVu with trailing no-break space beside its one-page sibling', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-identity-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const sibling = join(directory, 'edge.djvu');
+        const requested = `${sibling}\u00a0`;
+        copyFileSync(resolve('tests/fixtures/djvu/sources/layered.djvu'), sibling);
+        copyFileSync(resolve('tests/fixtures/djvu/sources/mixed-dpi.djvu'), requested);
+        const session = await sessions.restart({
+            hard: true,
+            extraEnv: {EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '0'},
+        });
+        const {page} = session;
+        await openDjvuInApp(page, sibling);
+        expect((await readToolbarPageIndicator(page)).totalPagesText).toBe('1');
+
+        await openDjvuInApp(page, requested);
+        await expect.poll(async () => (await readWorkspaceStateValues(page, ['originalPath'])).originalPath, {timeout: 30_000}).toBe(requested);
+        await waitForDjvuLoaded(page);
+        await waitForViewportQuiet(page);
+        expect((await readToolbarPageIndicator(page)).totalPagesText, 'requested 2 pages, not its 1-page sibling').toBe('2');
+    }, 120_000);
 
     it('names the visible page 1 while the viewport sits inside a tall page whose centre is far away', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-visible-indicator-'));

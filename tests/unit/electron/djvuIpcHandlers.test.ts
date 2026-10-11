@@ -493,6 +493,118 @@ describe('registerDjvuIpcAdapter', () => {
         }
     });
 
+    it('prewarms only the exact persisted Recent filename without granting access', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-recent-identity-'));
+        const sibling = join(directory, 'edge.djvu');
+        const requested = `${sibling}\u00a0`;
+        writeFileSync(sibling, 'one page');
+        writeFileSync(requested, 'two pages');
+        const {requireOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const event = createIpcEvent(101);
+        registerDjvuIpcAdapter();
+        mocks.getDjvuPageSourceInfoForViewing.mockImplementation(async (path: string) => ({
+            pageCount: readFileSync(path, 'utf8') === 'two pages' ? 2 : 1,
+            pageNumber: 1,
+            pageSize: {
+                width: 100,
+                height: 200,
+                dpi: 300,
+            },
+            sourceSize: statSync(path).size,
+            sourceModifiedAt: Math.trunc(statSync(path).mtimeMs),
+        }));
+        try {
+            mocks.getRecentFiles.mockResolvedValue([{
+                originalPath: sibling,
+                fileName: 'edge.djvu',
+                timestamp: 1,
+            }]);
+            await expect(getHandler('djvu:getPageSourceInfo')(event, requested, 1)).rejects.toThrow('Path not allowed');
+            mocks.getRecentFiles.mockResolvedValue([{
+                originalPath: requested,
+                fileName: 'edge.djvu\u00a0',
+                timestamp: 1,
+            }]);
+            await expect(getHandler('djvu:getPageSourceInfo')(event, requested, 1)).resolves.toMatchObject({pageCount: 2});
+            expect(() => requireOpenPath(requested, event.sender as never)).toThrow('Path not allowed');
+        } finally {
+            mocks.getDjvuPageSourceInfoForViewing.mockReset();
+            rmSync(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('reads the exact bytes and size of a DjVu filename with trailing no-break space', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-read-identity-'));
+        const sibling = join(directory, 'edge.djvu');
+        const requested = `${sibling}\u00a0`;
+        const {allowOpenPaths} = await import('@electron/file-access/openPathCapabilities');
+        const {
+            handleFileRead, handleFileStat,
+        } = await import('@electron/features/documents/main/documentFileReadHandlers');
+        try {
+            writeFileSync(sibling, 'one page');
+            writeFileSync(requested, 'two pages from the exact file');
+            allowOpenPaths([
+                sibling,
+                requested,
+            ], 103);
+            await expect(handleFileStat({senderId: 103}, requested)).resolves.toMatchObject({size: 29});
+            expect(Buffer.from(await handleFileRead({senderId: 103}, requested)).toString()).toBe('two pages from the exact file');
+            expect(Buffer.from(await handleFileRead({senderId: 103}, sibling)).toString()).toBe('one page');
+        } finally {
+            rmSync(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('releases the exact viewing lease while retaining its sibling, including after removal', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-release-identity-'));
+        const sibling = join(directory, 'edge.djvu');
+        const requested = `${sibling}\u00a0`;
+        const viewing = await vi.importActual<typeof TViewingModule>('@electron/features/djvu/main/viewing');
+        const {allowOpenPaths} = await import('@electron/file-access/openPathCapabilities');
+        const event = createIpcEvent(102);
+        const context = {
+            ...event,
+            senderId: 102,
+        };
+        registerDjvuIpcAdapter();
+        mocks.releaseDjvuViewingPath.mockImplementation(viewing.releaseDjvuViewingPath);
+        try {
+            writeFileSync(sibling, 'one page');
+            writeFileSync(requested, 'two pages');
+            allowOpenPaths([
+                sibling,
+                requested,
+            ], event.sender as never);
+            for (const removed of [
+                false,
+                true,
+            ]) {
+                viewing.adoptDjvuViewingPath(context as never, sibling, null);
+                viewing.adoptDjvuViewingPath(context as never, requested, null);
+                if (removed) rmSync(requested);
+                await getHandler('djvu:releaseViewingPath')(event, requested);
+                expect(viewing.isAllowedDjvuViewingPath(requested, 102)).toBe(false);
+                expect(viewing.isAllowedDjvuViewingPath(sibling, 102)).toBe(true);
+                viewing.releaseDjvuViewingPath(context as never, sibling);
+            }
+        } finally {
+            viewing.releaseDjvuViewingPath(context as never, requested);
+            viewing.releaseDjvuViewingPath(context as never, sibling);
+            mocks.releaseDjvuViewingPath.mockReset();
+            rmSync(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('rejects opening geometry prewarm for an ungranted DjVu outside the persisted Recent list', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-untrusted-source-info-test-'));
         try {
