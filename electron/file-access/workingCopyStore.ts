@@ -611,9 +611,7 @@ export async function setWorkingCopyOriginalPath(
 
         const role = options.role ?? 'current';
         const admissionSnapshot = copyAdmissionSnapshot(options.admissionSnapshot);
-        const originalFileExpectation = withoutOriginalFileContentFingerprint(
-            copyOriginalFileExpectation(options.originalFileExpectation),
-        );
+        const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
         entry = {
             ...(admissionSnapshot ? {admissionSnapshot} : {}),
             backingState: options.backingState ?? 'eager',

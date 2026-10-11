@@ -1103,6 +1103,31 @@ describe('workingCopy', () => {
         });
     });
 
+    it('keeps the full original fingerprint a checkpoint restores with a deferred expectation', async () => {
+        const {
+            createOriginalFileExpectationFromStat,
+            getWorkingCopyOriginalFileExpectation,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+        const originalPath = join(tempRoot, 'restored-fingerprint-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-restored-fingerprint', 'working.pdf');
+        const originalBytes = Buffer.alloc(64, 62);
+        writeFileSync(originalPath, originalBytes);
+        const restoredExpectation = {
+            ...createOriginalFileExpectationFromStat(statSync(originalPath, {bigint: true})),
+            contentFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(originalBytes.byteLength).update(originalBytes).digest('hex')}`,
+        };
+
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {
+            backingState: 'materialized',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: restoredExpectation,
+        });
+
+        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toEqual(restoredExpectation);
+    });
+
     it('never reuses registration IDs after the active registry is cleared', async () => {
         const {
             clearWorkingCopyOriginalPaths,
