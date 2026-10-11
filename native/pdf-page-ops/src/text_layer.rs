@@ -1866,4 +1866,3 @@ pub(crate) fn append_source_annotations(
         .set("Annots", output);
     Ok(())
 }
-

@@ -5,7 +5,9 @@ pub(crate) use evb_native_support::pdf_catalog::{
 use evb_native_support::{bounded_io::record_deserialization_error, NativeErrorCode};
 use serde::Serialize;
 
-pub(crate) fn deserialize_collection<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
+pub(crate) fn deserialize_collection<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Vec<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: serde::Deserialize<'de>,
