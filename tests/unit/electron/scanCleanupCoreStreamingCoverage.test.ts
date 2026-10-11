@@ -1,5 +1,6 @@
 import {
     access,
+    copyFile,
     link,
     mkdir,
     mkdtemp,
@@ -1385,7 +1386,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             _source: string,
             outputPath: string,
         ) => {
-            await link(templates.ppm, outputPath);
+            await copyFile(templates.ppm, outputPath);
         });
         const runSidecar = vi.fn(async (
             _binaryPath,
@@ -1406,9 +1407,10 @@ describe('scan-cleanup-core conversion coverage', () => {
                 page,
             ] of manifest.pages.entries()) {
                 const output = page.outputs[0]!;
-                await link(templates.composite, output.outputPath);
-                await link(templates.outputMetadata, output.metadataPath);
-                await link(templates.pageMetadata, page.pageMetadataPath);
+                // Copies, not hard links: NTFS allows 1,023 links per file and this document is longer.
+                await copyFile(templates.composite, output.outputPath);
+                await copyFile(templates.outputMetadata, output.metadataPath);
+                await copyFile(templates.pageMetadata, page.pageMetadataPath);
                 onProgress({
                     stage: 'page-complete',
                     completedPages: index + 1,
