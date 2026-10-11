@@ -413,13 +413,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             };
         },
         emitOpenNote: entity => {
-            if (entity.kind !== 'note') {
-                return;
-            }
             const comment = annotationProjection.value.find(candidate => (
                 candidate.appAnnotationId === entity.identity.id
             )) ?? findCanonicalAnnotationComment(annotationApplication.value, entity.identity.id);
-            if (comment) {
+            if (isNoteEligibleComment(comment)) {
                 emitAnnotationOpenNoteWithReconciliation(comment);
             }
         },

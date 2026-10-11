@@ -12,12 +12,15 @@ import {
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    openPdfInApp, waitForPdfLoaded, waitForViewerInteractive,
+    openPdfInApp, waitForPdfLoaded, waitForViewerInteractive,openAnnotationsTab,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    clickAsUser, revealForPointer,
+} from '@tests/e2e/electron/helpers/userInput';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 
-async function highlightedTextPdf(path: string) {
+async function highlightedTextPdf(path: string, note = '') {
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([
         612,
@@ -64,7 +67,7 @@ async function highlightedTextPdf(path: string) {
             0,
         ],
         CA: PDFNumber.of(0.6),
-        Contents: PDFString.of(''),
+        Contents: PDFString.of(note),
     }));
     page.node.set(PDFName.of('Annots'), pdf.context.obj([annotation]));
     await writeFile(path, await pdf.save());
@@ -164,4 +167,74 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         expect(after).toEqual(before);
         expect(afterDirty.dirtyState.hasPendingUnsavedChanges).toBe(false);
     }, 90_000);
+    it('opens the existing or empty highlight note on double-click and reuses its window', async () => {
+        const {page} = sessions.getSession();
+        const directory = await mkdtemp(join(tmpdir(), 'evb-highlight-note-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        for (const note of [
+            'Existing highlight note',
+            '',
+        ]) {
+            const path = join(directory, note ? 'with-note.pdf' : 'empty-note.pdf');
+            await highlightedTextPdf(path, note);
+            await openPdfInApp(page, path);
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            const highlight = '.editor-pane.is-active .page_container[data-page="1"] [data-annotation-kind="text-markup"]';
+            await page.waitForSelector(highlight);
+            await page.waitForSelector('.editor-pane.is-active .textLayer span, .editor-pane.is-active .text-layer span');
+            await openAnnotationsTab(page);
+            await clickAsUser(page, '.notes-panel .tool-button[data-tool="select"]');
+            const hitTarget = `${highlight} [data-annotation-hit-target]`;
+            const point = await revealForPointer(page, hitTarget);
+            await page.mouse.move(point.x, point.y);
+            await page.mouse.down();
+            await page.waitForSelector(`${highlight}.is-selected`, {visible: true});
+            await page.mouse.up();
+            await clickAsUser(page, hitTarget, {count: 2});
+            const editor = 'textarea.note-window__textarea';
+            await page.waitForSelector(editor, {
+                visible: true,
+                timeout: 10_000,
+            });
+            expect(await page.$eval(editor, element => element.value)).toBe(note);
+            expect(await page.$$(editor)).toHaveLength(1);
+            // The open note covers the highlight's centre. Double-click its
+            // exposed edge, checking the actual hit before trusted input.
+            const exposedPoint = await page.$eval(hitTarget, element => {
+                const rect = element.getBoundingClientRect();
+                const x = rect.right - 4;
+                const y = rect.top + rect.height / 2;
+                if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Highlight edge is covered');
+                return {
+                    x,
+                    y,
+                };
+            });
+            await page.mouse.click(exposedPoint.x, exposedPoint.y, {count: 2});
+            expect(await page.$$(editor)).toHaveLength(1);
+            expect(await page.$eval(editor, element => element.value)).toBe(note);
+            if (!note) {
+                await clickAsUser(page, editor);
+                await page.keyboard.type('Note attached to this highlight');
+                await expect.poll(() => page.$eval(editor, element => element.value)).toBe('Note attached to this highlight');
+            }
+            await clickAsUser(page, '.note-window__close');
+            await page.waitForFunction(() => !document.querySelector('textarea.note-window__textarea'));
+            await clickAsUser(page, hitTarget, {count: 2});
+            await page.waitForSelector(editor, {visible: true});
+            expect(await page.$eval(editor, element => element.value)).toBe(note || 'Note attached to this highlight');
+            expect(await page.$$(editor)).toHaveLength(1);
+            await clickAsUser(page, '.note-window__close');
+            console.log(`HIGHLIGHT_NOTE ${JSON.stringify({
+                note,
+                oneWindow: true,
+                pressSelected: true,
+            })}`);
+        }
+    }, 90_000);
+
 });

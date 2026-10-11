@@ -1146,7 +1146,7 @@ export const usePdfAnnotationEditorSurface = (
 
     function openNote(annotationId: AnnotationId) {
         const entity = store().get(annotationId);
-        if (entity?.kind === 'note') {
+        if (entity?.kind === 'note' || entity?.kind === 'text-markup') {
             options.emitOpenNote?.(entity);
         }
     }
