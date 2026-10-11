@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    createStaleRevisionError, getDocumentMutationErrorPayload,
+} from '@contracts/documentMutationErrors';
 import type {
     IPageMoveRangeSegment,
     TPageSelection,
@@ -37,6 +40,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
     totalPages: Ref<number>;
+    getDocumentSource: () => object | null;
     selectedPages?: Readonly<Ref<number[]>>;
     selectedPageSelection?: Readonly<Ref<TPageSelection | null>>;
     onReorder: (newOrder: number[]) => void;
@@ -63,6 +67,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     const {
         containerRef,
         totalPages,
+        getDocumentSource,
         selectedPages = ref([]),
         selectedPageSelection,
         onReorder,
@@ -85,7 +90,9 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     const autoScrollContainer = ref<HTMLElement | null>(null);
     const autoScrollStep = ref(0);
     const { t } = useTypedI18n();
-    const { presentFailureToast } = useFailureToast();
+    const {
+        presentFailureToast, presentNoticeToast,
+    } = useFailureToast();
 
     const THRESHOLD = 5;
     const SCROLL_ZONE = 40;
@@ -665,7 +672,17 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             return;
         }
 
+        const documentSource = getDocumentSource();
         const droppedPaths = await registerExternalDropFiles(Array.from(e.dataTransfer.files));
+        if (getDocumentSource() !== documentSource) {
+            await Promise.allSettled(droppedPaths.map(path => getDocumentWorkingCopyCapability().cleanupFile(path)));
+            presentNoticeToast({
+                tone: 'warning',
+                title: t('errors.pageOps.insertFile'),
+                description: getDocumentMutationErrorPayload(createStaleRevisionError({}))?.message ?? '',
+            });
+            return;
+        }
 
         if (droppedPaths.length > 0) {
             onExternalFileDrop(insertAt, droppedPaths);

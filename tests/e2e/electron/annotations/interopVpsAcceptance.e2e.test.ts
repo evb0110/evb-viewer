@@ -50,6 +50,7 @@ import {
     waitForSaveFrontierReady,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
+    clickToolbarButtonWhenEnabled,
     triggerOpenPathInApp,
     openDocumentSidebarTab,
     openPdfInApp,
@@ -89,6 +90,7 @@ const interopE2eFixtureDirectories: string[] = [];
 
 const sessionFixture = createElectronE2ESessionFixture({
     restartBeforeEach: true,
+    extraEnv: {EVB_PDF_NATIVE_ASSEMBLER_ENABLE: '1'},
     sessionName: () => `e2e-interop-vps-${Date.now()}`,
 });
 
@@ -752,4 +754,129 @@ describe('Electron E2E - annotated raster readiness', () => {
         expect(atRenderReady.created).toBe(true);
         expect(atRenderReady.red).toBeGreaterThan(0);
     }, ACCEPTANCE_TIMEOUT_MS);
+});
+
+
+describe('Electron E2E - pending external page drop', () => {
+    it('cancels a pending external drop after another page edit lands', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createMultiPageTextFixturePdf('pending-drop-order.pdf', 4);
+        const inserted = await createMultiPageTextFixturePdf('pending-drop-inserted.pdf', 1);
+        mkdirSync(INTEROP_E2E_SCRATCH_ROOT, {recursive: true});
+        const directory = mkdtempSync(join(INTEROP_E2E_SCRATCH_ROOT, 'pending-page-drop-'));
+        interopE2eFixtureDirectories.push(directory);
+        const files = Array.from({length:500}, (_,index) => {
+            const path = join(directory, `insert-${index}.pdf`);
+            copyFileSync(inserted,path);
+            return path;
+        });
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await page.waitForSelector('[data-thumbnail-page="2"]');
+        const sidebarPoint = await page.$eval('.pdf-thumbnails', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: Math.min(rect.bottom - 20, window.innerHeight - 20),
+            };
+        });
+        await page.mouse.move(sidebarPoint.x, sidebarPoint.y);
+        await page.mouse.wheel({deltaY: 300});
+        await page.waitForFunction(() => {
+            const rect = document.querySelector('[data-thumbnail-page="2"]')!.getBoundingClientRect();
+            return rect.bottom > 150 && rect.bottom < window.innerHeight - 10;
+        });
+        await page.evaluate(() => document.addEventListener('drop', event => {
+            Reflect.set(window, '__pendingPageDropEvent', {
+                trusted: event.isTrusted,
+                count: (event as DragEvent).dataTransfer?.files.length,
+            });
+        }, {
+            once: true,
+            capture: true,
+        }));
+        const point = await page.$eval('[data-thumbnail-page="2"]', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x:rect.left+rect.width/2,
+                y:rect.bottom-2,
+            };
+        });
+        expect(point.y).toBeLessThan(await page.evaluate(() => window.innerHeight));
+        const client = await page.createCDPSession();
+        try {
+            // Repeated entries keep registration pending without exceeding the
+            // native insertion budget: the app deduplicates the 500 paths.
+            const data = {
+                items:[],
+                files: Array.from({length: 10}, () => files).flat(),
+                dragOperationsMask:1,
+            };
+            await client.send('Input.dispatchDragEvent',{
+                type:'dragEnter',
+                ...point,
+                data,
+            });
+            await client.send('Input.dispatchDragEvent',{
+                type:'dragOver',
+                ...point,
+                data,
+            });
+            await client.send('Input.dispatchDragEvent',{
+                type:'drop',
+                ...point,
+                data,
+            });
+            console.log('trusted external drop', await page.evaluate(() => Reflect.get(window, '__pendingPageDropEvent')));
+        } finally {await client.detach();}
+        await clickAsUser(page, '[data-thumbnail-page="1"]', {button:'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description:'Delete page A while the external batch is registering'});
+        await page.waitForFunction(() => {
+            const state = window.__evbTestApi?.readActiveWorkspaceStateValues([
+                'isPageOperationInProgress',
+                'totalPages',
+            ]);
+            return state && state.isPageOperationInProgress === false && state.totalPages !== 4;
+        }, {timeout:120_000});
+        // Let the app's own insertion or explicit cancellation become observable.
+        await page.waitForFunction(() => document.body.innerText.includes('Document changed')
+            || (window.__evbTestApi?.readActiveWorkspaceStateValues<{totalPages: number}>(['totalPages']).totalPages ?? 0) > 4, {timeout: 120_000});
+        const result = await page.evaluate(() => ({
+            ...window.__evbTestApi?.readActiveWorkspaceStateValues<{
+                totalPages: number;
+                isPageOperationInProgress: boolean
+            }>([
+                'totalPages',
+                'isPageOperationInProgress',
+            ]),
+            visible:document.body.innerText,
+        }));
+        console.log('pending page drop outcome', result);
+        expect(result.totalPages).toBe(3);
+        expect(result.visible).toContain('Document changed');
+        await clickToolbarButtonWhenEnabled(page, 'Undo');
+        await page.waitForFunction(() => window.__evbTestApi
+            ?.readActiveWorkspaceStateValues(['totalPages']).totalPages === 4);
+        await clickToolbarButtonWhenEnabled(page, 'Redo');
+        await page.waitForFunction(() => window.__evbTestApi
+            ?.readActiveWorkspaceStateValues(['totalPages']).totalPages === 3);
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, fixture);
+        const savedText = execFileSync(getPdfNativeToolPaths().pdftotext, [
+            fixture,
+            '-',
+        ], {encoding: 'utf8'});
+        expect(Array.from(savedText.matchAll(/Page (\d+) sample text for annotations/g), match => match[1]))
+            .toEqual([
+                '2',
+                '3',
+                '4',
+            ]);
+        const reopen = copyFreshFixture(fixture, 'pending-drop-reopen');
+        await openPdfInApp(page, reopen);
+        await waitForViewerInteractive(page);
+        expect(await page.evaluate(() => window.__evbTestApi
+            ?.readActiveWorkspaceStateValues(['totalPages']).totalPages)).toBe(3);
+    },300_000);
 });
