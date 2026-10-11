@@ -80,6 +80,11 @@ import {
     assembleWithCompactSourcePages, overlayScanCleanupTextLayer, resolveCompactSourcePreservation,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
+    buildScanCleanupPageOpsInstructions,
+    serializeLegacyScanCleanupPageOpsInstructions,
+    serializeScanCleanupPageOpsInstructions,
+} from '@evb/scan-cleanup/core/compactManifest';
+import {
     createArrayBackedPdfPageSizeStore,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
@@ -1999,6 +2004,39 @@ describe('scan cleanup pipeline', () => {
                 renderDpi: 360,
                 illuminationNormalized: false,
             }],
+        });
+    });
+
+    it('adds the assembly catalog to the page-ops envelope and keeps it off the legacy one', () => {
+        const pages = [{
+            sourcePageIndex: 0,
+            rotationQuarterTurns: 0,
+            outputs: [{
+                cropRect: {
+                    x: 0,
+                    y: 0,
+                    width: 240,
+                    height: 336,
+                },
+                contentTransform: {
+                    scale: 1,
+                    translateX: 0,
+                    translateY: 0,
+                },
+            }],
+        }];
+        const assembly = buildScanCleanupPageOpsInstructions(pages, 'abcdef', 'assembly');
+        expect(JSON.parse(serializeScanCleanupPageOpsInstructions(assembly))).toEqual({
+            provenanceStampHex: 'abcdef',
+            catalog: 'assembly',
+            pages,
+        });
+        expect(JSON.parse(serializeLegacyScanCleanupPageOpsInstructions(assembly))).toEqual({pages});
+        expect(JSON.parse(serializeScanCleanupPageOpsInstructions(
+            buildScanCleanupPageOpsInstructions(pages, 'abcdef'),
+        ))).toEqual({
+            provenanceStampHex: 'abcdef',
+            pages,
         });
     });
 
