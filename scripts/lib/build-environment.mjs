@@ -1,7 +1,12 @@
+import {spawnSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
+import {homedir} from 'node:os';
+import path from 'node:path';
+
 // The environment values the viewer build reads. nuxt.config.ts and the build
 // scripts take their values from readBuildEnvironment, and the release build
-// receipt fingerprints the same snapshot, so a value that a build reads cannot
-// change the build without changing the receipt. A new read adds its name here.
+// receipt fingerprints this snapshot, Nuxt overrides and the shared Cargo
+// configuration collector. A new named build read adds its name here.
 
 // Compiled into a bundle as a value: the receipt records a digest of each.
 export const BUILD_SECRET_ENVIRONMENT_KEYS = Object.freeze([
@@ -36,11 +41,9 @@ export function readBuildEnvironment(env = process.env) {
         EVB_RELEASE_TARGET_ARCH: env.EVB_RELEASE_TARGET_ARCH,
         GITHUB_SHA: env.GITHUB_SHA,
         SENTRY_DESKTOP_DSN: env.SENTRY_DESKTOP_DSN,
-        // scripts/native-rust-targets.mjs and scripts/build-native-tool.mjs, and the Cargo they run
-        CARGO_HOME: env.CARGO_HOME,
+        // Native target selection. Compiler inputs belong to this shared collector.
         EVB_NATIVE_TARGET_ARCH: env.EVB_NATIVE_TARGET_ARCH,
         EVB_NATIVE_TARGET_PLATFORM: env.EVB_NATIVE_TARGET_PLATFORM,
-        RUSTFLAGS: env.RUSTFLAGS,
         // Read by the release workflow and the package managers rather than by these scripts.
         EVB_RELEASE_TARGET_DIST: env.EVB_RELEASE_TARGET_DIST,
         EVB_RELEASE_TARGET_PLATFORM: env.EVB_RELEASE_TARGET_PLATFORM,
@@ -59,4 +62,92 @@ export function nuxtOutputDirectory(buildEnv) {
     return isVercelBuildOutput(buildEnv)
         ? '.vercel/output'
         : buildEnv.EVB_NUXT_OUTPUT_DIR?.trim() || 'nuxt-output';
+}
+
+/** @param {NodeJS.ProcessEnv} env */
+export function getCargoFingerprintEnvironment(env) {
+    const exactKeys = new Set([
+        'AR',
+        'CC',
+        'CFLAGS',
+        'CXX',
+        'CXXFLAGS',
+        'LDFLAGS',
+        'MACOSX_DEPLOYMENT_TARGET',
+        'PKG_CONFIG_PATH',
+        'SDKROOT',
+    ]);
+    const prefixes = [
+        'AR_',
+        'CARGO_',
+        'CC_',
+        'CFLAGS_',
+        'CXX_',
+        'CXXFLAGS_',
+        'LDFLAGS_',
+        'OPENSSL_',
+        'PKG_CONFIG_',
+        'RUST',
+    ];
+    return Object.fromEntries(Object.entries(env)
+        .filter(([key]) => exactKeys.has(key) || prefixes.some(prefix => key.startsWith(prefix)))
+        .sort(([left], [right]) => left.localeCompare(right, 'en')));
+}
+
+
+// Both native and release receipts use the same optional Cargo configuration.
+/** @param {{env?: NodeJS.ProcessEnv, projectRoot: string}} options */
+export function getCargoConfigurationInputs({
+    env = process.env, projectRoot,
+}) {
+    const cargoHome = env.CARGO_HOME ? path.resolve(projectRoot, env.CARGO_HOME) : path.join(homedir(), '.cargo');
+    return [
+        path.join(projectRoot, '.cargo', 'config'),
+        path.join(projectRoot, '.cargo', 'config.toml'),
+        path.join(projectRoot, 'rust-toolchain.toml'),
+        path.join(cargoHome, 'config'),
+        path.join(cargoHome, 'config.toml'),
+    ].filter(inputPath => existsSync(inputPath));
+}
+
+/**
+ * @param {{
+ *   env?: NodeJS.ProcessEnv;
+ *   runCommand?: (
+ *     command: string,
+ *     args: string[],
+ *     options: {encoding: BufferEncoding},
+ *   ) => {status: number | null; stdout: string};
+ * }} [options]
+ */
+export function getCargoBuildEnvironment({
+    env = process.env,
+    runCommand = spawnSync,
+} = {}) {
+    if (env.RUSTC_WRAPPER) {
+        return {
+            env,
+            sccache: `configured (${env.RUSTC_WRAPPER})`,
+        };
+    }
+    if (env.EVB_RUST_SCCACHE !== '1') {
+        return {
+            env,
+            sccache: 'disabled',
+        };
+    }
+    const result = runCommand('sccache', ['--version'], {encoding: 'utf8'});
+    if (result.status === 0) {
+        return {
+            env: {
+                ...env,
+                RUSTC_WRAPPER: 'sccache',
+            },
+            sccache: String(result.stdout).trim(),
+        };
+    }
+    return {
+        env,
+        sccache: 'unavailable',
+    };
 }

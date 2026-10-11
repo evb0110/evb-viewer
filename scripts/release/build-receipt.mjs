@@ -10,9 +10,14 @@ import {
     writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
 import {
     BUILD_PRESENCE_ENVIRONMENT_KEYS,
     BUILD_SECRET_ENVIRONMENT_KEYS,
+    getCargoBuildEnvironment,
+    getCargoConfigurationInputs,
+    getCargoFingerprintEnvironment,
     nuxtOutputDirectory,
     readBuildEnvironment,
 } from '../lib/build-environment.mjs';
@@ -57,9 +62,6 @@ const BUILD_ENVIRONMENT_PREFIXES = [
     'NUXT_',
     'VITE_',
 ];
-// Nuxt loads only the root .env into the build (setupDotenv's default file
-// name), and a value there is compiled in like one set in the environment.
-const BUILD_DOTENV_FILES = ['.env'];
 const SENSITIVE_BUILD_ENVIRONMENT_KEY = /(?:AUTH|CREDENTIAL|DATABASE|DSN|ENDPOINT|KEY|PASSWORD|PRIVATE|SECRET|TOKEN)/iu;
 
 /** @param {string} projectRoot @param {string} filePath */
@@ -143,63 +145,49 @@ export function getReleaseBuildInputFiles({
     return output.split('\0').filter(Boolean);
 }
 
-/** @param {string} projectRoot */
-function dotenvDigests(projectRoot) {
-    return Object.fromEntries(BUILD_DOTENV_FILES.map((file) => {
-        try {
-            const content = readFileSync(path.join(projectRoot, file));
-            return [
-                file,
-                createHash('sha256').update(content).digest('hex'),
-            ];
-        } catch (error) {
-            const isMissing = error
-                && typeof error === 'object'
-                && 'code' in error
-                && error.code === 'ENOENT';
-            if (isMissing) {
-                return [
-                    file,
-                    null,
-                ];
-            }
-            throw error;
-        }
+// Nuxt's c12 loader is async; keep the synchronous receipt API by resolving in
+// a short-lived child. Reuse its interpolation and environment precedence rather
+// than maintaining a second dotenv parser. No values are printed by this owner.
+/** @param {NodeJS.ProcessEnv} env @param {string} projectRoot @returns {NodeJS.ProcessEnv} */
+function nuxtBuildEnvironment(env, projectRoot) {
+    const require = createRequire(import.meta.url);
+    const c12 = require.resolve('c12', {paths: [require.resolve('nuxt/package.json')]});
+    return JSON.parse(execFileSync(process.execPath, [
+        '--input-type=module',
+        '-e',
+        `
+        import {loadDotenv} from ${JSON.stringify(pathToFileURL(c12).href)};
+        const env = await loadDotenv({cwd: ${JSON.stringify(projectRoot)}, env: process.env, interpolate: true});
+        process.stdout.write(JSON.stringify(env));
+    `,
+    ], {
+        env,
+        encoding: 'utf8',
     }));
 }
 
 /** @param {NodeJS.ProcessEnv} env */
 function buildEnvironment(env) {
-    const buildEnv = readBuildEnvironment(env);
-    const plain = Object.fromEntries([
-        ...Object.entries(env).filter(([key]) => BUILD_ENVIRONMENT_PREFIXES.some(prefix => key.startsWith(prefix))),
-        ...Object.entries(buildEnv).filter(([
-            key,
-            value,
-        ]) => (
-            value !== undefined
-            && !BUILD_SECRET_ENVIRONMENT_KEYS.includes(key)
-            && !BUILD_PRESENCE_ENVIRONMENT_KEYS.includes(key)
-        )),
-    ]
-        .filter(([key]) => !SENSITIVE_BUILD_ENVIRONMENT_KEY.test(key))
-        .sort(([left], [right]) => left.localeCompare(right, 'en')));
-    // Secrets compiled into a bundle: a change rebuilds, and no secret is stored.
-    const digests = Object.fromEntries(BUILD_SECRET_ENVIRONMENT_KEYS.map(key => [
-        `${key}_SHA256`,
-        createHash('sha256').update(env[key]?.trim() ?? '').digest('hex'),
-    ]));
-    // The build tests these only for truthiness (nuxt.config.ts, build-electron.mjs),
-    // so the value is not compiled in and only the presence bit changes the output.
-    const presence = Object.fromEntries(BUILD_PRESENCE_ENVIRONMENT_KEYS.map(key => [
-        `${key}_SET`,
-        Boolean(env[key]),
-    ]));
-    return {
-        ...plain,
-        ...digests,
-        ...presence,
+    const values = {
+        ...Object.fromEntries(Object.entries(env).filter(([key]) => BUILD_ENVIRONMENT_PREFIXES.some(prefix => key.startsWith(prefix)))),
+        ...readBuildEnvironment(env),
     };
+    /** @type {Record<string, string | boolean>} */
+    const environment = {};
+    for (const [
+        key,
+        value,
+    ] of Object.entries(values).sort(([left], [right]) => left.localeCompare(right, 'en'))) {
+        if (BUILD_PRESENCE_ENVIRONMENT_KEYS.includes(key)) {
+            environment[`${key}_SET`] = Boolean(value);
+        } else if (value !== undefined) {
+            const sensitive = BUILD_SECRET_ENVIRONMENT_KEYS.includes(key) || SENSITIVE_BUILD_ENVIRONMENT_KEY.test(key);
+            environment[sensitive ? `${key}_SHA256` : key] = sensitive
+                ? createHash('sha256').update(value).digest('hex')
+                : value;
+        }
+    }
+    return environment;
 }
 
 /** @param {TCommandRunner} runCommand */
@@ -224,9 +212,19 @@ export function computeReleaseBuildState({
         projectRoot,
         runCommand,
     });
+    const effectiveNuxtEnv = nuxtBuildEnvironment(env, projectRoot);
+    const nativeEnv = getCargoBuildEnvironment({env}).env;
     const contract = {
-        dotenv: dotenvDigests(projectRoot),
+        nativeConfiguration: createHash('sha256')
+            .update(JSON.stringify(getCargoFingerprintEnvironment(nativeEnv)))
+            .update(fingerprintPaths(projectRoot, getCargoConfigurationInputs({
+                env: nativeEnv,
+                projectRoot,
+            })))
+            .digest('hex'),
+        dotenv: fingerprintPaths(projectRoot, ['.env']),
         environment: buildEnvironment(env),
+        nuxtConfiguration: createHash('sha256').update(JSON.stringify(buildEnvironment(effectiveNuxtEnv))).digest('hex'),
         platform: process.platform,
         architecture: process.arch,
         toolchain: toolchain(runCommand),
@@ -242,7 +240,7 @@ export function computeReleaseBuildState({
             .digest('hex'),
         outputFingerprint: fingerprintPaths(
             projectRoot,
-            outputPaths ?? getBuildOutputs(env, projectRoot),
+            outputPaths ?? getBuildOutputs(effectiveNuxtEnv, projectRoot),
             {requireExisting: true},
         ),
     };

@@ -197,6 +197,149 @@ describe('release strict-build receipts', () => {
         }
     });
 
+    it.each([
+        [
+            'CC',
+            'changed-compiler',
+        ],
+        [
+            'SDKROOT',
+            '/changed-sdk',
+        ],
+        [
+            'MACOSX_DEPLOYMENT_TARGET',
+            '14.0',
+        ],
+        [
+            'CARGO_ENCODED_RUSTFLAGS',
+            '--cfg\u001freview',
+        ],
+        [
+            'CARGO_PROFILE_RELEASE_OPT_LEVEL',
+            '1',
+        ],
+        [
+            'RUSTC_WRAPPER',
+            '/changed-wrapper',
+        ],
+    ])('rejects changed native compiler configuration: %s', (key, value) => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-native-env-'));
+        const options = {
+            env: {},
+            projectRoot,
+            inputFiles: [],
+            outputPaths: [],
+            runCommand: fakeToolchain,
+        };
+        const receiptPath = path.join(projectRoot, 'receipt.json');
+        try {
+            writeReleaseBuildReceipt(receiptPath, options);
+            expect(validateReleaseBuildReceipt(receiptPath, {
+                ...options,
+                env: {[key]: value},
+            }))
+                .toEqual({
+                    valid: false,
+                    reason: 'inputs-changed',
+                });
+        } finally { rmSync(projectRoot, {
+            recursive: true,
+            force: true,
+        }); }
+    });
+
+    it('rejects edited configuration in the same external Cargo home', () => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-cargo-config-'));
+        const cargoHome = mkdtempSync(path.join(tmpdir(), 'evb-external-cargo-'));
+        const options = {
+            env: {CARGO_HOME: cargoHome},
+            projectRoot,
+            inputFiles: [],
+            outputPaths: [],
+            runCommand: fakeToolchain,
+        };
+        const receiptPath = path.join(projectRoot, 'receipt.json');
+        try {
+            writeFileSync(path.join(cargoHome, 'config.toml'), '[build]\n rustflags = ["--cfg", "before"]\n');
+            writeReleaseBuildReceipt(receiptPath, options);
+            writeFileSync(path.join(cargoHome, 'config.toml'), '[build]\n rustflags = ["--cfg", "after"]\n');
+            expect(validateReleaseBuildReceipt(receiptPath, options)).toEqual({
+                valid: false,
+                reason: 'inputs-changed',
+            });
+        } finally {
+            rmSync(projectRoot, {
+                recursive: true,
+                force: true,
+            });
+            rmSync(cargoHome, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it.each([
+        'NUXT_PUBLIC_SENTRY_DSN',
+        'NUXT_ANALYTICS_DATABASE_URL',
+        'VITE_SECRET_KEY',
+    ])('digests sensitive overrides without dropping their identity: %s', key => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-sensitive-'));
+        const options = {
+            env: {[key]: 'dummy-secret-before'},
+            projectRoot,
+            inputFiles: [],
+            outputPaths: [],
+            runCommand: fakeToolchain,
+        };
+        const receiptPath = path.join(projectRoot, 'receipt.json');
+        try {
+            const receipt = writeReleaseBuildReceipt(receiptPath, options);
+            expect(JSON.stringify(receipt)).not.toContain('dummy-secret-before');
+            expect(validateReleaseBuildReceipt(receiptPath, {
+                ...options,
+                env: {[key]: 'dummy-secret-after'},
+            }))
+                .toEqual({
+                    valid: false,
+                    reason: 'inputs-changed',
+                });
+        } finally { rmSync(projectRoot, {
+            recursive: true,
+            force: true,
+        }); }
+    });
+
+    it.each([
+        'SENTRY_DESKTOP_DSN',
+        'SENTRY_AUTH_TOKEN',
+    ])('keeps Electron parent inputs distinct from Nuxt dotenv fallback: %s', key => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-parent-env-'));
+        const options = {
+            env: {},
+            projectRoot,
+            inputFiles: [],
+            outputPaths: [],
+            runCommand: fakeToolchain,
+        };
+        const receiptPath = path.join(projectRoot, 'receipt.json');
+        try {
+            writeFileSync(path.join(projectRoot, '.env'), `${key}=same-dummy-value\n`);
+            writeReleaseBuildReceipt(receiptPath, options);
+            expect(validateReleaseBuildReceipt(receiptPath, {
+                ...options,
+                env: {[key]: 'same-dummy-value'},
+            }))
+                .toEqual({
+                    valid: false,
+                    reason: 'inputs-changed',
+                });
+        } finally { rmSync(projectRoot, {
+            recursive: true,
+            force: true,
+        }); }
+    });
+
     it('keeps DSNs and database URLs out of the recorded build environment', () => {
         const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-secrets-'));
         writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({version: '1.2.3'}));
@@ -305,7 +448,12 @@ describe('release strict-build receipts', () => {
         }
     });
 
-    it('rebuilds when the Nuxt output directory the build writes to changes or goes missing', () => {
+    it.each([
+        'process',
+        'dotenv',
+        'dotenv-expanded',
+        'process-override',
+    ])('checks the emitted Nuxt output selected by %s', mode => {
         const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-output-dir-'));
         const receiptPath = path.join(projectRoot, '.devkit', 'receipt.json');
         const {platformArch} = getRequestedNativeRustTarget({});
@@ -329,8 +477,13 @@ describe('release strict-build receipts', () => {
                 stagingRoots: ['.tmp/native-stage'],
             })}\n`,
         );
+        if (mode !== 'process') {
+            writeFileSync(path.join(projectRoot, '.env'), mode === 'dotenv-expanded'
+                ? 'OUTPUT_ROOT=isolated\nEVB_NUXT_OUTPUT_DIR=${OUTPUT_ROOT}-output\n'
+                : `EVB_NUXT_OUTPUT_DIR=${mode === 'process-override' ? 'nuxt-output' : 'isolated-output'}\n`);
+        }
         const options = {
-            env: {EVB_NUXT_OUTPUT_DIR: 'isolated-output'},
+            env: mode === 'process' || mode === 'process-override' ? {EVB_NUXT_OUTPUT_DIR: 'isolated-output'} : {},
             inputFiles: ['source.ts'],
             projectRoot,
             runCommand: fakeToolchain,

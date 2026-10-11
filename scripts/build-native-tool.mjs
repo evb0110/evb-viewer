@@ -1,14 +1,12 @@
 import { getCliErrorMessage } from './lib/cli-error.mjs';
 import { spawnSync } from 'node:child_process';
 import {
-    access,
     chmod,
     mkdir,
     rename,
     rm,
     writeFile,
 } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tsImport } from 'tsx/esm/api';
@@ -26,7 +24,9 @@ import {
     getNativeExternalBuildInputs,
 } from './native-build-id.mjs';
 import { getRequestedNativeRustTarget } from './native-rust-targets.mjs';
-import { readBuildEnvironment } from './lib/build-environment.mjs';
+import {
+    getCargoBuildEnvironment, getCargoConfigurationInputs, getCargoFingerprintEnvironment, readBuildEnvironment,
+} from './lib/build-environment.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const usage = `Usage: node scripts/build-native-tool.mjs <tool...>|--all [--dry-run]
@@ -122,76 +122,9 @@ function commandVersion(command) {
     return String(result.stdout).trim();
 }
 
-/**
- * @param {{
- *   env?: NodeJS.ProcessEnv;
- *   runCommand?: (
- *     command: string,
- *     args: string[],
- *     options: {encoding: BufferEncoding},
- *   ) => {status: number | null; stdout: string};
- * }} [options]
- */
-export function getCargoBuildEnvironment({
-    env = process.env,
-    runCommand = spawnSync,
-} = {}) {
-    if (env.RUSTC_WRAPPER) {
-        return {
-            env,
-            sccache: `configured (${env.RUSTC_WRAPPER})`,
-        };
-    }
-    if (env.EVB_RUST_SCCACHE !== '1') {
-        return {
-            env,
-            sccache: 'disabled',
-        };
-    }
-    const result = runCommand('sccache', ['--version'], {encoding: 'utf8'});
-    if (result.status === 0) {
-        return {
-            env: {
-                ...env,
-                RUSTC_WRAPPER: 'sccache',
-            },
-            sccache: String(result.stdout).trim(),
-        };
-    }
-    return {
-        env,
-        sccache: 'unavailable',
-    };
-}
+export {getCargoBuildEnvironment} from './lib/build-environment.mjs';
 
-export function getCargoFingerprintEnvironment(env) {
-    const exactKeys = new Set([
-        'AR',
-        'CC',
-        'CFLAGS',
-        'CXX',
-        'CXXFLAGS',
-        'LDFLAGS',
-        'MACOSX_DEPLOYMENT_TARGET',
-        'PKG_CONFIG_PATH',
-        'SDKROOT',
-    ]);
-    const prefixes = [
-        'AR_',
-        'CARGO_',
-        'CC_',
-        'CFLAGS_',
-        'CXX_',
-        'CXXFLAGS_',
-        'LDFLAGS_',
-        'OPENSSL_',
-        'PKG_CONFIG_',
-        'RUST',
-    ];
-    return Object.fromEntries(Object.entries(env)
-        .filter(([key]) => exactKeys.has(key) || prefixes.some(prefix => key.startsWith(prefix)))
-        .sort(([left], [right]) => left.localeCompare(right, 'en')));
-}
+export {getCargoFingerprintEnvironment} from './lib/build-environment.mjs';
 
 function getReceiptPath(plan) {
     return path.join(path.dirname(plan.destinationPath), '..', 'build-receipt.json');
@@ -284,35 +217,10 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         );
         sourcePaths.push(...getNativeExternalBuildInputs(plan.tool.crateName)
             .map(input => path.join(projectRoot, input)));
-        for (const relativePath of [
-            '.cargo/config',
-            '.cargo/config.toml',
-            'rust-toolchain.toml',
-        ]) {
-            const inputPath = path.join(projectRoot, relativePath);
-            try {
-                await access(inputPath);
-                sourcePaths.push(inputPath);
-            } catch {
-                // Optional Cargo configuration files are absent in most worktrees.
-            }
-        }
-        const configuredCargoHome = readBuildEnvironment(cargoEnvironment.env).CARGO_HOME;
-        const cargoHome = configuredCargoHome
-            ? path.resolve(configuredCargoHome)
-            : path.join(os.homedir(), '.cargo');
-        for (const cargoConfigName of [
-            'config',
-            'config.toml',
-        ]) {
-            const inputPath = path.join(cargoHome, cargoConfigName);
-            try {
-                await access(inputPath);
-                sourcePaths.push(inputPath);
-            } catch {
-                // A user-level Cargo config is optional, but affects builds when present.
-            }
-        }
+        sourcePaths.push(...getCargoConfigurationInputs({
+            env: cargoEnvironment.env,
+            projectRoot,
+        }));
         const environment = getCargoFingerprintEnvironment(cargoEnvironment.env);
         const input = await computeCargoInputFingerprint({
             cargoArgs: plan.cargoArgs,
