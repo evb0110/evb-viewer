@@ -491,6 +491,23 @@ describe('scan-cleanup durability', () => {
         await expect(readdir(getManagedProcessRegistryDirectory(namespacePath))).resolves.toEqual([]);
     });
 
+    it('registers a process while the time locale is not English', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const previousTimeLocale = process.env.LC_TIME;
+        process.env.LC_TIME = 'ru_RU.UTF-8';
+        try {
+            const registration = await registerManagedProcess(namespacePath, {
+                pid: process.pid,
+                binaryPath: process.execPath,
+            });
+            await expect(access(registration.entryPath)).resolves.toBeUndefined();
+            await registration.unregister();
+        } finally {
+            if (previousTimeLocale === undefined) delete process.env.LC_TIME;
+            else process.env.LC_TIME = previousTimeLocale;
+        }
+    });
+
     it('leaves a marker for a live owning worker and never signals its sidecar', async () => {
         const namespacePath = await createTemporaryDirectory();
         const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
