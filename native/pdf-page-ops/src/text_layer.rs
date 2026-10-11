@@ -1839,10 +1839,8 @@ fn append_source_annotations(
         return Ok(());
     };
     let annotations = source.dereference(annots)?.1.as_array()?;
-    let output_view = instruction
-        .filter_to_output_page
-        .then(|| resolve_page_view(target, target_page_id))
-        .transpose()?;
+    let view = resolve_page_view(target, target_page_id)?;
+    let output_view = instruction.filter_to_output_page.then_some(view);
     let filter = match (instruction.source_region, output_view) {
         (Some(region), Some(_)) => Some((region.matrix, validate_crop_rect(region.rect)?)),
         (_, view) => view.map(|view| (instruction.matrix, view)),
@@ -1854,6 +1852,7 @@ fn append_source_annotations(
         }
         transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
         clip_text_markup_to_view(target, annotation, output_view);
+        fit_note_to_view(target, annotation, view, rotation)?;
         annotation.set("P", target_page_id);
         Ok(())
     };

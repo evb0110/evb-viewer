@@ -1788,6 +1788,142 @@ fn overlay_refuses_links_to_pages_outside_the_output_and_keeps_existing_bytes() 
 }
 
 #[test]
+fn overlay_keeps_a_seam_note_and_its_reply_on_the_page_that_owns_it() {
+    // The left source region owns a note centred at x=99.5, but the left
+    // canvas placement moves it 30 pt past the 100 pt page. The reader would
+    // drop it as foreign, so the marker moves back onto the page, keeping its
+    // size and its reply.
+    let source = path("seam-clamp-note", "pdf");
+    let input = path("seam-clamp-target", "pdf");
+    let output = path("seam-clamp-output", "pdf");
+    let inspected = path("seam-clamp-inspected", "pdf");
+    let instructions = path("seam-clamp", "json");
+    let parsed = path("seam-clamp-parsed", "jsonl");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let root = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => vec![94.into(), 45.into(), 105.into(), 55.into()],
+        "Contents" => Object::string_literal("Seam root"),
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
+        "Rect" => vec![50.into(), 45.into(), 60.into(), 55.into()],
+        "Contents" => Object::string_literal("Seam reply"),
+    });
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![Object::Reference(root), Object::Reference(reply)],
+    );
+    document.save(&source).unwrap();
+    let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
+    for id in target.get_pages().values() {
+        target
+            .get_dictionary_mut(*id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    }
+    target.save(&input).unwrap();
+    let region = |x: i64| {
+        serde_json::json!({
+            "rect": {"x": x, "y": 0, "width": 100, "height": 120},
+            "matrix": [1, 0, 0, -1, 0, 120],
+        })
+    };
+    write(
+        &instructions,
+        serde_json::to_vec(&serde_json::json!({"pages": [
+            {"sourcePageIndex": 0, "outputPageIndex": 0, "matrix": [1, 0, 0, 1, 30, 0],
+             "filterToOutputPage": true, "sourceRegion": region(0)},
+            {"sourcePageIndex": 0, "outputPageIndex": 1, "matrix": [1, 0, 0, 1, -70, 0],
+             "filterToOutputPage": true, "sourceRegion": region(100)},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    run_text_box_command("parse-annotations", &output, &parsed, None);
+    // A note entry carries its reply thread, so the reply is read back with it.
+    let notes = fs::read_to_string(&parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .filter(|entry| entry["kind"] == "note")
+        .map(|entry| {
+            let replies = entry["replies"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|reply| reply["contents"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>();
+            (
+                entry["pageIndex"].as_u64().unwrap(),
+                entry["contents"].as_str().unwrap().to_string(),
+                replies,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        notes.contains(&(0, "Seam root".to_string(), vec!["Seam reply".to_string()])),
+        "seam note and its reply are not an editable note on page 0: {notes:?}"
+    );
+    let compact = Command::new(qpdf_path())
+        .arg(&output)
+        .arg(&inspected)
+        .output()
+        .unwrap();
+    assert!(compact.status.success());
+    let saved = Document::load(&inspected).unwrap();
+    let page = saved.get_pages()[&1];
+    let annotations = saved
+        .get_dictionary(page)
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let root_rect = annotations
+        .iter()
+        .map(|object| {
+            saved
+                .get_dictionary(object.as_reference().unwrap())
+                .unwrap()
+        })
+        .find(|annotation| {
+            annotation.get(b"Contents").unwrap().as_str().unwrap() == b"Seam root".as_slice()
+        })
+        .unwrap()
+        .get(b"Rect")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|number| f64::from(number.as_float().unwrap()))
+        .collect::<Vec<_>>();
+    assert!(
+        root_rect[0] >= 0.0
+            && root_rect[2] <= 100.0
+            && root_rect[1] >= 0.0
+            && root_rect[3] <= 120.0,
+        "seam note Rect {root_rect:?} is outside the 100 x 120 page"
+    );
+    for file in [source, input, output, inspected, instructions, parsed] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
 fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
     for (incremental, margin, source_region) in [
         (false, 0, false),
