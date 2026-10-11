@@ -159,6 +159,10 @@ async function writeCompletedOutputJournal(baseDir: string, entries: readonly IC
     }
 }
 
+function completedOutputEntryKey(entry: ICompletedOutputJournalEntry) {
+    return `${entry.completedAtMs}\0${entry.outputPdfPath}`;
+}
+
 function enqueueCompletedOutputJournalMutation<T>(mutation: () => Promise<T>) {
     const next = completedOutputJournalWrite.then(mutation);
     completedOutputJournalWrite = next.then(() => undefined, () => undefined);
@@ -193,22 +197,28 @@ export async function getPendingScanCleanupCompletedOutputs(
     await completedOutputJournalWrite;
     const baseDir = options.baseDir ?? getScanCleanupOutputBaseDirs()[0]!;
     const entries = await readCompletedOutputJournal(baseDir);
-    const validEntries: ICompletedOutputJournalEntry[] = [];
+    const obsoleteEntries = new Set<string>();
     const paths: TDocumentRef[] = [];
     for (const entry of entries) {
         const outputPath = parseDocumentRef(entry.outputPdfPath);
-        if (outputPath === null || !isScanCleanupGeneratedOutputPath(outputPath, [baseDir])) {
-            continue;
+        if (outputPath !== null && isScanCleanupGeneratedOutputPath(outputPath, [baseDir])) {
+            const outputStat = await lstat(outputPath).catch(() => null);
+            if (outputStat?.isFile() && !outputStat.isSymbolicLink()) {
+                paths.push(outputPath);
+                continue;
+            }
         }
-        const outputStat = await lstat(outputPath).catch(() => null);
-        if (!outputStat?.isFile() || outputStat.isSymbolicLink()) {
-            continue;
-        }
-        validEntries.push(entry);
-        paths.push(outputPath);
+        obsoleteEntries.add(completedOutputEntryKey(entry));
     }
-    if (validEntries.length !== entries.length) {
-        await enqueueCompletedOutputJournalMutation(() => writeCompletedOutputJournal(baseDir, validEntries));
+    if (obsoleteEntries.size > 0) {
+        // Reread under the mutation queue: a completion recorded during the
+        // validation above must survive, so only validated obsolete entries go.
+        await enqueueCompletedOutputJournalMutation(async () => {
+            const current = await readCompletedOutputJournal(baseDir);
+            await writeCompletedOutputJournal(baseDir, current.filter(
+                entry => !obsoleteEntries.has(completedOutputEntryKey(entry)),
+            ));
+        });
     }
     return paths;
 }

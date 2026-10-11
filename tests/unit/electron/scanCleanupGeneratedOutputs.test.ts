@@ -6,9 +6,11 @@ import {
     realpath,
     stat,
     symlink,
+    unlink,
     utimes,
     writeFile,
 } from 'fs/promises';
+import type * as FsPromises from 'fs/promises';
 import {tmpdir} from 'os';
 import {
     basename,
@@ -47,6 +49,32 @@ const electronPaths = vi.hoisted(() => ({
     temp: '',
     userData: '',
 }));
+
+interface ILstatPause {
+    path: string;
+    entered: () => void;
+    resume: Promise<void>;
+}
+
+// Holds one lstat of a named path until the test releases it, so a journal
+// writer can finish between the pending reader's read and its validation.
+const lstatGate = vi.hoisted(() => ({pause: null as ILstatPause | null}));
+
+vi.mock('fs/promises', async importOriginal => {
+    const actual = await importOriginal<typeof FsPromises>();
+    return {
+        ...actual,
+        lstat: async (...args: Parameters<typeof actual.lstat>) => {
+            const pause = lstatGate.pause;
+            if (pause !== null && String(args[0]) === pause.path) {
+                lstatGate.pause = null;
+                pause.entered();
+                await pause.resume;
+            }
+            return actual.lstat(...args);
+        },
+    };
+});
 
 vi.mock('electron', async importOriginal => {
     const actual = await importOriginal<Record<string, unknown>>();
@@ -152,6 +180,38 @@ describe('scan cleanup generated output pruning', () => {
 
         await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([outputPath]);
         expect(JSON.parse(await readFile(journalPath, 'utf8'))).toContainEqual(expect.objectContaining({outputPdfPath: outputPath}));
+    });
+
+    it('keeps a completion recorded during stale-entry validation', async () => {
+        const outputBaseDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-output-journal-race-test-'));
+        tempDirs.push(outputBaseDir);
+        const oldPath = await createScanCleanupGeneratedOutputPath('/books/Old.pdf', false, outputBaseDir);
+        const newPath = await createScanCleanupGeneratedOutputPath('/books/New.pdf', false, outputBaseDir);
+        await writeFile(oldPath, 'generated');
+        await writeFile(newPath, 'generated');
+        await recordScanCleanupCompletedOutput(oldPath, {
+            baseDir: outputBaseDir,
+            completedAtMs: 1,
+        });
+
+        const entered = Promise.withResolvers<undefined>();
+        const resume = Promise.withResolvers<undefined>();
+        lstatGate.pause = {
+            path: oldPath,
+            entered: () => entered.resolve(undefined),
+            resume: resume.promise,
+        };
+        const pending = getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir});
+        await entered.promise;
+        await unlink(oldPath);
+        await recordScanCleanupCompletedOutput(newPath, {
+            baseDir: outputBaseDir,
+            completedAtMs: 2,
+        });
+        resume.resolve(undefined);
+
+        await expect(pending).resolves.toEqual([]);
+        await expect(getPendingScanCleanupCompletedOutputs({baseDir: outputBaseDir})).resolves.toEqual([newPath]);
     });
 
     it('creates a managed, human-readable output path without a save dialog', async () => {
