@@ -1849,6 +1849,9 @@ fn append_source_annotations(
     };
     let rotation = resolve_page_rotation(target, target_page_id)?;
     let transform = |target: &mut Document, annotation: &mut Dictionary| {
+        if filter.is_some() {
+            legacy_note_marker_as_text(&*target, annotation, source, source_page_id)?;
+        }
         transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
         clip_text_markup_to_view(target, annotation, output_view);
         annotation.set("P", target_page_id);
@@ -1866,8 +1869,6 @@ fn append_source_annotations(
         let subtype = resolved_name(source, owner.get(b"Subtype").unwrap_or(&Object::Null));
         // The terminal owner places the whole reply and popup thread.
         if let Some((matrix, view)) = filter {
-            let source_view = resolve_page_view(source, source_page_id)?;
-            let source_rotation = resolve_page_rotation(source, source_page_id)?;
             let mut owners = HashSet::from([owner as *const Dictionary]);
             while let Some(next) = owner
                 .get(b"IRT")
@@ -1880,11 +1881,10 @@ fn append_source_annotations(
                 }
                 owner = next;
             }
+            let legacy_marker = legacy_marker_on_page(source, owner, source, source_page_id)?;
             if annotation_bounds(source, owner).is_some_and(|rect| {
                 let rect = TextMatrix::from_values(matrix).bounds(rect);
-                if matches!(subtype, Some(b"Text" | b"Popup"))
-                    || is_free_text_note_marker(source, owner, source_view, source_rotation)
-                {
+                if matches!(subtype, Some(b"Text" | b"Popup")) || legacy_marker {
                     let (x, y) = ((rect.x1 + rect.x2) / 2.0, (rect.y1 + rect.y2) / 2.0);
                     !(x >= view.x1 && x < view.x2 && y >= view.y1 && y < view.y2)
                 } else {

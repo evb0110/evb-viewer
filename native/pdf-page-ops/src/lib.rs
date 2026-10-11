@@ -38,6 +38,7 @@ mod load_policy;
 mod markup;
 mod markup_geometry;
 mod markup_hints;
+mod note_markers;
 mod ocr_layer;
 mod page_geometry;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
@@ -91,6 +92,7 @@ pub(crate) use load_policy::*;
 pub(crate) use markup::*;
 pub(crate) use markup_geometry::*;
 pub(crate) use markup_hints::*;
+pub(crate) use note_markers::*;
 pub(crate) use ocr_layer::*;
 pub(crate) use page_geometry::*;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
