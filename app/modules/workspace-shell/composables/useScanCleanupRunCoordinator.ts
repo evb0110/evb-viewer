@@ -9,6 +9,7 @@ import {
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { findDocumentTabId } from '@app/modules/workspace-shell/composables/findDocumentTabId';
 import {
     getDocumentOpenCapability,
     getDocumentWorkingCopyCapability,
@@ -36,21 +37,6 @@ export function resolveScanCleanupEntryViewState(
         ...freshViewState,
         surfaceMode: 'scan-cleanup',
     };
-}
-
-function findDocumentTabId(
-    documentRef: string,
-    documentSessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>,
-) {
-    return Object.entries(documentSessionsByTabId).find(([
-        ,
-        session,
-    ]) => {
-        const identity = session.snapshot.value.identity;
-        return identity.documentRef === documentRef
-            || identity.workingCopyPath === documentRef
-            || identity.originalPath === documentRef;
-    })?.[0] ?? null;
 }
 
 export async function recoverScanCleanupWorkspaceForDocument(
