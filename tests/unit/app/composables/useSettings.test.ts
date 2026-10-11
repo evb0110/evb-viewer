@@ -7,7 +7,10 @@ import {
 } from 'vitest';
 import type { Ref } from 'vue';
 import type { ISettingsData } from '@contracts/shared';
-import type { TSettingsSavePatch } from '@contracts/settings';
+import {
+    DEFAULT_SETTINGS,
+    type TSettingsSavePatch,
+} from '@contracts/settings';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
 
@@ -19,12 +22,14 @@ const mockPlatformApi = createElectronPlatformApiFixture({settings: {
     get: mockGet,
     save: mockSave,
 }});
+const colorMode = {preference: 'light'};
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
 
 function installNuxtStateStubs() {
     installNuxtStateTestStubs(cookieStore, stateStore);
     vi.stubGlobal('toRaw', <T>(value: T) => value);
+    vi.stubGlobal('useColorMode', () => colorMode);
 }
 
 function createDeferred() {
@@ -364,5 +369,85 @@ describe('useSettings', () => {
 
         expect(mockSave).toHaveBeenCalledTimes(2);
         expect(mockSave).toHaveBeenLastCalledWith({theme: 'dark'});
+    });
+});
+
+describe('selectAdoptedSettings', () => {
+    it('adopts the committed values of keys the window has no unsaved edit in', async () => {
+        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const saved: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            locale: 'en',
+            theme: 'light',
+        };
+        const current: ISettingsData = {
+            ...saved,
+            authorName: 'Unsaved here',
+        };
+        const committed: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved elsewhere',
+            locale: 'ru',
+            theme: 'dark',
+        };
+
+        const adopted = selectAdoptedSettings(current, saved, committed);
+
+        expect(adopted).toMatchObject({
+            locale: 'ru',
+            theme: 'dark',
+        });
+        expect(adopted).not.toHaveProperty('authorName');
+    });
+
+    it('lets a withdrawal saved elsewhere replace a local unsaved grant', async () => {
+        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const saved: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'denied',
+        };
+        const current: ISettingsData = {
+            ...saved,
+            clientDiagnosticsPreference: 'granted',
+        };
+
+        const adopted = selectAdoptedSettings(current, saved, saved);
+
+        expect(adopted).toMatchObject({clientDiagnosticsPreference: 'denied'});
+    });
+
+    it('does not let a grant saved elsewhere reopen reporting over a local unsaved withdrawal', async () => {
+        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const saved: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'granted',
+        };
+        const current: ISettingsData = {
+            ...saved,
+            clientDiagnosticsPreference: 'denied',
+        };
+        const committed: ISettingsData = {
+            ...saved,
+            clientDiagnosticsPreference: 'granted',
+        };
+
+        const adopted = selectAdoptedSettings(current, saved, committed);
+
+        expect(adopted).not.toHaveProperty('clientDiagnosticsPreference');
+    });
+
+    it('adopts only a withdrawal before the window has a saved value to compare with', async () => {
+        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const current: ISettingsData = {...DEFAULT_SETTINGS};
+
+        expect(selectAdoptedSettings(current, null, {
+            ...DEFAULT_SETTINGS,
+            locale: 'ru',
+            clientDiagnosticsPreference: 'granted',
+        })).toEqual({});
+        expect(selectAdoptedSettings(current, null, {
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'denied',
+        })).toEqual({clientDiagnosticsPreference: 'denied'});
     });
 });

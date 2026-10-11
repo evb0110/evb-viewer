@@ -1,13 +1,14 @@
 import {
     mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
+import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {deflateSync} from 'node:zlib';
 import {
     PDFDocument, StandardFonts, rgb,
 } from 'pdf-lib';
 import {
-    afterEach, describe, expect, it, onTestFinished,
+    afterEach, describe, expect, it, onTestFinished, vi,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
@@ -28,7 +29,11 @@ import {
     requireDocumentRef, type TDocumentRef,
 } from '@contracts/documentRef';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {electronAppTempDirPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {LOCALE_MESSAGES} from '@i18n-app';
+import {
+    electronAppTempDirPath,
+    electronUserDataPath,
+} from '@scripts/electron-run/electronRunSessionPaths';
 
 const sessionName = `e2e-move-tab-view-state-${Date.now()}`;
 const replacementDialogPath = join(electronAppTempDirPath(sessionName), 'cancelled-transfer-replacement.pdf');
@@ -520,5 +525,118 @@ describe('Move Tab to New Window view state', () => {
         ), {timeout: 30_000});
         expect((await readView(destination)).page).toBe(7);
 
+    }, 120_000);
+});
+
+type TSettingsLocale = 'en' | 'ru';
+
+function diagnosticsSwitchSelector(locale: TSettingsLocale) {
+    return `[role="switch"][aria-label="${LOCALE_MESSAGES[locale].settings.clientDiagnostics}"]`;
+}
+
+async function openSettingsView(page: Page, locale: TSettingsLocale) {
+    await clickFoundAsUser(page, (label: string) => document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`),
+        LOCALE_MESSAGES[locale].toolbar.settings, {description: `${locale} Settings toolbar button`});
+    await page.waitForSelector('.settings-grid', {
+        visible: true,
+        timeout: 15_000,
+    });
+}
+
+async function setDiagnosticsSwitch(page: Page, locale: TSettingsLocale, checked: boolean) {
+    const selector = diagnosticsSwitchSelector(locale);
+    const current = await page.$eval(selector, element => element.getAttribute('aria-checked'));
+    if (current !== String(checked)) {
+        await clickAsUser(page, selector);
+    }
+    await page.waitForFunction((target: string, expected: string) => (
+        document.querySelector(target)?.getAttribute('aria-checked') === expected
+    ), {timeout: 15_000}, selector, String(checked));
+}
+
+async function waitForPersistedDiagnosticsPreference(userDataPath: string, expected: string) {
+    const settingsPath = join(userDataPath, 'settings.json');
+    await vi.waitFor(async () => {
+        const persisted = JSON.parse(await readFile(settingsPath, 'utf8')) as {clientDiagnosticsPreference?: string};
+        expect(persisted.clientDiagnosticsPreference).toBe(expected);
+    }, {
+        timeout: 15_000,
+        interval: 50,
+    });
+}
+
+async function chooseTheme(page: Page, theme: 'light' | 'dark') {
+    // The label text sits on top of the radio's wrapper; the radio button itself is covered.
+    const label = theme === 'dark' ? LOCALE_MESSAGES.en.settings.themeDark : LOCALE_MESSAGES.en.settings.themeLight;
+    await clickFoundAsUser(page, (text: string) => Array.from(document.querySelectorAll<HTMLElement>('.settings-grid .settings-radio-label'))
+        .find(element => element.textContent?.trim() === text), label, {description: `${label} theme`});
+}
+
+async function chooseLanguage(page: Page, currentLabel: string, nextLabel: string) {
+    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-grid button[aria-haspopup="listbox"]'))
+        .find(button => button.textContent?.trim() === label), currentLabel, {description: 'Interface language selector'});
+    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
+        .find(option => option.textContent?.trim() === label), nextLabel, {description: `${nextLabel} interface language`});
+}
+
+async function readRenderedSettings(page: Page) {
+    return page.evaluate((russianSettingsLabel: string) => ({
+        lang: document.documentElement.lang,
+        dark: document.documentElement.classList.contains('dark'),
+        russianSettingsButton: document.querySelector(`button[aria-label="${russianSettingsLabel}"]`) !== null,
+    }), LOCALE_MESSAGES.ru.toolbar.settings);
+}
+
+describe('Settings changes reach every open window', () => {
+    it('shows a diagnostics withdrawal, a theme and a language change in the window a tab moved to', async () => {
+        const session = sessions.getSession();
+        const source = session.page;
+        const appTempDirectory = electronAppTempDirPath(session.name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'settings-sync-')));
+        const fixture = join(outputDirectory, 'settings-sync.pdf');
+        await createTwelvePageFixture(fixture);
+        await openPdfInApp(source, fixture);
+        await waitForPdfLoaded(source);
+
+        // Consent starts granted, so the window that opens from the move reports with it on.
+        await openSettingsView(source, 'en');
+        await setDiagnosticsSwitch(source, 'en', true);
+        await waitForPersistedDiagnosticsPreference(electronUserDataPath(session.name), 'granted');
+        await clickAsUser(source, '.tab-list .tab.is-active');
+        const destination = await moveTabToNewWindow(source);
+
+        await openSettingsView(source, 'en');
+        await setDiagnosticsSwitch(source, 'en', false);
+        await chooseTheme(source, 'dark');
+        await chooseLanguage(source, 'English', 'Русский');
+        await waitForFunctionInPage(source, () => (
+            document.documentElement.lang === 'ru' && document.documentElement.classList.contains('dark')
+        ), {timeout: 15_000});
+        expect(await readRenderedSettings(source)).toEqual({
+            lang: 'ru',
+            dark: true,
+            russianSettingsButton: true,
+        });
+
+        // A missed broadcast leaves the window as it was; the assertion below names what it shows.
+        await waitForFunctionInPage(destination, () => (
+            document.documentElement.lang === 'ru' && document.documentElement.classList.contains('dark')
+        ), {timeout: 15_000}).catch(() => undefined);
+        const rendered = await readRenderedSettings(destination);
+        await openSettingsView(destination, rendered.russianSettingsButton ? 'ru' : 'en');
+        const diagnosticsChecked = await destination.$eval(
+            `${diagnosticsSwitchSelector('en')}, ${diagnosticsSwitchSelector('ru')}`,
+            element => element.getAttribute('aria-checked'),
+        );
+        expect({
+            ...rendered,
+            diagnosticsChecked,
+        }).toEqual({
+            lang: 'ru',
+            dark: true,
+            russianSettingsButton: true,
+            diagnosticsChecked: 'false',
+        });
     }, 120_000);
 });

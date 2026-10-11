@@ -15,6 +15,7 @@ import {
     defineForwardedPlatformEvent,
     definePlatformFeature,
     type TFeatureCapability,
+    type TFeatureEventMap,
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -168,3 +169,4 @@ interface ISettingsSupportCapability {
 export type ISettingsCapability =
     TFeatureCapability<typeof SETTINGS_PLATFORM_FEATURE> & ISettingsSupportCapability;
 export type ISettingsInvokeMap = TFeatureInvokeMap<typeof SETTINGS_PLATFORM_FEATURE>;
+export type ISettingsEventMap = TFeatureEventMap<typeof SETTINGS_PLATFORM_FEATURE>;

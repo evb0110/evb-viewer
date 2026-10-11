@@ -21,6 +21,7 @@ import {
     setRendererDiagnosticsPreference,
 } from '@app/utils/failureReporter';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
+import { useTypedI18n } from '@app/composables/useTypedI18n';
 import {
     createSettingsPersistenceQueue,
     type ISettingsPersistenceQueue,
@@ -73,7 +74,33 @@ function cancelDebouncedSettingsSave() {
     flushDebouncedSettingsSave = null;
 }
 
+/**
+ * What a window adopts from a committed write it did not make: each key it has
+ * no unsaved edit in, and a diagnostics withdrawal even over a local grant. A
+ * grant saved elsewhere therefore cannot reopen reporting in a window whose own
+ * withdrawal is not yet saved.
+ */
+export function selectAdoptedSettings(
+    current: ISettingsData,
+    lastSaved: ISettingsData | null,
+    committed: ISettingsData,
+): Partial<ISettingsData> {
+    const adopted: Partial<ISettingsData> = {};
+    for (const key of Object.keys(committed) as Array<keyof ISettingsData>) {
+        const withdrawal = key === 'clientDiagnosticsPreference' && committed[key] === 'denied';
+        if (withdrawal || current[key] === lastSaved?.[key]) {
+            Object.assign(adopted, {[key]: committed[key]});
+        }
+    }
+    return adopted;
+}
+
 export const useSettings = () => {
+    const {
+        locale,
+        setLocale,
+    } = useTypedI18n();
+    const colorMode = useColorMode();
     const localeCookie = useCookie(
         BROWSER_LOCALE_COOKIE_KEY,
         PERSISTENT_SETTINGS_COOKIE_OPTIONS,
@@ -162,15 +189,22 @@ export const useSettings = () => {
     });
 
     if (import.meta.client && unsubscribeSettingsChanges === null) {
-        unsubscribeSettingsChanges = getSettingsCapability().onChanged((nextSettings) => {
-            pendingSettingsIntent.delete('clientDiagnosticsPreference');
-            const previous = lastSavedSettings.value;
-            for (const key of Object.keys(nextSettings) as Array<keyof ISettingsData>) {
-                if (key === 'clientDiagnosticsPreference' || settings.value[key] === previous?.[key]) {
-                    Object.assign(settings.value, {[key]: nextSettings[key]});
-                }
+        unsubscribeSettingsChanges = getSettingsCapability().onChanged((committed) => {
+            const adopted = selectAdoptedSettings(settings.value, lastSavedSettings.value, committed);
+            if (Object.hasOwn(adopted, 'clientDiagnosticsPreference')) {
+                pendingSettingsIntent.delete('clientDiagnosticsPreference');
+                setRendererDiagnosticsPreference(adopted.clientDiagnosticsPreference);
             }
-            rememberSavedSettings(nextSettings);
+            Object.assign(settings.value, adopted);
+            if (adopted.theme !== undefined) {
+                colorMode.preference = adopted.theme;
+            }
+            if (adopted.locale !== undefined && adopted.locale !== locale.value) {
+                void setLocale(adopted.locale).catch((error: unknown) => {
+                    BrowserLogger.warn('settings', 'Failed to apply the language saved in another window', error);
+                });
+            }
+            rememberSavedSettings(committed);
         });
     }
 
