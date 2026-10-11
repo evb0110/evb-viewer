@@ -493,3 +493,31 @@ fn split_form_field(
     target.set_object(id, field);
     Ok(Some(id))
 }
+
+/// Provenance augments retained source Info; an assembly has stamp-only Info.
+pub(crate) fn stamp_split_info(
+    source: &Document,
+    target: &mut Document,
+    instructions: &SplitPagesFile,
+) -> Result<()> {
+    if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
+        let mut info = match instructions.catalog {
+            SplitCatalog::Source => source
+                .trailer
+                .get(b"Info")
+                .ok()
+                .filter(|info| !info.is_null())
+                .map(|info| -> Result<Dictionary> { Ok(source.resolved(info)?.as_dict()?.clone()) })
+                .transpose()?
+                .unwrap_or_default(),
+            SplitCatalog::Assembly => Dictionary::new(),
+        };
+        info.set(
+            "EVBScanCleanup",
+            Object::string_literal(stamp.as_bytes().to_vec()),
+        );
+        let id = target.add_object(info);
+        target.trailer.set("Info", id);
+    }
+    Ok(())
+}

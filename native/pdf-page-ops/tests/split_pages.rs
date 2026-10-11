@@ -2596,3 +2596,33 @@ fn split_pages_field_kids_and_calculation_order_keep_one_connected_graph() {
         );
     }
 }
+
+#[test]
+fn split_pages_source_stamp_merges_info_while_assembly_is_stamp_only() {
+    let mut source = review_catalog_source();
+    let original = source
+        .get_dictionary(source.trailer.get(b"Info").unwrap().as_reference().unwrap())
+        .unwrap()
+        .clone();
+    for assembly in [false, true] {
+        let split = review_split(&mut source, &[0, 1, 2], assembly, true);
+        let info = split
+            .get_dictionary(split.trailer.get(b"Info").unwrap().as_reference().unwrap())
+            .unwrap();
+        assert_eq!(
+            info.get(b"EVBScanCleanup").unwrap().as_str().unwrap(),
+            b"54455354"
+        );
+        if assembly {
+            assert_eq!(info.len(), 1);
+        } else {
+            for (key, value) in original.iter() {
+                assert_eq!(info.get(key).unwrap(), value);
+            }
+            assert_eq!(
+                split.trailer.get(b"ID").unwrap(),
+                source.trailer.get(b"ID").unwrap()
+            );
+        }
+    }
+}

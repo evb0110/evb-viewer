@@ -150,12 +150,7 @@ pub(crate) fn build_split_output(
         target.set_object(page.id, page.page);
     }
     target.set_object(catalog_id, Object::Dictionary(catalog));
-    if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
-        let info_id = target.add_object(dictionary! {
-            "EVBScanCleanup" => Object::string_literal(stamp.as_bytes().to_vec()),
-        });
-        target.trailer.set("Info", info_id);
-    }
+    stamp_split_info(source, target, instructions)?;
     Ok(())
 }
 
