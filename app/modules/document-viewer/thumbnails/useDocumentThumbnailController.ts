@@ -402,6 +402,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         nextWidth: number,
         nextItemChromeHeight: number,
         nextAspectRatio = layout.slotAspectRatio,
+        keepAnchor = true,
     ) {
         if (
             nextWidth === cssWidth.value
@@ -422,7 +423,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             renderWidth: nextWidth,
         });
         layoutRevision.value += 1;
-        if (root && anchor) {
+        if (keepAnchor && root && anchor) {
             writeScrollTop(root, resolveAnchorScrollTop(anchor, root));
             lastKnownAnchor = anchor;
         }
@@ -655,8 +656,9 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
 
     // The slot shape follows the document's pages and is measured again for
     // every source, a reload after page operations included; until then the
-    // previous shape stands. Once it lands, the current page is revealed again
-    // unless the user has scrolled the rail or a resize holds the anchor.
+    // previous shape stands. A new shape moves the rows once, by one rule: a
+    // current page the user can see stays in view, otherwise their place in
+    // the rail is kept, and a resize in progress keeps its own anchor.
     function measureSlotShape(source: IDocumentPageSource | null) {
         slotShapeRequest?.abort();
         slotShapeRequest = null;
@@ -664,9 +666,17 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         const request = new AbortController();
         slotShapeRequest = request;
         void measureSlotAspectRatio(source, request.signal).then((aspectRatio) => {
-            if (request.signal.aborted) return;
-            updateLayoutGeometry(cssWidth.value, itemChromeHeight.value, aspectRatio);
-            if (!resizeAnchorLifecycle.isActive()) revealPage(options.currentPage.value);
+            if (request.signal.aborted || aspectRatio === layout.slotAspectRatio) return;
+            const root = options.scrollRoot.value;
+            const page = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
+            const viewport = root ? getActiveScrollViewport(root) : null;
+            const bounds = resolveDocumentThumbnailPageBounds(page, getActiveSegmentLayout());
+            const followPage = !resizeAnchorLifecycle.isActive()
+                && viewport !== null
+                && bounds.bottom > viewport.scrollTop
+                && bounds.top < viewport.scrollTop + viewport.clientHeight;
+            updateLayoutGeometry(cssWidth.value, itemChromeHeight.value, aspectRatio, !followPage);
+            if (followPage) revealPage(page, {force: true});
         });
     }
 

@@ -143,6 +143,51 @@ describe('document thumbnail retained surfaces', () => {
         expect(bottom).toBeLessThanOrEqual(rail.scrollTop + 600);
     });
 
+    it('keeps a visible current page in view when a reload turns every page', async () => {
+        const wide = createDocumentThumbnailSourceHarness(8, '/turned.pdf', {
+            widthPoints: 1000,
+            heightPoints: 500,
+        });
+        const {
+            host,
+            setCurrentPage,
+            setSource,
+        } = mountDocumentThumbnailList(wide.source, true, () => 'revision');
+        await settleDocumentThumbnailList();
+        setCurrentPage(3);
+        await settleDocumentThumbnailList();
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        setSource(createDocumentThumbnailSourceHarness(8, '/turned.pdf', {
+            widthPoints: 500,
+            heightPoints: 700,
+        }).source);
+        await settleDocumentThumbnailList();
+
+        const rail = host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+        const row = documentThumbnailRow(host, 3)!;
+        const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
+        const bottom = top + parseFloat(row.style.height);
+        expect(top, `page 3 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`)
+            .toBeGreaterThanOrEqual(rail.scrollTop);
+        expect(bottom).toBeLessThanOrEqual(rail.scrollTop + 600);
+    });
+
+    it('keeps the rail where the user left it when a reload keeps the pages\' shape', async () => {
+        const {
+            host,
+            setSource,
+        } = mountDocumentThumbnailList(createDocumentThumbnailSourceHarness(40, '/same.pdf').source, true, () => 'revision');
+        await settleDocumentThumbnailList();
+        await scrollDocumentThumbnailRail(host, 4_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        setSource(createDocumentThumbnailSourceHarness(40, '/same.pdf').source);
+        await settleDocumentThumbnailList();
+
+        expect(host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!.scrollTop).toBe(4_000);
+    });
+
     it('starts a replacement document from an empty budget instead of stacking documents', async () => {
         const first = createDocumentThumbnailSourceHarness(5000, '/first.pdf');
         const {setSource} = mountDocumentThumbnailList(first.source);
