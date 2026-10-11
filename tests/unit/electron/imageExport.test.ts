@@ -1716,6 +1716,33 @@ describe('image export', () => {
         expect(UTIF.decode(await readFile(paths[0]!))).toHaveLength(2);
     });
 
+    it.each([
+        'NativeToolBuildMismatchError',
+        'AbortError',
+    ])('propagates %s before starting a PNG fallback', async (name) => {
+        const {convertRenderedPpmToImage} = await import('@electron/features/image-export/main/export');
+        mocks.nativeImageCombinePath = '/native/evb-pdf-image-combine';
+        const input = join(tempDir, 'native-owned.ppm');
+        const output = join(tempDir, 'native-owned.png');
+        const original = Buffer.concat([
+            Buffer.from('P6\n1 1\n255\n'),
+            Buffer.from([
+                17,
+                33,
+                55,
+            ]),
+        ]);
+        await writeFile(input, original);
+        const failure = Object.assign(new Error(name), {name});
+        mocks.runCommand.mockImplementationOnce(async () => {
+            await writeFile(output, 'native partial output');
+            throw failure;
+        });
+        await expect(convertRenderedPpmToImage(input, 'png', new AbortController().signal, 'group-only')).rejects.toBe(failure);
+        expect(await readFile(input)).toEqual(original);
+        expect(await readFile(output, 'utf8')).toBe('native partial output');
+    });
+
     it('falls back to JavaScript PNG encoding after a native encoder failure that was proven dead', async () => {
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;

@@ -62,6 +62,7 @@ import {
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
+import {isAbortError} from '@electron/utils/abort';
 import {
     aggregateErrorsKeepingUnprovenTermination,
     getUnprovenNativeTerminationDetail,
@@ -290,14 +291,8 @@ async function tryConvertRenderedPpmToPngNative(
     cancelGroup?: string,
     dpi = DEFAULT_RENDER_DPI,
 ) {
-    if (isNativePdfImageCombineDisabled()) {
-        return false;
-    }
-
-    const binaryPath = resolveNativePdfImageCombinePath();
-    if (!binaryPath) {
-        return false;
-    }
+    const binaryPath = isNativePdfImageCombineDisabled() ? null : resolveNativePdfImageCombinePath();
+    if (!binaryPath) return false;
 
     try {
         await runNativeToolCommand(binaryPath, [
@@ -320,7 +315,9 @@ async function tryConvertRenderedPpmToPngNative(
     } catch (error) {
         // A child not proven dead may still write pngPath or read sourcePath, so
         // the fallback must not start beside it. The scratch owner keeps both.
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+        if (signal?.aborted || isAbortError(error)
+            || (error instanceof Error && error.name === 'NativeToolBuildMismatchError')
+            || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
         logger.debug(`Native PPM-to-PNG conversion failed, falling back to JS encoder: ${getErrorMessage(error)}`);
         await rm(pngPath, {force: true}).catch(() => undefined);
         return false;
