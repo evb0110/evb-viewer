@@ -22,10 +22,8 @@ import {
     resolveExternalOpenDispatchWindow,
     shouldResetRendererReadyOnNavigation,
 } from '@electron/bootstrap/rendererReady';
-import {
-    createShutdownCoordinator,
-    createShutdownPhaseRunners,
-} from '@electron/bootstrap/shutdown';
+import { createShutdownCoordinator } from '@electron/bootstrap/shutdown';
+import { createShutdownPhaseRunners } from '@electron/bootstrap/createShutdownPhaseRunners';
 import {
     requestShutdownSaveFlush,
     shutdownSaveFlushRequiresRecoveryPreservation,

@@ -5,10 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    createShutdownCoordinator,
-    createShutdownPhaseRunners,
-} from '@electron/bootstrap/shutdown';
+import { createShutdownCoordinator } from '@electron/bootstrap/shutdown';
+import { createShutdownPhaseRunners } from '@electron/bootstrap/createShutdownPhaseRunners';
 import type { IShutdownContext } from '@electron/bootstrap/shutdown';
 import { EventEmitter } from 'node:events';
 import {
@@ -650,9 +648,9 @@ describe('main process termination signals', () => {
             powerMonitor: new EventEmitter(),
             protocol: {registerSchemesAsPrivileged: vi.fn()},
         }));
-        vi.doMock('@electron/bootstrap/shutdown', () => ({
+        vi.doMock('@electron/bootstrap/shutdown', async () => ({
+            ...await vi.importActual<Record<string, unknown>>('@electron/bootstrap/shutdown'),
             createShutdownCoordinator: stubs.createCoordinator,
-            createShutdownPhaseRunners,
         }));
         vi.doMock('@electron/bootstrap/runInitSequence', () => ({runInitSequence: () => new Promise<void>(() => undefined)}));
         vi.doMock('@electron/utils/createLogger', () => ({
