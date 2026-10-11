@@ -534,3 +534,178 @@ describe('Electron E2E - Text Select over existing highlight', () => {
     }, 90_000);
 
 });
+
+describe('Electron E2E - Touch selection and native panning over highlights', () => {
+    const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-touch-highlight-${Date.now()}`});
+
+    it('selects the whole touch drag, keeps highlight taps, and pans without selecting text', async () => {
+        const {page} = sessions.getSession();
+        const directory = await mkdtemp(join(tmpdir(), 'evb-touch-highlight-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const pdf = await PDFDocument.create();
+        const pdfPage = pdf.addPage([
+            500,
+            900,
+        ]);
+        const font = await pdf.embedFont('Helvetica');
+        pdfPage.drawText('Alpha bravo charlie delta', {
+            x: 60,
+            y: 660,
+            size: 20,
+            font,
+        });
+        pdfPage.drawText('Plain control sentence', {
+            x: 60,
+            y: 580,
+            size: 20,
+            font,
+        });
+        const marks = Array.from({length: 3}, (_, index) => pdf.context.register(pdf.context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Highlight'),
+            P: pdfPage.ref,
+            F: 4,
+            NM: PDFHexString.fromText(`touch-highlight-${index}`),
+            Rect: [
+                58,
+                656,
+                410,
+                683,
+            ],
+            QuadPoints: [
+                58,
+                683,
+                410,
+                683,
+                58,
+                656,
+                410,
+                656,
+            ],
+            C: [
+                1,
+                0.8,
+                0,
+            ],
+            CA: 0.5,
+            Contents: PDFString.of(''),
+        })));
+        pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj(marks));
+        const path = join(directory, 'touch-highlight.pdf');
+        await writeFile(path, await pdf.save());
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await page.waitForSelector('[data-annotation-kind="text-markup"] [data-annotation-hit-target]');
+        const points = await lineDragPoints(page, 'Alpha');
+        expect(await page.evaluate(({
+            x, y,
+        }) => document.elementsFromPoint(x, y)
+            .filter(element => element.hasAttribute('data-annotation-hit-target')).length, points.start)).toBe(3);
+        const cdp = await page.createCDPSession();
+        const cancellations: string[] = [];
+        await page.exposeFunction('recordTouchCancel', (pointerType: string) => cancellations.push(pointerType));
+        await page.evaluate(() => {
+            document.addEventListener('pointercancel', event => {
+                const record = Reflect.get(window, 'recordTouchCancel') as (pointerType: string) => void;
+                record(event.pointerType);
+            });
+        });
+        async function touchDrag(start: {
+            x: number;
+            y: number
+        }, end: {
+            x: number;
+            y: number
+        }) {
+            await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchStart',
+                touchPoints: [{
+                    ...start,
+                    id: 1,
+                }],
+            });
+            for (let step = 1; step <= 12; step += 1) {
+                await cdp.send('Input.dispatchTouchEvent', {
+                    type: 'touchMove',
+                    touchPoints: [{
+                        x: start.x + (end.x - start.x) * step / 12,
+                        y: start.y + (end.y - start.y) * step / 12,
+                        id: 1,
+                    }],
+                });
+            }
+            await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchEnd',
+                touchPoints: [],
+            });
+        }
+        try {
+            await cdp.send('Emulation.setTouchEmulationEnabled', {
+                enabled: true,
+                maxTouchPoints: 2,
+            });
+            await touchDrag(points.start, points.end);
+            const selected = await page.evaluate(() => document.getSelection()?.toString() ?? '');
+            const selectionCancellations = [...cancellations];
+            const layer = '.editor-pane.is-active .pdf-annotation-editor-layer';
+            const selecting = await page.$$eval(`${layer}.is-text-selecting`, elements => elements.length);
+            await page.evaluate(() => document.getSelection()?.removeAllRanges());
+            // Setup a fresh tap target through ordinary trusted input.
+            await page.mouse.click(740, 440);
+            await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchStart',
+                touchPoints: [{
+                    ...points.start,
+                    id: 1,
+                }],
+            });
+            await cdp.send('Input.dispatchTouchEvent', {
+                type: 'touchEnd',
+                touchPoints: [],
+            });
+            const tapped = await page.$$eval('[data-annotation-kind="text-markup"].is-selected', elements => elements.length);
+            const pageSelector = '.editor-pane.is-active .page_container[data-page="1"]';
+            const beforePan = await page.$eval(pageSelector, element => element.getBoundingClientRect().top);
+            await touchDrag(points.start, {
+                x: points.start.x,
+                y: points.start.y - 100,
+            });
+            await expect.poll(() => page.$eval(pageSelector, element => element.getBoundingClientRect().top))
+                .toBeLessThan(beforePan - 30);
+            const afterPan = await page.$eval(pageSelector, element => element.getBoundingClientRect().top);
+            const panSelection = await page.evaluate(() => document.getSelection()?.toString() ?? '');
+            const plain = await lineDragPoints(page, 'Plain control');
+            const beforePlainPan = afterPan;
+            await touchDrag(plain.start, {
+                x: plain.start.x,
+                y: plain.start.y - 100,
+            });
+            await expect.poll(() => page.$eval(pageSelector, element => element.getBoundingClientRect().top))
+                .toBeLessThan(beforePlainPan - 30);
+            const afterPlainPan = await page.$eval(pageSelector, element => element.getBoundingClientRect().top);
+            console.log(`TOUCH_HIGHLIGHT_SELECTION ${JSON.stringify({
+                selected,
+                selectionCancellations,
+                selecting,
+                tapped,
+                beforePan,
+                afterPan,
+                afterPlainPan,
+                panSelection,
+            })}`);
+            expect(selected).toBe('Alpha');
+            expect(selectionCancellations).toEqual([]);
+            expect(selecting).toBe(0);
+            expect(tapped).toBe(1);
+            expect(panSelection).toBe('');
+        } finally {
+            await cdp.send('Emulation.setTouchEmulationEnabled', {enabled: false});
+            await cdp.detach();
+            await page.removeExposedFunction('recordTouchCancel');
+        }
+    }, 90_000);
+});

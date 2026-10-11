@@ -3,6 +3,7 @@
         ref="layerRef"
         class="pdf-annotation-editor-layer"
         :class="{'is-interactive': isInteractive, 'is-text-selecting': pointerGesture.isTextSelecting.value}"
+        :style="{touchAction: pointerGesture.textSelectionTouchAction.value}"
         data-pdf-annotation-editor-surface
         :data-view-rotation="viewRotation"
         :data-pdf-annotation-editor-ready="editorReady ? 'true' : undefined"
@@ -811,7 +812,7 @@ function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent)
 
 function handleSurfacePointerDown(event: PointerEvent) {
     clearClickSuppression();
-    if (event.button !== 0) {
+    if (event.button !== 0 || (event.pointerType === 'touch' && !event.isPrimary)) {
         return;
     }
     const wasEditingText = editingId.value !== null;
