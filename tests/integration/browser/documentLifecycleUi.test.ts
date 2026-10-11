@@ -3973,17 +3973,21 @@ describe('browser document lifecycle UI', () => {
             const url = `${origin}/__highlight-window`;
             await page.route(url, route => route.fulfill({
                 contentType: 'text/html',
-                body: '<!doctype html><html><body><button id="highlight">Highlight selected result</button><div id="layer"></div></body></html>',
+                body: '<!doctype html><html><body><button id="highlight">Highlight selected result</button><div class="pdfViewer"><div id="ink"></div><div id="layer" class="textLayer"></div></div></body></html>',
             }));
             await page.goto(url, {waitUntil: 'domcontentloaded'});
-            await page.evaluate('import(\'/_nuxt/assets/css/pdf-search-highlights.scss\')');
-            await page.addStyleTag({content: 'body {font: 24px sans-serif} #layer {white-space: pre}'});
+            await page.evaluate(`Promise.all([
+                import('/_nuxt/assets/css/main.css'),
+                import('/_nuxt/assets/css/pdf-search-highlights.scss'),
+            ]).then(() => undefined)`);
+            await page.addStyleTag({content: 'body {font: 24px sans-serif} .pdfViewer {position: relative} #ink, #layer {white-space: pre} #layer {position: absolute; inset: 0; color: transparent}'});
             await page.evaluate(`(async () => {
                 const {usePdfSearchHighlight} = await import('/_nuxt/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight.ts');
                 const {registerTextLayerTextMapping} = await import('/_nuxt/modules/pdf-viewer/engine/search/pdfSearchHighlightDom.ts');
                 const fragmented = ${fragmented};
                 const items = fragmented ? ['needle', '\\n', ...'needle'] : ['prefix needle'];
                 const layer = document.querySelector('#layer');
+                document.querySelector('#ink').textContent = items.join('');
                 const spans = items.map(text => {
                     const span = document.createElement('span');
                     span.textContent = text;
