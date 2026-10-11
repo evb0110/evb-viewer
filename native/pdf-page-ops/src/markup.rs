@@ -79,9 +79,14 @@ pub(crate) fn annotation_meets_view(
 
 /// Clip a text-markup annotation to the output page it lands on. A quad is read
 /// as its bounding box, so clamping each corner clips that box, and a quad with
-/// no area left on the page is dropped. The Rect is clamped the same way.
-/// `annotation_meets_view` admits only a markup with a quad on the page.
-pub(crate) fn clip_text_markup_to_view(annotation: &mut Dictionary, view: Option<PdfRect>) {
+/// no area left on the page is dropped. The Rect is clamped the same way, and
+/// its appearance box follows it. `annotation_meets_view` admits only a markup
+/// with a quad on the page.
+pub(crate) fn clip_text_markup_to_view(
+    target: &mut Document,
+    annotation: &mut Dictionary,
+    view: Option<PdfRect>,
+) {
     let (Some(view), Some(quads)) = (view, text_markup_quad_points(annotation)) else {
         return;
     };
@@ -103,15 +108,36 @@ pub(crate) fn clip_text_markup_to_view(annotation: &mut Dictionary, view: Option
         Object::Array(clipped.into_iter().map(number_object).collect()),
     );
     if let Some(rect) = numbers(annotation.get(b"Rect").ok()).filter(|rect| rect.len() == 4) {
-        annotation.set(
-            "Rect",
-            rect_object(PdfRect {
-                x1: rect[0].clamp(view.x1, view.x2),
-                y1: rect[1].clamp(view.y1, view.y2),
-                x2: rect[2].clamp(view.x1, view.x2),
-                y2: rect[3].clamp(view.y1, view.y2),
-            }),
-        );
+        let clipped = PdfRect {
+            x1: rect[0].clamp(view.x1, view.x2),
+            y1: rect[1].clamp(view.y1, view.y2),
+            x2: rect[2].clamp(view.x1, view.x2),
+            y2: rect[3].clamp(view.y1, view.y2),
+        };
+        annotation.set("Rect", rect_object(clipped));
+        if let Ok(appearance) = annotation.get(b"AP") {
+            let appearance = appearance.clone();
+            clip_appearance_bbox(target, &appearance, clipped);
+        }
+    }
+}
+
+/// Split appearance wrappers span their annotation's Rect, and a viewer fits
+/// that BBox to the Rect. Moving the BBox with the clipped Rect keeps the fit at
+/// scale one, so the painted marks stay where they were on the half they land on.
+fn clip_appearance_bbox(target: &mut Document, appearance: &Object, rect: PdfRect) {
+    match appearance {
+        Object::Reference(id) => {
+            if let Ok(Object::Stream(stream)) = target.get_object_mut(*id) {
+                stream.dict.set("BBox", rect_object(rect));
+            }
+        }
+        Object::Dictionary(states) => {
+            for (_, state) in states.iter() {
+                clip_appearance_bbox(target, state, rect);
+            }
+        }
+        _ => {}
     }
 }
 

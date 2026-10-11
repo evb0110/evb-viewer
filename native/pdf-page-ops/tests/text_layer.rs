@@ -70,6 +70,18 @@ fn save_empty_pages(path: &Path, count: usize) {
     save_pages(path, (0..count).map(|_| None), Dictionary::new());
 }
 
+/// Blank pages half as wide as `save_pages`, the output of a seam split.
+fn save_half_pages(path: &Path, count: usize) {
+    let mut document = save_pages(path, (0..count).map(|_| None), Dictionary::new());
+    for page in document.get_pages().into_values() {
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    }
+    document.save(path).unwrap();
+}
+
 fn run_overlay_text(
     input: &Path,
     source: &Path,
@@ -2169,12 +2181,19 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
 }
 
 fn red_pixels(pdf: &Path) -> Vec<(f64, f64)> {
+    red_pixels_on_page(pdf, 1)
+}
+
+fn red_pixels_on_page(pdf: &Path, page: u32) -> Vec<(f64, f64)> {
     let rendered = Command::new(external_tool::tool_path(
         "PDFTOPPM_PATH",
         "poppler",
         "pdftoppm",
     ))
-    .args(["-r", "72", "-singlefile"])
+    .args(["-r", "72", "-singlefile", "-f"])
+    .arg(page.to_string())
+    .args(["-l"])
+    .arg(page.to_string())
     .arg(pdf)
     .output()
     .unwrap();
@@ -2526,6 +2545,98 @@ fn overlay_composes_appearance_placement_in_rewrite_and_incremental_outputs() {
             remove_file(file).unwrap();
         }
     }
+}
+
+#[test]
+fn overlay_clips_a_seam_highlight_appearance_without_rescaling_its_marks() {
+    let source = path("markup-appearance-source", "pdf");
+    let input = path("markup-appearance-input", "pdf");
+    let output = path("markup-appearance-output", "pdf");
+    let instructions = path("markup-appearance-instructions", "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page = document.get_pages()[&1];
+    // Four points of red at x 90..94, painted by an appearance that spans the Rect.
+    let appearance = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 20.into(), 10.into()],
+            "Resources" => Dictionary::new(),
+        },
+        b"1 0 0 rg 0 0 4 10 re f".to_vec(),
+    ));
+    let annotation = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Highlight", "P" => page,
+        "Rect" => vec![90.into(), 45.into(), 110.into(), 55.into()],
+        "QuadPoints" => vec![
+            90.into(), 55.into(), 110.into(), 55.into(), 90.into(), 45.into(), 110.into(), 45.into(),
+        ],
+        "C" => vec![1.into(), 0.into(), 0.into()], "F" => 4,
+        "AP" => dictionary! {"N" => appearance},
+    });
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annotation)]);
+    document.save(&source).unwrap();
+    save_half_pages(&input, 2);
+    write(
+        &instructions,
+        serde_json::to_vec(&serde_json::json!({"pages":[
+            {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},
+            {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    // A viewer fits an appearance's BBox to the annotation Rect. Poppler draws
+    // a Highlight from its quads, not its appearance, so the saved geometry is
+    // checked here: each half's Rect is its clipped part, and the BBox matches it
+    // (scale 1). PDF.js pixel counts are recorded in the probe evidence.
+    let saved = Document::load(&output).unwrap();
+    for (page, expected) in [(1, [90, 45, 100, 55]), (2, [0, 45, 10, 55])] {
+        let annotations = saved
+            .get_dictionary(saved.get_pages()[&page])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(annotations.len(), 1);
+        let annotation = saved
+            .get_dictionary(annotations[0].as_reference().unwrap())
+            .unwrap();
+        let rect = real_numbers(annotation.get(b"Rect").unwrap());
+        assert_eq!(rect, expected.map(f64::from));
+        let appearance = annotation
+            .get(b"AP")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"N")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let form = saved.get_object(appearance).unwrap().as_stream().unwrap();
+        assert_eq!(real_numbers(form.dict.get(b"BBox").unwrap()), rect);
+    }
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+fn real_numbers(object: &Object) -> Vec<f64> {
+    object
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| f64::from(value.as_float().unwrap()))
+        .collect()
 }
 
 fn run_text_box_command(operation: &str, input: &Path, output: &Path, mutations: Option<&Path>) {

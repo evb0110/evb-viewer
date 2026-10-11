@@ -1850,7 +1850,7 @@ fn append_source_annotations(
     let rotation = resolve_page_rotation(target, target_page_id)?;
     let transform = |target: &mut Document, annotation: &mut Dictionary| {
         transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
-        clip_text_markup_to_view(annotation, output_view);
+        clip_text_markup_to_view(target, annotation, output_view);
         annotation.set("P", target_page_id);
         Ok(())
     };
