@@ -456,8 +456,14 @@ function assembleNativeScanCleanupManifest({
                 ...(page.resolvedOptions ?? {}),
                 // Page-plan analysis owns automatic evidence. A manual crop is
                 // a render override and must neither trigger detection again nor
-                // be echoed back as the newly detected automatic content box.
-                ...(analysisPurpose === 'page-plan' ? {manualContentBoxes: {}} : {}),
+                // be echoed back as the newly detected automatic content box. An
+                // exclusion only decides whether the page reaches the output, so
+                // an excluded page is still analyzed: its evidence stays current
+                // when it is included again.
+                ...(analysisPurpose === 'page-plan' ? {
+                    manualContentBoxes: {},
+                    excluded: false,
+                } : {}),
             };
             const maxPixels = resolveScanCleanupPipelineMaxPixels(
                 resolvedOptions.outputMode === 'auto' ? undefined : resolvedOptions.outputMode,
