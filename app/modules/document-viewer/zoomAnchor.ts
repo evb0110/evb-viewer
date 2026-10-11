@@ -1,3 +1,5 @@
+import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
+
 export interface IDocumentZoomPageLayout {
     left?: number;
     top: number;
@@ -38,6 +40,11 @@ function resolveLayoutLeft(
     layout: IDocumentZoomPageLayout,
 ) {
     return layout.left ?? Math.max(0, (container.clientWidth - layout.width) / 2);
+}
+
+/** Where the page-source renderer places a page of this width: centred, never past its gutter. */
+export function resolveDocumentPageLeft(containerWidth: number, pageWidth: number) {
+    return Math.max(DOCUMENT_PAGE_GUTTER_PX, (containerWidth - pageWidth) / 2);
 }
 
 export function captureDocumentZoomAnchor(
