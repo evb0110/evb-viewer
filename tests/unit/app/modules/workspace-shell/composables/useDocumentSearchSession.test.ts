@@ -10,7 +10,6 @@ import {
 } from 'vitest';
 import { DOCUMENT_SOURCE_SEARCH_MIN_QUERY_LENGTH } from '@contracts/search';
 import { useDocumentSearchSession } from '@app/modules/workspace-shell/composables/useDocumentSearchSession';
-import {searchDocumentTextProvider} from '@app/modules/document-viewer/providers/documentSearch';
 import type {
     IDocumentSearchBackend,
     IDocumentSearchRequest,
@@ -49,13 +48,23 @@ function withSession<T>(factory: () => T) {
 }
 
 describe('useDocumentSearchSession', () => {
-    it('preserves quoted inner spaces through the page-text backend', async () => {
+    it('preserves quoted inner spaces through the document search backend', async () => {
         const harness = withSession(() => useDocumentSearchSession({backend: {
             minQueryLength: 2,
-            search: request => searchDocumentTextProvider({
-                ...request,
-                pageCount: 1,
-                provider: {getPageText: async () => 'before hello after'},
+            search: async request => ({
+                results: [{
+                    ...createMatch(0, 0),
+                    startOffset: 6,
+                    endOffset: 13,
+                    excerpt: {
+                        prefix: false,
+                        suffix: false,
+                        before: 'before',
+                        match: request.query,
+                        after: 'after',
+                    },
+                }],
+                truncated: false,
             }),
         }}));
         harness.session.setQuery('  " hello "  ');
@@ -64,6 +73,7 @@ describe('useDocumentSearchSession', () => {
         expect(harness.session.results.value).toMatchObject([{
             startOffset: 6,
             endOffset: 13,
+            excerpt: {match: ' hello '},
         }]);
         harness.stop();
     });
@@ -111,11 +121,18 @@ describe('useDocumentSearchSession', () => {
         let pending: ReturnType<typeof createDeferred<IDocumentSearchResponse>> | null = null;
         const harness = withSession(() => useDocumentSearchSession({backend: {
             minQueryLength: 2,
-            search: request => pending?.promise ?? searchDocumentTextProvider({
-                ...request,
-                pageCount: 2,
-                provider: {getPageText: async page => page === 1 ? 'valve '.repeat(560) : 'valve final'},
-            }),
+            search: async request => {
+                if (pending) return pending.promise;
+                const allResults = Array.from({length: 561}, (_, index) => ({
+                    ...createMatch(index === 560 ? 1 : 0, index),
+                    pageMatchIndex: index === 560 ? 0 : index,
+                }));
+                const offset = request.resultOffset === 'last' ? 61 : request.resultOffset ?? 0;
+                return {
+                    results: allResults.slice(offset, offset + 500),
+                    truncated: request.resultOffset !== 'last' && offset + 500 < allResults.length,
+                };
+            },
         }}));
         const session = harness.session;
         session.setQuery('valve');
