@@ -13,6 +13,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {
     openDjvuInApp, waitForDjvuLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
     waitForWorkspaceToolbarSnapshot, readWorkspaceStateValues,
@@ -24,6 +25,8 @@ import type {Page} from 'puppeteer-core';
 
 /** Two DjVu pages: a tall page 1 (1200x4000) and a short page 2 (1200x400), each one black rule. */
 const TALL_THEN_SHORT_DJVU = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'djvu-fixtures', 'tall-then-short.djvu');
+/** The horizontal case: a narrow page 1 (200x200) and a wide page 2 (6000x200). */
+const NARROW_THEN_WIDE_DJVU = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'djvu-fixtures', 'narrow-then-wide.djvu');
 
 /** Page 1 and 2 as the DjVu page-source renderer lays them out, in the scroll container's coordinates. */
 async function readPageGeometry(page: Page) {
@@ -128,4 +131,65 @@ describe('Electron E2E - DjVu visible page indicator', () => {
         const indicator = await readToolbarPageIndicator(page);
         expect(indicator.renderedPage, 'the toolbar names the page the viewport is inside').toBe(1);
     }, 240_000);
+    it('names the wide visible page after horizontal wheel input hides the narrow page', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-wide-indicator-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const {page} = sessions.getSession();
+        const djvuPath = join(directory, 'narrow-then-wide.djvu');
+        copyFileSync(NARROW_THEN_WIDE_DJVU, djvuPath);
+        await openDjvuInApp(page, djvuPath);
+        await waitForDjvuLoaded(page);
+        await clickAsUser(page, '.zoom-controls-display');
+        await page.waitForSelector('.zoom-chip');
+        const preset = await page.$$('.zoom-chip');
+        for (const button of preset) {
+            if ((await button.evaluate(node => node.textContent?.trim())) === '100%') {
+                await clickAsUser(page, button);
+                break;
+            }
+        }
+        await page.keyboard.press('Escape');
+        await waitForWorkspaceToolbarSnapshot(page, {
+            zoomMode: 'custom',
+            effectiveZoom: 1,
+            continuousScroll: true,
+        });
+        await waitForViewportQuiet(page);
+        const before = await readPageGeometry(page);
+        expect(before).not.toBeNull();
+        await page.mouse.move(before!.pointerX, before!.pointerY);
+        await page.mouse.wheel({deltaX: 600});
+        await waitForViewportQuiet(page);
+        const rectangles = await evaluateInPage(page, () => {
+            const first = document.querySelector<HTMLElement>('[data-page-number="1"]')!;
+            const second = document.querySelector<HTMLElement>('[data-page-number="2"]')!;
+            let container = first.parentElement!;
+            while (![
+                'auto',
+                'scroll',
+            ].includes(getComputedStyle(container).overflowY)) container = container.parentElement!;
+            const view = container.getBoundingClientRect();
+            const intersection = (element: HTMLElement) => {
+                const rect = element.getBoundingClientRect();
+                return Math.max(0, Math.min(view.right, rect.right) - Math.max(view.left, rect.left))
+                    * Math.max(0, Math.min(view.bottom, rect.bottom) - Math.max(view.top, rect.top));
+            };
+            return {
+                firstArea: intersection(first),
+                secondArea: intersection(second),
+                scrollLeft: container.scrollLeft,
+            };
+        });
+        console.log('wide-indicator rectangles', rectangles);
+        expect(rectangles.scrollLeft).toBeGreaterThan(0);
+        expect(rectangles.firstArea).toBe(0);
+        expect(rectangles.secondArea).toBeGreaterThan(0);
+        const indicator = await readToolbarPageIndicator(page);
+        console.log('wide-indicator toolbar', indicator);
+        expect(indicator.renderedPage).toBe(2);
+    }, 240_000);
+
 });

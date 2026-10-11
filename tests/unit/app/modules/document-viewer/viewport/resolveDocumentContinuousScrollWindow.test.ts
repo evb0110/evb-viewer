@@ -116,7 +116,13 @@ describe('resolveDocumentContinuousScrollWindow', () => {
 
         expect(resolveDocumentVisiblePageForIndicator({
             currentPage: 2,
-            geometry,
+            pageLayouts: geometry.pageTops.map((top, index) => ({
+                top,
+                height: geometry.pageHeights[index]!,
+                width: 100,
+            })),
+            scrollLeft: 0,
+            viewportWidth: 500,
             scrollTop: 9_000,
             totalPages: 2,
             viewportHeight: 500,
@@ -136,14 +142,26 @@ describe('resolveDocumentContinuousScrollWindow', () => {
 
         expect(resolveDocumentVisiblePageForIndicator({
             currentPage: 3,
-            geometry,
+            pageLayouts: geometry.pageTops.map((top, index) => ({
+                top,
+                height: geometry.pageHeights[index]!,
+                width: 100,
+            })),
+            scrollLeft: 0,
+            viewportWidth: 500,
             scrollTop: 100,
             totalPages: 3,
             viewportHeight: 200,
         })).toBe(3);
         expect(resolveDocumentVisiblePageForIndicator({
             currentPage: 1,
-            geometry,
+            pageLayouts: geometry.pageTops.map((top, index) => ({
+                top,
+                height: geometry.pageHeights[index]!,
+                width: 100,
+            })),
+            scrollLeft: 0,
+            viewportWidth: 500,
             scrollTop: 100,
             totalPages: 3,
             viewportHeight: 200,
@@ -163,10 +181,157 @@ describe('resolveDocumentContinuousScrollWindow', () => {
 
         expect(resolveDocumentVisiblePageForIndicator({
             currentPage: 1,
-            geometry,
+            pageLayouts: geometry.pageTops.map((top, index) => ({
+                top,
+                height: geometry.pageHeights[index]!,
+                width: 100,
+            })),
+            scrollLeft: 0,
+            viewportWidth: 500,
             scrollTop: 900,
             totalPages: 3,
             viewportHeight: 300,
         })).toBe(2);
+    });
+    it('does not retain a page outside the horizontal viewport', () => {
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 1,
+            pageLayouts: [
+                {
+                    left: 200,
+                    top: 20,
+                    height: 100,
+                    width: 100,
+                },
+                {
+                    left: 20,
+                    top: 140,
+                    height: 100,
+                    width: 1000,
+                },
+            ],
+            scrollTop: 0,
+            scrollLeft: 400,
+            viewportHeight: 500,
+            viewportWidth: 500,
+            totalPages: 2,
+        })).toBe(2);
+    });
+
+    it('ranks complete visible-area fractions across a spread', () => {
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 1,
+            pageLayouts: [
+                {
+                    left: 0,
+                    top: 20,
+                    height: 100,
+                    width: 1000,
+                },
+                {
+                    left: 1020,
+                    top: 20,
+                    height: 100,
+                    width: 100,
+                },
+            ],
+            scrollTop: 0,
+            scrollLeft: 900,
+            viewportHeight: 500,
+            viewportWidth: 150,
+            totalPages: 2,
+        })).toBe(2);
+    });
+
+    it('retains a fully visible spread page and includes its taller facing page', () => {
+        const pageLayouts = [
+            {
+                left: 0,
+                top: 20,
+                height: 400,
+                width: 100,
+            },
+            {
+                left: 120,
+                top: 20,
+                height: 100,
+                width: 100,
+            },
+        ];
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 2,
+            pageLayouts,
+            scrollTop: 0,
+            scrollLeft: 0,
+            viewportHeight: 500,
+            viewportWidth: 500,
+            totalPages: 2,
+        })).toBe(2);
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 2,
+            pageLayouts,
+            scrollTop: 150,
+            scrollLeft: 0,
+            viewportHeight: 100,
+            viewportWidth: 500,
+            totalPages: 2,
+        })).toBe(1);
+    });
+
+    it('names an intersecting page even when no page meets the height threshold', () => {
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 1,
+            pageLayouts: [
+                {
+                    top: 16,
+                    height: 100,
+                    width: 100,
+                },
+                {
+                    top: 132,
+                    height: 100,
+                    width: 100,
+                },
+            ],
+            scrollTop: 113,
+            scrollLeft: 0,
+            viewportHeight: 20,
+            viewportWidth: 500,
+            totalPages: 2,
+        })).toBe(1);
+    });
+
+    it('keeps the lower page on an area tie and returns null for a gap with no pixels', () => {
+        const pageLayouts = [
+            {
+                top: 0,
+                left: 0,
+                height: 100,
+                width: 100,
+            },
+            {
+                top: 0,
+                left: 120,
+                height: 100,
+                width: 100,
+            },
+        ];
+        const viewport = {
+            pageLayouts,
+            scrollTop: 50,
+            scrollLeft: 0,
+            viewportHeight: 20,
+            viewportWidth: 500,
+            totalPages: 2,
+        };
+        expect(resolveDocumentVisiblePageForIndicator({
+            ...viewport,
+            currentPage: 2,
+        })).toBe(1);
+        expect(resolveDocumentVisiblePageForIndicator({
+            ...viewport,
+            currentPage: 2,
+            scrollTop: 110,
+        })).toBeNull();
     });
 });

@@ -1022,14 +1022,12 @@ export const useDocumentPageSourceRuntime = (options: {
             ?? pageMetrics.value.length;
         const visiblePage = resolveDocumentVisiblePageForIndicator({
             currentPage: props.value.currentPage,
-            geometry: {
-                pageHeights: pageHeights.value,
-                pageTops: pageTops.value,
-                totalHeight: totalHeight.value,
-            },
+            pageLayouts: zoomAnchorPageLayouts.value,
+            scrollLeft: container.scrollLeft,
             scrollTop: container.scrollTop,
             totalPages,
             viewportHeight: container.clientHeight,
+            viewportWidth: container.clientWidth,
         });
         if (visiblePage && (forceProjection || visiblePage !== props.value.currentPage)) {
             const observedPage = chassisAuthority?.observePage(visiblePage) ?? visiblePage;
