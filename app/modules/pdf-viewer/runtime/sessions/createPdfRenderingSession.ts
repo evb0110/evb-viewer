@@ -212,7 +212,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 : 'in-flight';
         }
         if (isCommittedVisual(pageNumber)) {
-            return 'current';
+            return pageRenderState.isPaintedWithoutAnnotations(pageNumber) && pageRenderer.annotationProjectionReady.value ? 'stale-scale' : 'current';
         }
         if (isPageRenderFailed(pageNumber)) {
             return 'failed';

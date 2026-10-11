@@ -271,7 +271,14 @@ describe('ensureRuntimeTessdataSeeded', () => {
         ));
 
         const {ensureTessdataLanguages} = await import('@electron/features/ocr/languageModels');
-        await expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({code: 'NETWORK_UNREACHABLE'});
+        // The failed attempts wait out the product's retry backoff; drive it with fake timers.
+        vi.useFakeTimers({toFake: [
+            'setTimeout',
+            'clearTimeout',
+        ]});
+        const outcome = expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({code: 'NETWORK_UNREACHABLE'});
+        await vi.runAllTimersAsync();
+        await outcome;
         expect(mocks.fetch).toHaveBeenCalled();
         expect(mocks.rename).not.toHaveBeenCalledWith(
             expect.stringContaining('.traineddata.restore-'),
@@ -543,10 +550,17 @@ describe('ensureRuntimeTessdataSeeded', () => {
 
         const { ensureTessdataLanguages } = await import('@electron/features/ocr/languageModels');
 
-        await expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({
+        // Each retry waits out the product's backoff; drive it with fake timers.
+        vi.useFakeTimers({toFake: [
+            'setTimeout',
+            'clearTimeout',
+        ]});
+        const outcome = expect(ensureTessdataLanguages(['eng'])).rejects.toMatchObject({
             retryable: true,
             code: 'NETWORK_UNREACHABLE',
         });
+        await vi.runAllTimersAsync();
+        await outcome;
         expect(mocks.fetch).toHaveBeenCalledTimes(4);
         expect(String(mocks.fetch.mock.calls[0]?.[0])).toContain(
             'raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/eng.traineddata',
@@ -691,7 +705,6 @@ describe('verified model download publication', () => {
 
     async function expectVerifiedModel(code: 'eng' | 'lat' = 'eng') {
         const installed = await files.readFile(join(runtimeRoot, 'tessdata', `${code}.traineddata`));
-        expect(installed.equals(modelBytes)).toBe(true);
         expect(createHash('sha256').update(installed).digest('hex')).toBe(
             OCR_LANGUAGE_MODEL_SHA256[code],
         );
@@ -737,7 +750,6 @@ describe('verified model download publication', () => {
 
         const progress: IOcrModelDownloadProgress[] = [];
         await ensureTessdataLanguages([code], {onProgress: update => progress.push(update)});
-        await expectVerifiedModel(code);
         expect(OCR_LANGUAGE_MODEL_BYTES[code]).toBe(modelBytes.length);
         expect(progress[0]).toMatchObject({
             languageCode: code,

@@ -896,7 +896,9 @@ describe('fileOps path security', () => {
         mocks.resolveAllowedReadPath
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce('/tmp/electron-test/mapped.pdf');
-        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/electron-test/mapped.pdf');
+        mocks.findWorkingCopyPathByOriginalPath.mockImplementation(path => (
+            path === '/Users/alice/Documents/file.pdf' ? '/tmp/electron-test/mapped.pdf' : null
+        ));
         const close = vi.fn(async () => {});
         const read = vi.fn(async (buffer: Buffer) => {
             buffer.set([
@@ -921,6 +923,34 @@ describe('fileOps path security', () => {
         expect(close).not.toHaveBeenCalled();
         await clearCachedRangeReadHandlesForTests();
         expect(close).toHaveBeenCalled();
+    });
+
+    it('reads an original that a published working copy still names without keeping its handle', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue('/Users/alice/Documents/file.pdf');
+        mocks.findWorkingCopyPathByOriginalPath.mockImplementation(path => (
+            path === '/Users/alice/Documents/file.pdf' ? '/tmp/electron-test/mapped.pdf' : null
+        ));
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer) => {
+            buffer.set([
+                6,
+                7,
+            ]);
+            return { bytesRead: 2 };
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const content = await handleFileReadRange(readContext, '/Users/alice/Documents/file.pdf', 0, 2);
+
+        expect(content).toEqual(new Uint8Array([
+            6,
+            7,
+        ]));
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({handles: 0});
     });
 
     it('recreates managed working copies before range reads when direct temp resolution misses', async () => {
@@ -1012,6 +1042,127 @@ describe('fileOps path security', () => {
         });
     });
 
+    it('closes the original after a read that finishes once its copy is published', async () => {
+        const entry = {
+            ...lazyOriginalEntry(),
+            backingState: 'materializing',
+        };
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, _offset: number, length: number) => {
+            entry.backingState = 'materialized';
+            buffer.fill(5, 0, length);
+            return {bytesRead: length};
+        });
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        await handleFileReadRange(readContext, '/tmp/electron-test/lazy.pdf', 0, 2);
+
+        expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 'r');
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({handles: 0});
+    });
+
+    it('whole-file read that finishes after its copy publishes closes the original', async () => {
+        const entry = {
+            ...lazyOriginalEntry(),
+            backingState: 'materializing',
+        };
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.open.mockImplementation(async (path: string) => openTrackedHandle(path, async () => {
+            entry.backingState = 'materialized';
+        }));
+
+        await expect(handleFileRead(readContext, '/tmp/electron-test/lazy.pdf')).resolves.toHaveLength(123);
+
+        expect(countOpenHandles('/Users/alice/Documents/file.pdf')).toBe(0);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({handles: 0});
+    });
+
+    it('concurrent original-backed acquisitions share one handle across LRU eviction', async () => {
+        const logicalPath = '/tmp/electron-test/lazy.pdf';
+        const originalPath = '/Users/alice/Documents/file.pdf';
+        const oldestPath = '/tmp/electron-test/oldest.pdf';
+        const oldestEntered = deferred<undefined>();
+        const releaseOldest = deferred<undefined>();
+        mocks.resolveAllowedReadPath.mockImplementation(async (path: string) => path);
+        mocks.getWorkingCopyBackingEntry.mockImplementation((path: string) => (
+            path === logicalPath ? lazyOriginalEntry() : null
+        ));
+        mocks.open.mockImplementation(async (path: string) => openTrackedHandle(path, async () => {
+            if (path === oldestPath) {
+                oldestEntered.resolve(undefined);
+                await releaseOldest.promise;
+            }
+        }));
+
+        const oldestRead = handleFileReadRange(readContext, oldestPath, 0, 2);
+        await oldestEntered.promise;
+        for (let index = 0; index < 5; index += 1) {
+            await handleFileReadRange(readContext, `/tmp/electron-test/cache-${index}.pdf`, 0, 2);
+        }
+        // Both original reads wait in the eviction loop for the busy oldest handle.
+        const firstOriginalRead = handleFileReadRange(readContext, logicalPath, 0, 2);
+        await vi.waitFor(() => expect(getRangeReadCacheStatsForTests().handles).toBe(5));
+        await handleFileReadRange(readContext, logicalPath, 32, 2);
+        releaseOldest.resolve(undefined);
+        await Promise.all([
+            oldestRead,
+            firstOriginalRead,
+        ]);
+
+        expect(countOpenHandles(originalPath)).toBe(1);
+        await clearCachedRangeReadHandlesForTests();
+        expect(openFileHandles.size).toBe(0);
+    });
+
+    it('publication overlapping a retried original open leaves no path epoch', async () => {
+        const logicalPath = '/tmp/electron-test/lazy.pdf';
+        const originalPath = '/Users/alice/Documents/file.pdf';
+        const entry = lazyOriginalEntry();
+        const firstOpened = deferred<undefined>();
+        const releaseFirstOpen = deferred<undefined>();
+        const retryOpened = deferred<undefined>();
+        const releaseRetryOpen = deferred<undefined>();
+        let opens = 0;
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.open.mockImplementation(async (path: string) => {
+            opens += 1;
+            if (opens === 1) {
+                firstOpened.resolve(undefined);
+                await releaseFirstOpen.promise;
+            } else if (opens === 2) {
+                retryOpened.resolve(undefined);
+                await releaseRetryOpen.promise;
+            }
+            return openTrackedHandle(path);
+        });
+
+        const reading = handleFileReadRange(readContext, logicalPath, 0, 2);
+        await firstOpened.promise;
+        entry.backingState = 'materialized';
+        // The publication's invalidation waits for the first open, which the epoch
+        // change makes stale, so the retried open is still pending when it settles.
+        const publication = mocks.backingSwapCacheInvalidator?.(logicalPath, originalPath);
+        releaseFirstOpen.resolve(undefined);
+        await retryOpened.promise;
+        await publication;
+        releaseRetryOpen.resolve(undefined);
+
+        await expect(reading).resolves.toHaveLength(2);
+        expect(countOpenHandles(originalPath)).toBe(0);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({
+            handles: 0,
+            pathEpochs: 0,
+        });
+    });
+
     it('shares and invalidates original-backed range handles across macOS path aliases', async () => {
         const aliasPath = '/var/folders/evb/lazy.pdf';
         const canonicalPath = '/private/var/folders/evb/lazy.pdf';
@@ -1085,6 +1236,52 @@ describe('fileOps path security', () => {
         expect(secondClose).not.toHaveBeenCalled();
         await clearCachedRangeReadHandlesForTests();
         expect(secondClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps every handle owned when a stale cached handle closes under a concurrent reopen', async () => {
+        let mtimeMs = 1;
+        mocks.statSync.mockImplementation(() => ({
+            size: 123,
+            mtimeMs,
+        }));
+        const firstRead = deferred<undefined>();
+        const firstReadEntered = deferred<undefined>();
+        const closes: Array<ReturnType<typeof vi.fn>> = [];
+        mocks.open.mockImplementation(async () => {
+            const blocks = closes.length === 0;
+            const close = vi.fn(async () => {});
+            closes.push(close);
+            return {
+                close,
+                read: vi.fn(async (buffer: Buffer) => {
+                    if (blocks) {
+                        firstReadEntered.resolve(undefined);
+                        await firstRead.promise;
+                    }
+                    buffer.fill(1);
+                    return { bytesRead: buffer.byteLength };
+                }),
+            };
+        });
+
+        const blockedRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
+        await firstReadEntered.promise;
+        mtimeMs = 2;
+        const staleRead = handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 2, 2);
+        for (let turn = 0; turn < 50 && getRangeReadCacheStatsForTests().handles > 0; turn += 1) {
+            await new Promise(resolve => setImmediate(resolve));
+        }
+        expect(getRangeReadCacheStatsForTests().handles).toBe(0);
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 4, 2);
+        firstRead.resolve(undefined);
+        await Promise.all([
+            blockedRead,
+            staleRead,
+        ]);
+        await clearCachedRangeReadHandlesForTests();
+
+        expect(closes).toHaveLength(2);
+        expect(closes.every(close => close.mock.calls.length === 1)).toBe(true);
     });
 
     it('closes cached range read handles after working copy mutations settle', async () => {
@@ -1645,6 +1842,28 @@ describe('fileOps path security', () => {
         expect(getRangeReadCacheStatsForTests()).toMatchObject({pendingReads: 0});
     });
 });
+
+// Live handles from the mocked `open`, removed again when the handle closes.
+const openFileHandles = new Set<{path: string}>();
+
+function openTrackedHandle(path: string, beforeRead: () => Promise<void> = async () => undefined) {
+    const record = {path};
+    openFileHandles.add(record);
+    return {
+        close: vi.fn(async () => {
+            openFileHandles.delete(record);
+        }),
+        read: vi.fn(async (buffer: Buffer, offset: number, length: number) => {
+            await beforeRead();
+            buffer.fill(5, offset, offset + length);
+            return {bytesRead: length};
+        }),
+    };
+}
+
+function countOpenHandles(path: string) {
+    return [...openFileHandles].filter(record => record.path === path).length;
+}
 
 function deferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;

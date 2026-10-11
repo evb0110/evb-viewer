@@ -292,16 +292,19 @@ fn write_free_text_marker_pdf(path: &Path, padding: Option<u64>) {
     file.write_all(b"%PDF-1.7\n%\x80\x81\x82\x83\n").unwrap();
     let mut offsets = Vec::new();
     let real_appearance = b"0 0 1 rg 0 0 3 1.5 re f";
-    let objects: [&[u8]; 9] = [
+    let objects: [&[u8]; 10] = [
         b"<</Type/Catalog/Pages 2 0 R>>",
         b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
         b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 100]/Resources<<>>/Annots[4 0 R 5 0 R 7 0 R 8 0 R]>>",
-        b"<</Type/Annot/Subtype/FreeText/Rect[10 10 13 11.5]/Contents(real free text)/DA(/Helv 1 Tf 0 g)/NM(real-freetext)/P 3 0 R/Popup 5 0 R/AP<</N 6 0 R>>>>",
+        b"<</Type/Annot/Subtype/FreeText/Rect[10 10 13 11.5]/Contents<FEFF007200E90061006C0020006600720065006500200074006500780074>/DA 10 0 R/NM(real-freetext)/P 3 0 R/Popup 5 0 R/AP<</N 6 0 R>>>>",
         b"<</Type/Annot/Subtype/Popup/Rect[20 20 120 60]/Parent 4 0 R/P 3 0 R>>",
         &[],
         b"<</Type/Annot/Subtype/FreeText/Rect[50 50 52 51]/Contents(legacy note)/NM(legacy-marker)/P 3 0 R/Popup 8 0 R/AP<</N 9 0 R>>>>",
         b"<</Type/Annot/Subtype/Popup/Rect[60 60 160 90]/Parent 7 0 R/P 3 0 R>>",
         b"<</Type/XObject/Subtype/Form/BBox[0 0 2 1]/Length 0>>\nstream\n\nendstream",
+        // The FreeText's default appearance is an indirect string, as qpdf and
+        // several writers emit it. Only the structural loader sees it as qpdf JSON.
+        b"(/Helv 1 Tf 0 g)",
     ];
     for (index, body) in objects.iter().enumerate() {
         let mut object = format!("{} 0 obj\n", index + 1).into_bytes();
@@ -323,7 +326,7 @@ fn write_free_text_marker_pdf(path: &Path, padding: Option<u64>) {
     }
     if let Some(padding) = padding {
         offsets.push(file.stream_position().unwrap());
-        file.write_all(format!("10 0 obj\n<</Length {padding}>>\nstream\n").as_bytes())
+        file.write_all(format!("11 0 obj\n<</Length {padding}>>\nstream\n").as_bytes())
             .unwrap();
         file.seek(SeekFrom::Current(i64::try_from(padding).unwrap()))
             .unwrap();
@@ -428,6 +431,18 @@ fn page_ops_sidecar(pdf: &Path, command: &[&str], with_qpdf: bool) -> Result<Vec
 }
 
 fn parsed_annotation_kinds(pdf: &Path) -> Vec<(u64, String)> {
+    parsed_annotation_entries(pdf)
+        .iter()
+        .map(|entry| {
+            (
+                entry["objectNumber"].as_u64().unwrap(),
+                entry["kind"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+fn parsed_annotation_entries(pdf: &Path) -> Vec<Value> {
     let sidecar = temp_path("annotation-parse", "ndjson");
     let _cleanup = TempFiles(vec![sidecar.clone()]);
     let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
@@ -451,12 +466,6 @@ fn parsed_annotation_kinds(pdf: &Path) -> Vec<(u64, String)> {
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
         .filter_map(|chunk| chunk["entries"].as_array().cloned())
         .flatten()
-        .map(|entry| {
-            (
-                entry["objectNumber"].as_u64().unwrap(),
-                entry["kind"].as_str().unwrap().to_string(),
-            )
-        })
         .collect()
 }
 
@@ -1216,4 +1225,41 @@ fn upgrades_a_classic_xref_when_the_append_crosses_ten_billion_bytes() {
     assert!(catalog.status.success());
     assert!(String::from_utf8_lossy(&catalog.stdout).contains("/Version /1.5"));
     assert_qpdf_check(&pdf);
+}
+
+/// The structural loader reads a FreeText's indirect /DA as qpdf JSON. The
+/// string keeps its ASCII bytes, so the box stays an editable text box with its
+/// font size and colour, and its non-ASCII /Contents stays text.
+#[test]
+fn free_text_with_indirect_default_appearance_stays_editable_after_structural_append() {
+    let mutations = temp_path("indirect-da-mutations", "json");
+    let large = temp_path("indirect-da-large", "pdf");
+    let _cleanup = TempFiles(vec![mutations.clone(), large.clone()]);
+    fs::write(
+        &mutations,
+        r#"{"updates":[{"objectNumber":4,"generationNumber":0,"text":"edited réal"}]}"#,
+    )
+    .unwrap();
+    write_free_text_marker_pdf(&large, Some(STRUCTURAL_LOADER_STREAM_BYTES));
+
+    let free_text = |pdf: &Path, text: &str| {
+        let entries = parsed_annotation_entries(pdf);
+        let entry = entries
+            .iter()
+            .find(|entry| entry["objectNumber"] == 4)
+            .unwrap_or_else(|| panic!("object 4 is missing from {entries:?}"));
+        assert_eq!(entry["kind"], "text-box", "{entry}");
+        assert_eq!(entry["text"], text, "{entry}");
+        assert_eq!(entry["fontSize"], 1.0, "{entry}");
+        assert_eq!(entry["color"], "#000000", "{entry}");
+    };
+    free_text(&large, "réal free text");
+    let output = append_mutations(&large, &mutations);
+    assert!(
+        output.status.success(),
+        "text update failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    free_text(&large, "edited réal");
+    assert_qpdf_check(&large);
 }

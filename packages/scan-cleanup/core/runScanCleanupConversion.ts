@@ -1,12 +1,8 @@
  
 
-import {
-    createReadStream,
-    constants as fsConstants,
-} from 'fs';
+import {constants as fsConstants} from 'fs';
 import {
     access,
-    appendFile,
     copyFile,
     link,
     open,
@@ -96,10 +92,7 @@ import {
     serializeLegacyScanCleanupCompactManifest,
     serializeScanCleanupCompactManifest,
 } from '@evb/scan-cleanup/core/compactManifest';
-import {
-    buildScanCleanupTextLayerPlanFromPageSizeMap,
-    inspectScanCleanupSourceTextOmission,
-} from '@evb/scan-cleanup/core/sourceTextLayer';
+import {buildScanCleanupTextLayerPlanFromPageSizeMap} from '@evb/scan-cleanup/core/sourceTextLayer';
 import {
     buildScanCleanupStampBuildIds,
     hashScanCleanupNativeBinarySha256s,
@@ -185,6 +178,15 @@ import {
     resolveFullSourcePagePreservation,
     sourceMrcForegroundPdfMatrix,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import {overlayScanCleanupTextLayerAndMeasure} from '@evb/scan-cleanup/core/overlayScanCleanupTextLayerAndMeasure';
+import {
+    appendJsonLine,
+    collectSourceText,
+    inspectSkippedScanCleanupSourceText,
+    type IScanCleanupSourceTextSink,
+    mergeScanCleanupPdfPathSidecar,
+    readJsonLines,
+} from '@evb/scan-cleanup/core/streamingSidecars';
 export type {
     IRunScanCleanupPipelineDependencies,
     IRunScanCleanupPipelineRequest,
@@ -235,11 +237,6 @@ const FALLBACK_MIXED_LAYER_PPM = Uint8Array.from([
     0xff,
 ]);
 
-// Native manifests admit a larger transport window, but the production
-// coordinator keeps its page plans, raster facts, and qpdf arguments to one
-// smaller resident batch. The larger native limit is not a document limit.
-const QPDF_MERGE_INPUT_WINDOW = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
-const STREAMING_JSONL_MAX_LINE_BYTES = 4 * 1024 * 1024;
 // Two output slots retain a composite PNG, a full RGB background and bounded
 // bilevel/alpha planes. Six RGB equivalents per source page covers those files
 // and their small metadata and encoding overhead conservatively.
@@ -253,8 +250,6 @@ const SCAN_CLEANUP_UNMEASURABLE_OUTPUT_SCRATCH_BYTES = Math.floor(
 );
 const PAGE_GEOMETRY_SIDECAR_FORMAT = 'evb-scan-cleanup-page-geometry';
 const PAGE_GEOMETRY_SIDECAR_SCHEMA_VERSION = 1;
-
-type TJsonlFileHandle = Awaited<ReturnType<typeof open>>;
 
 type TScanCleanupDpiDetails = IScanCleanupPageRasterSource;
 type TScanCleanupDocumentCanvas = NonNullable<
@@ -337,50 +332,6 @@ function assertScanCleanupInkAnchorCapacity(
         && placementAnchorSummary === undefined
     ) {
         throw new ScanCleanupTooLargeError();
-    }
-}
-
-async function appendJsonLine(handle: TJsonlFileHandle, value: unknown) {
-    const line = `${JSON.stringify(value)}\n`;
-    if (Buffer.byteLength(line, 'utf8') > STREAMING_JSONL_MAX_LINE_BYTES) {
-        throw new Error(`Scan cleanup JSONL record exceeds ${String(STREAMING_JSONL_MAX_LINE_BYTES)} bytes`);
-    }
-    await handle.write(line);
-}
-
-async function* readJsonLines<T>(path: string, signal?: AbortSignal): AsyncGenerator<T> {
-    const stream = createReadStream(path, {highWaterMark: 512 * 1024});
-    let pending = Buffer.alloc(0);
-    try {
-        for await (const chunk of stream) {
-            signal?.throwIfAborted();
-            pending = pending.length === 0
-                ? Buffer.from(chunk as Uint8Array)
-                : Buffer.concat([
-                    pending,
-                    Buffer.from(chunk as Uint8Array),
-                ]);
-            if (pending.length > STREAMING_JSONL_MAX_LINE_BYTES) {
-                throw new Error(`Scan cleanup JSONL record exceeds ${String(STREAMING_JSONL_MAX_LINE_BYTES)} bytes`);
-            }
-            let newline = pending.indexOf(0x0a);
-            while (newline >= 0) {
-                signal?.throwIfAborted();
-                const line = pending.subarray(0, newline).toString('utf8').trim();
-                pending = pending.subarray(newline + 1);
-                if (line.length > 0) {
-                    yield JSON.parse(line) as T;
-                }
-                newline = pending.indexOf(0x0a);
-            }
-        }
-        signal?.throwIfAborted();
-        if (pending.length > 0) {
-            const line = pending.toString('utf8').trim();
-            if (line.length > 0) yield JSON.parse(line) as T;
-        }
-    } finally {
-        stream.destroy();
     }
 }
 
@@ -814,123 +765,6 @@ function buildConversionPageMetadata({
     };
 }
 
-async function mergeScanCleanupPdfPathSidecarUnchecked({
-    inputPath,
-    inputCount,
-    scratch,
-    stagedPdfPath,
-    qpdfBinary,
-    signal,
-    log,
-    runCommand,
-}: {
-    inputPath: string;
-    inputCount: number;
-    scratch: string;
-    stagedPdfPath: string;
-    qpdfBinary: string;
-    signal: AbortSignal;
-    log: TScanCleanupLog;
-    runCommand: IRunScanCleanupPipelineDependencies['runCommand'];
-}) {
-    let currentPath = inputPath;
-    let currentCount = inputCount;
-    let level = 0;
-    while (currentCount > 1) {
-        signal.throwIfAborted();
-        const nextPath = join(scratch, `scan-cleanup-merge-${String(level)}.jsonl`);
-        const nextHandle = await open(nextPath, 'w');
-        let nextCount = 0;
-        let groupIndex = 0;
-        let group: string[] = [];
-        let seenCount = 0;
-        const flushGroup = async () => {
-            if (group.length === 0) {
-                return;
-            }
-            signal.throwIfAborted();
-            const mergedPath = join(
-                scratch,
-                `scan-cleanup-merge-${String(level)}-${String(groupIndex)}.pdf`,
-            );
-            const qpdfArgs = [
-                '--empty',
-                '--pages',
-                ...group,
-                '--',
-                mergedPath,
-            ];
-            await runCommand(qpdfBinary, qpdfArgs, {
-                signal,
-                commandLabel: 'qpdf(scan-cleanup:merge-bounded-batches)',
-                timeoutMs: 10 * 60 * 1000,
-                log,
-            });
-            await appendJsonLine(nextHandle, {path: mergedPath});
-            nextCount += 1;
-            groupIndex += 1;
-            group = [];
-        };
-        try {
-            for await (const record of readJsonLines<{path?: unknown}>(currentPath, signal)) {
-                if (typeof record.path !== 'string' || record.path.length === 0) {
-                    throw new Error('Scan cleanup batch output sidecar contains an invalid path');
-                }
-                seenCount += 1;
-                group.push(record.path);
-                if (group.length >= QPDF_MERGE_INPUT_WINDOW) {
-                    await flushGroup();
-                }
-            }
-            await flushGroup();
-        } finally {
-            await nextHandle.close();
-        }
-        if (seenCount !== currentCount) {
-            throw new Error(
-                `Scan cleanup batch output sidecar declared ${String(currentCount)} paths but contained ${String(seenCount)}`,
-            );
-        }
-        if (nextCount === 0) {
-            throw new Error('Scan cleanup batch output sidecar contained no PDF paths');
-        }
-        currentPath = nextPath;
-        currentCount = nextCount;
-        level += 1;
-    }
-    let finalPath: string | null = null;
-    for await (const record of readJsonLines<{path?: unknown}>(currentPath, signal)) {
-        if (typeof record.path !== 'string' || record.path.length === 0) {
-            throw new Error('Scan cleanup merged output sidecar contains an invalid path');
-        }
-        if (finalPath !== null) {
-            throw new Error('Scan cleanup merged output sidecar contains too many paths');
-        }
-        finalPath = record.path;
-    }
-    if (finalPath === null) {
-        throw new Error('Scan cleanup merged output sidecar contained no PDF paths');
-    }
-    await copyFile(finalPath, stagedPdfPath);
-}
-
-export async function mergeScanCleanupPdfPathSidecar(
-    args: Parameters<typeof mergeScanCleanupPdfPathSidecarUnchecked>[0],
-) {
-    try {
-        return await mergeScanCleanupPdfPathSidecarUnchecked(args);
-    } catch (error) {
-        args.signal.throwIfAborted();
-        if (error instanceof ScanCleanupStreamingEvidenceError) {
-            throw error;
-        }
-        throw new ScanCleanupStreamingEvidenceError(
-            args.inputPath,
-            getErrorMessage(error),
-        );
-    }
-}
-
 export async function validateScanCleanupBatchSummarySidecar(
     sidecarPath: string,
     expectedBatchCount: number,
@@ -1331,7 +1165,8 @@ async function runStreamingScanCleanupConversion({
     options,
     provenance,
     onRecoveryPending,
-}: Omit<IScanCleanupBatchExecution, 'pageSizeStore' | 'sourceTextPagesPath'> & {
+    sourceText,
+}: Omit<IScanCleanupBatchExecution, 'pageSizeStore'> & {
     pageCount: number;
     geometrySidecarPath: string;
     detectionResultStore?: NonNullable<IRunScanCleanupPipelineRequest['detectionResultStore']>;
@@ -1432,8 +1267,6 @@ async function runStreamingScanCleanupConversion({
     }
     const batchOutputsPath = join(scratch, 'scan-cleanup-batch-outputs.jsonl');
     const batchSummariesPath = join(scratch, 'scan-cleanup-batch-summaries.jsonl');
-    const sourceTextPagesPath = join(scratch, 'source-text-omission-pages.txt');
-    await writeFile(sourceTextPagesPath, '');
     const outputHandle = await open(batchOutputsPath, 'w');
     const summaryHandle = await open(batchSummariesPath, 'w');
     const completedPageNumbers = new Set<number>();
@@ -1474,6 +1307,7 @@ async function runStreamingScanCleanupConversion({
                 provenance,
                 ...buildBoundedDetectionRequestFields(request, batchDetectionResults, batchPageNumbers),
             };
+            sourceText.outputPageOffset = summary.outputPages;
             const childSummary = await executeScanCleanupBatch({
                 request: childRequest,
                 paths,
@@ -1491,7 +1325,7 @@ async function runStreamingScanCleanupConversion({
                 dpiDetails: boundedDpiSource,
                 documentCanvas,
                 options,
-                sourceTextPagesPath,
+                sourceText,
                 onRecoveryPending,
                 emitProgress: (_stage, _completedUnits, _totalUnits, completedPages) => {
                     if (completedPages !== undefined) {
@@ -1559,17 +1393,6 @@ async function runStreamingScanCleanupConversion({
         // event. Do not attach an empty page list, which the progress schema
         // correctly rejects as inconsistent with completedUnits.
         emitProgress('assembling', summary.outputPages, summary.outputPages);
-        if ((await stat(sourceTextPagesPath)).size > 0 && paths.pdfPageOpsBinary !== undefined) {
-            summary.sourceTextOmission = await inspectScanCleanupSourceTextOmission({
-                pdfPath: preparedPdfPath,
-                pagesPath: sourceTextPagesPath,
-                pdfPageOpsBinary: paths.pdfPageOpsBinary,
-                qpdfBinary: paths.qpdfBinary,
-                signal,
-                runCommand: dependencies.runCommand,
-                log,
-            });
-        }
         const [
             sourceFile,
             outputFile,
@@ -2056,6 +1879,11 @@ export async function runScanCleanupConversion(
             const droppedEvent = resolveScanCleanupDroppedMatchWarningEventFromAccumulator(documentCanvasAccumulator);
             if (droppedEvent) warnEvent(droppedEvent);
         }
+        const sourceText: IScanCleanupSourceTextSink = {
+            outputPageOffset: 0,
+            pages: [],
+            skippedNonAffine: [],
+        };
         if (largeStreamingRun) {
             if (geometrySidecarPath === null) {
                 throw new Error('Scan cleanup streaming run has no geometry sidecar');
@@ -2092,6 +1920,7 @@ export async function runScanCleanupConversion(
                 documentCanvas,
                 options,
                 provenance,
+                sourceText,
                 onRecoveryPending: retainScratchUntilRecovery,
             });
         } else {
@@ -2113,10 +1942,26 @@ export async function runScanCleanupConversion(
                 dpiDetails,
                 documentCanvas,
                 options,
+                sourceText,
                 onRecoveryPending: retainScratchUntilRecovery,
             });
         }
-        if (largeStreamingRun) {
+        // One overlay over the merged output: a link may name another batch's page.
+        const overlaid = await overlayScanCleanupTextLayerAndMeasure(
+            sourceText.pages, paths, prepared.pdfPath, stagedPdfPath, scratch, signal, log, dependencies,
+            retainScratchUntilRecovery,
+        );
+        summary.sourceTextOmission = await inspectSkippedScanCleanupSourceText({
+            skippedNonAffine: sourceText.skippedNonAffine,
+            pdfPath: prepared.pdfPath,
+            scratch,
+            pdfPageOpsBinary: paths.pdfPageOpsBinary,
+            qpdfBinary: paths.qpdfBinary,
+            signal,
+            runCommand: dependencies.runCommand,
+            log,
+        });
+        if (largeStreamingRun || overlaid) {
             await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         }
         emitProgress('handoff', 0, pageCount, []);
@@ -2173,7 +2018,7 @@ interface IScanCleanupBatchExecution {
     documentCanvas: TScanCleanupDocumentCanvas | null;
     options: IRunScanCleanupPipelineRequest['options'];
     onRecoveryPending: (recovery: Promise<boolean>) => Promise<void>;
-    sourceTextPagesPath?: string;
+    sourceText: IScanCleanupSourceTextSink;
 }
 
 // Executes an admitted page batch in the job's scratch. The caller owns geometry,
@@ -2181,7 +2026,7 @@ interface IScanCleanupBatchExecution {
 async function executeScanCleanupBatch({
     request, paths, signal, policy, log, dependencies, emitProgress, pageNumbers,
     documentPageCount, preparedPdfPath, stagedPdfPath, scratch, summary,
-    pageSizeStore, dpiDetails, documentCanvas, options, onRecoveryPending, sourceTextPagesPath,
+    pageSizeStore, dpiDetails, documentCanvas, options, onRecoveryPending, sourceText,
 }: IScanCleanupBatchExecution): Promise<TScanCleanupSummary> {
     const pageCount = pageNumbers.length;
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
@@ -3337,26 +3182,13 @@ async function executeScanCleanupBatch({
         textLayerPlan,
         onRecoveryPending,
     );
+    collectSourceText(sourceText, textLayerPlan);
     if (textLayerPlan.skippedNonAffine.length > 0) {
         log(
             'debug',
             'Scan cleanup skipped source text on pages without safe affine geometry: '
             + describePageNumbers(textLayerPlan.skippedNonAffine),
         );
-        const pagesPath = sourceTextPagesPath ?? join(scratch, 'source-text-omission-pages.txt');
-        const writePages = sourceTextPagesPath === undefined ? writeFile : appendFile;
-        await writePages(pagesPath, `${textLayerPlan.skippedNonAffine.join('\n')}\n`);
-        if (sourceTextPagesPath === undefined && paths.pdfPageOpsBinary !== undefined) {
-            summary.sourceTextOmission = await inspectScanCleanupSourceTextOmission({
-                pdfPath: preparedPdfPath,
-                pagesPath,
-                pdfPageOpsBinary: paths.pdfPageOpsBinary,
-                qpdfBinary: paths.qpdfBinary,
-                signal,
-                runCommand: dependencies.runCommand,
-                log,
-            });
-        }
     }
     const [
         sourceFile,

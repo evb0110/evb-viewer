@@ -204,8 +204,6 @@ export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 1
                 stableSince = 0;
                 continue;
             }
-            const pageTrack = viewport.querySelector<HTMLElement>('[data-pdf-page-track]')
-                ?? viewport.querySelector<HTMLElement>('.pdfViewer');
             const viewportRect = viewport.getBoundingClientRect();
             const visiblePages = Array.from(activeHost.querySelectorAll<HTMLElement>('.page_container[data-page]'))
                 .filter((container) => {
@@ -215,8 +213,9 @@ export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 1
                         && rect.right > viewportRect.left
                         && rect.left < viewportRect.right;
                 });
-            const ready = !pageTrack?.classList.contains('pdfViewer--resize-transition')
-                && visiblePages.length > 0
+            // A stretched raster from an older scale still has a canvas, so
+            // the page must also report its raster as current.
+            const ready = visiblePages.length > 0
                 && visiblePages.every((container) => {
                     const canvas = container.querySelector<HTMLCanvasElement>('.page_canvas canvas');
                     const skeleton = container.querySelector<HTMLElement>('.document-page-skeleton');
@@ -229,6 +228,7 @@ export async function waitForVisibleMountedPdfCanvases(page: Page, timeoutMs = 1
                         && canvas.width > 0
                         && canvas.height > 0
                         && container.classList.contains('page_container--rendered')
+                        && container.dataset.pageRaster === 'current'
                         && !skeletonVisible,
                     );
                 });

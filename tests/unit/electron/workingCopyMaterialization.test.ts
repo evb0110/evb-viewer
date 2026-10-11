@@ -12,6 +12,7 @@ import {
     mkdtempSync,
     readFileSync,
     readdirSync,
+    renameSync,
     rmSync,
     unlinkSync,
     utimesSync,
@@ -27,6 +28,8 @@ import type * as FsPromises from 'node:fs/promises';
 let tempRoot = '';
 let resetModulesAfterTest = false;
 const MULTI_CHUNK_FIXTURE_BYTES = 1024 * 1024 + 17;
+// A whole second, so another file can be given exactly the same time.
+const FIXTURE_TIME = new Date('2026-01-01T00:00:00Z');
 
 vi.mock('electron', () => ({app: {getPath: vi.fn(() => tempRoot)}}));
 
@@ -77,15 +80,14 @@ describe('workingCopyMaterialization', () => {
                 });
             }
         });
-        let cacheInvalidatedBeforePublication = false;
+        const invalidationsSeeWorkingCopy: boolean[] = [];
         const removeInvalidator = onWorkingCopyBackingSwapCacheInvalidation((
             logicalRef,
             previousPhysicalPath,
         ) => {
             expect(logicalRef).toBe(fixture.workingPath);
             expect(previousPhysicalPath).toBe(fixture.originalPath);
-            expect(existsSync(fixture.workingPath)).toBe(false);
-            cacheInvalidatedBeforePublication = true;
+            invalidationsSeeWorkingCopy.push(existsSync(fixture.workingPath));
         });
 
         const result = await ensureWorkingCopyMaterialized(fixture.workingPath, {
@@ -95,7 +97,12 @@ describe('workingCopyMaterialization', () => {
 
         removeInvalidator();
         removeProgressListener();
-        expect(cacheInvalidatedBeforePublication).toBe(true);
+        // The first invalidation runs before the working copy is replaced; the
+        // second drops handles reopened while the original still backed the copy.
+        expect(invalidationsSeeWorkingCopy).toEqual([
+            false,
+            true,
+        ]);
         expect(readFileSync(fixture.workingPath).equals(fixture.bytes)).toBe(true);
         expect(result).toMatchObject({
             logicalRef: fixture.workingPath,
@@ -118,6 +125,38 @@ describe('workingCopyMaterialization', () => {
             .toEqual([...progress.map(entry => entry.bytesCopied)].sort((left, right) => left - right));
         const revisionAfter = await getWorkingCopyRevision(fixture.workingPath, 7);
         expect(revisionAfter).toEqual(revisionBefore);
+    });
+
+    it('reports a published copy as materialized when its later cache invalidation fails', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.from('%PDF-1.7\npublished\n%%EOF\n'));
+        const {
+            ensureWorkingCopyMaterialized,
+            onWorkingCopyBackingSwapCacheInvalidation,
+            onWorkingCopyMaterializationProgress,
+        } = await import('@electron/file-access/workingCopyMaterialization');
+        const statuses: string[] = [];
+        const removeProgressListener = onWorkingCopyMaterializationProgress((event) => {
+            statuses.push(event.status);
+        });
+        const removeInvalidator = onWorkingCopyBackingSwapCacheInvalidation(() => {
+            if (existsSync(fixture.workingPath)) {
+                throw new Error('cache invalidation failed');
+            }
+        });
+
+        const result = await ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+        });
+
+        removeInvalidator();
+        removeProgressListener();
+        expect(readFileSync(fixture.workingPath).equals(fixture.bytes)).toBe(true);
+        expect(result.sourceFingerprint).toMatch(/^sha256-full-v1:/u);
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)?.backingState).toBe('materialized');
+        expect(statuses).not.toContain('failed');
+        expect(statuses.at(-1)).toBe('completed');
     });
 
     it('shares one flight across concurrent demand waiters', async () => {
@@ -155,7 +194,8 @@ describe('workingCopyMaterialization', () => {
         removeProgressListener();
         expect(new Set(results.map(result => result.sourceFingerprint)).size).toBe(1);
         expect(operationIds.size).toBe(1);
-        expect(publications).toBe(1);
+        // One flight invalidates twice: before and after its single publication.
+        expect(publications).toBe(2);
     });
 
     it('cancels one waiter without aborting a flight retained by another waiter', async () => {
@@ -560,6 +600,23 @@ describe('workingCopyMaterialization', () => {
         })).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
     });
 
+    it('blocks materialization when a same-size file with the same time replaced the original', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.alloc(1024, 53));
+        const replacementPath = `${fixture.originalPath}.replacement`;
+        writeFileSync(replacementPath, Buffer.alloc(1024, 54));
+        utimesSync(replacementPath, FIXTURE_TIME, FIXTURE_TIME);
+        renameSync(replacementPath, fixture.originalPath);
+        const {ensureWorkingCopyMaterialized} = await import(
+            '@electron/file-access/workingCopyMaterialization'
+        );
+
+        await expect(ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+        })).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+        expect(existsSync(fixture.workingPath)).toBe(false);
+    });
+
     it('discards copied bytes when the source changes during streaming', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 43));
         const {
@@ -678,6 +735,7 @@ async function registerLazyWorkingCopy(bytes: Buffer) {
     );
     mkdirSync(dirname(workingPath), {recursive: true});
     writeFileSync(originalPath, bytes);
+    utimesSync(originalPath, FIXTURE_TIME, FIXTURE_TIME);
     const {
         captureWorkingCopyAdmissionSnapshot,
         setWorkingCopyOriginalPath,

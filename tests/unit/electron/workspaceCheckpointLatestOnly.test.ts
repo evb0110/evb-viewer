@@ -138,6 +138,11 @@ function createCheckpoint(capturedAt: number): IWorkspaceCheckpoint {
     };
 }
 
+// The first import transforms the checkpoint store's module graph, which takes
+// seconds on a loaded machine. Collection pays that once, outside every test
+// budget; tests re-import it after resetModules from the transform cache.
+await import('@electron/workspaceCheckpointStore');
+
 describe('workspace checkpoint latest-only writer', () => {
     beforeEach(async () => {
         vi.resetModules();

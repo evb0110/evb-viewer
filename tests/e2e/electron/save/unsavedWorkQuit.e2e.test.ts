@@ -66,16 +66,10 @@ async function quitAsUser(session: IElectronE2ESession) {
             '--clearmodifiers',
             'ctrl+q',
         ]);
-    } else if (process.platform === 'darwin') {
-        // Renderer key events never reach the menu's Cmd-Q.
-        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Q'});
     } else {
-        await session.page.keyboard.down('Control');
-        try {
-            await session.page.keyboard.press('q');
-        } finally {
-            await session.page.keyboard.up('Control');
-        }
+        // Renderer key events never reach the application menu's accelerators,
+        // on macOS (Cmd-Q) or Windows (Ctrl+Q), so the page cannot press Quit.
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Q'});
     }
 }
 

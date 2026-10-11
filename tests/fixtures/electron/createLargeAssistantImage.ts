@@ -1,9 +1,9 @@
 import {createCanvas} from '@napi-rs/canvas';
 
-export function createLargeAssistantImage() {
-    const canvas = createCanvas(1200, 1000);
+export function createLargeAssistantImage(width = 1200, height = 1000) {
+    const canvas = createCanvas(width, height);
     const context = canvas.getContext('2d');
-    const pixels = context.createImageData(1200, 1000);
+    const pixels = context.createImageData(width, height);
     let seed = 42;
     for (let index = 0; index < pixels.data.length; index += 1) {
         seed ^= seed << 13;

@@ -18,6 +18,7 @@ import {
     workingCopyAdmissionSnapshotsMatch,
     type IWorkingCopyAdmissionSnapshot,
     type IWorkingCopyOriginalEntry,
+    type IWorkingCopyOriginalFileExpectation,
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
@@ -246,11 +247,12 @@ async function assertSourceHandleSnapshot(
             {cause: error},
         );
     }
-    if (
-        !sourceStat.isFile()
-        || sourceStat.size !== admissionSnapshot.size
-        || sourceStat.mtimeNs !== admissionSnapshot.mtimeNs
-    ) {
+    if (!sourceStat.isFile() || !workingCopyAdmissionSnapshotsMatch({
+        deviceId: sourceStat.dev,
+        inode: sourceStat.ino,
+        mtimeNs: sourceStat.mtimeNs,
+        size: sourceStat.size,
+    }, admissionSnapshot)) {
         throw new WorkingCopyMaterializationError(
             'SOURCE_BACKING_CHANGED',
             'The original document changed after it was opened',
@@ -321,12 +323,9 @@ async function invalidateBackingSwapCaches(flight: IMaterializationFlight) {
 async function publishMaterializedTarget(
     flight: IMaterializationFlight,
     tempPath: string,
-    sourceHandle: FileHandle,
+    sourceFileExpectation: IWorkingCopyOriginalFileExpectation,
     sourceFingerprint: string,
 ) {
-    const sourceFileExpectation = createOriginalFileExpectationFromStat(
-        await sourceHandle.stat({bigint: true}),
-    );
     const publication = await runWithWorkingCopyRegistrationFence(
         flight.logicalRef,
         flight.registrationId,
@@ -343,7 +342,6 @@ async function publishMaterializedTarget(
             }
 
             await invalidateBackingSwapCaches(flight);
-            await assertSourceHandleSnapshot(sourceHandle, flight.admissionSnapshot);
             await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot);
             throwIfAborted(flight.controller.signal);
             await atomicReplace(tempPath, flight.logicalRef, {markMutationCommitStarted: false});
@@ -428,6 +426,14 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
         }
 
         await assertSourceHandleSnapshot(sourceHandle, flight.admissionSnapshot);
+        const sourceFileExpectation = createOriginalFileExpectationFromStat(
+            await sourceHandle.stat({bigint: true}),
+        );
+        // Release the original as soon as its bytes are copied: on Windows an
+        // open handle makes another program's rename-replace fail, and the
+        // hashing and publication below read only the working copy.
+        await sourceHandle.close();
+        sourceHandle = null;
         await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot);
         const outputStat = await outputHandle.stat({bigint: true});
         if (!outputStat.isFile() || outputStat.size !== flight.admissionSnapshot.size) {
@@ -455,8 +461,12 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
             phase: 'finalizing',
             status: 'running',
         });
-        await publishMaterializedTarget(flight, tempPath, sourceHandle, sourceFingerprint);
+        await publishMaterializedTarget(flight, tempPath, sourceFileExpectation, sourceFingerprint);
         published = true;
+        // A read that began while the original still backed the copy can reopen
+        // its cached handle after publication's first invalidation, so drop it
+        // again. The copy is already published, so this cannot fail it.
+        await invalidateBackingSwapCaches(flight).catch(() => undefined);
         emitProgress(flight, {
             bytesCopied: flight.totalBytes,
             percent: 100,

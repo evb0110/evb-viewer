@@ -3059,10 +3059,11 @@ fn metadata_free_freetext_on_a_swapped_page_stays_foreign() {
         let [entry] = entries.as_slice() else {
             panic!("expected one annotation, got {entries:?}");
         };
-        // Only the swapped pages fail closed; 0 and 180 keep the upright layout.
+        // Only the unrotated page keeps an editable layout; every rotated page,
+        // 180 included, fails closed because the layout is not recoverable.
         match (page_rotation, entry) {
-            (90 | 270, PdfAnnotationParseEntry::Foreign(_))
-            | (0 | 180, PdfAnnotationParseEntry::TextBox(_)) => {}
+            (90 | 180 | 270, PdfAnnotationParseEntry::Foreign(_))
+            | (0, PdfAnnotationParseEntry::TextBox(_)) => {}
             _ => panic!("page {page_rotation} classified unexpectedly: {entry:?}"),
         }
     }

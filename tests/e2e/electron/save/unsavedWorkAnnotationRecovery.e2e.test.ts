@@ -132,6 +132,49 @@ describe('checkpointed annotation recovery', () => {
             .toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
     }, 180_000);
 
+    // A logout can follow an edit within the checkpoint debounce window. The
+    // signal here arrives with no pause after the edit commits.
+    it.runIf(process.platform === 'linux' || process.platform === 'darwin')('keeps an edit made just before SIGTERM', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-sigterm-fresh-edit-'));
+        const sourcePath = join(outputDirectory, 'sigterm-fresh-source.pdf');
+        copyFileSync(FIXTURE_PATH, sourcePath);
+        const sourceBytes = readFileSync(sourcePath);
+        const sessionName = `e2e-sigterm-fresh-${Date.now()}`;
+        session = await startElectronE2ESession(sessionName, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const marker = `SIGTERM fresh edit ${Date.now()}`;
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+
+        const signaled = session;
+        const electronPid = getSessionInfo(signaled.name)?.electronPid;
+        if (typeof electronPid !== 'number') throw new Error('The Electron main pid was missing');
+        process.kill(electronPid, 'SIGTERM');
+        await expect.poll(() => isProcessAlive(electronPid), {timeout: 8_000}).toBe(false);
+        expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+        expect(hasWorkspaceCrashCheckpoint(signaled.name)).toBe(true);
+        await signaled.browser.disconnect();
+        await stopSingleSession(signaled.name, {preserveWorkspaceCheckpoint: true});
+
+        session = null;
+        session = await startElectronE2ESession(sessionName, {clean: false});
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await session.page.waitForFunction((text: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]'),
+        ).some(entity => entity.textContent?.trim() === text), {timeout: 30_000}, marker);
+        await clickVisibleToolbarButton(session.page, 'Save');
+        await expect.poll(() => readPdfTextAnnotationRecords(sourcePath), {timeout: 30_000})
+            .toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+    }, 180_000);
+
     it('restores committed FreeText through restart and Save As', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-annotation-recovery-'));
         const sourcePath = join(outputDirectory, 'annotation-source.pdf');

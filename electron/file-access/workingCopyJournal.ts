@@ -1,6 +1,5 @@
 import {randomUUID} from 'node:crypto';
 import {
-    link,
     open as openFileHandle,
     readFile,
     readdir,
@@ -18,19 +17,16 @@ import {
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
-import {
-    originalSaveSnapshotSchema,
-    readWorkingCopyManifest,
-} from '@electron/file-access/workingCopyManifest';
+import {readWorkingCopyManifest} from '@electron/file-access/workingCopyManifest';
 import {
     copyFileAtomic,
     linkOrCopyFileDurably,
 } from '@electron/file-access/documentFileWriteAtomic';
 import {
-    assertPathMatchesSaveWitnessSnapshot,
-    capturePathSaveWitness,
-    OriginalPathSaveConflictError,
-} from '@electron/file-access/originalPathSaveWitness';
+    originalSchema,
+    restoreOriginal,
+    type IWorkingCopyJournalOriginal,
+} from '@electron/file-access/workingCopyJournalOriginal';
 import {
     getWorkingCopyJournalBackupPath,
     getWorkingCopyJournalPath,
@@ -43,21 +39,6 @@ import * as v from 'valibot';
 const log = createLogger('workingCopyJournal');
 
 export type TWorkingCopyContentBackupMode = 'copy-on-write' | 'hard-link' | 'append';
-
-/** The original file a save publishes in the same transition. */
-const originalSchema = v.object({
-    path: v.string(),
-    backupPath: v.string(),
-    state: v.picklist([
-        'prepared',
-        'published',
-        'restored',
-    ]),
-    preparedSnapshot: v.optional(originalSaveSnapshotSchema),
-    publishedSnapshot: v.optional(originalSaveSnapshotSchema),
-});
-
-export type IWorkingCopyJournalOriginal = v.InferOutput<typeof originalSchema>;
 
 /**
  * One write-ahead record per working-copy directory. `prepare` backs up the
@@ -216,51 +197,6 @@ async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
 }
 
 /**
- * Puts back the original of an interrupted transition. A crash can leave the
- * original as it was before publication, published, or (on the Windows
- * fallback) moved aside. Only an original that still matches the journaled
- * snapshot is overwritten, so a third-party replacement always wins.
- */
-async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
-    if (original.state === 'restored') {
-        return;
-    }
-    if (original.preparedSnapshot !== undefined) {
-        try {
-            await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true});
-            return;
-        } catch {
-            // The original still contains the published bytes.
-        }
-    }
-    const expectedSnapshot = original.state === 'prepared'
-        ? original.preparedSnapshot
-        : original.publishedSnapshot;
-    if (expectedSnapshot !== undefined) {
-        try {
-            await assertPathMatchesSaveWitnessSnapshot(original.path, expectedSnapshot);
-        } catch (error) {
-            if (await capturePathSaveWitness(original.path) !== null) {
-                throw error;
-            }
-            await assertPathMatchesSaveWitnessSnapshot(
-                original.backupPath,
-                original.preparedSnapshot ?? expectedSnapshot,
-                {contentOnly: true},
-            );
-            // The link creates the destination only while it is still absent.
-            await link(original.backupPath, original.path);
-            return;
-        }
-    }
-    const witness = await capturePathSaveWitness(original.path);
-    if (!witness) {
-        throw new OriginalPathSaveConflictError();
-    }
-    await copyFileAtomic(original.backupPath, original.path, {assertDestinationCurrent: () => witness.assertCurrent()});
-}
-
-/**
  * Removes the journal, then every backup it named. A crash in between leaves
  * only an unreferenced backup, never a journal whose backup is gone.
  */
@@ -304,7 +240,41 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     return true;
 }
 
-/** Removes original backups a crash left before their journal named them. */
+const UUID_LENGTH = 36;
+const NAME_MAX_BYTES = 255;
+
+/** Keeps the longest prefix of `text` whose UTF-8 form fits in `maxBytes`, never splitting a code point. */
+function truncateToUtf8Bytes(text: string, maxBytes: number) {
+    let result = '';
+    let bytes = 0;
+    for (const character of text) {
+        bytes += Buffer.byteLength(character, 'utf8');
+        if (bytes > maxBytes) {
+            break;
+        }
+        result += character;
+    }
+    return result;
+}
+
+/**
+ * An original backup is named for the working copy whose transition made it:
+ * the `pdf-work-*` directory key is part of the name, so a sweep can tell its
+ * own orphans from a backup another working copy's journal still names. The
+ * original basename leads only as far as the name stays within NAME_MAX; a
+ * UTF-8 byte bound also bounds the UTF-16 units NTFS counts.
+ */
+function getOriginalBackupNamePrefix(originalPath: string, workingCopyPath: string) {
+    const ownerSegment = `.evb-transition-${basename(dirname(workingCopyPath))}-`;
+    const basenameBudget = NAME_MAX_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - UUID_LENGTH - '.bak'.length;
+    return `${truncateToUtf8Bytes(basename(originalPath), basenameBudget)}${ownerSegment}`;
+}
+
+export function createOriginalTransitionBackupPath(originalPath: string, workingCopyPath: string) {
+    return join(dirname(originalPath), `${getOriginalBackupNamePrefix(originalPath, workingCopyPath)}${randomUUID()}.bak`);
+}
+
+/** Removes original backups this working copy's crash left before its journal named them. */
 export async function sweepOrphanedOriginalBackups(originalPath: string, workingCopyPath: string) {
     // Recovery runs immediately before this sweep. Recheck the journal so a
     // transition that starts between those steps keeps its backup.
@@ -312,7 +282,7 @@ export async function sweepOrphanedOriginalBackups(originalPath: string, working
         return;
     }
     const originalDirectory = dirname(originalPath);
-    const backupPrefix = `${basename(originalPath)}.evb-transition-`;
+    const backupPrefix = getOriginalBackupNamePrefix(originalPath, workingCopyPath);
     let entries;
     try {
         entries = await readdir(originalDirectory, {withFileTypes: true});

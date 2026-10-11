@@ -342,11 +342,6 @@ async function stopIssue139VisibilityProbe(page: Page) {
 }
 
 async function dragIssue139FreeTextResizeHandle(page: Page, sentinel: string) {
-    await page.waitForFunction(() => {
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        return host?.querySelector('.pdfViewer')
-            ?.classList.contains('pdfViewer--resize-transition') === false;
-    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS});
     await setIssue139VisibilityProbePhase(page, 'text-box-select');
     await clickAnnotationTool(page, 'Select', NOTE_TEXT_ENTRY_TIMEOUT_MS);
     await page.evaluate((expectedText: string) => {

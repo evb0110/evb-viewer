@@ -433,6 +433,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
         await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
             .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete the earlier page'});
+        await waitForPageOperationComplete(session!);
         await expect.poll(async () => (await readWorkspaceStateValues(page, ['totalPages'])).totalPages).toBe(7);
         await waitForViewerInteractive(page);
         await waitForViewportQuiet(page);

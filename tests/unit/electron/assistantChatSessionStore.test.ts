@@ -161,7 +161,10 @@ describe('assistant chat session store persistence', () => {
         const store = createAssistantChatSessionStore({persistence});
         await store.ready;
         const session = store.getSession(scope, selection, {create: true});
-        const png = createLargeAssistantImage();
+        // 800 by 800 RGBA noise is the smallest square that still encodes above
+        // 2 MiB; the store only checks size and MIME, so the smaller payload
+        // keeps the image cases inside the test budget on a loaded machine.
+        const png = createLargeAssistantImage(800, 800);
         expect(png.length).toBeGreaterThan(2 * 1024 * 1024);
         const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
         const outgoing = normalizeOutgoingMessageRequest({
@@ -566,7 +569,10 @@ describe('assistant chat session store persistence', () => {
         };
         const session = store.getSession(scope, requested, {create: true});
         session.providerThreadId = `${provider}-resume`;
-        const png = createLargeAssistantImage();
+        // 800 by 800 RGBA noise is the smallest square that still encodes above
+        // 2 MiB; the store only checks size and MIME, so the smaller payload
+        // keeps the image cases inside the test budget on a loaded machine.
+        const png = createLargeAssistantImage(800, 800);
         store.addMessage(session, {
             role: 'user',
             text: 'Keep this image question.',

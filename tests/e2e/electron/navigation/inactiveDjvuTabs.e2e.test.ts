@@ -74,6 +74,21 @@ interface IInactiveDjvuRenderCancellationProbe {
 
 interface IInactiveDjvuRenderCancellationWindow extends Window {__inactiveDjvuRenderCancellationProbe?: IInactiveDjvuRenderCancellationProbe;}
 
+interface IDjvuSkeletonHandoffBox {
+    left: number;
+    top: number;
+}
+
+interface IDjvuSkeletonHandoffFrame {
+    page: IDjvuSkeletonHandoffBox | null;
+    shell: IDjvuSkeletonHandoffBox | null;
+}
+
+interface IDjvuSkeletonHandoffWindow extends Window {
+    __djvuSkeletonHandoffFrames?: IDjvuSkeletonHandoffFrame[];
+    __djvuSkeletonHandoffRaf?: number;
+}
+
 interface IDjvuActivationOccupancyFrame {
     canonicalShellCount: number;
     elapsedMs: number;
@@ -1042,4 +1057,104 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             expect(Math.abs(drift?.y ?? Number.NaN), detail).toBeLessThanOrEqual(1);
         }
     });
+
+    it.each([
+        'narrowed-window',
+        'horizontal-pan',
+    ] as const)('keeps a reclaimed DjVu page where its opening skeleton was (%s)', async (scenario) => {
+        if (!djvuFixture.path) {
+            throw new Error(djvuFixture.reason);
+        }
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-inactive-djvu-skeleton-${Date.now()}`,
+        });
+        await session.command('windowResize', [
+            scenario === 'horizontal-pan' ? 600 : 1100,
+            900,
+        ]);
+        await setTabMemoryPolicyForE2E(session.page, 'aggressive');
+        await openDjvuInApp(session.page, djvuFixture.path, DJVU_E2E_TIMEOUT_MS);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+        await waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false});
+        await requireWorkspaceCommand(session.page, 'handleFitWidth');
+        await goToPageViaToolbar(session.page, 2);
+        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+        await session.page.waitForFunction(() => {
+            const el = document.querySelector<HTMLElement>('[data-testid="document-page-source-page"][data-page-number="2"]');
+            const image = el?.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]');
+            return !!el && el.getBoundingClientRect().height > 0 && !!image?.complete && image.naturalWidth > 0;
+        }, {timeout: 30_000});
+        if (scenario === 'horizontal-pan') {
+            await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [6.47]);
+            await waitForWorkspaceToolbarSnapshot(session.page, {minEffectiveZoom: 6.46});
+            await waitForViewportQuiet(session.page);
+            const viewport = await session.page.$('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
+            const box = await viewport?.boundingBox();
+            if (!box) throw new Error('DjVu viewport was not found');
+            await session.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await session.page.mouse.wheel({
+                deltaX: 200,
+                deltaY: 0,
+            });
+            await session.page.waitForFunction(() => (document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]')?.scrollLeft ?? 0) > 150, {timeout: 30_000});
+            await waitForViewportQuiet(session.page);
+        }
+        // Reclaim page 2's tab by opening another document in its place.
+        const other = await createMultiPageTextFixturePdf(`inactive-djvu-skeleton-${Date.now()}.pdf`, 2);
+        await openPdfInApp(session.page, other);
+        await waitForPdfLoaded(session.page);
+        await session.page.waitForFunction(() => document.querySelectorAll('.workspace-host').length === 1, {timeout: 30_000});
+        if (scenario === 'narrowed-window') {
+            await session.command('windowResize', [
+                600,
+                900,
+            ]);
+        }
+        // Sample the skeleton and the page it hands off to, both relative to the viewport.
+        await session.page.evaluate(() => {
+            const w = window as IDjvuSkeletonHandoffWindow;
+            w.__djvuSkeletonHandoffFrames = [];
+            const sample = () => {
+                const vp = document.querySelector<HTMLElement>('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
+                const shell = document.querySelector<HTMLElement>('.editor-pane.is-active .document-viewer-chassis__opening-page');
+                const page = document.querySelector<HTMLElement>('.editor-pane.is-active [data-testid="document-page-source-page"][data-page-number="2"]:not(.document-viewer-chassis__opening-page)');
+                const rect = vp?.getBoundingClientRect();
+                if (rect) {
+                    const read = (el: HTMLElement | null) => {
+                        const r = el?.getBoundingClientRect();
+                        return r && r.height > 0 ? {
+                            top: r.top - rect.top,
+                            left: r.left - rect.left,
+                        } : null;
+                    };
+                    w.__djvuSkeletonHandoffFrames!.push({
+                        shell: read(shell),
+                        page: read(page),
+                    });
+                }
+                w.__djvuSkeletonHandoffRaf = requestAnimationFrame(sample);
+            };
+            w.__djvuSkeletonHandoffRaf = requestAnimationFrame(sample);
+        });
+        try {
+            await activateTab(session, 0);
+            await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+            await session.page.waitForFunction(() => !document.querySelector('.editor-pane.is-active .document-viewer-chassis__opening-page'), {timeout: 30_000});
+        } finally {
+            await session.page.evaluate(() => {
+                cancelAnimationFrame((window as IDjvuSkeletonHandoffWindow).__djvuSkeletonHandoffRaf!);
+            });
+        }
+        const frames = await session.page.evaluate(() => (window as IDjvuSkeletonHandoffWindow).__djvuSkeletonHandoffFrames!);
+        const shells = frames.flatMap(frame => frame.shell ? [frame.shell] : []);
+        const page = frames.flatMap(frame => frame.page ? [frame.page] : []).at(-1);
+        const axis = scenario === 'narrowed-window' ? 'top' : 'left';
+        expect(shells.length, JSON.stringify(frames)).toBeGreaterThan(0);
+        if (!page) throw new Error(JSON.stringify(frames));
+        for (const shell of shells) {
+            expect(Math.abs(shell[axis] - page[axis]), JSON.stringify(shell)).toBeLessThanOrEqual(1);
+        }
+    }, 120_000);
 });

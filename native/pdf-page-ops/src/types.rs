@@ -5,7 +5,9 @@ pub(crate) use evb_native_support::pdf_catalog::{
 use evb_native_support::{bounded_io::record_deserialization_error, NativeErrorCode};
 use serde::Serialize;
 
-fn deserialize_collection<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
+pub(crate) fn deserialize_collection<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Vec<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: serde::Deserialize<'de>,
@@ -777,41 +779,6 @@ pub(crate) struct SplitPageOutput {
     pub(crate) crop_rect: SplitCropRect,
     #[serde(default)]
     pub(crate) content_transform: Option<SplitContentTransform>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct TextLayerFile {
-    #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) pages: Vec<TextLayerInstruction>,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct TextLayerInstruction {
-    pub(crate) source_page_index: usize,
-    pub(crate) output_page_index: usize,
-    /// PDF `cm` operands mapping source-page user space into output-page user space.
-    pub(crate) matrix: [f64; 6],
-    /// Source half before cleanup and canvas placement, in cleanup raster space.
-    #[serde(default)]
-    pub(crate) source_region: Option<TextLayerSourceRegion>,
-    /// PDF text extraction commonly ignores clipping. Split pages therefore
-    /// filter show operators by their positioned origin in target-page space.
-    #[serde(default)]
-    pub(crate) filter_to_output_page: bool,
-    /// Tesseract's Greek OCR output uses U+00B5 for Greek mu in its PDF text
-    /// stream. The glyph-less Identity-H font makes the CID the Unicode
-    /// scalar, so normalize that scalar before embedding the stream.
-    #[serde(default)]
-    pub(crate) normalize_greek_micro_sign: bool,
-}
-
-#[derive(Clone, Copy, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct TextLayerSourceRegion {
-    pub(crate) rect: SplitCropRect,
-    pub(crate) matrix: [f64; 6],
 }
 
 #[derive(Deserialize)]

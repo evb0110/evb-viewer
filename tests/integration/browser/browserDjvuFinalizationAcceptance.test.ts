@@ -114,6 +114,9 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 path: bundlePath,
                 type: 'module',
             });
+            // An injected module script runs after it is attached, not before
+            // addScriptTag resolves: wait for its entry point to exist.
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuFinalizationAcceptance') === 'function');
             const result = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserDjvuFinalizationAcceptance');
                 if (typeof run !== 'function') {
@@ -150,6 +153,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                         path: bundlePath,
                         type: 'module',
                     });
+                    await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance') === 'function');
                     await page.evaluate(async () => {
                         const install = Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance');
                         if (typeof install !== 'function') {

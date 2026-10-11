@@ -3,7 +3,7 @@ mod external_tool;
 #[path = "../../test-support/sparse_file.rs"]
 mod sparse_file;
 
-use lopdf::{dictionary, Dictionary, Document, Object, Stream};
+use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use std::{
     env,
     fs::{self, remove_file, write, File},
@@ -70,6 +70,35 @@ fn save_empty_pages(path: &Path, count: usize) {
     save_pages(path, (0..count).map(|_| None), Dictionary::new());
 }
 
+/// Blank pages half as wide as `save_pages`, the output of a seam split.
+fn save_half_pages(path: &Path, count: usize) {
+    let mut document = save_pages(path, (0..count).map(|_| None), Dictionary::new());
+    for page in document.get_pages().into_values() {
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    }
+    document.save(path).unwrap();
+}
+
+fn run_split_pages(input: &Path, output: &Path, instructions: &Path) {
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["split-pages", "--input"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .arg("--instructions-file")
+        .arg(instructions)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
 fn run_overlay_text(
     input: &Path,
     source: &Path,
@@ -127,6 +156,24 @@ fn write_sparse_source(
     ocr_source_page_index: Option<usize>,
     malformed_source_page_index: Option<usize>,
 ) -> u64 {
+    write_sparse_linked_source(
+        path,
+        page_count,
+        ocr_source_page_index,
+        malformed_source_page_index,
+        None,
+    )
+}
+
+/// `link` names a (from, to) source page pair: the first page carries a link
+/// annotation whose destination is the second page.
+fn write_sparse_linked_source(
+    path: &Path,
+    page_count: usize,
+    ocr_source_page_index: Option<usize>,
+    malformed_source_page_index: Option<usize>,
+    link: Option<(usize, usize, LinkTarget)>,
+) -> u64 {
     const SPARSE_UNREFERENCED_BYTES: u64 = 600 * 1024 * 1024;
     let first_page_object = 3;
     let last_page_object = first_page_object + page_count - 1;
@@ -134,11 +181,27 @@ fn write_sparse_source(
     let ocr_content_object = empty_content_object + 1;
     let malformed_content_object = ocr_content_object + 1;
     let font_object = malformed_content_object + 1;
-    let sparse_object = font_object + 1;
+    let indirect_destination_object = font_object + 1;
+    let sparse_object = indirect_destination_object + 1;
     let mut offsets = vec![0_u64; sparse_object + 1];
     let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
-    write_raw_object(&mut file, &mut offsets, 1, b"<</Type/Catalog/Pages 2 0 R>>");
+    // A named link's target is defined in the catalog, where `--empty` drops it.
+    let target_page = |to: usize| format!("[{} 0 R/XYZ 0 120 0]", first_page_object + to);
+    let catalog = match link {
+        Some((_, to, LinkTarget::LegacyNamed | LinkTarget::IndirectLegacyNamed)) => {
+            format!(
+                "<</Type/Catalog/Pages 2 0 R/Dests<</target{}>>>>",
+                target_page(to)
+            )
+        }
+        Some((_, to, LinkTarget::TreeNamed | LinkTarget::IndirectTreeNamed)) => format!(
+            "<</Type/Catalog/Pages 2 0 R/Names<</Dests<</Names[(target){}]>>>>>>",
+            target_page(to)
+        ),
+        _ => "<</Type/Catalog/Pages 2 0 R>>".to_owned(),
+    };
+    write_raw_object(&mut file, &mut offsets, 1, catalog.as_bytes());
     let kids = (first_page_object..=last_page_object)
         .map(|object| format!("{object} 0 R"))
         .collect::<Vec<_>>()
@@ -153,8 +216,22 @@ fn write_sparse_source(
         } else {
             empty_content_object
         };
+        let annots = match link {
+            Some((from, to, kind)) if from == page_index => {
+                let destination = match kind {
+                    LinkTarget::Explicit => format!("/Dest{}", target_page(to)),
+                    LinkTarget::Action => format!("/A<</S/GoTo/D{}>>", target_page(to)),
+                    LinkTarget::LegacyNamed | LinkTarget::TreeNamed => "/Dest(target)".to_owned(),
+                    LinkTarget::IndirectLegacyNamed | LinkTarget::IndirectTreeNamed => {
+                        format!("/Dest {indirect_destination_object} 0 R")
+                    }
+                };
+                format!("/Annots[<</Type/Annot/Subtype/Link/Rect[2 2 40 20]/Border[0 0 0]{destination}>>]")
+            }
+            _ => String::new(),
+        };
         let page = format!(
-            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Resources<< /Font<< /F1 {font_object} 0 R>> >>/Contents {content_object} 0 R>>"
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Resources<< /Font<< /F1 {font_object} 0 R>> >>/Contents {content_object} 0 R{annots}>>"
         );
         write_raw_object(&mut file, &mut offsets, object_number, page.as_bytes());
     }
@@ -185,6 +262,16 @@ fn write_sparse_source(
         &mut offsets,
         font_object,
         b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+    );
+    let indirect_destination: &[u8] = match link {
+        Some((_, _, LinkTarget::IndirectTreeNamed)) => b"/target",
+        _ => b"(target)",
+    };
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        indirect_destination_object,
+        indirect_destination,
     );
     offsets[sparse_object] = file.stream_position().unwrap();
     write!(
@@ -219,6 +306,96 @@ fn write_sparse_high_index_source(path: &Path) -> u64 {
 
 fn write_sparse_malformed_source(path: &Path) -> u64 {
     write_sparse_source(path, 65, None, Some(64))
+}
+
+/// Page 0 links to each of `target_count` pages, and every target carries
+/// `target_bytes` of content. A subset that keeps all the links exceeds the byte
+/// budget, so only the link cap lets the conversion succeed.
+fn write_sparse_fanout_source(path: &Path, target_count: usize, target_bytes: u64) -> u64 {
+    let first_page_object = 3;
+    let last_page_object = first_page_object + target_count;
+    let empty_content_object = last_page_object + 1;
+    let font_object = empty_content_object + 1;
+    let first_target_content_object = font_object + 1;
+    let last_object = first_target_content_object + target_count - 1;
+    let mut offsets = vec![0_u64; last_object + 1];
+    let mut file = sparse_file::create_sparse_file(path);
+    file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
+    write_raw_object(&mut file, &mut offsets, 1, b"<</Type/Catalog/Pages 2 0 R>>");
+    let kids = (first_page_object..=last_page_object)
+        .map(|object| format!("{object} 0 R"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        2,
+        format!("<</Type/Pages/Kids[{kids}]/Count {}>>", target_count + 1).as_bytes(),
+    );
+    let links = (1..=target_count)
+        .map(|to| {
+            format!(
+                "<</Type/Annot/Subtype/Link/Rect[2 2 40 20]/Border[0 0 0]/Dest[{} 0 R/XYZ 0 120 0]>>",
+                first_page_object + to
+            )
+        })
+        .collect::<String>();
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        first_page_object,
+        format!(
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Resources<< /Font<< /F1 {font_object} 0 R>> >>/Contents {empty_content_object} 0 R/Annots[{links}]>>"
+        )
+        .as_bytes(),
+    );
+    for to in 1..=target_count {
+        let content = first_target_content_object + to - 1;
+        write_raw_object(
+            &mut file,
+            &mut offsets,
+            first_page_object + to,
+            format!("<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Contents {content} 0 R>>")
+                .as_bytes(),
+        );
+    }
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        empty_content_object,
+        b"<</Length 0>>\nstream\n\nendstream",
+    );
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        font_object,
+        b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+    );
+    for content in first_target_content_object..=last_object {
+        // DCTDecode stops qpdf from recompressing the zero-filled data, so a subset keeps its size.
+        *offsets.get_mut(content).unwrap() = file.stream_position().unwrap();
+        write!(
+            file,
+            "{content} 0 obj\n<</Length {target_bytes}/Filter/DCTDecode>>\nstream\n"
+        )
+        .unwrap();
+        file.seek(SeekFrom::Current(i64::try_from(target_bytes).unwrap()))
+            .unwrap();
+        file.write_all(b"\nendstream\nendobj\n").unwrap();
+    }
+    let xref_offset = file.stream_position().unwrap();
+    let xref_size = last_object + 1;
+    write!(file, "xref\n0 {xref_size}\n0000000000 65535 f \n").unwrap();
+    for offset in offsets.iter().skip(1) {
+        writeln!(file, "{offset:010} 00000 n ").unwrap();
+    }
+    write!(
+        file,
+        "trailer\n<</Size {xref_size}/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n"
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+    fs::metadata(path).unwrap().len()
 }
 
 fn atomic_output_siblings(output: &Path) -> Vec<std::path::PathBuf> {
@@ -1131,6 +1308,167 @@ fn overlay_text_extracts_a_high_index_page_from_a_sparse_source_above_the_byte_b
 }
 
 #[test]
+fn overlay_text_keeps_a_link_across_source_subsets_above_the_byte_budget() {
+    for kind in [
+        LinkTarget::Explicit,
+        LinkTarget::LegacyNamed,
+        LinkTarget::TreeNamed,
+        LinkTarget::IndirectLegacyNamed,
+        LinkTarget::IndirectTreeNamed,
+    ] {
+        assert_link_survives_source_subsets(kind);
+    }
+}
+
+fn assert_link_survives_source_subsets(kind: LinkTarget) {
+    const LINK_SOURCE_PAGE_INDEX: usize = 0;
+    const LINK_TARGET_PAGE_INDEX: usize = 1_234;
+    let source = path("large-source-cross-subset-link", "pdf");
+    let input = path("large-source-cross-subset-link-input", "pdf");
+    let output = path("large-source-cross-subset-link-output", "pdf");
+    let instructions = path("large-source-cross-subset-link-instructions", "json");
+    let source_len = write_sparse_linked_source(
+        &source,
+        1_235,
+        Some(LINK_TARGET_PAGE_INDEX),
+        None,
+        Some((LINK_SOURCE_PAGE_INDEX, LINK_TARGET_PAGE_INDEX, kind)),
+    );
+    assert!(source_len > 512 * 1024 * 1024);
+    save_empty_pages(&input, 66);
+    // Source pages 0..=64 span two 64-page subsets; the link target is in a third.
+    let mut page_instructions = (0..65)
+        .map(|page_index| {
+            format!(
+                r#"{{"sourcePageIndex":{page_index},"outputPageIndex":{page_index},"matrix":[1,0,0,1,0,0]}}"#
+            )
+        })
+        .collect::<Vec<_>>();
+    page_instructions.push(format!(
+        r#"{{"sourcePageIndex":{LINK_TARGET_PAGE_INDEX},"outputPageIndex":65,"matrix":[1,0,0,1,0,0]}}"#
+    ));
+    write(
+        &instructions,
+        format!(r#"{{"pages":[{}]}}"#, page_instructions.join(",")),
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "overlay-text failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let overlaid = Document::load(&output).unwrap();
+    let pages = overlaid.get_pages();
+    let target_page_id = *pages.get(&66).unwrap();
+    let link_page_id = *pages.get(&1).unwrap();
+    let annotations = overlaid
+        .get_dictionary(link_page_id)
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone();
+    let destination = annotations
+        .iter()
+        .find_map(|annotation| {
+            overlaid
+                .dereference(annotation)
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap()
+                .get(b"Dest")
+                .ok()
+                .cloned()
+        })
+        .expect("the link keeps its destination across the subset boundary");
+    assert_eq!(
+        destination.as_array().unwrap()[0].as_reference().unwrap(),
+        target_page_id
+    );
+    // The target page's text comes from its own subset only, not from the
+    // subset that holds it as a link destination.
+    let text = pdftotext_page(&output, 66, &[]);
+    assert_eq!(
+        String::from_utf8_lossy(&text.stdout)
+            .matches("HIGH INDEX OCR")
+            .count(),
+        1
+    );
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn overlay_text_caps_the_link_targets_one_source_subset_adds() {
+    // One subset adds at most MAX_SOURCE_PAGE_BATCH_PAGES (64) link targets.
+    const LINK_TARGET_COUNT: usize = 80;
+    const LINK_TARGET_BYTES: u64 = 7 * 1024 * 1024;
+    const CAPPED_LINK_COUNT: usize = 64;
+    let source = path("large-source-link-fanout", "pdf");
+    let input = path("large-source-link-fanout-input", "pdf");
+    let output = path("large-source-link-fanout-output", "pdf");
+    let instructions = path("large-source-link-fanout-instructions", "json");
+    let source_len = write_sparse_fanout_source(&source, LINK_TARGET_COUNT, LINK_TARGET_BYTES);
+    assert!(source_len > 512 * 1024 * 1024);
+    save_empty_pages(&input, LINK_TARGET_COUNT + 1);
+    let mut page_instructions =
+        vec![r#"{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}"#.to_owned()];
+    page_instructions.extend((1..=LINK_TARGET_COUNT).map(|page_index| {
+        format!(
+            r#"{{"sourcePageIndex":{page_index},"outputPageIndex":{page_index},"matrix":[1,0,0,1,0,0],"linkOnly":true}}"#
+        )
+    }));
+    write(
+        &instructions,
+        format!(r#"{{"pages":[{}]}}"#, page_instructions.join(",")),
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "overlay-text failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let overlaid = Document::load(&output).unwrap();
+    let link_page_id = *overlaid.get_pages().get(&1).unwrap();
+    let annotations = overlaid
+        .get_dictionary(link_page_id)
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone();
+    // Every link keeps its annotation; only the links past the cap lose their destination.
+    assert_eq!(annotations.len(), LINK_TARGET_COUNT);
+    let destinations = annotations
+        .iter()
+        .filter(|annotation| {
+            overlaid
+                .dereference(annotation)
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap()
+                .get(b"Dest")
+                .is_ok()
+        })
+        .count();
+    assert_eq!(destinations, CAPPED_LINK_COUNT);
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
 fn overlay_text_failure_preserves_existing_output_after_a_prior_batch() {
     let source = path("large-source-malformed", "pdf");
     let input = path("large-source-malformed-input", "pdf");
@@ -1741,37 +2079,453 @@ fn overlay_links_target_output_pages_without_copying_source_page_trees() {
     }
 }
 
-#[test]
-fn overlay_refuses_links_to_pages_outside_the_output_and_keeps_existing_bytes() {
-    let source = path("unmapped-link-source", "pdf");
-    let input = path("unmapped-link-input", "pdf");
-    let output = path("unmapped-link-output", "pdf");
-    let instructions = path("unmapped-link-instructions", "json");
-    let mut document = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+/// Which navigation a test link carries, and where the source catalog keeps
+/// the destination it names.
+#[derive(Clone, Copy)]
+enum LinkTarget {
+    /// An explicit destination array on the link.
+    Explicit,
+    /// A name, resolved through the legacy catalog /Dests dictionary.
+    LegacyNamed,
+    /// A name, resolved through the /Names /Dests name tree.
+    TreeNamed,
+    /// A GoTo action whose destination is an explicit array.
+    Action,
+    /// An indirect string naming a legacy catalog /Dests entry.
+    IndirectLegacyNamed,
+    /// An indirect name naming a /Names /Dests name-tree entry.
+    IndirectTreeNamed,
+}
+
+fn add_catalog_entry(document: &mut Document, key: &str, value: Object) {
+    let root = document
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    document.get_dictionary_mut(root).unwrap().set(key, value);
+}
+
+/// Saves two source pages, where page 0 links to page 1 by `target`. A
+/// `target` name is defined in the catalog unless the test leaves it dangling.
+fn save_link_source(path: &Path, target: LinkTarget, defined: bool) {
+    let mut document = save_two_pages(path, [Vec::new(), Vec::new()], Dictionary::new());
     let pages = document.get_pages().into_values().collect::<Vec<_>>();
-    let link_id = document.add_object(dictionary! {
+    let explicit = vec![pages[1].into(), "Fit".into()];
+    let mut link = dictionary! {
         "Type" => "Annot", "Subtype" => "Link", "P" => pages[0],
         "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
-        "Dest" => vec![pages[1].into(), "Fit".into()],
-    });
+    };
+    let name = Object::String(b"target".to_vec(), lopdf::StringFormat::Literal);
+    match target {
+        LinkTarget::Explicit => link.set("Dest", explicit.clone()),
+        LinkTarget::Action => link.set("A", dictionary! {"S" => "GoTo", "D" => explicit.clone()}),
+        LinkTarget::LegacyNamed | LinkTarget::TreeNamed => link.set("Dest", name.clone()),
+        LinkTarget::IndirectLegacyNamed | LinkTarget::IndirectTreeNamed => {
+            let named = document.add_object(name.clone());
+            link.set("Dest", Object::Reference(named));
+        }
+    }
+    if defined {
+        match target {
+            LinkTarget::LegacyNamed | LinkTarget::IndirectLegacyNamed => {
+                add_catalog_entry(
+                    &mut document,
+                    "Dests",
+                    dictionary! {"target" => explicit}.into(),
+                );
+            }
+            LinkTarget::TreeNamed | LinkTarget::IndirectTreeNamed => {
+                let tree = dictionary! {"Names" => vec![name, explicit.into()]};
+                add_catalog_entry(
+                    &mut document,
+                    "Names",
+                    dictionary! {"Dests" => dictionary! {"Kids" => vec![Object::Dictionary(tree)]}}
+                        .into(),
+                );
+            }
+            _ => {}
+        }
+    }
+    let link_id = document.add_object(link);
     document
         .get_dictionary_mut(pages[0])
         .unwrap()
         .set("Annots", vec![Object::Reference(link_id)]);
-    document.save(&source).unwrap();
-    save_empty_pages(&input, 1);
-    write(&output, b"existing output").unwrap();
+    document.save(path).unwrap();
+}
+
+#[test]
+fn overlay_maps_a_link_to_an_output_page_that_copies_no_text() {
+    for page_geometry in [
+        r#""linkOnly":true"#,
+        r#""linkOnly":true,"unmappedGeometry":true"#,
+    ] {
+        let source = path("link-only-source", "pdf");
+        let input = path("link-only-input", "pdf");
+        let output = path("link-only-output", "pdf");
+        let instructions = path("link-only-instructions", "json");
+        save_link_source(&source, LinkTarget::Explicit, true);
+        save_empty_pages(&input, 2);
+        // Output page 2 is a source page with no text: it only receives the link.
+        write(&instructions, format!(r#"{{"pages":[{{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}},{{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0],{page_geometry}}}]}}"#)).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+        let annots = saved
+            .get_dictionary(pages[0])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let link = saved
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        let destination = link.get(b"Dest").unwrap().as_array().unwrap();
+        assert_eq!(destination[0].as_reference().unwrap(), pages[1]);
+        assert_eq!(destination[1].as_name().unwrap(), b"Fit");
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
+fn overlay_resolves_named_destinations_to_the_output_page_they_name() {
+    for target in [LinkTarget::LegacyNamed, LinkTarget::TreeNamed] {
+        let source = path("named-link-source", "pdf");
+        let input = path("named-link-input", "pdf");
+        let output = path("named-link-output", "pdf");
+        let instructions = path("named-link-instructions", "json");
+        save_link_source(&source, target, true);
+        save_empty_pages(&input, 2);
+        write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]},{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}]}"#).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+        let annots = saved
+            .get_dictionary(pages[0])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let link = saved
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        let destination = link.get(b"Dest").unwrap().as_array().unwrap();
+        assert_eq!(destination[0].as_reference().unwrap(), pages[1]);
+        assert_eq!(destination[1].as_name().unwrap(), b"Fit");
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+/// Two pages that link to each other. Each link names the point (100, 60) on
+/// the other page.
+fn save_retained_link_source(path: &Path) {
+    let mut document = save_two_pages(path, [Vec::new(), Vec::new()], Dictionary::new());
+    let pages = document.get_pages().into_values().collect::<Vec<_>>();
+    for (from, to) in [(0, 1), (1, 0)] {
+        let link = dictionary! {
+            "Type" => "Annot", "Subtype" => "Link", "P" => pages[from],
+            "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
+            "Dest" => vec![pages[to].into(), "XYZ".into(), 100.into(), 60.into(), 0.into()],
+        };
+        let link_id = document.add_object(link);
+        document
+            .get_dictionary_mut(pages[from])
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link_id)]);
+    }
+    document.save(path).unwrap();
+}
+
+/// A preserved page is split with a scale and translation, then interleaved
+/// with a blank copied page the way compact cleanup assembles its output. Its
+/// retained link names the output page the plan gives its target, at the same
+/// point. A link from the copied page into the preserved page lands at the point
+/// the preserved page's scaled content puts there.
+#[test]
+fn overlay_rebinds_a_link_a_preserved_page_retains_to_its_output_page() {
+    let source = path("retained-link-source", "pdf");
+    let split_instructions = path("retained-link-split", "json");
+    let split = path("retained-link-split-output", "pdf");
+    let raster = path("retained-link-raster", "pdf");
+    let assembled = path("retained-link-assembled", "pdf");
+    let instructions = path("retained-link-instructions", "json");
+    let output = path("retained-link-output", "pdf");
+    save_retained_link_source(&source);
     write(
-        &instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+        &split_instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":0.5,"translateX":10,"translateY":20}}]}]}"#,
     )
     .unwrap();
-    let result = run_overlay_text(&input, &source, &output, &instructions);
-    assert!(!result.status.success());
-    assert!(String::from_utf8_lossy(&result.stderr).contains("unmapped source page"));
-    assert_eq!(fs::read(&output).unwrap(), b"existing output");
-    for file in [source, input, output, instructions] {
+    run_split_pages(&source, &split, &split_instructions);
+    save_empty_pages(&raster, 1);
+    let interleave = Command::new(qpdf_path())
+        .arg(&raster)
+        .args(["--coalesce-contents", "--pages"])
+        .arg(&split)
+        .arg("1")
+        .arg(&raster)
+        .arg("1")
+        .arg("--")
+        .arg(&assembled)
+        .output()
+        .unwrap();
+    assert!(
+        interleave.status.success(),
+        "{}",
+        String::from_utf8_lossy(&interleave.stderr)
+    );
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[0.5,0,0,0.5,10,20],"linkOnly":true},{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&assembled, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+    let link_on = |page: ObjectId| {
+        let annots = saved
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let link = saved
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        assert!(!link.has(b"EVBDestinationPage"));
+        link.get(b"Dest").unwrap().as_array().unwrap().clone()
+    };
+    // The preserved page's own link: the target page is an identity copy.
+    let outgoing = link_on(pages[0]);
+    assert_eq!(outgoing[0].as_reference().unwrap(), pages[1]);
+    assert_eq!(outgoing[2].as_float().unwrap(), 100.0);
+    assert_eq!(outgoing[3].as_float().unwrap(), 60.0);
+    // The copied page's link into the preserved page, through its transform.
+    let incoming = link_on(pages[1]);
+    assert_eq!(incoming[0].as_reference().unwrap(), pages[0]);
+    assert_eq!(incoming[2].as_float().unwrap(), 60.0);
+    assert_eq!(incoming[3].as_float().unwrap(), 50.0);
+    for file in [
+        source,
+        split_instructions,
+        split,
+        raster,
+        assembled,
+        instructions,
+        output,
+    ] {
         let _ = remove_file(file);
+    }
+}
+
+#[test]
+fn overlay_keeps_a_link_whose_destination_no_output_shows_and_drops_only_the_destination() {
+    for (target, defined) in [
+        (LinkTarget::Explicit, true),
+        (LinkTarget::Action, true),
+        (LinkTarget::LegacyNamed, true),
+        (LinkTarget::TreeNamed, true),
+        (LinkTarget::LegacyNamed, false),
+    ] {
+        let source = path("outside-link-source", "pdf");
+        let input = path("outside-link-input", "pdf");
+        let output = path("outside-link-output", "pdf");
+        let instructions = path("outside-link-instructions", "json");
+        save_link_source(&source, target, defined);
+        save_empty_pages(&input, 1);
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+        )
+        .unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let page = saved.get_pages().into_values().next().unwrap();
+        let annots = saved
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(annots.len(), 1);
+        let link = saved
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(link.get(b"Subtype").unwrap().as_name().unwrap(), b"Link");
+        assert!(link.get(b"Dest").is_err());
+        if let Ok(action) = link.get(b"A") {
+            assert!(action.as_dict().unwrap().get(b"D").is_err());
+        }
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
+fn overlay_keeps_a_seam_note_and_its_reply_on_the_page_that_owns_it() {
+    // The left source region owns a note centred at x=99.5, but the left
+    // canvas placement moves it 30 pt past the 100 pt page. The reader would
+    // drop it as foreign, so the marker moves back onto the page, keeping its
+    // size and its reply.
+    let source = path("seam-clamp-note", "pdf");
+    let input = path("seam-clamp-target", "pdf");
+    let output = path("seam-clamp-output", "pdf");
+    let inspected = path("seam-clamp-inspected", "pdf");
+    let instructions = path("seam-clamp", "json");
+    let parsed = path("seam-clamp-parsed", "jsonl");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let root = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => vec![94.into(), 45.into(), 105.into(), 55.into()],
+        "Contents" => Object::string_literal("Seam root"),
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
+        "Rect" => vec![50.into(), 45.into(), 60.into(), 55.into()],
+        "Contents" => Object::string_literal("Seam reply"),
+    });
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![Object::Reference(root), Object::Reference(reply)],
+    );
+    document.save(&source).unwrap();
+    let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
+    for id in target.get_pages().values() {
+        target
+            .get_dictionary_mut(*id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    }
+    target.save(&input).unwrap();
+    let region = |x: i64| {
+        serde_json::json!({
+            "rect": {"x": x, "y": 0, "width": 100, "height": 120},
+            "matrix": [1, 0, 0, -1, 0, 120],
+        })
+    };
+    write(
+        &instructions,
+        serde_json::to_vec(&serde_json::json!({"pages": [
+            {"sourcePageIndex": 0, "outputPageIndex": 0, "matrix": [1, 0, 0, 1, 30, 0],
+             "filterToOutputPage": true, "sourceRegion": region(0)},
+            {"sourcePageIndex": 0, "outputPageIndex": 1, "matrix": [1, 0, 0, 1, -70, 0],
+             "filterToOutputPage": true, "sourceRegion": region(100)},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    run_text_box_command("parse-annotations", &output, &parsed, None);
+    // A note entry carries its reply thread, so the reply is read back with it.
+    let notes = fs::read_to_string(&parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .filter(|entry| entry["kind"] == "note")
+        .map(|entry| {
+            let replies = entry["replies"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|reply| reply["contents"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>();
+            (
+                entry["pageIndex"].as_u64().unwrap(),
+                entry["contents"].as_str().unwrap().to_string(),
+                replies,
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        notes.contains(&(0, "Seam root".to_string(), vec!["Seam reply".to_string()])),
+        "seam note and its reply are not an editable note on page 0: {notes:?}"
+    );
+    let compact = Command::new(qpdf_path())
+        .arg(&output)
+        .arg(&inspected)
+        .output()
+        .unwrap();
+    assert!(compact.status.success());
+    let saved = Document::load(&inspected).unwrap();
+    let page = saved.get_pages()[&1];
+    let annotations = saved
+        .get_dictionary(page)
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let root_rect = annotations
+        .iter()
+        .map(|object| {
+            saved
+                .get_dictionary(object.as_reference().unwrap())
+                .unwrap()
+        })
+        .find(|annotation| {
+            annotation.get(b"Contents").unwrap().as_str().unwrap() == b"Seam root".as_slice()
+        })
+        .unwrap()
+        .get(b"Rect")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|number| f64::from(number.as_float().unwrap()))
+        .collect::<Vec<_>>();
+    assert!(
+        root_rect[0] >= 0.0
+            && root_rect[2] <= 100.0
+            && root_rect[1] >= 0.0
+            && root_rect[3] <= 120.0,
+        "seam note Rect {root_rect:?} is outside the 100 x 120 page"
+    );
+    for file in [source, input, output, inspected, instructions, parsed] {
+        remove_file(file).unwrap();
     }
 }
 
@@ -1789,6 +2543,7 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
         let output = path("source-region-output", "pdf");
         let inspected = path("source-region-inspected", "pdf");
         let instructions = path("source-region", "json");
+        let parsed = path("source-region-parsed", "jsonl");
         let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
         let page_id = document.get_pages()[&1];
         let seam = document.add_object(dictionary! {
@@ -1815,18 +2570,56 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
             .get_dictionary_mut(reply)
             .unwrap()
             .set("Popup", popup);
+        // A legacy point note (ADR 0003): a blank-appearance FreeText whose
+        // 2 pt marker sits on the seam. Its popup follows it to the same half.
+        let legacy_appearance = document.add_object(Stream::new(
+            dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.into(), 2.into()]},
+            Vec::new(),
+        ));
+        let legacy_popup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id,
+            "Rect" => vec![140.into(), 60.into(), 190.into(), 100.into()],
+            "Contents" => Object::string_literal("Legacy popup"),
+        });
+        let legacy_root = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+            "Rect" => vec![99.into(), 50.into(), 101.into(), 52.into()],
+            "Contents" => Object::string_literal("Legacy seam note"),
+            "AP" => dictionary! {"N" => legacy_appearance},
+            "Popup" => legacy_popup,
+        });
+        document
+            .get_dictionary_mut(legacy_popup)
+            .unwrap()
+            .set("Parent", legacy_root);
         let markup = document.add_object(dictionary! {
             "Type" => "Annot", "Subtype" => "Highlight", "P" => page_id,
             "Rect" => vec![90.into(), 45.into(), 110.into(), 55.into()],
             "QuadPoints" => vec![90.into(), 55.into(), 110.into(), 55.into(), 90.into(), 45.into(), 110.into(), 45.into()],
             "Contents" => Object::string_literal("Cross-seam markup"),
         });
+        // Its Rect is padded across the seam, but every quad lies on the left.
+        let padded_markup = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Highlight", "P" => page_id,
+            "Rect" => vec![40.into(), 45.into(), 104.into(), 55.into()],
+            "QuadPoints" => vec![40.into(), 55.into(), 70.into(), 55.into(), 40.into(), 45.into(), 70.into(), 45.into()],
+            "Contents" => Object::string_literal("Padded left markup"),
+        });
         document.get_dictionary_mut(page_id).unwrap().set(
             "Annots",
-            vec![seam, root, reply, popup, markup]
-                .into_iter()
-                .map(Object::Reference)
-                .collect::<Vec<_>>(),
+            vec![
+                seam,
+                root,
+                reply,
+                popup,
+                legacy_root,
+                legacy_popup,
+                markup,
+                padded_markup,
+            ]
+            .into_iter()
+            .map(Object::Reference)
+            .collect::<Vec<_>>(),
         );
         document.save(&source).unwrap();
         if incremental {
@@ -1927,6 +2720,7 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
             .collect::<Vec<_>>();
         let mut expected_left = vec![
             "Cross-seam markup",
+            "Padded left markup",
             "Reply note",
             "Reply popup",
             "Root note",
@@ -1959,7 +2753,12 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
                 .keys()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
-            vec!["Cross-seam markup", "Seam note"]
+            vec![
+                "Cross-seam markup",
+                "Legacy popup",
+                "Legacy seam note",
+                "Seam note"
+            ]
         );
         let left = &annotations[0];
         let reply = saved.get_dictionary(left["Reply note"]).unwrap();
@@ -1994,8 +2793,95 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
                         .is_some_and(|subtype| matches!(subtype, b"Text" | b"Popup"))
                 })
                 .count(),
-            4 + usize::from(!incremental)
+            // The legacy seam marker is written as a /Text note as well.
+            6 + usize::from(!incremental)
         );
+        // Read the split output back as the viewer does: the seam notes must
+        // be editable notes on their owning half, not foreign entries.
+        run_text_box_command("parse-annotations", &output, &parsed, None);
+        let read_back_of_kind = |kind: &str| {
+            fs::read_to_string(&parsed)
+                .unwrap()
+                .lines()
+                .skip(1)
+                .flat_map(|line| {
+                    serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                        .as_array()
+                        .unwrap()
+                        .clone()
+                })
+                .filter(|entry| entry["kind"] == kind)
+                .map(|entry| {
+                    (
+                        entry["pageIndex"].as_u64().unwrap(),
+                        entry["contents"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let read_back = read_back_of_kind("note");
+        for (page, contents) in [(0, "Root note"), (1, "Seam note"), (1, "Legacy seam note")] {
+            assert!(
+                read_back.contains(&(page, contents.to_string())),
+                "incremental={incremental} margin={margin} region={source_region}: {contents} is not a note on page {page}: {read_back:?}"
+            );
+        }
+        // The cross-seam highlight is clipped to each output page: both halves
+        // read it back as editable markup, and its quads match the highlight drawn
+        // inside that page to within a point.
+        let highlights = read_back_of_kind("highlight");
+        for page in [0, 1] {
+            assert!(
+                highlights.contains(&(page, "Cross-seam markup".to_string())),
+                "incremental={incremental} margin={margin} region={source_region}: highlight is not editable markup on page {page}: {highlights:?}"
+            );
+        }
+        for (page_index, page) in saved.get_pages().values().enumerate() {
+            let media = saved
+                .get_dictionary(*page)
+                .unwrap()
+                .get(b"MediaBox")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| f64::from(value.as_float().unwrap()))
+                .collect::<Vec<_>>();
+            // Source highlight 90..110 by 45..55, moved by the instruction's matrix.
+            let shift_x = margin as f64 - 100.0 * page_index as f64;
+            let shift_y = margin as f64;
+            let expected = [
+                (90.0 + shift_x).max(0.0),
+                (45.0 + shift_y).max(0.0),
+                (110.0 + shift_x).min(media[2]),
+                (55.0 + shift_y).min(media[3]),
+            ];
+            assert!(expected[2] > expected[0] && expected[3] > expected[1]);
+            let quads = saved
+                .get_dictionary(annotations[page_index]["Cross-seam markup"])
+                .unwrap()
+                .get(b"QuadPoints")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| f64::from(value.as_float().unwrap()))
+                .collect::<Vec<_>>();
+            let xs = quads.iter().step_by(2);
+            let ys = quads.iter().skip(1).step_by(2);
+            let actual = [
+                xs.clone().copied().fold(f64::INFINITY, f64::min),
+                ys.clone().copied().fold(f64::INFINITY, f64::min),
+                xs.copied().fold(f64::NEG_INFINITY, f64::max),
+                ys.copied().fold(f64::NEG_INFINITY, f64::max),
+            ];
+            for (actual, expected) in actual.iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() <= 1.0,
+                    "incremental={incremental} margin={margin} region={source_region} page={page_index}: quads {actual:?} != {expected:?}"
+                );
+            }
+        }
         // An ownership cycle has no terminal half. Refuse before publication.
         for owner in [
             root,
@@ -2031,19 +2917,26 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
         let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
         assert!(!result.status.success());
         assert_eq!(fs::read(&output).unwrap(), b"existing output");
-        for file in [source, input, output, inspected, instructions] {
+        for file in [source, input, output, inspected, instructions, parsed] {
             remove_file(file).unwrap();
         }
     }
 }
 
 fn red_pixels(pdf: &Path) -> Vec<(f64, f64)> {
+    red_pixels_on_page(pdf, 1)
+}
+
+fn red_pixels_on_page(pdf: &Path, page: u32) -> Vec<(f64, f64)> {
     let rendered = Command::new(external_tool::tool_path(
         "PDFTOPPM_PATH",
         "poppler",
         "pdftoppm",
     ))
-    .args(["-r", "72", "-singlefile"])
+    .args(["-r", "72", "-singlefile", "-f"])
+    .arg(page.to_string())
+    .args(["-l"])
+    .arg(page.to_string())
     .arg(pdf)
     .output()
     .unwrap();
@@ -2244,6 +3137,194 @@ fn overlay_legacy_point_note_thread_lands_on_one_split_half() {
 }
 
 #[test]
+fn unfiltered_overlay_keeps_a_legacy_note_marker_a_note_on_a_narrower_page() {
+    // Full-page cleanup copies without a page filter; a cropped output page
+    // narrower than the source still must not turn the marker foreign.
+    let source = path("legacy-marker-unfiltered-note", "pdf");
+    let input = path("legacy-marker-unfiltered-target", "pdf");
+    let output = path("legacy-marker-unfiltered-output", "pdf");
+    let instructions = path("legacy-marker-unfiltered", "json");
+    let parsed = path("legacy-marker-unfiltered-parsed", "jsonl");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let blank_appearance = document.add_object(Stream::new(
+        dictionary! { "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.2.into(), 2.2.into()] },
+        Vec::new(),
+    ));
+    let root = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+        "NM" => Object::string_literal("legacy-marker"),
+        "Rect" => vec![48.9_f32.into(), 49.0_f32.into(), 51.1_f32.into(), 51.2_f32.into()],
+        "Contents" => Object::string_literal("Legacy margin"),
+        "AP" => dictionary! { "N" => blank_appearance },
+    });
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root,
+        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+    });
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Popup", popup);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![root, popup]
+            .into_iter()
+            .map(Object::Reference)
+            .collect::<Vec<_>>(),
+    );
+    document.save(&source).unwrap();
+    let mut target = save_single_page(&input, Vec::new(), Dictionary::new());
+    let target_page = target.get_pages()[&1];
+    target
+        .get_dictionary_mut(target_page)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let parse = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args([
+            "parse-annotations",
+            "--input",
+            output.to_str().unwrap(),
+            "--output",
+            parsed.to_str().unwrap(),
+            "--modified-at",
+            "D:20260830130000Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        parse.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parse.stderr)
+    );
+    let sidecar = fs::read_to_string(&parsed).unwrap();
+    let chunk = serde_json::from_str::<serde_json::Value>(sidecar.lines().nth(1).unwrap()).unwrap();
+    let marker = chunk["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == "legacy-marker")
+        .expect("the copied marker should parse");
+    assert_eq!(marker["kind"], "note");
+
+    for file in [source, input, output, instructions, parsed] {
+        let _ = remove_file(file);
+    }
+}
+
+#[test]
+fn overlay_split_keeps_a_legacy_note_marker_a_note_on_the_narrower_half() {
+    let source = path("legacy-marker-width-note", "pdf");
+    let input = path("legacy-marker-width-target", "pdf");
+    let output = path("legacy-marker-width-output", "pdf");
+    let instructions = path("legacy-marker-width", "json");
+    let parsed = path("legacy-marker-width-parsed", "jsonl");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let blank_appearance = document.add_object(Stream::new(
+        dictionary! { "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.2.into(), 2.2.into()] },
+        Vec::new(),
+    ));
+    // ADR 0003 legacy marker: 2.2 points square, blank appearance, Popup child.
+    // It reads as a note on the 200-point source page (0.011 wide).
+    let root = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+        "NM" => Object::string_literal("legacy-marker"),
+        "Rect" => vec![148.9_f32.into(), 49.0_f32.into(), 151.1_f32.into(), 51.2_f32.into()],
+        "Contents" => Object::string_literal("Legacy interior"),
+        "AP" => dictionary! { "N" => blank_appearance },
+    });
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root,
+        "Rect" => vec![130.into(), 60.into(), 180.into(), 100.into()],
+    });
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Popup", popup);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![root, popup]
+            .into_iter()
+            .map(Object::Reference)
+            .collect::<Vec<_>>(),
+    );
+    document.save(&source).unwrap();
+    let mut target = save_two_pages(&input, [Vec::new(), Vec::new()], Dictionary::new());
+    for id in target.get_pages().values() {
+        target
+            .get_dictionary_mut(*id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    }
+    target.save(&input).unwrap();
+    let pages = (0..2_i64)
+        .map(|index| {
+            serde_json::json!({
+                "sourcePageIndex":0,"outputPageIndex":index,
+                "matrix":[1,0,0,1,-100 * index,0],"filterToOutputPage":true,
+            })
+        })
+        .collect::<Vec<_>>();
+    write(
+        &instructions,
+        serde_json::to_vec(&serde_json::json!({"pages":pages})).unwrap(),
+    )
+    .unwrap();
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let parse = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args([
+            "parse-annotations",
+            "--input",
+            output.to_str().unwrap(),
+            "--output",
+            parsed.to_str().unwrap(),
+            "--modified-at",
+            "D:20260830130000Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        parse.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parse.stderr)
+    );
+    let sidecar = fs::read_to_string(&parsed).unwrap();
+    let chunk = serde_json::from_str::<serde_json::Value>(sidecar.lines().nth(1).unwrap()).unwrap();
+    let marker = chunk["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == "legacy-marker")
+        .expect("the copied marker should parse on one half");
+    assert_eq!(marker["kind"], "note");
+    assert_eq!(marker["pageIndex"], 1);
+
+    for file in [source, input, output, instructions, parsed] {
+        let _ = remove_file(file);
+    }
+}
+
+#[test]
 fn overlay_composes_appearance_placement_in_rewrite_and_incremental_outputs() {
     for (incremental, flags, form_matrix, transform) in [
         (
@@ -2395,6 +3476,297 @@ fn overlay_composes_appearance_placement_in_rewrite_and_incremental_outputs() {
             remove_file(file).unwrap();
         }
     }
+}
+
+#[test]
+fn overlay_clips_a_seam_highlight_appearance_without_rescaling_its_marks() {
+    let source = path("markup-appearance-source", "pdf");
+    let input = path("markup-appearance-input", "pdf");
+    let output = path("markup-appearance-output", "pdf");
+    let instructions = path("markup-appearance-instructions", "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page = document.get_pages()[&1];
+    // Four points of red at x 90..94, painted by an appearance that spans the Rect.
+    let appearance = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 20.into(), 10.into()],
+            "Resources" => Dictionary::new(),
+        },
+        b"1 0 0 rg 0 0 4 10 re f".to_vec(),
+    ));
+    let annotation = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Highlight", "P" => page,
+        "Rect" => vec![90.into(), 45.into(), 110.into(), 55.into()],
+        "QuadPoints" => vec![
+            90.into(), 55.into(), 110.into(), 55.into(), 90.into(), 45.into(), 110.into(), 45.into(),
+        ],
+        "C" => vec![1.into(), 0.into(), 0.into()], "F" => 4,
+        "AP" => dictionary! {"N" => appearance},
+    });
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annotation)]);
+    document.save(&source).unwrap();
+    save_half_pages(&input, 2);
+    write(
+        &instructions,
+        serde_json::to_vec(&serde_json::json!({"pages":[
+            {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},
+            {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    // A viewer fits an appearance's BBox to the annotation Rect. Poppler draws
+    // a Highlight from its quads, not its appearance, so the saved geometry is
+    // checked here: each half's Rect is its clipped part, and the BBox matches it
+    // (scale 1). PDF.js pixel counts are recorded in the probe evidence.
+    let saved = Document::load(&output).unwrap();
+    for (page, expected) in [(1, [90, 45, 100, 55]), (2, [0, 45, 10, 55])] {
+        let annotations = saved
+            .get_dictionary(saved.get_pages()[&page])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(annotations.len(), 1);
+        let annotation = saved
+            .get_dictionary(annotations[0].as_reference().unwrap())
+            .unwrap();
+        let rect = real_numbers(annotation.get(b"Rect").unwrap());
+        assert_eq!(rect, expected.map(f64::from));
+        let appearance = annotation
+            .get(b"AP")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"N")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let form = saved.get_object(appearance).unwrap().as_stream().unwrap();
+        assert_eq!(real_numbers(form.dict.get(b"BBox").unwrap()), rect);
+    }
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn overlay_keeps_a_highlight_whose_quad_array_is_malformed() {
+    for quads in [
+        vec![40, 55, 70, 55],
+        vec![40, 55, 70, 55, 40, 45, 70, 45, 999],
+    ] {
+        let source = path("markup-malformed-source", "pdf");
+        let input = path("markup-malformed-input", "pdf");
+        let output = path("markup-malformed-output", "pdf");
+        let instructions = path("markup-malformed-instructions", "json");
+        let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = document.get_pages()[&1];
+        let annotation = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Highlight", "P" => page,
+            "Rect" => vec![40.into(), 45.into(), 70.into(), 55.into()],
+            "QuadPoints" => quads.iter().map(|&value| Object::Integer(value)).collect::<Vec<_>>(),
+            "C" => vec![1.into(), 0.into(), 0.into()], "F" => 4,
+            "Contents" => "malformed quads",
+        });
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annotation)]);
+        document.save(&source).unwrap();
+        save_empty_pages(&input, 1);
+        write(
+            &instructions,
+            serde_json::to_vec(&serde_json::json!({"pages":[{
+                "sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],
+                "filterToOutputPage":true,
+            }]}))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        // Readers ignore a quad array that is not whole quads, but the saved
+        // annotation keeps its data: the Rect admits it and its quads stay as read.
+        let saved = Document::load(&output).unwrap();
+        let annotations = saved
+            .get_dictionary(saved.get_pages()[&1])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(annotations.len(), 1);
+        let annotation = saved
+            .get_dictionary(annotations[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(
+            annotation.get(b"Subtype").unwrap().as_name().unwrap(),
+            b"Highlight"
+        );
+        assert_eq!(
+            real_numbers(annotation.get(b"QuadPoints").unwrap()),
+            quads
+                .iter()
+                .map(|&value| f64::from(value as i32))
+                .collect::<Vec<_>>()
+        );
+        for file in [source, input, output, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_admits_a_highlight_by_its_indirect_quads_not_its_rect() {
+    let source = path("markup-indirect-source", "pdf");
+    let input = path("markup-indirect-input", "pdf");
+    let output = path("markup-indirect-output", "pdf");
+    let instructions = path("markup-indirect-instructions", "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page = document.get_pages()[&1];
+    // The quads sit left of the seam at x 100; the Rect straddles it.
+    let quads = document.add_object(vec![
+        90.into(),
+        55.into(),
+        95.into(),
+        55.into(),
+        90.into(),
+        45.into(),
+        95.into(),
+        45.into(),
+    ]);
+    let annotation = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Highlight", "P" => page,
+        "Rect" => vec![85.into(), 45.into(), 104.into(), 55.into()],
+        "QuadPoints" => quads,
+        "C" => vec![1.into(), 0.into(), 0.into()], "F" => 4,
+        "Contents" => "left of the seam",
+    });
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annotation)]);
+    document.save(&source).unwrap();
+    save_half_pages(&input, 2);
+    write(
+        &instructions,
+        serde_json::to_vec(&serde_json::json!({"pages":[
+            {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true},
+            {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    // Only the left half holds the highlight; the right half's copy would sit
+    // off that page's content.
+    let saved = Document::load(&output).unwrap();
+    let annotations_on = |page: u32| {
+        saved
+            .get_dictionary(saved.get_pages()[&page])
+            .unwrap()
+            .get(b"Annots")
+            .map(|annots| annots.as_array().unwrap().len())
+            .unwrap_or(0)
+    };
+    assert_eq!(annotations_on(1), 1);
+    assert_eq!(annotations_on(2), 0);
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn overlay_places_a_highlight_without_a_rect_by_its_quads() {
+    let source = path("markup-no-rect-source", "pdf");
+    let input = path("markup-no-rect-input", "pdf");
+    let output = path("markup-no-rect-output", "pdf");
+    let instructions = path("markup-no-rect-instructions", "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page = document.get_pages()[&1];
+    let annotation = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Highlight", "P" => page,
+        "QuadPoints" => vec![
+            40.into(), 55.into(), 70.into(), 55.into(), 40.into(), 45.into(), 70.into(), 45.into(),
+        ],
+        "C" => vec![1.into(), 0.into(), 0.into()], "F" => 4,
+        "Contents" => "no rect",
+    });
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annotation)]);
+    document.save(&source).unwrap();
+    save_half_pages(&input, 2);
+    write(
+        &instructions,
+        serde_json::to_vec(&serde_json::json!({"pages":[
+            {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,5,0],"filterToOutputPage":true},
+            {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    // The left half keeps the highlight at its moved quads; the right half is
+    // off the quads' x 40..70 span after its shift, so it is not copied there.
+    let saved = Document::load(&output).unwrap();
+    let annotations = |page: u32| {
+        saved
+            .get_dictionary(saved.get_pages()[&page])
+            .unwrap()
+            .get(b"Annots")
+            .map(|annots| annots.as_array().unwrap().clone())
+            .unwrap_or_default()
+    };
+    let left = annotations(1);
+    assert_eq!(left.len(), 1);
+    let left = saved
+        .get_dictionary(left[0].as_reference().unwrap())
+        .unwrap();
+    assert_eq!(
+        real_numbers(left.get(b"QuadPoints").unwrap()),
+        [45.0, 55.0, 75.0, 55.0, 45.0, 45.0, 75.0, 45.0]
+    );
+    assert!(annotations(2).is_empty());
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+fn real_numbers(object: &Object) -> Vec<f64> {
+    object
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| f64::from(value.as_float().unwrap()))
+        .collect()
 }
 
 fn run_text_box_command(operation: &str, input: &Path, output: &Path, mutations: Option<&Path>) {
@@ -2938,5 +4310,497 @@ fn overlay_transforms_fitted_and_partial_destination_coordinates() {
         for file in [source, input, output, instructions] {
             remove_file(file).unwrap();
         }
+    }
+}
+
+/// A 200 pt page with one legacy point marker (ADR 0003) and its popup. Each
+/// key named in `indirect` is stored as its own object, as qpdf writes it.
+fn save_legacy_marker_source(path: &Path, indirect: &[&str]) {
+    let mut document = save_single_page(path, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let appearance = document.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.into(), 2.into()]},
+        Vec::new(),
+    ));
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id,
+        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+        "Contents" => Object::string_literal("Legacy popup"),
+    });
+    let values = [
+        (
+            "Rect",
+            Object::Array(vec![48.9.into(), 49.into(), 51.1.into(), 51.2.into()]),
+        ),
+        ("CreationDate", Object::string_literal("D:20260830130000Z")),
+        ("M", Object::string_literal("D:20261011000000Z")),
+    ];
+    let mut root = dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+        "Contents" => Object::string_literal("Legacy marker"),
+        "AP" => dictionary! {"N" => appearance},
+        "Popup" => popup,
+    };
+    for (key, value) in values {
+        let value = if indirect.contains(&key) {
+            Object::Reference(document.add_object(value))
+        } else {
+            value
+        };
+        root.set(key, value);
+    }
+    let root = document.add_object(root);
+    document
+        .get_dictionary_mut(popup)
+        .unwrap()
+        .set("Parent", root);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![Object::Reference(root), Object::Reference(popup)],
+    );
+    document.save(path).unwrap();
+}
+
+/// Contents of every note entry in a `parse-annotations` output.
+fn parsed_note_contents(parsed: &Path) -> Vec<String> {
+    fs::read_to_string(parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .filter(|entry| entry["kind"] == "note")
+        .map(|entry| entry["contents"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn overlay_keeps_a_legacy_marker_with_an_indirect_rect_as_a_note() {
+    let source = path("legacy-indirect-rect-source", "pdf");
+    let input = path("legacy-indirect-rect-target", "pdf");
+    let output = path("legacy-indirect-rect-output", "pdf");
+    let instructions = path("legacy-indirect-rect", "json");
+    let parsed = path("legacy-indirect-rect-parsed", "jsonl");
+    save_legacy_marker_source(&source, &["Rect"]);
+    save_single_page(&input, Vec::new(), Dictionary::new());
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    run_text_box_command("parse-annotations", &output, &parsed, None);
+    assert_eq!(parsed_note_contents(&parsed), ["Legacy marker"]);
+    for file in [source, input, output, instructions, parsed] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn overlay_keeps_indirect_creation_and_modified_dates_on_a_converted_marker() {
+    let source = path("legacy-indirect-dates-source", "pdf");
+    let input = path("legacy-indirect-dates-target", "pdf");
+    let output = path("legacy-indirect-dates-output", "pdf");
+    let instructions = path("legacy-indirect-dates", "json");
+    save_legacy_marker_source(&source, &["CreationDate", "M"]);
+    save_single_page(&input, Vec::new(), Dictionary::new());
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let converted = Document::load(&output).unwrap();
+    let note = converted
+        .objects
+        .values()
+        .filter_map(|object| object.as_dict().ok())
+        .find(|dictionary| {
+            dictionary.get(b"Contents").and_then(Object::as_str).ok() == Some(b"Legacy marker")
+                && dictionary.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Text")
+        })
+        .expect("the legacy marker is written as a /Text note");
+    assert_eq!(
+        note.get(b"CreationDate").and_then(Object::as_str).unwrap(),
+        b"D:20260830130000Z"
+    );
+    assert_eq!(
+        note.get(b"M").and_then(Object::as_str).unwrap(),
+        b"D:20261011000000Z"
+    );
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+/// A source note at `rect` and a 10 pt wide output that keeps the note's centre
+/// through a 100 pt source region. The note cannot fit the output, so the
+/// overlay refuses and publishes nothing rather than a foreign note.
+fn assert_overlay_refuses_note_wider_than_output(label: &str, rect: [i64; 4]) {
+    let source = path(&format!("{label}-source"), "pdf");
+    let input = path(&format!("{label}-target"), "pdf");
+    let output = path(&format!("{label}-output"), "pdf");
+    let instructions = path(label, "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let note = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => rect.map(Object::from).to_vec(),
+        "Contents" => Object::string_literal("Wide note"),
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(note)]);
+    document.save(&source).unwrap();
+    let mut target = save_single_page(&input, Vec::new(), Dictionary::new());
+    let target_page = target.get_pages()[&1];
+    target
+        .get_dictionary_mut(target_page)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 10.into(), 120.into()]);
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":100,"height":120}}}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        !result.status.success(),
+        "an 11 pt note on a 10 pt page must be refused"
+    );
+    assert!(!output.exists(), "a refused overlay publishes no output");
+    for file in [source, input, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn overlay_refuses_a_note_wider_than_its_output_page() {
+    assert_overlay_refuses_note_wider_than_output("note-too-wide", [45, 45, 56, 55]);
+}
+
+#[test]
+fn overlay_refuses_an_overwide_note_already_at_the_output_origin() {
+    assert_overlay_refuses_note_wider_than_output("note-too-wide-origin", [0, 45, 11, 55]);
+}
+
+#[test]
+fn overlay_copies_a_text_annotation_its_source_page_already_shows_as_foreign() {
+    // A /Text root wider than its own source page is not a note there, so the
+    // overlay copies it as it is rather than refusing the whole document.
+    let source = path("foreign-wide-text-source", "pdf");
+    let input = path("foreign-wide-text-target", "pdf");
+    let output = path("foreign-wide-text-output", "pdf");
+    let instructions = path("foreign-wide-text", "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let note = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => vec![(-60).into(), 45.into(), 165.into(), 55.into()],
+        "Contents" => Object::string_literal("Foreign wide text"),
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(note)]);
+    document.save(&source).unwrap();
+    let mut target = save_single_page(&input, Vec::new(), Dictionary::new());
+    let target_page = target.get_pages()[&1];
+    target
+        .get_dictionary_mut(target_page)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 10.into(), 120.into()]);
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":100,"height":120}}}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(output.exists(), "the overlay publishes its output");
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+/// A 200 x 120 source page holding one note with `rect`. With `indirect_subtype`
+/// the /Subtype is an indirect name object, as some writers emit it.
+fn save_note_source(path: &Path, indirect_subtype: bool, rect: [i64; 4]) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let subtype = Object::Name(b"Text".to_vec());
+    let subtype = if indirect_subtype {
+        Object::Reference(document.add_object(subtype))
+    } else {
+        subtype
+    };
+    let note_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => subtype,
+        "P" => page_id,
+        "Rect" => rect.map(Object::Integer).to_vec(),
+        "Contents" => Object::string_literal("source note"),
+    });
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Annots" => vec![Object::Reference(note_id)],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+/// A blank one-page target `width` points wide and 120 points high.
+fn save_target_of_width(path: &Path, width: i64) {
+    let mut document = save_pages(path, std::iter::once(None), Dictionary::new());
+    for page in document.get_pages().into_values() {
+        document.get_dictionary_mut(page).unwrap().set(
+            "MediaBox",
+            vec![0.into(), 0.into(), width.into(), 120.into()],
+        );
+    }
+    document.save(path).unwrap();
+}
+
+/// Overlays the whole 200 x 120 source onto the target's page without moving it.
+fn overlay_whole_source_instructions() -> &'static str {
+    r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":200,"height":120}}}]}"#
+}
+
+#[test]
+fn overlay_refuses_a_note_whose_indirect_subtype_is_wider_than_its_output_page() {
+    for indirect_subtype in [false, true] {
+        let source = path("overwide-note-source", "pdf");
+        let input = path("overwide-note-target", "pdf");
+        let output = path("overwide-note-output", "pdf");
+        let instructions = path("overwide-note-instructions", "json");
+        // An 11 pt note admitted on its 200 pt source page cannot stay a note on a 10 pt page.
+        save_note_source(&source, indirect_subtype, [0, 45, 11, 55]);
+        save_target_of_width(&input, 10);
+        write(&instructions, overlay_whole_source_instructions()).unwrap();
+
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+
+        assert!(
+            !result.status.success(),
+            "indirect subtype {indirect_subtype}: an admitted note was published on a page it cannot fit"
+        );
+        for file in [source, input, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_leaves_a_foreign_note_where_it_is_on_any_output_page() {
+    for target_width in [150, 300] {
+        let source = path("foreign-note-source", "pdf");
+        let input = path("foreign-note-target", "pdf");
+        let output = path("foreign-note-output", "pdf");
+        let instructions = path("foreign-note-instructions", "json");
+        // The 225 pt rectangle is wider than the 200 pt source page, so the reader
+        // does not admit it as a note and the overlay must not move or reclassify it.
+        save_note_source(&source, false, [-60, 45, 165, 55]);
+        save_target_of_width(&input, target_width);
+        write(&instructions, overlay_whole_source_instructions()).unwrap();
+
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        let saved = Document::load(&output).unwrap();
+        let page = saved.get_pages()[&1];
+        let annots = saved.get_dictionary(page).unwrap().get(b"Annots").unwrap();
+        let (_, annots) = saved.dereference(annots).unwrap();
+        let (_, note) = saved.dereference(&annots.as_array().unwrap()[0]).unwrap();
+        let rect: Vec<f32> = note
+            .as_dict()
+            .unwrap()
+            .get(b"Rect")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_float().unwrap())
+            .collect();
+        assert_eq!(
+            rect,
+            [-60.0, 45.0, 165.0, 55.0],
+            "target width {target_width}"
+        );
+
+        let parsed = path("foreign-note-parsed", "jsonl");
+        let parse = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["parse-annotations", "--input"])
+            .arg(&output)
+            .arg("--output")
+            .arg(&parsed)
+            .args(["--modified-at", "D:20261011000000Z"])
+            .output()
+            .unwrap();
+        assert!(parse.status.success());
+        let kinds: Vec<String> = fs::read_to_string(&parsed)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .flat_map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                    .as_array()
+                    .unwrap()
+                    .clone()
+            })
+            .map(|entry| entry["kind"].as_str().unwrap().to_string())
+            .collect();
+        // Only a 150 pt page is too narrow for the 225 pt rectangle. On 300 pt the
+        // reader admits it by its own rule, which placement does not decide.
+        if target_width == 150 {
+            assert_eq!(kinds, ["foreign"]);
+        }
+        for file in [source, input, output, instructions, parsed] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+/// A retained destination that the output refuses leaves the output's bytes
+/// as they were. The copy and the rebinding publish together, so a refused
+/// rebinding cannot leave the copied pages behind. The refused link names a
+/// page that two preserved halves both show, which is ambiguous.
+#[test]
+fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
+    let source = path("retained-refusal-source", "pdf");
+    let split_instructions = path("retained-refusal-split", "json");
+    let split = path("retained-refusal-split-output", "pdf");
+    let raster = path("retained-refusal-raster", "pdf");
+    let assembled = path("retained-refusal-assembled", "pdf");
+    let instructions = path("retained-refusal-instructions", "json");
+    let output = path("retained-refusal-output", "pdf");
+
+    let mut document = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+    let first_page = document.get_pages()[&1];
+    let link = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link", "P" => first_page,
+        "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+        "Dest" => vec![first_page.into(), "Fit".into()],
+    });
+    document
+        .get_dictionary_mut(first_page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(link)]);
+    document.save(&source).unwrap();
+    write(
+        &split_instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+    run_split_pages(&source, &split, &split_instructions);
+    save_empty_pages(&raster, 1);
+    let interleave = Command::new(qpdf_path())
+        .arg(&raster)
+        .args(["--coalesce-contents", "--pages"])
+        .arg(&split)
+        .arg("1-2")
+        .arg(&raster)
+        .arg("1")
+        .arg("--")
+        .arg(&assembled)
+        .output()
+        .unwrap();
+    assert!(
+        interleave.status.success(),
+        "{}",
+        String::from_utf8_lossy(&interleave.stderr)
+    );
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"linkOnly":true},{"sourcePageIndex":1,"outputPageIndex":2,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    // A separate output and an input that is also the output: both keep their
+    // bytes, the run fails on the retained destination itself, and no staged
+    // sibling is left behind.
+    let assert_refused_on_destination = |refused: std::process::Output| {
+        assert!(!refused.status.success());
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            stderr.contains("ambiguous internal destination"),
+            "unexpected failure: {stderr}"
+        );
+        assert!(atomic_output_siblings(&output).is_empty());
+    };
+    write(
+        &output,
+        b"existing output must survive a refused retained destination",
+    )
+    .unwrap();
+    let separate_before = fs::read(&output).unwrap();
+    assert_refused_on_destination(run_overlay_text(
+        &assembled,
+        &source,
+        &output,
+        &instructions,
+    ));
+    assert_eq!(fs::read(&output).unwrap(), separate_before);
+
+    fs::copy(&assembled, &output).unwrap();
+    let same_path_before = fs::read(&output).unwrap();
+    assert_refused_on_destination(run_overlay_text(&output, &source, &output, &instructions));
+    assert_eq!(fs::read(&output).unwrap(), same_path_before);
+
+    for file in [
+        source,
+        split_instructions,
+        split,
+        raster,
+        assembled,
+        instructions,
+        output,
+    ] {
+        let _ = remove_file(file);
     }
 }

@@ -15,12 +15,14 @@ import {
     writeFileSync,
 } from 'fs';
 import {
+    basename,
     dirname,
     join,
 } from 'path';
 import { tmpdir } from 'os';
 import {
     appendFile,
+    copyFile,
     link,
     mkdtemp,
     readFile,
@@ -36,6 +38,7 @@ import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireEpochMs} from '@contracts/timestamps';
 import {
+    createOriginalTransitionBackupPath,
     prepareWorkingCopyTransition,
     recordWorkingCopyJournalOriginal,
     recoverWorkingCopyTransition,
@@ -180,15 +183,17 @@ describe('documentRevisionStore', () => {
         await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.not.toBeNull();
     });
 
-    it('removes orphaned transition backups when opening a mapped working copy', async () => {
+    it('removes orphaned transition backups of its own working copy when opening it', async () => {
         const originalPath = join(tempRoot, 'orphaned-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-orphaned', 'orphaned-original.pdf');
-        const orphanedBackupPath = `${originalPath}.evb-transition-stale.bak`;
-        const unrelatedPath = `${originalPath}.evb-transition-stale.txt`;
+        const orphanedBackupPath = `${originalPath}.evb-transition-pdf-work-orphaned-stale.bak`;
+        const legacyBackupPath = `${originalPath}.evb-transition-4242-stale.bak`;
+        const unrelatedPath = `${originalPath}.evb-transition-pdf-work-orphaned-stale.txt`;
         mkdirSync(dirname(workingPath), {recursive: true});
         writeFileSync(originalPath, new Uint8Array([1]));
         writeFileSync(workingPath, new Uint8Array([2]));
         writeFileSync(orphanedBackupPath, new Uint8Array([1]));
+        writeFileSync(legacyBackupPath, new Uint8Array([1]));
         writeFileSync(unrelatedPath, new Uint8Array([3]));
 
         const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
@@ -198,7 +203,66 @@ describe('documentRevisionStore', () => {
         await ensureWorkingCopyRevision(workingPath, 7);
 
         expect(existsSync(orphanedBackupPath)).toBe(false);
+        expect(existsSync(legacyBackupPath)).toBe(true);
         expect(existsSync(unrelatedPath)).toBe(true);
+    });
+
+    it('removes an orphaned backup of a near-limit original name from its own working copy', async () => {
+        const originalPath = join(tempRoot, `${'é'.repeat(80)}${'source'.repeat(13)}.pdf`);
+        const workingPath = join(tempRoot, 'pdf-work-orphaned-long', 'working.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, new Uint8Array([1]));
+        writeFileSync(workingPath, new Uint8Array([2]));
+        const orphanedBackupPath = createOriginalTransitionBackupPath(originalPath, workingPath);
+        writeFileSync(orphanedBackupPath, new Uint8Array([1]));
+        expect(Buffer.byteLength(basename(orphanedBackupPath), 'utf8')).toBeLessThanOrEqual(255);
+
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+
+        await ensureWorkingCopyRevision(workingPath, 7);
+
+        expect(existsSync(orphanedBackupPath)).toBe(false);
+        expect(existsSync(originalPath)).toBe(true);
+    });
+
+    it('keeps the transition backup another working copy of the same original still needs', async () => {
+        const originalPath = join(tempRoot, 'shared-original.pdf');
+        const ownerPath = join(tempRoot, 'pdf-work-owner', 'shared-original.pdf');
+        const otherPath = join(tempRoot, 'pdf-work-other', 'shared-original.pdf');
+        const otherBackupPath = `${originalPath}.evb-transition-pdf-work-other-crashed.bak`;
+        mkdirSync(dirname(ownerPath), {recursive: true});
+        mkdirSync(dirname(otherPath), {recursive: true});
+        writeFileSync(originalPath, 'ORIGINAL_OLD');
+        writeFileSync(otherPath, 'WORKING_OLD');
+
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        await setWorkingCopyOriginalPath(otherPath, originalPath, 7, {deferOriginalFileExpectation: true});
+        await ensureWorkingCopyRevision(otherPath, 7);
+
+        // The other copy saved: it backed up the original, published the new
+        // original, journaled the publication, then crashed before its manifest.
+        const journal = await prepareWorkingCopyTransition(otherPath, NEXT);
+        await copyFile(originalPath, otherBackupPath);
+        await recordWorkingCopyJournalOriginal(journal, {
+            path: originalPath,
+            backupPath: otherBackupPath,
+            state: 'published',
+        });
+        await writeFile(originalPath, 'ORIGINAL_NEW');
+        await writeFile(otherPath, 'WORKING_NEW');
+
+        // The owner copy opens the original and repairs its own ended transitions.
+        await writeFile(ownerPath, 'ORIGINAL_NEW');
+        await setWorkingCopyOriginalPath(ownerPath, originalPath, 8, {deferOriginalFileExpectation: true});
+        await ensureWorkingCopyRevision(ownerPath, 8);
+
+        expect(existsSync(otherBackupPath)).toBe(true);
+        await recoverWorkingCopyTransition(otherPath);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('ORIGINAL_OLD');
+        await expect(readFile(otherPath, 'utf8')).resolves.toBe('WORKING_OLD');
     });
 
     it('publishes a transition revision only after its commit succeeds', async () => {

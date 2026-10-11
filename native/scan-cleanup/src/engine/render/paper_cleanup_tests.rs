@@ -183,6 +183,72 @@ fn keeps_every_pixel_of_a_filled_faint_rule() {
 }
 
 #[test]
+fn whitens_a_full_height_scanner_strip_on_the_raster_edge() {
+    let mut page = GrayImage::new(1000, 1000, 250);
+    // A scanner strip many strokes wide down the right edge, whose shading the
+    // picture owner also covers, and a glyph block inside the leaf that must stay.
+    fill(&mut page, 986..1000, 5..995, 120);
+    fill(&mut page, 300..310, 300..340, 30);
+    let mut picture = BinaryImage::new(1000, 1000);
+    for y in 5..995 {
+        for x in 986..1000 {
+            picture.set(x, y, true);
+        }
+    }
+
+    whiten_unmarked_paper(&mut page, Some(&picture), calibration(), 150.0);
+
+    for y in 0..1000 {
+        for x in 986..1000 {
+            assert_eq!(page.get(x, y), 255, "scanner strip stayed at ({x}, {y})");
+        }
+    }
+    for y in 300..340 {
+        for x in 300..310 {
+            assert_eq!(page.get(x, y), 30, "glyph lost its tone at ({x}, {y})");
+        }
+    }
+}
+
+#[test]
+fn keeps_an_authored_frame_rule_and_picture_pixels_short_of_the_full_height() {
+    let mut page = GrayImage::new(400, 400, 255);
+    // A frame rule more than two strokes wide beside the left edge, and a picture
+    // owner's dark edge band. Both stop short of the page's height: neither is a
+    // scanner strip.
+    fill(&mut page, 10..18, 50..350, 80);
+    fill(&mut page, 0..8, 100..300, 60);
+    let mut picture = BinaryImage::new(400, 400);
+    for y in 100..300 {
+        for x in 0..8 {
+            picture.set(x, y, true);
+        }
+    }
+    let original = page.clone();
+
+    whiten_unmarked_paper(&mut page, Some(&picture), calibration(), 150.0);
+
+    for y in 50..350 {
+        for x in 10..18 {
+            assert_eq!(
+                page.get(x, y),
+                original.get(x, y),
+                "frame rule lost at ({x}, {y})"
+            );
+        }
+    }
+    for y in 100..300 {
+        for x in 0..8 {
+            assert_eq!(
+                page.get(x, y),
+                original.get(x, y),
+                "picture pixel changed at ({x}, {y})"
+            );
+        }
+    }
+}
+
+#[test]
 fn whitens_paper_away_from_marks_and_keeps_every_mark_pixel() {
     let mut page = GrayImage::new(400, 400, 238);
     // A soft paper cloud far from any mark.

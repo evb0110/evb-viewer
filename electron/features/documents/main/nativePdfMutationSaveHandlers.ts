@@ -500,6 +500,7 @@ export async function handleCommitStagedPdfNativeMutations(
                 reason: 'native-mutation',
                 senderId,
                 signal: operation.signal,
+                publishedSourcePath: stagedOutput.path,
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(
                     normalizedWorkingPath,
                     originalPath,

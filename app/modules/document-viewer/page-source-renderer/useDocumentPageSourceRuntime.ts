@@ -13,6 +13,7 @@ import {
 } from '@app/modules/document-viewer/virtualization/pageVirtualization';
 import {
     captureDocumentZoomAnchor,
+    resolveDocumentPageLeft,
     resolveDocumentZoomAnchorScroll,
     type IDocumentZoomAnchor,
     type IDocumentZoomPageLayout,
@@ -593,7 +594,7 @@ export const useDocumentPageSourceRuntime = (options: {
     }));
     const surfaceStyle = computed(() => ({height: props.value.continuousScroll ? `${Math.max(1, totalHeight.value)}px` : '100%'}));
     function resolvePageLeft(pageWidth: number) {
-        return Math.max(DOCUMENT_PAGE_GUTTER_PX, (containerWidth.value - pageWidth) / 2);
+        return resolveDocumentPageLeft(containerWidth.value, pageWidth);
     }
     const zoomAnchorPageLayouts = computed(() => resolveDocumentPageZoomAnchorLayoutsBounded(
         pageLayouts.value,

@@ -49,6 +49,7 @@ import {
     sender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {mainJobBroker} from '@electron/resources/jobBroker';
+import {atomicReplace} from '@electron/utils/atomicReplace';
 
 
 
@@ -152,6 +153,13 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
     });
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
+    const completed = Promise.withResolvers<undefined>();
+    owner.send.mockImplementation((channel: string, state: {status?: string}) => {
+        if (channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState
+            && state.status === 'completed') {
+            completed.resolve(undefined);
+        }
+    });
     const started = await service.detectAll(owner, detectionRequest);
     service.subscribeDetectionJob(owner, started.jobId, detectionRequest);
 
@@ -214,12 +222,9 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         .filter(result => result.pageNumber === 1)
         .map(result => result.confidence)).toContain(0.9));
     finishReconciliation.resolve(undefined);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await completed.promise;
     expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)).toMatchObject({
+        status: 'completed',
         progress: {
             stage: 'detecting',
             completedUnits: 3,
@@ -1222,6 +1227,19 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
     deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
         await writeFile(outputPath, pngWithDimensions(pageNumber, 1));
     });
+    // The producer prefetches staged pages in the background, so `prime()`
+    // resolves once only the first page is published. The sidecar waits for
+    // each input it reads to be published, as the lease protocol requires.
+    const publishedRasters = new Map<string, PromiseWithResolvers<undefined>>();
+    const rasterPublished = (path: string) => {
+        const published = publishedRasters.get(path) ?? Promise.withResolvers<undefined>();
+        publishedRasters.set(path, published);
+        return published;
+    };
+    deps.publishRaster = async (scratchPath, path, options) => {
+        await atomicReplace(scratchPath, path, options);
+        rasterPublished(path).resolve(undefined);
+    };
     const manifests: Array<Array<{
         pageNumber: number;
         inputPath: string;
@@ -1238,6 +1256,7 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
             sourcePageIndex: number;
         }>};
         const pages = await Promise.all(manifest.pages.map(async page => {
+            await rasterPublished(page.inputPath).promise;
             const raster = await readFile(page.inputPath);
             return {
                 pageNumber: page.sourcePageIndex + 1,

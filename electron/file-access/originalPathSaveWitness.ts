@@ -173,7 +173,7 @@ async function hashFilePath(
     return hash.digest('hex');
 }
 
-async function hashContentFingerprintFilePath(originalPath: string, size: bigint, signal?: AbortSignal) {
+export async function hashContentFingerprintFilePath(originalPath: string, size: bigint, signal?: AbortSignal) {
     const numericSize = Number(size);
     if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
         throw new OriginalPathSaveConflictError();

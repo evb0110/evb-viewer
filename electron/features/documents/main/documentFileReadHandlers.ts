@@ -14,6 +14,7 @@ import {
 } from '@electron/file-access/workingCopyMutationQueue';
 import {
     captureWorkingCopyAdmissionSnapshot,
+    findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry,
     normalizePathForLookup,
     transitionWorkingCopyBackingState,
@@ -63,7 +64,7 @@ interface IRangeReadHandleCacheEntry {
 
 interface IRangeReadHandleLease {
     handle: FileHandle;
-    release(): Promise<void>;
+    release(retain?: boolean): Promise<void>;
 }
 
 interface IOriginalBackedRead {
@@ -383,7 +384,9 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
             ) {
                 return acquireRangeReadHandleEntry(cacheKey, cachedEntry);
             }
+            // Another acquisition may cache a fresh handle while this one waits.
             await requestRangeReadHandleClose(resolvedPath, cachedEntry);
+            continue;
         }
 
         const pendingOpen = rangeReadHandleOpens.get(cacheKey);
@@ -403,8 +406,11 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
             continue;
         }
 
-        while (rangeReadHandles.size >= RANGE_READ_HANDLE_CACHE_LIMIT) {
+        if (rangeReadHandles.size >= RANGE_READ_HANDLE_CACHE_LIMIT) {
+            // Eviction awaits, so another acquisition of this path may have cached or
+            // opened it meanwhile: re-check the cache and pending opens before opening.
             await closeLeastRecentlyUsedRangeReadHandle();
+            continue;
         }
 
         const openPromise = (async () => {
@@ -462,13 +468,16 @@ function acquireRangeReadHandleEntry(
     let released = false;
     return {
         handle: entry.handle,
-        async release() {
+        async release(retain = true) {
             if (released) {
                 return;
             }
             released = true;
             entry.activeReads -= 1;
-            if (entry.closeRequested) {
+            if (!retain) {
+                await requestRangeReadHandleClose(cacheKey, entry);
+                pruneRangeReadPathEpochIfUnused(cacheKey);
+            } else if (entry.closeRequested) {
                 await closeRangeReadHandleEntryWhenUnused(entry);
             } else {
                 scheduleRangeReadHandleIdleClose(cacheKey, entry);
@@ -513,18 +522,27 @@ function failOriginalBacking(
     throw createSourceBackingError(code, cause);
 }
 
+function readsThroughOriginal(backingState: string | undefined) {
+    return backingState === 'lazy-original' || backingState === 'materializing';
+}
+
+// A read routed before the copy published can finish after it; EVB must not keep
+// a published copy's original open, so only a still-lazy backing retains the handle.
+async function releaseOriginalBackedLease(
+    lease: IRangeReadHandleLease | null,
+    backing: IOriginalBackedRead,
+) {
+    await lease?.release(readsThroughOriginal(
+        getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId)?.backingState,
+    ));
+}
+
 function resolveOriginalBackedRead(
     logicalRef: string,
     senderId?: number,
 ): IOriginalBackedRead | null {
     const entry = getWorkingCopyBackingEntry(logicalRef, senderId);
-    if (
-        !entry
-        || (
-            entry.backingState !== 'lazy-original'
-            && entry.backingState !== 'materializing'
-        )
-    ) {
+    if (!entry || !readsThroughOriginal(entry.backingState)) {
         return null;
     }
     if (
@@ -631,7 +649,7 @@ async function readOriginalBacking(
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     } finally {
-        await lease?.release();
+        await releaseOriginalBackedLease(lease, backing);
     }
     await assertOriginalBackingSnapshot(backing);
     if (totalBytesRead !== size) {
@@ -663,7 +681,7 @@ async function readOriginalBackingRange(
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     } finally {
-        await lease?.release();
+        await releaseOriginalBackedLease(lease, backing);
     }
     await assertOriginalBackingSnapshot(backing);
     return new Uint8Array(buffer.subarray(0, bytesRead));
@@ -839,7 +857,8 @@ export async function handleFileReadRange(
             const { bytesRead } = await lease.handle.read(buf, 0, want, off);
             return new Uint8Array(buf.subarray(0, bytesRead));
         } finally {
-            await lease?.release();
+            // The renderer may still name an original whose copy is published.
+            await lease?.release(!findWorkingCopyPathByOriginalPath(resolvedPath, context.senderId));
             releaseBudget();
         }
     })();

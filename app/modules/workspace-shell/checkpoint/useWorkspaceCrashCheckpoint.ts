@@ -135,11 +135,11 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
      * Saves the workspace as it is now, ahead of the debounce, and resolves once
      * a checkpoint holding it is written; it rejects if that write fails. A
      * write already running queues this one as the latest, so the drains are
-     * awaited until none is left. Without crash checkpoints there is nothing
-     * to make durable.
+     * awaited until none is left. Without crash checkpoints, or with no dirty
+     * tab under onlyIfDirty, there is nothing to make durable.
      */
-    async function persistCheckpointNow() {
-        if (!options.enabled.value || disposed) {
+    async function persistCheckpointNow(onlyIfDirty = false) {
+        if (!options.enabled.value || disposed || (onlyIfDirty && !hasDirtyTabs())) {
             return;
         }
         if (timer) {
