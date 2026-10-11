@@ -405,15 +405,28 @@ function assembleNativeScanCleanupManifest({
             if (allowedRoot !== null && pathResolutionCache !== null) {
                 assertManifestPagePaths(page, pageIndex, allowedRoot, checkedPathTrails, pathResolutionCache);
             }
+            const pageOverride = getScanCleanupPageOverride(
+                options.pageOverrides,
+                requirePageNumber(page.pageNumber),
+                options.pageOverrideDefaults,
+                options.marginsMm,
+            );
+            // A page plan describes the page, not one output mode: it is
+            // analyzed as for automatic mode, so switching the output mode never
+            // leaves a run with plans measured under another.
+            const pagePlan = analysisPurpose === 'page-plan';
+            const {
+                outputModeOverride: _outputModeOverride,
+                ...automaticPageOverride
+            } = pageOverride;
+            const resolvedOutputMode = pagePlan ? undefined : page.resolvedOutputMode;
             const resolvedOptions = {
                 ...resolveEffectiveScanCleanupOptions({
-                    options,
-                    pageOverride: getScanCleanupPageOverride(
-                        options.pageOverrides,
-                        requirePageNumber(page.pageNumber),
-                        options.pageOverrideDefaults,
-                        options.marginsMm,
-                    ),
+                    options: pagePlan ? {
+                        ...options,
+                        outputMode: 'auto',
+                    } : options,
+                    pageOverride: pagePlan ? automaticPageOverride : pageOverride,
                     dpi: page.dpi,
                     ...(page.sourceDpi === undefined ? {} : {sourceDpi: page.sourceDpi}),
                     ...(page.sourceHasBilevelLayer === undefined
@@ -426,9 +439,7 @@ function assembleNativeScanCleanupManifest({
                         ? {}
                         : {requestedRenderDpi: page.requestedRenderDpi}),
                     ...(page.renderCrop === undefined ? {} : {renderCrop: page.renderCrop}),
-                    ...(page.resolvedOutputMode === undefined
-                        ? {}
-                        : {resolvedOutputMode: page.resolvedOutputMode}),
+                    ...(resolvedOutputMode === undefined ? {} : {resolvedOutputMode}),
                     ...(page.preferSoftAlphaForeground === undefined
                         ? {}
                         : {preferSoftAlphaForeground: page.preferSoftAlphaForeground}),
