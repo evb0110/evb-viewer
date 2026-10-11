@@ -9,10 +9,7 @@ import {
     runObjectStoresTransaction,
     BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA,
 } from '@app/platform/browser/browserDocumentIdb';
-import {
-    countSourceBytesDependents,
-    toPersistedDocumentRecord,
-} from '@app/platform/browser/browserDocumentRecords';
+import { toPersistedDocumentRecord } from '@app/platform/browser/browserDocumentRecords';
 import {
     BROWSER_RECENT_FILES_STORAGE_LOCK_KEY,
     tryReadRecentFilesFromStorage,
@@ -277,7 +274,7 @@ function isRefRetainedBy(
     if (kind === 'working') {
         return false;
     }
-    return countSourceBytesDependents(authorities.documents).has(ref)
+    return authorities.documents.some((record) => record.ref !== ref && record.sourceRef === ref)
         || authorities.liveLeases.leasedRefs.has(ref);
 }
 

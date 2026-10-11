@@ -890,7 +890,7 @@ describe('BrowserDocumentStore', () => {
         await expect(store.exists(workingRef)).resolves.toBe(false);
     });
 
-    it('deletes a source whose only working dependent carries its own bytes', async () => {
+    it('keeps the save source of a working dependent with its own bytes', async () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await createStoredPdf(store, 'own-bytes-dependent.pdf', Uint8Array.of(6));
         const dependentRef = await store.cloneStoredDocument(sourceRef, {
@@ -900,8 +900,8 @@ describe('BrowserDocumentStore', () => {
             saveKind: 'pdf',
         });
 
-        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(true);
-        await expect(store.exists(sourceRef)).resolves.toBe(false);
+        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
+        await expect(store.getSaveTarget(sourceRef)).resolves.toMatchObject({saveName: 'own-bytes-dependent.pdf'});
         await expect(store.read(dependentRef)).resolves.toEqual(Uint8Array.of(6));
     });
 
@@ -926,18 +926,20 @@ describe('BrowserDocumentStore', () => {
         await expect(second.read(workingRef)).resolves.toEqual(Uint8Array.of(7));
     });
 
-    it('sweeps a non-recent source whose only working dependent carries its own bytes', async () => {
-        const first = new BrowserDocumentStore();
+    it('keeps a non-recent source while its leased working dependent carries its own bytes', async () => {
+        const first = await createFreshBrowserDocumentStore();
         const sourceRef = await createStoredPdf(first, 'swept-own-bytes.pdf', Uint8Array.of(8), {retention: 'transient'});
-        await first.cloneStoredDocument(sourceRef, {
+        const workingRef = await first.cloneStoredDocument(sourceRef, {
             fileName: 'swept-own-bytes.pdf',
             kind: 'working',
             sourceRef,
             saveKind: 'pdf',
         });
 
+        await first.createLiveLease('window:own-bytes', [{ref: workingRef}]);
         const second = new BrowserDocumentStore();
-        await expect(second.exists(sourceRef)).resolves.toBe(false);
+        await expect(second.exists(sourceRef)).resolves.toBe(true);
+        await expect(second.read(workingRef)).resolves.toEqual(Uint8Array.of(8));
     });
 
     it('keeps a source whose pending chunk generation is still being written during detached cleanup', async () => {
@@ -1168,9 +1170,7 @@ describe('BrowserDocumentStore', () => {
 
         const dependent = await store.requireEntry(dependentRef);
         expect(dependent.sourceRef).toBe(sourceRef);
-        // The copy carries its own bytes, so the source is not needed for its content.
-        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(true);
-        await expect(store.read(dependentRef)).resolves.toEqual(Uint8Array.of(1, 2, 3));
+        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
     });
 
     it('serves range reads through source-proxy working copies', async () => {

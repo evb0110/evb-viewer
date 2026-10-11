@@ -9,7 +9,7 @@ import { uniq } from 'es-toolkit/array';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
 import {
     collectChunkIndicesByRef,
-    countSourceBytesDependents,
+    countSourceDependents,
     isChunkedRecordMissingChunks,
     shouldRemovePersistedRecord,
     toPersistedDocumentRecord,
@@ -158,12 +158,12 @@ export async function sweepBrowserDocumentMaintenance(
         ? storedRecentFiles
         : buildRecentFilesFromPersistedRecords(records);
     const recentRefs = new Set<string>(currentRecentFiles.map((file) => file.originalPath));
-    const sourceBytesDependentCounts = countSourceBytesDependents(records);
+    const sourceDependentCounts = countSourceDependents(records);
     const refsToRemove = records
         .filter((record) => shouldRemovePersistedRecord(
             record,
             recentRefs,
-            sourceBytesDependentCounts,
+            sourceDependentCounts,
         ))
         .filter((record) => !pendingRefs.has(record.ref))
         .filter(record => !hasActivePendingChunkGeneration(record))
@@ -244,14 +244,14 @@ export async function sweepBrowserDocumentMaintenance(
         );
         const isUnprotected = (record: IBrowserPersistedDocumentRecord) => !authorities.recoveryLeasedRefs.has(record.ref) && !authorities.liveLeases.leasedRefs.has(record.ref)
             && !authorities.transfers.leasedRefs.has(record.ref) && !transactionPendingChunkGenerationsByRef.has(record.ref) && !pendingRefs.has(record.ref);
-        const allSourceBytesDependentCounts = countSourceBytesDependents(authorities.documents);
+        const allSourceDependentCounts = countSourceDependents(authorities.documents);
         // A working copy this sweep deletes keeps nothing, so its source may go in the same pass.
         const sweptWorkingRefs = new Set(authorities.documents
-            .filter(record => record.kind === 'working' && isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, allSourceBytesDependentCounts))
+            .filter(record => record.kind === 'working' && isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, allSourceDependentCounts))
             .map(record => record.ref));
-        const transactionSourceBytesDependentCounts = countSourceBytesDependents(authorities.documents.filter(record => !sweptWorkingRefs.has(record.ref)));
+        const transactionSourceDependentCounts = countSourceDependents(authorities.documents.filter(record => !sweptWorkingRefs.has(record.ref)));
         const transactionRefsToRemove = authorities.documents
-            .filter(record => isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, transactionSourceBytesDependentCounts))
+            .filter(record => isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, transactionSourceDependentCounts))
             .map(record => record.ref);
         const finalRefs = new Set([
             ...transactionRefsToRemove,

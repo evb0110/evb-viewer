@@ -127,17 +127,10 @@ export function isChunkedRecordMissingChunks(
     return false;
 }
 
-// A record needs its source's bytes only when it reads them through the source
-// (a source-proxy working copy). A record with its own bytes names its source as
-// lineage only, so it does not keep the source.
-export function retainsSourceBytes(record: IBrowserPersistedDocumentRecord) {
-    return record.storageMode === 'source-proxy' && Boolean(record.sourceRef);
-}
-
-export function countSourceBytesDependents(records: IBrowserPersistedDocumentRecord[]) {
+export function countSourceDependents(records: IBrowserPersistedDocumentRecord[]) {
     const dependentCounts = new Map<string, number>();
     for (const record of records) {
-        if (!record.sourceRef || !retainsSourceBytes(record)) {
+        if (!record.sourceRef) {
             continue;
         }
 
@@ -152,7 +145,7 @@ export function countSourceBytesDependents(records: IBrowserPersistedDocumentRec
 export function shouldRemovePersistedRecord(
     record: IBrowserPersistedDocumentRecord,
     recentRefs: Set<string>,
-    sourceBytesDependentCounts: Map<string, number>,
+    sourceDependentCounts: Map<string, number>,
 ) {
     const durableWorkingRecoveryGraceMs = 10 * 60 * 1_000;
     return (
@@ -165,7 +158,7 @@ export function shouldRemovePersistedRecord(
         )
         || (
             !recentRefs.has(record.ref)
-            && (sourceBytesDependentCounts.get(record.ref) ?? 0) === 0
+            && (sourceDependentCounts.get(record.ref) ?? 0) === 0
         )
     );
 }
