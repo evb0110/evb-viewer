@@ -12,10 +12,13 @@ import {
     requireDocumentRef,
 } from '@contracts/documentRef';
 import {
+    getDocumentRefBaseName,
+    getDocumentRefDisplayLabel,
     isBrowserDocumentRef,
     isNativeDocumentRef,
     resolveDocumentRefBackend,
 } from '@app/utils/documentRef';
+import {createBrowserDocumentRef} from '@app/platform/browser/browserDocumentRefs';
 import type {TDocumentRef} from '@contracts/documentRef';
 
 function isDocumentRefFixture(value: unknown): value is TDocumentRef {
@@ -50,5 +53,28 @@ describe('documentRef discrimination', () => {
         expect(browserRef.backend).toBe('browser');
         expect(isNativeStructuredDocumentRef(nativeRef)).toBe(true);
         expect(nativeRef.backend).toBe('electron');
+    });
+
+    it('shows a native basename literally, percent sequences included', () => {
+        const nativeRef = requireDocumentRef('/documents/report%20final.pdf');
+
+        expect(getDocumentRefBaseName(nativeRef)).toBe('report%20final.pdf');
+        expect(getDocumentRefDisplayLabel(nativeRef)).toBe('/documents/report%20final.pdf');
+        expect(getDocumentRefBaseName(requireDocumentRef('/documents/report final.pdf'))).toBe('report final.pdf');
+    });
+
+    it('decodes a browser basename exactly once', () => {
+        const percentRef = createBrowserDocumentRef('report%20final.pdf');
+        const spaceRef = createBrowserDocumentRef('report final.pdf');
+        const cyrillicRef = createBrowserDocumentRef('Галактика 100%.pdf');
+
+        expect(getDocumentRefBaseName(percentRef)).toBe('report%20final.pdf');
+        expect(getDocumentRefBaseName(spaceRef)).toBe('report final.pdf');
+        expect(getDocumentRefBaseName(cyrillicRef)).toBe('Галактика 100%.pdf');
+        expect(getDocumentRefDisplayLabel(percentRef)).toBe('report%20final.pdf');
+    });
+
+    it('keeps a browser basename with a malformed escape raw', () => {
+        expect(getDocumentRefBaseName(requireDocumentRef('browser://documents/source/100%.pdf'))).toBe('100%.pdf');
     });
 });

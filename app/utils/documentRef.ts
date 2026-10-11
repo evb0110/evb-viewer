@@ -8,24 +8,6 @@ import {
     isNativeLegacyDocumentRef,
 } from '@contracts/documentRef';
 
-function decodeUriComponentRepeatedly(value: string, maxPasses = 3) {
-    let decoded = value;
-
-    for (let pass = 0; pass < maxPasses; pass += 1) {
-        try {
-            const nextDecoded = decodeURIComponent(decoded);
-            if (nextDecoded === decoded) {
-                break;
-            }
-            decoded = nextDecoded;
-        } catch {
-            break;
-        }
-    }
-
-    return decoded;
-}
-
 export function isBrowserDocumentRef(documentRef: TDocumentRef | null | undefined) {
     return typeof documentRef === 'string' && isBrowserLegacyDocumentRef(documentRef);
 }
@@ -53,11 +35,9 @@ export function getDocumentRefBaseName(documentRef: TDocumentRef | null | undefi
         return null;
     }
 
-    try {
-        return decodeUriComponentRepeatedly(segment);
-    } catch {
-        return segment;
-    }
+    // Native refs are raw paths, so their basename is literal. Only browser
+    // refs carry the single encodeURIComponent pass from browserDocumentRefs.
+    return isBrowserDocumentRef(documentRef) ? decodeDocumentRefSegment(segment) : segment;
 }
 
 export function getDocumentRefDisplayLabel(documentRef: TDocumentRef | null | undefined) {
@@ -73,5 +53,9 @@ export function getDocumentRefDisplayLabel(documentRef: TDocumentRef | null | un
 }
 
 export function decodeDocumentRefSegment(segment: string) {
-    return decodeUriComponentRepeatedly(segment);
+    try {
+        return decodeURIComponent(segment);
+    } catch {
+        return segment;
+    }
 }
