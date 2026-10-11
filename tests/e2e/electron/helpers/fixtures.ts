@@ -2265,6 +2265,7 @@ export async function readPdfMetadataWithQpdf(filePath: string) {
     });
     interface IQpdfMetadataOutline {
         title?: string;
+        dest?: Array<number | string | null>;
         destpageposfrom1?: number;
         kids?: IQpdfMetadataOutline[];
     }

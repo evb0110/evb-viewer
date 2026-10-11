@@ -29,7 +29,10 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const evidenceDirectory = await mkdtemp(join(tmpdir(), 'evb-e2e-bookmark-rename-'));
         const generated = await createOutlinePageLabelFixturePdf(`bookmark-rename-${Date.now()}.pdf`, [
             fixtureBookmark('First', 0),
-            fixtureBookmark('Middle', 2),
+            {
+                ...fixtureBookmark('Middle', 2),
+                pageYRatio: 0.25,
+            },
             fixtureBookmark('Last', 3),
         ]);
         const source = join(evidenceDirectory, `imported-outline-${Date.now()}.pdf`);
@@ -66,6 +69,9 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const saveCommit = await saveViaWindowHandle(page);
         expect(await realpath(String(saveCommit.detail.path))).toBe(await realpath(saved));
         const outline = (await readPdfMetadataWithQpdf(saved)).outlines;
+        // The fixture puts Middle at a quarter of the page's height from its top.
+        const middleDestinationTop = outline.find(item => item.title === 'Middle renamed')?.dest?.[3];
+        expect(middleDestinationTop).toBeCloseTo(594, 0);
         const savedDestinations = outline.map(item => item.destpageposfrom1 ?? null);
         const savedTitles = outline.map(item => item.title);
 
