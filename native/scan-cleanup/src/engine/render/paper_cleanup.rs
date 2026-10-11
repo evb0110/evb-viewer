@@ -2,7 +2,8 @@
 //! tone and halo. The picture owner is never touched, but a scanner strip under it is.
 
 use super::*;
-use crate::engine::edge_band::{scanner_strip, whiten_unkept};
+use crate::engine::edge_band::whiten_unkept;
+use crate::engine::scanner_strip::scanner_strip;
 use scan_primitives::{morphology::reconstruct_binary, Component};
 
 /// Ink contrast against nearby paper, excluding slow paper gradients.

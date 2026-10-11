@@ -17,5 +17,6 @@ pub mod prepare;
 pub mod render;
 pub mod render_plan;
 pub mod resource_planning;
+pub mod scanner_strip;
 pub mod staged_input;
 pub mod text_axis;

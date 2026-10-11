@@ -59,14 +59,6 @@ fn shadow_read_as_text(conservative: &BinaryImage, ownership: &BinaryImage) -> B
     })
 }
 
-/// The scanner strip down a side edge: a side-edge rail more than two strokes
-/// wide. A printed rule is about one stroke wide, so a rail that wide is the
-/// scanner's shadow. A narrower rule along the raster edge is still print.
-pub(crate) fn scanner_strip(marks: &BinaryImage, stroke: f64) -> BinaryImage {
-    let rails = ComponentMap::from_binary(&side_edge_rails(marks, None).0);
-    rails.retain(|component| (component.right + 1 - component.left) as f64 > 2.0 * stroke)
-}
-
 /// Whitens every pixel outside `keep`, except picture-owned pixels. A scanner
 /// strip is whitened even under the picture owner: its shading reads as photo
 /// tone, but it is shadow, not a picture.
