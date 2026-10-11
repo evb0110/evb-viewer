@@ -629,6 +629,14 @@ describe('workingCopyMaterialization', () => {
             owner: undefined,
             edit: false,
         },
+        {
+            owner: 7,
+            edit: false,
+        },
+        {
+            owner: 7,
+            edit: true,
+        },
     ])('keeps admitted bytes across network identity churn: %j', async ({
         owner, edit,
     }) => {

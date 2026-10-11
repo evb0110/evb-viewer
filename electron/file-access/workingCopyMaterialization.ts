@@ -12,7 +12,6 @@ import {
     captureWorkingCopyAdmissionSnapshot,
     createOriginalFileExpectationFromStat,
     getWorkingCopyBackingEntry,
-    getWorkingCopyOriginalFileExpectation,
     normalizePathForLookup,
     runWithWorkingCopyRegistrationFence,
     transitionWorkingCopyBackingState,
@@ -98,11 +97,10 @@ interface IMaterializationFlight {
     key: string;
     logicalRef: string;
     operationId: string;
-    originalPath: string;
     percent: number;
     promise: Promise<IWorkingCopyMaterializationResult>;
     reason: TWorkingCopyMaterializationReason;
-    registrationId: number;
+    registration: IWorkingCopyOriginalEntry;
     totalBytes: number;
 }
 
@@ -292,7 +290,7 @@ async function hashMaterializedTarget(
 
 async function invalidateBackingSwapCaches(flight: IMaterializationFlight) {
     for (const invalidator of backingSwapCacheInvalidators) {
-        await invalidator(flight.logicalRef, flight.originalPath);
+        await invalidator(flight.logicalRef, flight.registration.originalPath);
     }
 }
 
@@ -304,7 +302,7 @@ async function publishMaterializedTarget(
 ) {
     const publication = await runWithWorkingCopyRegistrationFence(
         flight.logicalRef,
-        flight.registrationId,
+        flight.registration.registrationId,
         async (entry) => {
             if (
                 entry.backingState !== 'materializing'
@@ -318,7 +316,7 @@ async function publishMaterializedTarget(
             }
 
             await invalidateBackingSwapCaches(flight);
-            await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+            await assertSourceSnapshot(flight.registration.originalPath, flight.admissionSnapshot, flight.registration.originalPath, flight.registration.originalFileExpectation);
             throwIfAborted(flight.controller.signal);
             await atomicReplace(tempPath, flight.logicalRef, {markMutationCommitStarted: false});
             entry.backingState = 'materialized';
@@ -351,7 +349,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
             status: 'running',
         });
         throwIfAborted(signal);
-        await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+        await assertSourceSnapshot(flight.registration.originalPath, flight.admissionSnapshot, flight.registration.originalPath, flight.registration.originalFileExpectation);
         const filesystem = await statfs(dirname(flight.logicalRef), {bigint: true});
         const availableBytes = filesystem.bavail * filesystem.bsize;
         if (availableBytes < flight.admissionSnapshot.size) {
@@ -361,8 +359,8 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
                 {retryable: true},
             );
         }
-        sourceHandle = await open(flight.originalPath, 'r');
-        await assertSourceSnapshot(sourceHandle, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+        sourceHandle = await open(flight.registration.originalPath, 'r');
+        await assertSourceSnapshot(sourceHandle, flight.admissionSnapshot, flight.registration.originalPath, flight.registration.originalFileExpectation);
         outputHandle = await open(tempPath, 'wx');
 
         const hash = createOriginalFileContentFingerprintHash(flight.totalBytes);
@@ -401,7 +399,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
             }
         }
 
-        await assertSourceSnapshot(sourceHandle, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+        await assertSourceSnapshot(sourceHandle, flight.admissionSnapshot, flight.registration.originalPath, flight.registration.originalFileExpectation);
         const sourceFileExpectation = createOriginalFileExpectationFromStat(
             await sourceHandle.stat({bigint: true}),
         );
@@ -410,7 +408,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
         // hashing and publication below read only the working copy.
         await sourceHandle.close();
         sourceHandle = null;
-        await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+        await assertSourceSnapshot(flight.registration.originalPath, flight.admissionSnapshot, flight.registration.originalPath, flight.registration.originalFileExpectation);
         const outputStat = await outputHandle.stat({bigint: true});
         if (!outputStat.isFile() || outputStat.size !== flight.admissionSnapshot.size) {
             throw new WorkingCopyMaterializationError(
@@ -422,7 +420,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
         await outputHandle.close();
         outputHandle = null;
         const sourceFingerprint = `sha256-full-v1:${hash.digest('hex')}`;
-        const admittedFingerprint = getWorkingCopyOriginalFileExpectation(flight.logicalRef)?.contentFingerprint;
+        const admittedFingerprint = flight.registration.originalFileExpectation?.contentFingerprint;
         if (admittedFingerprint !== undefined && admittedFingerprint !== sourceFingerprint) {
             throw new WorkingCopyMaterializationError(
                 'SOURCE_BACKING_CHANGED',
@@ -465,7 +463,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
         const materializationError = normalizeMaterializationError(error);
         transitionWorkingCopyBackingState(
             flight.logicalRef,
-            flight.registrationId,
+            flight.registration.registrationId,
             'lazy-original',
             {
                 expectedBackingState: 'materializing',
@@ -531,11 +529,10 @@ function createFlight(
         key,
         logicalRef,
         operationId: lifecycleOperation.id,
-        originalPath: entry.originalPath,
         percent: 0,
         promise: Promise.resolve(null as never),
         reason,
-        registrationId: entry.registrationId,
+        registration: entry,
         totalBytes: Number(entry.admissionSnapshot.size),
     };
     flights.set(key, flight);
