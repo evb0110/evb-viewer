@@ -4,11 +4,20 @@ import type {
 } from '@contracts/electronApiDocuments';
 import {isRecord} from '@contracts/runtimeGuards';
 
-const MAX_NATIVE_MARKUP_IDENTITY_BINDINGS = 4_096;
+export const PDF_NATIVE_IDENTITY_BINDING_LIMITS = {
+    chunkItems: 4_096,
+    chunkBytes: 256 * 1024,
+    // A save admits up to 100,000 records in each of the five creation
+    // families: notes, text boxes, shapes, text markup and placed images.
+    saveItems: 5 * 100_000,
+} as const;
 const MAX_NATIVE_MARKUP_ANNOTATION_ID_LENGTH = 2_048;
 const PDF_NATIVE_IDENTITY_BINDING_REF_PATTERN = /^([1-9]\d*) ([0-9]+) R$/u;
 
-interface IPdfNativeIdentityBindingValidationOptions {errorKind?: 'typeError' | 'error';}
+interface IPdfNativeIdentityBindingValidationOptions {
+    errorKind?: 'typeError' | 'error';
+    scope?: 'chunk' | 'save';
+}
 
 function failIdentityBindingValidation(
     message: string,
@@ -17,7 +26,7 @@ function failIdentityBindingValidation(
     throw options.errorKind === 'error' ? new Error(message) : new TypeError(message);
 }
 
-/** Strictly decode the bounded identity report emitted by native markup. */
+/** Decode a complete save report, or a single bounded native-call report. */
 export function normalizePdfNativeAnnotationIdentityBindings(
     value: unknown,
     label = 'identityBindings',
@@ -26,15 +35,18 @@ export function normalizePdfNativeAnnotationIdentityBindings(
     if (value === undefined) {
         return [];
     }
-    if (!Array.isArray(value) || value.length > MAX_NATIVE_MARKUP_IDENTITY_BINDINGS) {
+    const maxItems = options.scope === 'chunk'
+        ? PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkItems
+        : PDF_NATIVE_IDENTITY_BINDING_LIMITS.saveItems;
+    if (!Array.isArray(value) || value.length > maxItems) {
         failIdentityBindingValidation(
-            `${label} must be an array with at most ${MAX_NATIVE_MARKUP_IDENTITY_BINDINGS} items`,
+            `${label} must be an array with at most ${maxItems} items`,
             options,
         );
     }
     const annotationIds = new Set<string>();
     const pdfRefs = new Set<string>();
-    return value.map((entry, index) => {
+    const bindings = value.map((entry, index) => {
         if (!isRecord(entry)) {
             failIdentityBindingValidation(`${label}[${index}] must be an object`, options);
         }
@@ -91,6 +103,11 @@ export function normalizePdfNativeAnnotationIdentityBindings(
             pdfRef,
         };
     });
+    if (options.scope === 'chunk'
+        && new TextEncoder().encode(JSON.stringify(bindings)).byteLength > PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkBytes) {
+        failIdentityBindingValidation(`${label} exceeds the native report byte budget`, options);
+    }
+    return bindings;
 }
 
 export function appendPdfNativeAnnotationIdentityBindings(

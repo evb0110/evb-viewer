@@ -880,3 +880,40 @@ describe('Electron E2E - pending external page drop', () => {
             ?.readActiveWorkspaceStateValues(['totalPages']).totalPages)).toBe(3);
     },300_000);
 });
+
+
+describe('Electron E2E - annotation save budgets and imported replies', () => {
+    it('saves and reopens 3,200 new supported shapes in one save', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = await createMultiPageTextFixturePdf(`many-new-shapes-${Date.now()}.pdf`, 1);
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        // Bulk creation is setup through the public annotation command. Save
+        // itself is the same trusted toolbar action a person uses.
+        const created = await page.evaluate(async () => {
+            const workspace = window.__evbTestApi?.getActiveWorkspaceHandle();
+            if (!workspace) throw new Error('Public workspace API was unavailable');
+            const results = await Promise.all(Array.from({length: 3_200}, () => workspace.runAgentAction(
+                'annotation.create_shape', {
+                    page: 1,
+                    shape: 'rectangle',
+                    x: 0.1,
+                    y: 0.2,
+                    width: 0.08,
+                    height: 0.06,
+                },
+            )));
+            return results.filter(result => result.created === true).length;
+        });
+        expect(created).toBe(3_200);
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, fixture);
+        const saved = await inspectPdf(fixture);
+        expect(saved.annotations.filter(annotation => annotation.subtype === 'Square')).toHaveLength(3_200);
+        await openPdfInApp(page, copyFreshFixture(fixture, 'many-shapes-reopen'));
+        await waitForPdfLoaded(page);
+        const reopened = await collectAnnotationOwnershipDebugState(page);
+        expect(reopened.canonicalEntities.filter(entity => entity.kind === 'shape')).toHaveLength(3_200);
+        expect(new Set(reopened.canonicalEntities.map(entity => entity.id)).size).toBe(3_200);
+    }, 300_000);
+
+});

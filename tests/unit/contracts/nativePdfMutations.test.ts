@@ -8,7 +8,9 @@ import {
     normalizePdfNativeAnnotationIdentityBindings,
     normalizePdfNativeMutationSet,
 } from '@contracts/nativePdfMutations';
-import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
+import {
+    collectExpectedNativeIdentityIds, splitPdfNativeMutationSetIntoBoundedChunks,
+} from '@pdf-core/nativePdfMutationPolicy';
 
 const validNoteTextUpdate = {
     objectNumber: 42,
@@ -208,6 +210,74 @@ describe('native PDF mutation contracts', () => {
                 pdfRef: validIdentityBinding.pdfRef,
             },
         ])).toThrow('duplicate PDF object reference');
+    });
+
+    it('separates the native-call limits from the atomic save limit', () => {
+        const bindings = Array.from({length: 4_097}, (_, index) => ({
+            annotationId: `annotation-${index}`,
+            pdfRef: `${index + 1} 0 R`,
+        }));
+        expect(normalizePdfNativeAnnotationIdentityBindings(bindings)).toEqual(bindings);
+        expect(() => normalizePdfNativeAnnotationIdentityBindings(bindings, 'chunk', {scope: 'chunk'}))
+            .toThrow('at most 4096');
+        expect(() => normalizePdfNativeAnnotationIdentityBindings(Array(500_001)))
+            .toThrow('at most 500000');
+        const largeReport = Array.from({length: 256}, (_, index) => ({
+            annotationId: `${index}:` + '\u0001'.repeat(1_800),
+            pdfRef: `${index + 1} 0 R`,
+        }));
+        expect(() => normalizePdfNativeAnnotationIdentityBindings(largeReport, 'chunk', {scope: 'chunk'}))
+            .toThrow('byte budget');
+    });
+
+    it('keeps every new identity across a chunked save and bounds each report', () => {
+        const mutations = normalizePdfNativeMutationSet({
+            freeTextNotes: Array.from({length: 4_097}, (_, index) => ({
+                ...validFreeTextNote,
+                stableKey: `uid:0:new-${index}`,
+            })),
+            shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: Array.from({length: 4_096}, (_, index) => ({
+                    ...validShape,
+                    stableKey: `evb-shape:${index.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`,
+                })),
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            },
+        }, 'mutations');
+        let nextRef = 1;
+        const reports = splitPdfNativeMutationSetIntoBoundedChunks(mutations).map(chunk => {
+            const bindings = collectExpectedNativeIdentityIds(chunk).map(annotationId => ({
+                annotationId,
+                pdfRef: `${nextRef++} 0 R`,
+            }));
+            expect(bindings.length).toBeLessThanOrEqual(4_096);
+            expect(new TextEncoder().encode(JSON.stringify(bindings)).byteLength).toBeLessThanOrEqual(256 * 1024);
+            return bindings;
+        });
+        const allBindings = reports.flat();
+        expect(normalizePdfNativeAnnotationIdentityBindings(allBindings)).toEqual(allBindings);
+        expect(new Set(allBindings.map(binding => binding.annotationId)))
+            .toEqual(new Set(collectExpectedNativeIdentityIds(mutations)));
+        expect(allBindings).toHaveLength(8_193);
+    });
+
+    it('keeps escaped and Unicode identities inside the native report byte budget', () => {
+        const mutations = normalizePdfNativeMutationSet({freeTextNotes: Array.from({length: 256}, (_, index) => ({
+            ...validFreeTextNote,
+            stableKey: `uid:${index}:` + '\u0001'.repeat(1_800) + 'é'.repeat(100),
+        }))}, 'mutations');
+        const chunks = splitPdfNativeMutationSetIntoBoundedChunks(mutations);
+        const reports = chunks.map(chunk => collectExpectedNativeIdentityIds(chunk).map((annotationId, index) => ({
+            annotationId,
+            pdfRef: `${4_294_967_295 - index} 65535 R`,
+        })));
+        expect(reports.flat()).toHaveLength(256);
+        for (const report of reports) {
+            expect(new TextEncoder().encode(JSON.stringify(report)).byteLength).toBeLessThanOrEqual(256 * 1024);
+        }
     });
 
     it('normalizes every native mutation family for preload and native-tool payloads', () => {

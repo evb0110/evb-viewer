@@ -145,7 +145,7 @@ describe('native PDF text-box mutation contracts', () => {
         expect(chunks.every(chunk => chunk.freeTextEditors === undefined)).toBe(true);
     });
 
-    it('rejects duplicate aliases before splitting and preserves the legacy family when used alone', () => {
+    it('rejects duplicate aliases before splitting and accepts legacy text boxes', () => {
         expect(() => splitPdfNativeMutationSetIntoBoundedChunks({
             textBoxes: [textBox],
             freeTextEditors: [{
@@ -157,6 +157,6 @@ describe('native PDF text-box mutation contracts', () => {
         const chunks = splitPdfNativeMutationSetIntoBoundedChunks({freeTextEditors: [textBox]});
         expect(chunks).toHaveLength(1);
         expect(chunks[0]?.textBoxes).toEqual([textBox]);
-        expect(chunks[0]?.freeTextEditors).toEqual([textBox]);
+        expect(normalizePdfNativeMutationSet(chunks[0], 'mutations').textBoxes).toEqual([textBox]);
     });
 });

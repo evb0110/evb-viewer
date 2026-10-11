@@ -340,7 +340,10 @@ async function prepareNativeNoteMutation(options: {
                         async () => normalizePdfNativeAnnotationIdentityBindings(
                             JSON.parse(await readFile(join(dirname(payloadFilePath), identityBindingsFileName), 'utf8')),
                             `native identity bindings chunk ${chunkIndex}`,
-                            {errorKind: 'error'},
+                            {
+                                errorKind: 'error',
+                                scope: 'chunk',
+                            },
                         ),
                     );
                     identityBindings.push(...chunkBindings);
