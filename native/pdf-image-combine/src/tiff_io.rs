@@ -273,11 +273,6 @@ fn orient_tiff_pixels(
     Ok((oriented_width, oriented_height, oriented))
 }
 
-/// The larger axis, for pages that carry one resolution for both.
-fn read_tiff_dpi<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<u32> {
-    read_tiff_dpi_axes(decoder).map(|(dpi_x, dpi_y)| dpi_x.max(dpi_y))
-}
-
 /// Horizontal and vertical DPI; an axis without a resolution that rounds to
 /// at least 1 DPI takes the other axis's value.
 fn read_tiff_dpi_axes<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<(u32, u32)> {
@@ -469,7 +464,8 @@ fn tiff_resolution_value_to_f64(value: TiffIfdValue) -> Option<f64> {
 struct TiffExportPage {
     width: u32,
     height: u32,
-    dpi: u32,
+    dpi_x: u32,
+    dpi_y: u32,
     samples: TiffExportSamples,
 }
 
@@ -531,7 +527,7 @@ fn combine_validated_tiff_pages(
                 .with_predictor(Predictor::Horizontal);
             for file in validated_inputs.into_files() {
                 let page = read_first_tiff_export_page(file, max_pixels)?;
-                let dpi = dpi.unwrap_or(page.dpi);
+                let dpi = dpi.map_or((page.dpi_x, page.dpi_y), |dpi| (dpi, dpi));
                 match &page.samples {
                     TiffExportSamples::Gray(samples) => {
                         write_export_image::<_, colortype::Gray8>(&mut encoder, &page, dpi, samples)
@@ -554,11 +550,13 @@ fn combine_validated_tiff_pages(
 fn write_export_image<W: Write + Seek, C: ColorType<Inner = u8>>(
     encoder: &mut TiffEncoder<W>,
     page: &TiffExportPage,
-    dpi: u32,
+    (dpi_x, dpi_y): (u32, u32),
     samples: &[u8],
 ) -> Result<()> {
     let mut image = encoder.new_image::<C>(page.width, page.height)?;
-    image.resolution(ResolutionUnit::Inch, Rational { n: dpi, d: 1 });
+    image.resolution_unit(ResolutionUnit::Inch);
+    image.x_resolution(Rational { n: dpi_x, d: 1 });
+    image.y_resolution(Rational { n: dpi_y, d: 1 });
     image.write_data(samples)?;
     Ok(())
 }
@@ -574,7 +572,7 @@ fn read_first_tiff_export_page(mut file: File, max_pixels: u64) -> Result<TiffEx
     let mut decoder = Decoder::new(BufReader::new(file))?;
     let (width, height) = decoder.dimensions()?;
     assert_pixel_limit(width, height, max_pixels)?;
-    let dpi = read_tiff_dpi(&mut decoder).unwrap_or(DEFAULT_DPI);
+    let (dpi_x, dpi_y) = read_tiff_dpi_axes(&mut decoder).unwrap_or((DEFAULT_DPI, DEFAULT_DPI));
     let color_type = decoder.colortype()?;
     let decoded = decoder.read_image()?;
     let samples = build_tiff_export_samples(width, height, color_type, decoded)?;
@@ -582,7 +580,8 @@ fn read_first_tiff_export_page(mut file: File, max_pixels: u64) -> Result<TiffEx
     Ok(TiffExportPage {
         width,
         height,
-        dpi,
+        dpi_x,
+        dpi_y,
         samples,
     })
 }
@@ -610,7 +609,8 @@ fn read_first_netpbm_export_page(file: File, max_pixels: u64) -> Result<TiffExpo
     Ok(TiffExportPage {
         width: netpbm.width,
         height: netpbm.height,
-        dpi: DEFAULT_DPI,
+        dpi_x: DEFAULT_DPI,
+        dpi_y: DEFAULT_DPI,
         samples,
     })
 }

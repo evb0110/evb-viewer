@@ -125,6 +125,80 @@ fn combines_tiff_pages_with_their_own_samples_and_resolution() {
 }
 
 #[test]
+fn export_keeps_each_axis_resolution_of_unequal_tiff_pages() {
+    // A 600 x 600 frame at 300 x 150 dpi keeps both densities in the export.
+    let gray_path = temp_tiff_path("export-axes-gray");
+    let rgb_path = temp_tiff_path("export-axes-rgb");
+    let output_path = temp_tiff_path("export-axes-output");
+    let rgb: Vec<u8> = (0..600 * 600).flat_map(|i| [i as u8, 64, 32]).collect();
+    fs::write(
+        &gray_path,
+        tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], 1),
+    )
+    .unwrap();
+    fs::write(&rgb_path, tiff_with_axes::<colortype::RGB8>(&rgb, 1)).unwrap();
+
+    combine_tiff_pages(
+        &[gray_path.clone(), rgb_path.clone()],
+        &output_path,
+        1_000_000,
+        10,
+        None,
+    )
+    .unwrap();
+
+    let mut decoder = Decoder::new(BufReader::new(File::open(&output_path).unwrap())).unwrap();
+    for _ in 0..2 {
+        assert_eq!(read_resolution_tag(&mut decoder, Tag::XResolution), 300.0);
+        assert_eq!(read_resolution_tag(&mut decoder, Tag::YResolution), 150.0);
+        if decoder.more_images() {
+            decoder.next_image().unwrap();
+        }
+    }
+    assert!(!decoder.more_images());
+
+    let _ = fs::remove_file(gray_path);
+    let _ = fs::remove_file(rgb_path);
+    let _ = fs::remove_file(output_path);
+}
+
+#[test]
+fn explicit_export_dpi_sets_both_axes() {
+    let input_path = temp_tiff_path("export-dpi-input");
+    let output_path = temp_tiff_path("export-dpi-output");
+    fs::write(
+        &input_path,
+        tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], 1),
+    )
+    .unwrap();
+
+    combine_tiff_pages(
+        std::slice::from_ref(&input_path),
+        &output_path,
+        1_000_000,
+        10,
+        Some(200),
+    )
+    .unwrap();
+
+    let mut decoder = Decoder::new(BufReader::new(File::open(&output_path).unwrap())).unwrap();
+    assert_eq!(read_resolution_tag(&mut decoder, Tag::XResolution), 200.0);
+    assert_eq!(read_resolution_tag(&mut decoder, Tag::YResolution), 200.0);
+
+    let _ = fs::remove_file(input_path);
+    let _ = fs::remove_file(output_path);
+}
+
+fn read_resolution_tag<R: Read + Seek>(decoder: &mut Decoder<R>, tag: Tag) -> f64 {
+    match decoder.find_tag(tag).unwrap() {
+        Some(TiffIfdValue::Rational(numerator, denominator)) => {
+            f64::from(numerator) / f64::from(denominator)
+        }
+        other => panic!("{tag:?} is not a rational: {other:?}"),
+    }
+}
+
+#[test]
 fn combines_netpbm_pages_with_their_own_samples() {
     let color_path = temp_tiff_path("combine-ppm-color");
     let gray_rgb_path = temp_tiff_path("combine-ppm-gray");
