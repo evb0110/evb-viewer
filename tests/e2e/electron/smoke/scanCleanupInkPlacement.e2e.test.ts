@@ -292,16 +292,23 @@ describe('scan cleanup ink placement', () => {
                 ].join(':'))
                 .join(' ');
             let lastKey = frameKey();
-            // Detection stays open from the click until the rerun completes,
-            // including the moment between the outlived job and the rerun;
-            // recording continues until the settled preview is shown.
+            // The probe arms on the margin change itself, not on the click,
+            // and ends only once detection, open after that change, has
+            // settled and its preview is shown: the first detection finishing
+            // before the click lands cannot end it early.
+            const marginInput = document.querySelector<HTMLInputElement>('input[data-margin-side="topMm"]');
+            const initialMargin = marginInput?.value;
+            let marginChanged = false;
+            let rerunOpen = false;
             const observer = new MutationObserver(() => {
                 const settled = document.querySelector('.scan-cleanup-surface')
                     ?.getAttribute('data-detection-status') === 'completed'
                     && !/Page size may still change|Building cleanup preview|Preview updating|Updating preview|Reading page images/i
                         .test(document.body.innerText);
+                marginChanged ||= marginInput?.value !== initialMargin;
+                rerunOpen ||= marginChanged && !settled;
                 const key = frameKey();
-                if (key !== lastKey) {
+                if (marginChanged && key !== lastKey) {
                     const canvases = [...document.querySelectorAll<HTMLElement>('[data-output-half] .uniform-canvas')];
                     record.frames.push({
                         matched: canvases.length === 2
@@ -311,7 +318,7 @@ describe('scan cleanup ink placement', () => {
                     });
                 }
                 lastKey = key;
-                if (settled) {
+                if (rerunOpen && settled) {
                     record.done = true;
                     observer.disconnect();
                 }
