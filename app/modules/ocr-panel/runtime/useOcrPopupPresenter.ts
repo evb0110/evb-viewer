@@ -1,3 +1,4 @@
+import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
@@ -271,6 +272,7 @@ interface IOcrPopupPresenterContext {
 
 export interface IOcrPopupPresenterOptions {
     context: IOcrPopupPresenterContext;
+    captureMetadataSnapshot?: () => IPageOpsMetadataSnapshot | undefined;
     /** Applies a finished run to the document. */
     applyResult: (payload: IOcrPopupCompletePayload) => void | Promise<void>;
 }
@@ -303,6 +305,7 @@ function formatDebugLogEntry(entry: IDebugLogEntry) {
 export const useOcrPopupPresenter = ({
     context,
     applyResult,
+    captureMetadataSnapshot,
 }: IOcrPopupPresenterOptions) => {
     const {
         locale,
@@ -326,7 +329,7 @@ export const useOcrPopupPresenter = ({
         cancelOcr,
         clearResults,
         clearRunSettingsHistory,
-    } = useOcr();
+    } = useOcr(captureMetadataSnapshot);
 
     const isCopyingLogs = ref(false);
     const copyLogsState = ref<'idle' | 'copied' | 'failed'>('idle');

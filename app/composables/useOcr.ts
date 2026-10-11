@@ -1,3 +1,4 @@
+import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
 import { uniq } from 'es-toolkit/array';
 import { createRequestId } from '@contracts/shared';
@@ -59,7 +60,7 @@ type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (
     result: infer TResult,
 ) => void ? TResult : never;
 
-export const useOcr = () => {
+export const useOcr = (captureMetadataSnapshot?: () => IPageOpsMetadataSnapshot | undefined) => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const { localizeOcrError } = useOcrErrorLocalizer();
@@ -506,6 +507,7 @@ export const useOcr = () => {
         selection: TOcrPageSelectionScope,
         workingCopyPath: TDocumentRef,
         runSettings: IOcrSettings,
+        metadataSnapshot?: IPageOpsMetadataSnapshot,
     ) {
         const ocr = getOcrCapability();
         return runJob(ocr, {
@@ -518,7 +520,10 @@ export const useOcr = () => {
                     workingCopyPath,
                     buildPageSelection(selection, runSettings),
                     requestId,
-                    buildSearchablePdfOptions(runSettings),
+                    {
+                        ...buildSearchablePdfOptions(runSettings),
+                        ...(metadataSnapshot ? {metadataSnapshot} : {}),
+                    },
                 );
                 BrowserLogger.debug('ocr', 'Job started', {
                     requestId,
@@ -560,6 +565,7 @@ export const useOcr = () => {
             return;
         }
 
+        const metadataSnapshot = captureMetadataSnapshot?.();
         const runToken = Symbol('ocr-run');
         pendingRunToken = runToken;
         beginRunProgress(selection, runSettings);
@@ -571,7 +577,7 @@ export const useOcr = () => {
         pendingRunToken = null;
 
         const requestId = createOcrRequestId(selection);
-        const run = startOcrJob(requestId, selection, workingCopyPath, runSettings);
+        const run = startOcrJob(requestId, selection, workingCopyPath, runSettings, metadataSnapshot);
         activeRun = run;
         try {
             const response = await run.result;

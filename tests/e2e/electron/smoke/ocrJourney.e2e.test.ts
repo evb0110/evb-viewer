@@ -40,6 +40,8 @@ import {
 import {
     createFixturePath,
     createScannedTextFixturePdf,
+    readPdfCatalogWithPdfjs,
+    readPdfMetadataWithQpdf,
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -54,6 +56,7 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {wheelPdfViewportAndWaitForSettlement} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import {
     callWorkspaceCommand,
@@ -74,6 +77,8 @@ const SCANNED_TEXT = 'Harbor lantern signal';
 const SEARCHED_WORD = 'lantern';
 const LATE_RESULT_TEXT = 'Copper weather beacon';
 const LATE_RESULT_WORD = 'beacon';
+const ACCEPTED_BOOKMARK = 'Accepted OCR bookmark';
+const ACCEPTED_LABEL_PREFIX = 'Accepted-';
 const OCR_TIMEOUT_MS = 180_000;
 const ACTIVE_HOST = '.workspace-host[data-workspace-active="true"]';
 
@@ -109,6 +114,11 @@ async function clickVisibleButton(page: Page, scope: string, name: string, timeo
         ))
     ), {timeout: timeoutMs}, scope, name);
     await clickAsUser(page, handle.asElement() as ElementHandle<HTMLButtonElement>);
+}
+
+async function waitForBookmarkRow(page: Page, title: string) {
+    await waitForFunctionInPage(page, (expected: string) => Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row, .document-bookmark-item__row'))
+        .some(row => row.checkVisibility() && row.textContent?.trim() === expected), {timeout: 30_000}, title);
 }
 
 async function waitForTextLayerWord(page: Page) {
@@ -589,6 +599,83 @@ if (process.versions.electron && process.type === 'browser') {
         await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
     }, 300_000);
 
+    // Accepted bookmark and page-label edits are renderer state until Save. An
+    // OCR run replaces the working copy, so these edits must travel with the
+    // OCR output: they stay on screen after the run and are written by Save.
+    it('keeps accepted bookmark and page-label edits through OCR, on screen and in the saved file', async () => {
+        const session = await sessionFixture.resetForE2E();
+        const {page} = session;
+        const sourcePath = await createScannedTextFixturePdf(
+            'ocr-metadata-scan.pdf',
+            SCANNED_TEXT,
+            '60px EvbOcrJourneySans',
+        );
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1200,
+            700,
+        ]);
+
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
+        await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type(ACCEPTED_BOOKMARK);
+        await page.keyboard.press('Enter');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+        await openDocumentSidebarTab(page, 'Pages');
+        const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
+        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+            await clickAsUser(page, disclosure);
+        }
+        await clickAsUser(page, '#page-label-prefix-input');
+        await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
+        await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
+            .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+        const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
+            item.textContent?.trim() === 'OCR'
+            && !item.hasAttribute('data-disabled')
+            && item.getAttribute('aria-disabled') !== 'true'
+            && item.checkVisibility()
+        )), {timeout: 30_000});
+        await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+        ), {timeout: OCR_TIMEOUT_MS});
+        await clickVisibleButton(page, '[role="dialog"]', 'Close');
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await waitForViewerInteractive(page, 90_000);
+
+        await waitForTextLayerWord(page);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        const catalog = await readPdfCatalogWithPdfjs(sourcePath);
+        expect(catalog.pageLabels?.[0]).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        const {outlines} = await readPdfMetadataWithQpdf(sourcePath);
+        expect(outlines.map(item => item.title)).toEqual([ACCEPTED_BOOKMARK]);
+        expect(await assertOcrPdfSemanticOutput(sourcePath, SCANNED_TEXT)).toContain(SEARCHED_WORD);
+        await clickVisibleButton(page, 'body', 'Close Tab');
+        await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-ocr-metadata-'));
+        await copyFile(sourcePath, join(evidence, 'saved.pdf'));
+        await page.screenshot({path: join(evidence, 'reopened.png')});
+        console.info(`OCR metadata evidence: ${evidence}`);
+    }, 420_000);
 
     // Owner report 2026-10-10: after OCR of the current page, the page under
     // the dialog moved to its blank top. Applying the searchable PDF rewrites

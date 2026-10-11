@@ -1,8 +1,11 @@
+import {buildPageMetadataSnapshot} from '@app/modules/pdf-viewer/public';
 import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { IDocumentTransitionDeps } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
@@ -31,8 +34,12 @@ interface IOcrApplyReloadResult {
     getRestoreError: () => unknown;
 }
 
-interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransitionDeps, 'pdfViewerRef'> {
+interface IWorkspaceDocumentLifecycleEffectsOptions extends Omit<IDocumentTransitionDeps, 'pdfViewerRef' | 'bookmarkItems' | 'pageLabelRanges'> {
     documentAnnotations: TPdfDocumentAnnotations;
+    bookmarkItems: Ref<IPdfBookmarkEntry[]>;
+    pageLabelRanges: Ref<IPdfPageLabelRange[]>;
+    pageLabelsResolved: Ref<boolean>;
+    bookmarksResolved: Ref<boolean>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     /** OCR rewrites the document under every view of it. */
@@ -374,6 +381,14 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             documentRevision: documentRevisionToken,
             busy: options.isBusy,
         },
+        captureMetadataSnapshot: () => buildPageMetadataSnapshot({
+            pageLabels: pageLabels.value,
+            pageLabelRanges: pageLabelRanges.value,
+            pageLabelsResolved: options.pageLabelsResolved.value,
+            bookmarks: bookmarkItems.value,
+            bookmarksResolved: options.bookmarksResolved.value,
+            untitledBookmarkLabel: t('bookmarks.untitled'),
+        }),
         applyResult: handleOcrComplete,
     });
 

@@ -1,8 +1,8 @@
+import {persistOcrPageMetadata} from '@electron/features/ocr/pipeline/persistOcrPageMetadata';
 /**
  * One OCR job: select the pages that need recognition, render and recognize
  * each page under a broker lease, checkpoint every recognized page, write the
  * searchable PDF in one pdf-page-ops pass, and stage the text catalog.
- *
  * The job runs in the main process inside a job-registry record. The native
  * tools do the CPU work in child processes; this code only orchestrates them.
  */
@@ -980,10 +980,9 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 ],
             };
         }
+        await persistOcrPageMetadata(mergedPdfPath, options.metadataSnapshot, jobSignal, sessionId);
         await storageBudget.assertWithinBudget();
         await durableManifest.markNode('assembled-document', 'verified');
-
-        throwIfAborted(jobSignal);
         const resultSha256 = await hashFileSha256(mergedPdfPath, jobSignal);
         await durableManifest.markNode('verified-result', 'verified');
         publish(lastPage, requestedPageCount, {

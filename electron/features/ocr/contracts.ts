@@ -3,6 +3,7 @@ import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/features/ocr/availableLanguages';
 import { isOneOf } from '@contracts/runtimeGuards';
 import { requirePageNumber } from '@contracts/pageNumbers';
+import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
 import {
     requireRequestId,
     type TRequestId,
@@ -308,6 +309,13 @@ function asSearchablePdfOptions(value: unknown): IOcrSearchablePdfOptions {
     }
     if (value.replaceAllAcknowledged !== undefined) {
         options.replaceAllAcknowledged = value.replaceAllAcknowledged;
+    }
+    if (value.metadataSnapshot !== undefined) {
+        try {
+            options.metadataSnapshot = decodeMetadataSnapshot(value.metadataSnapshot);
+        } catch (error) {
+            throw new OcrPayloadValidationError(getErrorMessage(error));
+        }
     }
     return options;
 }
