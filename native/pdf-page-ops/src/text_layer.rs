@@ -1253,7 +1253,11 @@ fn clone_object_graph(
             if let Some(destination) = destination {
                 dictionary.set(
                     key,
-                    crate::split_pages::remap_internal_destination(source, &destination, pages)?,
+                    crate::internal_destinations::remap_internal_destination(
+                        source,
+                        &destination,
+                        pages,
+                    )?,
                 );
             }
             Ok(cloned)

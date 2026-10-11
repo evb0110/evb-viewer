@@ -34,6 +34,7 @@ mod dispatcher;
 mod incremental;
 mod incremental_document;
 mod input;
+mod internal_destinations;
 mod load_policy;
 mod markup;
 mod markup_geometry;
