@@ -118,6 +118,10 @@ pub(crate) fn remap_internal_destination(
             _ => return Err("overlay-text has an ambiguous internal destination".into()),
         }
     };
+    if selected.2.unmapped_geometry && points.iter().any(|point| point.iter().any(Option::is_some))
+    {
+        return Ok(None);
+    }
     let matrix = selected.2.matrix;
     let [x, y] = transform(matrix, point);
     let nullable = |value: Option<f64>| -> Result<Object> {

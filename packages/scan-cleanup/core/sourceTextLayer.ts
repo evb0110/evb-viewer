@@ -296,6 +296,32 @@ export function resolveScanCleanupTextLayerInstruction(
     };
 }
 
+/**
+ * Every output page that comes from a source page is a link target, whether or
+ * not it copies text. A preserved page is its source page unchanged, so its
+ * geometry is the identity; a page without affine geometry names no coordinates.
+ */
+function linkOnlyTextLayerInstruction(
+    output: IRenderedCleanupOutputPage,
+    outputPageIndex: number,
+    unmappedGeometry: boolean,
+): IScanCleanupTextLayerInstruction {
+    return {
+        sourcePageIndex: output.sourcePageNumber - 1,
+        outputPageIndex,
+        matrix: [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+        ],
+        linkOnly: true,
+        ...(unmappedGeometry ? {unmappedGeometry: true} : {}),
+    };
+}
+
 function buildScanCleanupTextLayerPlanFromPageSizeResolver(
     outputs: readonly IRenderedCleanupOutputPage[],
     resolvePageSize: (pageNumber: number) => IPdfPageSize | undefined,
@@ -306,6 +332,7 @@ function buildScanCleanupTextLayerPlanFromPageSizeResolver(
     outputs.forEach((output, outputPageIndex) => {
         if (output.preservedSource !== undefined) {
             alreadyPreserved.add(output.sourcePageNumber);
+            pages.push(linkOnlyTextLayerInstruction(output, outputPageIndex, false));
             return;
         }
         const instruction = resolveScanCleanupTextLayerInstruction(
@@ -315,6 +342,7 @@ function buildScanCleanupTextLayerPlanFromPageSizeResolver(
         );
         if (instruction === null) {
             skippedNonAffine.add(output.sourcePageNumber);
+            pages.push(linkOnlyTextLayerInstruction(output, outputPageIndex, true));
         } else {
             pages.push(instruction);
         }

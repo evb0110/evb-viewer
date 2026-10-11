@@ -1933,6 +1933,47 @@ fn save_link_source(path: &Path, target: LinkTarget, defined: bool) {
 }
 
 #[test]
+fn overlay_maps_a_link_to_an_output_page_that_copies_no_text() {
+    for page_geometry in [
+        r#""linkOnly":true"#,
+        r#""linkOnly":true,"unmappedGeometry":true"#,
+    ] {
+        let source = path("link-only-source", "pdf");
+        let input = path("link-only-input", "pdf");
+        let output = path("link-only-output", "pdf");
+        let instructions = path("link-only-instructions", "json");
+        save_link_source(&source, LinkTarget::Explicit, true);
+        save_empty_pages(&input, 2);
+        // Output page 2 is a source page with no text: it only receives the link.
+        write(&instructions, format!(r#"{{"pages":[{{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}},{{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0],{page_geometry}}}]}}"#)).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+        let annots = saved
+            .get_dictionary(pages[0])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let link = saved
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        let destination = link.get(b"Dest").unwrap().as_array().unwrap();
+        assert_eq!(destination[0].as_reference().unwrap(), pages[1]);
+        assert_eq!(destination[1].as_name().unwrap(), b"Fit");
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
 fn overlay_resolves_named_destinations_to_the_output_page_they_name() {
     for target in [LinkTarget::LegacyNamed, LinkTarget::TreeNamed] {
         let source = path("named-link-source", "pdf");

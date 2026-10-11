@@ -300,10 +300,8 @@ async function assertSourceAnnotationsHaveGeometry(
 }
 
 /**
- * Overlay the source's text and annotations onto the staged output pages. The
- * instructions name output pages by position, so a caller that assembles
- * batches overlays once over the whole document, where every destination
- * resolves.
+ * Overlay the source's text and annotations once over the staged output, where
+ * every destination resolves. Link-only pages copy nothing but name targets.
  */
 export async function overlayScanCleanupTextLayer(
     pages: IScanCleanupTextLayerPlan['pages'],
@@ -316,8 +314,10 @@ export async function overlayScanCleanupTextLayer(
     dependencies: IRunScanCleanupPipelineDependencies,
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
+    // Link-only pages name destinations; the overlay runs only for copied text.
+    const copiedPages = pages.filter(page => page.linkOnly !== true);
     if (
-        pages.length > 0
+        copiedPages.length > 0
         && paths.pdfPageOpsBinary !== undefined
         && !isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
     ) {
@@ -349,9 +349,9 @@ export async function overlayScanCleanupTextLayer(
         await rename(textLayerPdfPath, stagedPdfPath);
         log(
             'debug',
-            `Scan cleanup retained source text and annotations on ${String(pages.length)} output page(s)`,
+            `Scan cleanup retained source text and annotations on ${String(copiedPages.length)} output page(s)`,
         );
-    } else if (pages.length > 0) {
+    } else if (copiedPages.length > 0) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
 }

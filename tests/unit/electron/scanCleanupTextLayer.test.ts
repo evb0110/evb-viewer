@@ -403,7 +403,37 @@ describe('scan-cleanup source text layer', () => {
                 pageNumber: 2,
             },
         ])).toEqual({
-            pages: [],
+            // Every output page is a destination target. The dewarped page has no
+            // geometry to map; the preserved page is its own source, so identity.
+            pages: [
+                {
+                    sourcePageIndex: 0,
+                    outputPageIndex: 0,
+                    matrix: [
+                        1,
+                        0,
+                        0,
+                        1,
+                        0,
+                        0,
+                    ],
+                    linkOnly: true,
+                    unmappedGeometry: true,
+                },
+                {
+                    sourcePageIndex: 1,
+                    outputPageIndex: 1,
+                    matrix: [
+                        1,
+                        0,
+                        0,
+                        1,
+                        0,
+                        0,
+                    ],
+                    linkOnly: true,
+                },
+            ],
             skippedNonAffine: [1],
             alreadyPreserved: [2],
         });

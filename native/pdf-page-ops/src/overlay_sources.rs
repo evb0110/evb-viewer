@@ -77,6 +77,10 @@ pub(crate) struct TextLayerInstruction {
     /// copied by another subset; this run maps its destinations and nothing more.
     #[serde(default)]
     pub(crate) link_only: bool,
+    /// Without affine geometry the page's `matrix` is a placeholder. Only a
+    /// destination that names no coordinate resolves to this output page.
+    #[serde(default)]
+    pub(crate) unmapped_geometry: bool,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -508,6 +512,7 @@ fn rebase_overlay_source_instructions(
                     source_region: instruction.source_region,
                     link_only: instruction.link_only
                         || !text_pages.contains(&instruction.source_page_index),
+                    unmapped_geometry: instruction.unmapped_geometry,
                 })
         })
         .collect::<Vec<_>>();

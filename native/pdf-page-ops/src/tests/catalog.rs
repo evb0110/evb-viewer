@@ -974,6 +974,7 @@ fn overlays_high_index_pages_in_million_page_batches_without_a_full_page_walk() 
                 filter_to_output_page: false,
                 normalize_greek_micro_sign: false,
                 link_only: false,
+                unmapped_geometry: false,
                 source_region: None,
             }],
         };
@@ -1014,6 +1015,7 @@ fn overlays_multiple_instructions_for_one_target_page_without_resetting_contents
                 filter_to_output_page: false,
                 normalize_greek_micro_sign: false,
                 link_only: false,
+                unmapped_geometry: false,
                 source_region: None,
             },
             TextLayerInstruction {
@@ -1023,6 +1025,7 @@ fn overlays_multiple_instructions_for_one_target_page_without_resetting_contents
                 filter_to_output_page: false,
                 normalize_greek_micro_sign: false,
                 link_only: false,
+                unmapped_geometry: false,
                 source_region: None,
             },
         ],
@@ -1052,6 +1055,7 @@ fn overlays_source_batches_for_one_target_page_without_resetting_prior_batch() {
             filter_to_output_page: false,
             normalize_greek_micro_sign: false,
             link_only: false,
+            unmapped_geometry: false,
             source_region: None,
         }],
     };
@@ -1134,6 +1138,7 @@ fn cleanup_overlay_preserves_notes_replies_and_markup_at_affine_positions() {
             filter_to_output_page: false,
             normalize_greek_micro_sign: false,
             link_only: false,
+            unmapped_geometry: false,
             source_region: None,
         }],
     };
@@ -1312,6 +1317,7 @@ fn cleanup_split_keeps_notes_with_their_owner_and_markup_on_both_halves() {
                     filter_to_output_page: true,
                     normalize_greek_micro_sign: false,
                     link_only: false,
+                    unmapped_geometry: false,
                     source_region: None,
                 })
                 .collect(),
