@@ -1,36 +1,35 @@
 use super::*;
 
-/// The annotation a reply or popup answers to: the thread root for a reply,
-/// the note for a popup. A form field is not a thread member, so a widget's
-/// `/Parent` is never followed.
-fn thread_parent(source: &Document, annotation: &Dictionary) -> Option<ObjectId> {
-    [b"IRT".as_slice(), b"Parent".as_slice()]
-        .into_iter()
-        .find_map(|key| {
-            let parent = annotation_related_ref(annotation, key)?;
-            source
-                .get_dictionary(parent)
-                .ok()?
-                .has(b"Subtype")
-                .then_some(parent)
-        })
-}
-
 /// The terminal owner of an annotation's thread, found by following reply and
 /// popup links to the note that every member answers to.
-fn thread_owner(source: &Document, annotation: &Dictionary) -> Dictionary {
-    let mut owner = annotation.clone();
+pub(crate) fn thread_owner<'a>(
+    source: &'a Document,
+    annotation: &'a Dictionary,
+    page: ObjectId,
+) -> Result<&'a Dictionary> {
+    let listed = page_annotation_array(source, source.get_dictionary(page)?)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|entry| entry.as_reference().ok())
+        .collect::<HashSet<_>>();
+    let mut owner = annotation;
     let mut seen = HashSet::new();
-    while let Some(parent) = thread_parent(source, &owner) {
-        if !seen.insert(parent) {
-            break;
+    while let Some((id, parent)) = [b"IRT".as_slice(), b"Parent".as_slice()]
+        .into_iter()
+        .filter_map(|key| annotation_related_ref(owner, key))
+        .filter_map(|id| source.get_dictionary(id).ok().map(|parent| (id, parent)))
+        .find(|(id, parent)| {
+            parent.has(b"Subtype")
+                && (listed.contains(id)
+                    || parent.get(b"P").and_then(Object::as_reference).ok() == Some(page))
+        })
+    {
+        if seen.len() >= 127 || !seen.insert(id) {
+            return Err("annotation ownership is cyclic or too deep".into());
         }
-        match source.get_dictionary(parent) {
-            Ok(dictionary) => owner = dictionary.clone(),
-            Err(_) => break,
-        }
+        owner = parent;
     }
-    owner
+    Ok(owner)
 }
 
 /// A note sits on the output that holds its marker centre, as an overlay note
@@ -55,7 +54,7 @@ pub(crate) fn keep_split_annotation(
     output: &crate::split_output::SplitOutputPage,
     annotation: &Dictionary,
 ) -> Result<bool> {
-    let owner = thread_owner(source, annotation);
+    let owner = thread_owner(source, annotation, output.source_id)?;
     let subtype = owner
         .get(b"Subtype")
         .ok()
@@ -64,14 +63,14 @@ pub(crate) fn keep_split_annotation(
     let note_owner = matches!(subtype, Some(b"Text" | b"Popup"))
         || is_free_text_note_marker(
             source,
-            &owner,
+            owner,
             resolve_page_view(source, output.source_id)?,
             resolve_page_rotation(source, output.source_id)?,
         );
     Ok(!note_owner
         || owner_centre_in_crop(
             source,
-            &owner,
+            owner,
             crate::split_output::split_annotation_matrix(output.transform),
             output.crop,
         ))

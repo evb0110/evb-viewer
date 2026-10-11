@@ -3014,3 +3014,55 @@ fn compact_catalog_follows_raster_replacements_at_every_size() {
         }
     }
 }
+
+fn r8_cross_source() -> Document {
+    let mut source = review_catalog_source();
+    let root = source.add_object(dictionary! {"Type" => "Annot", "Subtype" => "Text", "P" => (5, 0),
+        "Rect" => vec![150.into(), 60.into(), 170.into(), 80.into()], "Contents" => Object::string_literal("remote root")});
+    source
+        .get_dictionary_mut((5, 0))
+        .unwrap()
+        .set("Annots", vec![Object::Reference(root)]);
+    let reply = source.get_dictionary_mut((21, 0)).unwrap();
+    reply.set("IRT", root);
+    reply.set("Rect", vec![20.into(), 60.into(), 40.into(), 80.into()]);
+    source
+}
+
+#[test]
+fn r8_cross_page_reply_uses_its_own_crop_geometry() {
+    for assembly in [false, true] {
+        let input = path("r8-cross-input", "pdf");
+        let output = path("r8-cross-output", "pdf");
+        let instructions = path("r8-cross-instructions", "json");
+        r8_cross_source().save(&input).unwrap();
+        write(&instructions, serde_json::json!({"catalog": if assembly {"assembly"} else {"source"}, "pages": [
+            {"sourcePageIndex": 0, "rotationQuarterTurns": 0, "outputs": [{"cropRect": {"x": 0, "y": 0, "width": 100, "height": 120}}]},
+            {"sourcePageIndex": 2, "rotationQuarterTurns": 0, "outputs": [{"cropRect": {"x": 0, "y": 0, "width": 200, "height": 120}}]}
+        ]}).to_string()).unwrap();
+        run_split_pages(&input, &output, &instructions);
+        let split = Document::load(&output).unwrap();
+        let annotations = split_page_annotations(&split, 1);
+        let reply = annotations
+            .iter()
+            .find(|(_, a)| a.get(b"Contents").and_then(Object::as_str).ok() == Some(b"reply"));
+        assert!(
+            reply.is_some(),
+            "the reply lies within its own retained crop"
+        );
+        let root = split_page_annotations(&split, 2)[0].0;
+        assert_eq!(
+            reply
+                .unwrap()
+                .1
+                .get(b"IRT")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            root
+        );
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
