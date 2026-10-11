@@ -1402,6 +1402,7 @@ export default {
         'style': 'Style',
         'prefix': 'Préfixe',
         'startAt': 'Commencer à',
+        'startAdjusted': 'La valeur de départ a été ajustée à {value} pour ce style de numérotation.',
         'clear': 'Effacer',
         'applyNumbering': 'Appliquer la numérotation',
         'decimal': 'Décimal',

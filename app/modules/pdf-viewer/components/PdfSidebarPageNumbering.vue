@@ -110,7 +110,6 @@
                                     class="w-full"
                                     size="xs"
                                     :min="1"
-                                    :max="getPageLabelStartNumberMax(getConfiguredPageLabelStyle())"
                                     :step="1"
                                     :disabled="pageLabelStyle.length === 0"
                                     @update:model-value="handleStartNumberModelUpdate"
@@ -159,7 +158,7 @@
 <script setup lang="ts">
 
 import { uniq } from 'es-toolkit/array';
-import { clamp } from 'es-toolkit/math';
+import {admitPdfPageLabelStartNumber} from '@contracts/pdfPageLabels';
 import type {
     IPdfPageLabelRange,
     TPageLabelStyle,
@@ -170,7 +169,6 @@ import {
     buildWholeDocumentPageLabelRanges,
     derivePageLabelRangesFromLabels,
     formatPageRange,
-    getPageLabelStartNumberMax,
     normalizePageLabelRanges,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
     parsePageRangeInput,
@@ -201,6 +199,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useTypedI18n();
+const {presentNoticeToast} = useFailureToast();
 
 const isExpanded = ref(false);
 const pendingSelectionSyncCount = ref(0);
@@ -274,12 +273,7 @@ const pageLabelStyleSelectValue = computed({
         pageLabelStyle.value = value === PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE
             ? ''
             : normalizePageLabelStyleSelectValue(value);
-        // A start value the new style cannot format is corrected in the field itself.
-        pageLabelStartNumber.value = clamp(
-            pageLabelStartNumber.value,
-            1,
-            getPageLabelStartNumberMax(getConfiguredPageLabelStyle()),
-        );
+        handleStartNumberModelUpdate(pageLabelStartNumber.value);
     },
 });
 
@@ -435,7 +429,14 @@ function handleStartNumberModelUpdate(value: number | null | undefined) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return;
     }
-    pageLabelStartNumber.value = clamp(Math.trunc(value), 1, getPageLabelStartNumberMax(getConfiguredPageLabelStyle()));
+    const admitted = admitPdfPageLabelStartNumber(getConfiguredPageLabelStyle(), value);
+    pageLabelStartNumber.value = admitted;
+    if (admitted !== value) {
+        presentNoticeToast({
+            tone: 'warning',
+            title: t('pageNumbering.startAdjusted', {value: admitted}),
+        });
+    }
 }
 
 function setSelectedPagesSilently(pages: number[]) {

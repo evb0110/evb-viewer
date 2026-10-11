@@ -1398,6 +1398,7 @@ export default {
         'style': 'Stil',
         'prefix': 'Präfix',
         'startAt': 'Beginnen bei',
+        'startAdjusted': 'Der Startwert wurde für diesen Nummerierungsstil auf {value} angepasst.',
         'clear': 'Löschen',
         'applyNumbering': 'Nummerierung anwenden',
         'decimal': 'Dezimal',

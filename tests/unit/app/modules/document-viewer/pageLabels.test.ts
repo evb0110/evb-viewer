@@ -12,6 +12,8 @@ import {
     derivePageLabelRangesFromLabels,
     findPageByPageLabelInput,
     formatPageIndicatorWithOptions,
+    getVisiblePageLabel,
+    materializePageLabelsForCompatibility,
     getMaxPageIndicatorLength,
     getPageIndicatorLayoutMetrics,
     getPageLabelStartNumberMax,
@@ -835,4 +837,35 @@ it('navigates long-prefix presentation across numbering styles and rejects hidde
         const onePage = createPageLabelModel(1, model.ranges);
         expect(findPageByPageLabelInput(formatPageLabelForDisplay(model.ranges[0]!), 1, onePage)).toBe(1);
     }
+});
+
+
+describe('viewer page-label presentation', () => {
+    const hugeRange = {
+        startPage: 1,
+        style: 'A' as const,
+        prefix: '',
+        startNumber: 20_000_000_000,
+    };
+
+    it('renders and sizes imported numbering without expanding its full label', () => {
+        const model = createPageLabelModel(2, [hugeRange]);
+        expect(getVisiblePageLabel(1, model)).toBe(`${'F'.repeat(64)}…`);
+        expect(getVisiblePageLabel(2, model)).toBe(`${'G'.repeat(64)}…`);
+        expect(getMaxPageIndicatorLength(2, model)).toBe(69);
+    });
+
+    it('keeps huge labels compact even for a small document compatibility path', () => {
+        expect(materializePageLabelsForCompatibility(2, [hugeRange])).toBeNull();
+        expect(materializePageLabelsForCompatibility(2, [hugeRange], [
+            'wrong',
+            'labels',
+        ])).toBeNull();
+    });
+
+    it('bounds legacy array presentation without changing the original label', () => {
+        const label = '📖'.repeat(100);
+        expect(getVisiblePageLabel(1, [label])).toBe(`${'📖'.repeat(64)}…`);
+        expect(label).toHaveLength(200);
+    });
 });

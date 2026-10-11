@@ -5,8 +5,11 @@ import type {
 } from '@pdf-core/pdfPageLabels';
 import {
     buildPageLabelsFromRanges,
+    buildPageLabelSegments,
+    formatPageLabelForDisplay,
     isImplicitDefaultPageLabels,
 } from '@pdf-core/pdfPageLabels';
+import {pageLabelMatchesText} from '@pdf-core/pdfPageLabelFormatting';
 
 /**
  * PDF.js exposes page labels as a whole array. Keep that shape only for the
@@ -67,6 +70,12 @@ export function materializePageLabelsForCompatibility(
         return null;
     }
 
+    const fitsPresentation = buildPageLabelSegments(totalPages, ranges).every(segment => [
+        0,
+        segment.endPage - segment.startPage,
+    ].every(offset => pageLabelMatchesText(segment, offset, formatPageLabelForDisplay(segment, offset))));
+    if (!fitsPresentation) return null;
+
     if (existingLabels && existingLabels.length === totalPages) {
         return [...existingLabels];
     }
@@ -74,23 +83,12 @@ export function materializePageLabelsForCompatibility(
     return buildPageLabelsFromRanges(totalPages, ranges);
 }
 
-function getLabelFromLookup(page: number, pageLabels: TDocumentPageLabelLookup) {
-    if (isPageLabelArray(pageLabels)) {
-        return pageLabels[page - 1] ?? '';
-    }
-    if (pageLabels) {
-        return pageLabels.labelAt(page) ?? '';
-    }
-    return '';
-}
-
 export function getVisiblePageLabel(page: number, pageLabels: TDocumentPageLabelLookup) {
-    const rawLabel = getLabelFromLookup(page, pageLabels);
-    const label = rawLabel.trim();
-    if (!label) {
-        return null;
+    if (isPageLabelArray(pageLabels)) {
+        return formatPageLabelForDisplay((pageLabels[page - 1] ?? '').trim()) || null;
     }
-    return label;
+    const segment = pageLabels?.segments.find(candidate => page >= candidate.startPage && page <= candidate.endPage);
+    return segment ? formatPageLabelForDisplay(segment, page - segment.startPage).trim() || null : null;
 }
 
 export interface IPageIndicatorFormatOptions { compactPhysicalPage?: boolean; }
@@ -100,7 +98,10 @@ export function formatPageIndicatorWithOptions(
     pageLabels: TDocumentPageLabelLookup,
     options: IPageIndicatorFormatOptions = {},
 ) {
-    const logical = getVisiblePageLabel(page, pageLabels);
+    return formatPageIndicatorLabel(page, getVisiblePageLabel(page, pageLabels), options);
+}
+
+function formatPageIndicatorLabel(page: number, logical: string | null, options: IPageIndicatorFormatOptions) {
     if (!logical || logical === String(page)) {
         return String(page);
     }
@@ -136,7 +137,7 @@ export function getMaxPageIndicatorLength(
             for (const page of candidatePages) {
                 maxLength = Math.max(
                     maxLength,
-                    formatPageIndicatorWithOptions(page, pageLabels, options).length,
+                    formatPageIndicatorLabel(page, formatPageLabelForDisplay(segment, page - segment.startPage).trim(), options).length,
                 );
             }
         }

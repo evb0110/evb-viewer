@@ -300,13 +300,13 @@ onClickOutside(pageControlsRef, () => {
 .page-controls-display {
     display: grid;
     grid-template-columns:
-        var(--page-current-width-ch)
+        minmax(0, 1fr)
         var(--page-separator-width-ch)
         var(--page-total-width-ch);
     align-items: center;
     padding: 0 0.5rem;
-    width: var(--page-display-width-ch);
-    min-width: var(--page-display-width-ch);
+    width: min(var(--page-display-width-ch), var(--app-toolbar-app-menu-trigger-max-width), var(--app-toolbar-app-menu-trigger-max-viewport-width));
+    min-width: 0;
     height: var(--toolbar-control-height, 2.25rem);
     font-family: var(--app-font-mono);
     background: transparent;
@@ -351,11 +351,18 @@ onClickOutside(pageControlsRef, () => {
     justify-content: flex-end;
     gap: 1ch;
     text-align: right;
-    min-width: var(--page-current-width-ch);
+    min-width: 0;
 }
 
 .page-controls-current-primary {
     color: var(--ui-text);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.page-controls-current-secondary {
+    flex-shrink: 0;
 }
 
 .page-controls-current-secondary,

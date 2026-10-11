@@ -1398,6 +1398,7 @@ export default {
         'style': 'Stijl',
         'prefix': 'Voorvoegsel',
         'startAt': 'Beginnen bij',
+        'startAdjusted': 'De startwaarde is aangepast naar {value} voor deze nummeringsstijl.',
         'clear': 'Wissen',
         'applyNumbering': 'Nummering toepassen',
         'decimal': 'Decimaal',
