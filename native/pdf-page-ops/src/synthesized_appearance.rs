@@ -6,7 +6,7 @@ use super::*;
 #[path = "synthesized_border.rs"]
 mod border;
 pub(crate) use border::annotation_inner_rect;
-use border::{border_dash, border_is_underlined, rectangle_appearance};
+use border::{border_dash, ellipse_path, rectangle_appearance};
 #[path = "synthesized_line_endings.rs"]
 mod line_endings;
 use line_endings::{annotation_points, line_body_path, line_ending_appearance, line_print_rect};
@@ -31,7 +31,7 @@ pub(crate) fn synthesized_appearance(
     }
     let content = match subtype.as_slice() {
         b"Text" => return synthesized_note_icon(document, annotation),
-        b"Square" | b"Circle" | b"Line" | b"PolyLine" | b"Polygon" => {
+        b"Square" | b"Circle" | b"Line" | b"PolyLine" | b"Polygon" | b"Ink" => {
             synthesized_shape_content(document, annotation, &subtype)?
         }
         _ => synthesized_shape_content(document, annotation, b"Square")?,
@@ -143,6 +143,11 @@ pub(crate) fn synthesized_shape_content(
                 fill.is_some(),
             )?);
         }
+        b"Ink" => {
+            content.push_str("1 J 1 j\n");
+            content.push_str(&synthesized_ink_paths(document, annotation)?);
+            content.push_str(if stroke.is_some() { "S\n" } else { "n\n" });
+        }
         _ => {
             let points = annotation_points(document, annotation, subtype)?;
             let path = if subtype == b"Polygon" {
@@ -220,17 +225,3 @@ fn annotation_numbers(document: &impl PdfObjectSource, object: &Object) -> Optio
         .map(|value| object_to_f64(document.resolved(value).ok()?).ok())
         .collect()
 }
-/// Four Bézier curves approximating the ellipse inscribed in the given radii.
-fn ellipse_path((cx, cy): (f64, f64), (rx, ry): (f64, f64)) -> String {
-    const KAPPA: f64 = 0.552_284_75;
-    let (kx, ky) = (rx * KAPPA, ry * KAPPA);
-    format!(
-        "{} {} m\n{} {} {} {} {} {} c\n{} {} {} {} {} {} c\n{} {} {} {} {} {} c\n{} {} {} {} {} {} c\nh\n",
-        cx + rx, cy,
-        cx + rx, cy + ky, cx + kx, cy + ry, cx, cy + ry,
-        cx - kx, cy + ry, cx - rx, cy + ky, cx - rx, cy,
-        cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry,
-        cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy,
-    )
-}
-

@@ -2900,25 +2900,6 @@ fn print_layout_draws_an_evb_shape_saved_before_the_print_flag_but_not_a_foreign
     assert!(print_annotation_appearance(&foreign_document).is_none());
 }
 
-#[test]
-fn print_layout_still_refuses_an_ink_annotation_without_appearance() {
-    let (mut document, page_id) = create_test_document();
-    let annot_id = document.add_object(dictionary! {
-        "Subtype" => "Ink",
-        "Rect" => vec![20.into(), 20.into(), 100.into(), 80.into()],
-        "InkList" => vec![Object::Array(vec![20.into(), 20.into(), 100.into(), 80.into()])],
-        "F" => 4,
-    });
-    document
-        .get_dictionary_mut(page_id)
-        .unwrap()
-        .set("Annots", vec![Object::Reference(annot_id)]);
-
-    let error = build_print_layout(&mut document, None, PrintViewMode::Single, PrintOrientation::Auto)
-        .unwrap_err();
-    assert!(error.to_string().contains("has no normal appearance"));
-}
-
 fn ordinary_shape(shape_type: &str, stable_key: &str) -> ShapeAnnotation {
     let mut shape = rectangle_shape(stable_key, "#336699");
     shape.shape_type = shape_type.to_string();

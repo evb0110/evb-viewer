@@ -113,3 +113,33 @@ pub(crate) fn pdf_polyline_path(points: &[(f64, f64)]) -> Option<String> {
     }
     Some(path)
 }
+
+pub(crate) fn synthesized_ink_paths(
+    document: &impl PdfObjectSource,
+    annotation: &Dictionary,
+) -> Option<String> {
+    let strokes = document
+        .resolved(annotation.get(b"InkList").ok()?)
+        .ok()?
+        .as_array()
+        .ok()?;
+    let mut paths = String::new();
+    for stroke in strokes {
+        let values = document.resolved(stroke).ok()?.as_array().ok()?;
+        let values = values
+            .iter()
+            .map(|v| object_to_f64(document.resolved(v).ok()?).ok())
+            .collect::<Option<Vec<_>>>()?;
+        if values.len() % 2 != 0 || values.iter().any(|v| !v.is_finite()) {
+            continue;
+        }
+        let points = values
+            .chunks_exact(2)
+            .map(|v| (v[0], v[1]))
+            .collect::<Vec<_>>();
+        if let Some(path) = pdf_polyline_path(&points) {
+            paths.push_str(&path);
+        }
+    }
+    Some(paths)
+}

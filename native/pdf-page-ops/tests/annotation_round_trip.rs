@@ -1688,3 +1688,17 @@ fn print_applies_rectangle_differences_before_stroking() {
     print_annotation_pdf(&temp.pdf, &printed);
     assert_eq!(poppler_ink_pixels(&printed), 2176);
 }
+
+#[test]
+fn print_draws_ink_paths_without_an_appearance() {
+    let temp = TempPaths::new("print-ink");
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /Ink /Rect [90 490 310 710] /C [1 0 0] /BS << /W 4 >> /InkList [[100 500 200 700 300 500]]");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&temp.pdf, &printed);
+    let stock = poppler_ink_pixels(&temp.pdf);
+    assert!(stock > 1000);
+    let pixels = poppler_pixels(&printed);
+    let tip = &pixels[(343 * 596 + 100) * 3..(343 * 596 + 100) * 3 + 3];
+    assert!(tip[0] > 220 && tip[1] < 220, "round endpoint {tip:?}");
+    assert!(poppler_ink_pixels(&printed) > 1000);
+}

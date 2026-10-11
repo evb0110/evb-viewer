@@ -138,3 +138,17 @@ pub(super) fn rectangle_appearance(
     }
     Some(content)
 }
+
+/// Four Bézier curves approximating the ellipse inscribed in the given radii.
+pub(super) fn ellipse_path((cx, cy): (f64, f64), (rx, ry): (f64, f64)) -> String {
+    const KAPPA: f64 = 0.552_284_75;
+    let (kx, ky) = (rx * KAPPA, ry * KAPPA);
+    format!(
+        "{} {} m\n{} {} {} {} {} {} c\n{} {} {} {} {} {} c\n{} {} {} {} {} {} c\n{} {} {} {} {} {} c\nh\n",
+        cx + rx, cy,
+        cx + rx, cy + ky, cx + kx, cy + ry, cx, cy + ry,
+        cx - kx, cy + ry, cx - rx, cy + ky, cx - rx, cy,
+        cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry,
+        cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy,
+    )
+}
