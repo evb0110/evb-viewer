@@ -2460,3 +2460,139 @@ fn split_pages_numeric_label_ranges_keep_the_source_number_after_reorder() {
         .collect::<Vec<_>>();
     assert_eq!(starts, [10, 8, 10]);
 }
+
+#[test]
+fn split_pages_form_fields_use_the_widgets_listed_by_retained_pages() {
+    for assembly in [false, true] {
+        for order in [&[0, 1, 2][..], &[2, 0][..]] {
+            let split = review_split(&mut review_catalog_source(), order, assembly, false);
+            let form = split
+                .dereference(split.catalog().unwrap().get(b"AcroForm").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let field = split
+                .dereference(form.get(b"Fields").unwrap())
+                .unwrap()
+                .1
+                .as_array()
+                .unwrap()[0]
+                .as_reference()
+                .unwrap();
+            let (widget, annotation) = (1..=order.len() as u32)
+                .flat_map(|page| split_page_annotations(&split, page))
+                .find(|(_, annotation)| {
+                    annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Widget")
+                })
+                .unwrap();
+            assert_eq!(
+                field, widget,
+                "the field and page must name the same widget"
+            );
+            assert!(split.get_pages().values().any(|page| annotation
+                .get(b"P")
+                .unwrap()
+                .as_reference()
+                .unwrap()
+                == *page));
+            assert_eq!(annotation.get(b"V").unwrap().as_str().unwrap(), b"value");
+        }
+    }
+}
+
+#[test]
+fn split_pages_never_publishes_disconnected_tags_as_a_marked_document() {
+    let mut source = review_catalog_source();
+    assert!(source.catalog().unwrap().has(b"StructTreeRoot"));
+    for order in [&[0, 1, 2][..], &[2, 0][..]] {
+        let split = review_split(&mut source, order, false, false);
+        assert!(!split.catalog().unwrap().has(b"StructTreeRoot"));
+        assert!(!split.catalog().unwrap().has(b"MarkInfo"));
+        for page in split.get_pages().values() {
+            assert!(!split.get_dictionary(*page).unwrap().has(b"StructParents"));
+            let number = *split
+                .get_pages()
+                .iter()
+                .find(|(_, id)| *id == page)
+                .unwrap()
+                .0;
+            for (_, annotation) in split_page_annotations(&split, number) {
+                assert!(!annotation.has(b"StructParent"));
+            }
+        }
+    }
+}
+
+#[test]
+fn split_pages_field_kids_and_calculation_order_keep_one_connected_graph() {
+    let mut source = review_catalog_source();
+    let field = source.new_object_id();
+    let removed_widget = source.add_object(dictionary! {"Subtype" => "Widget", "Parent" => field, "P" => (4, 0), "Rect" => vec![130.into(), 20.into(), 190.into(), 40.into()]});
+    source.set_object(field, dictionary! {"FT" => "Tx", "T" => Object::string_literal("parent"), "Kids" => vec![Object::Reference((27, 0)), Object::Reference(removed_widget)]});
+    let widget = source.get_dictionary_mut((27, 0)).unwrap();
+    widget.remove(b"FT");
+    widget.remove(b"T");
+    widget.set("Parent", field);
+    source
+        .get_dictionary_mut((4, 0))
+        .unwrap()
+        .set("Annots", vec![Object::Reference(removed_widget)]);
+    source.catalog_mut().unwrap().set("AcroForm", dictionary! {"Fields" => vec![Object::Reference(field)], "CO" => vec![Object::Reference(field)]});
+    let split = review_split(&mut source, &[0, 0, 2], true, false);
+    let form = split
+        .catalog()
+        .unwrap()
+        .get(b"AcroForm")
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let root = form.get(b"Fields").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    assert_eq!(
+        form.get(b"CO").unwrap().as_array().unwrap()[0]
+            .as_reference()
+            .unwrap(),
+        root
+    );
+    let root_field = split.get_dictionary(root).unwrap();
+    assert_eq!(root_field.get(b"T").unwrap().as_str().unwrap(), b"parent");
+    let kids = root_field.get(b"Kids").unwrap().as_array().unwrap();
+    assert_eq!(
+        kids.len(),
+        1,
+        "the discarded page's widget leaves no field child"
+    );
+    let combined = kids[0].as_reference().unwrap();
+    let widgets = split
+        .get_dictionary(combined)
+        .unwrap()
+        .get(b"Kids")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        widgets.len(),
+        2,
+        "both duplicated page widgets remain attached to their one field"
+    );
+    let listed = (1..=3)
+        .flat_map(|page| split_page_annotations(&split, page))
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+    for widget in widgets {
+        let id = widget.as_reference().unwrap();
+        assert!(listed.contains(&id));
+        assert_eq!(
+            split
+                .get_dictionary(id)
+                .unwrap()
+                .get(b"Parent")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            combined
+        );
+    }
+}

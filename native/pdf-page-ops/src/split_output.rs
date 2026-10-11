@@ -105,6 +105,7 @@ pub(crate) fn build_split_output(
             page.remove(b"BleedBox");
             page.remove(b"TrimBox");
             page.remove(b"ArtBox");
+            page.remove(b"StructParents");
             page.set(
                 "Rotate",
                 normalize_page_rotation(source_rotation + instruction.rotation_quarter_turns * 90),
@@ -120,7 +121,7 @@ pub(crate) fn build_split_output(
         }
     }
 
-    transform_split_annotations(source, target, &mut pages, &page_index)?;
+    let annotations = transform_split_annotations(source, target, &mut pages, &page_index)?;
     let kids = pages
         .iter()
         .map(|page| Object::Reference(page.id))
@@ -143,6 +144,7 @@ pub(crate) fn build_split_output(
         pages_id,
         instructions.catalog,
         &pages,
+        &annotations,
     )?;
     for page in pages {
         target.set_object(page.id, page.page);
