@@ -5,11 +5,31 @@ import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixture
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
+    goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import type {Page} from 'puppeteer-core';
 
 describe('Electron E2E - page number editor caret', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-page-editor-caret-${Date.now()}`});
+
+    it('goes to the page a displayed label names when that label starts with a digit prefix', async () => {
+        const {page} = sessions.getSession();
+        const fixture = await createMultiPageTextFixturePdf(`page-label-entry-${Date.now()}.pdf`, 20);
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        // Numbering with prefix "1" from 1 shows page 4 as "14"; the label must reach page 4.
+        await openDocumentSidebarTab(page, 'Pages');
+        const disclosure = '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-disclosure';
+        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+            await clickAsUser(page, disclosure);
+        }
+        await clickAsUser(page, '#page-label-prefix-input');
+        await page.keyboard.type('1');
+        await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-primary-button');
+        await goToPageLabelViaToolbar(page, '14');
+        await waitForToolbarCurrentPage(page, 4);
+        expect(await page.$eval('.page_container[data-page="4"]', node => node.textContent ?? '')).toContain('Page 4 sample text');
+    }, 90_000);
 
     it('keeps the editor focused and moves the caret after a trusted click inside it', async () => {
         const {page} = sessions.getSession();
@@ -54,3 +74,13 @@ describe('Electron E2E - page number editor caret', () => {
         expect(afterClick.caret).toBe(afterClick.selectionEnd);
     }, 90_000);
 });
+
+/** Types a displayed page label into the toolbar page editor, as a person does. */
+async function goToPageLabelViaToolbar(page: Page, label: string) {
+    const display = await page.waitForSelector('#editor-global-toolbar-host .page-controls-display:not([disabled])', {visible: true});
+    await clickAsUser(page, display!);
+    await page.waitForSelector('#editor-global-toolbar-host .page-controls-inline-input', {visible: true});
+    await clickAsUser(page, '#editor-global-toolbar-host .page-controls-inline-input', {count: 3});
+    await page.keyboard.type(label);
+    await page.keyboard.press('Enter');
+}
