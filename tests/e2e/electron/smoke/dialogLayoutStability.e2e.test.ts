@@ -25,7 +25,10 @@ import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import {decodeLogRecord} from '@contracts/logRecord';
 import type {TAppLocale} from '@contracts/shared';
-import {clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {createPasswordProtectedFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -218,17 +221,41 @@ async function setSavedLocale(page: Page, locale: TAppLocale) {
     await page.reload({waitUntil: 'domcontentloaded'});
 }
 
-// The native owner retains the last requested check, and a renderer start
-// restores its status dialog; dismiss it as a person.
-async function closeRestoredUpdateStatus(page: Page, locale: TAppLocale) {
-    const startupStatus = await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
-    if (startupStatus?.origin !== 'manual' || startupStatus.phase !== 'unsupported') {
-        return;
+// Tab > Move Tab to New Window is the app's route to a second window. The item
+// is enabled while the window holds a second tab, so the moved tab is the
+// document and the source keeps the other one.
+async function moveTabToNewWindow(page: Page, tabTitle: string, menuLabel: string) {
+    const browser = page.browser();
+    const previousPages = new Set(await browser.pages());
+    await clickAsUser(page, '.tab-new');
+    await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]'))
+        .find(tab => tab.textContent?.includes(title)), tabTitle, {description: `${tabTitle} tab`});
+    await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"].is-active'))
+        .find(tab => tab.textContent?.includes(title)), tabTitle, {
+        button: 'right',
+        description: `${tabTitle} tab menu`,
+    });
+    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+        .find(item => item.textContent?.includes(label)), menuLabel, {description: menuLabel});
+    await expect.poll(async () => (await browser.pages()).some(candidate => !previousPages.has(candidate)), {timeout: DIALOG_TIMEOUT_MS})
+        .toBe(true);
+    const destination = (await browser.pages()).find(candidate => !previousPages.has(candidate));
+    if (!destination) {
+        throw new Error('Move Tab to New Window did not create a window');
     }
-    await page.waitForSelector('[role="dialog"]', {visible: true});
-    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-        .find(button => button.textContent?.trim() === label), LOCALE_MESSAGES[locale].settings.close, {description: 'Close restored update status'});
-    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+    await destination.waitForSelector('.page_container--rendered', {timeout: DIALOG_TIMEOUT_MS});
+    return destination;
+}
+
+// The start-up overlay clears after the shell has mounted, and mounting sends
+// the start-up status request. Replies arrive in the order requests were sent,
+// so once this request is answered, that earlier reply has been applied and any
+// dialog it opened is in the page.
+async function readUpdateDialogAfterStart(target: Page, description: string) {
+    await target.waitForFunction(() => document.querySelector('#evb-startup-overlay') === null, {timeout: DIALOG_TIMEOUT_MS});
+    await target.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
+    return target.evaluate((text: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
+        .some(element => element.getClientRects().length > 0 && element.innerText.trim() === text), description);
 }
 
 async function readFailureToast(page: Page) {
@@ -373,6 +400,72 @@ describe('Electron E2E - dialog layout stability', () => {
             {timeout: DIALOG_TIMEOUT_MS},
         ).toBeGreaterThan(0);
     }, DIALOG_TIMEOUT_MS * 3);
+
+    it('keeps a closed update status closed in a new window and after a renderer reload', async () => {
+        const {page} = sessionFixture.getSession();
+        const messages = LOCALE_MESSAGES.en;
+        const evidenceDirectory = mkdtempSync(join(tmpdir(), 'evb-update-restore-'));
+        console.log(`Update restore artifacts: ${evidenceDirectory}`);
+        type TUpdateFaultWindow = IE2EWindow & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
+        const fixturePath = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'generated-text.pdf');
+        let destination: Page | null = null;
+        try {
+            await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+            // Settings offers the check only while the status is supported, and an
+            // unpackaged Linux build starts unsupported. The fixture replays an
+            // idle status through the renderer; the check itself is real.
+            await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
+                phase: 'idle',
+                origin: 'auto',
+                version: null,
+                percent: null,
+                message: null,
+            }));
+            await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
+                undefined, {description: 'Settings button'});
+            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.settings-section button'))
+                .find(button => button.textContent?.trim() === label), messages.settings.checkForUpdates,
+            {description: 'Check for updates button'});
+            await page.waitForFunction((description: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] p'))
+                .some(element => element.getClientRects().length > 0 && element.innerText.trim() === description),
+            {timeout: DIALOG_TIMEOUT_MS}, messages.updates.unsupportedDescription);
+            await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                .find(button => button.textContent?.trim() === label), messages.settings.close, {description: 'Close update status'});
+            await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+
+            await openPdfInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
+            await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
+            destination = await moveTabToNewWindow(page, 'generated-text', messages.menu.moveTabToNewWindow);
+            const newWindow = await readUpdateDialogAfterStart(destination, messages.updates.unsupportedDescription);
+            await destination.screenshot({path: join(evidenceDirectory, 'new-window.png')});
+
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await page.waitForSelector('.tab-list [role="tab"]', {visible: true});
+            const reload = await readUpdateDialogAfterStart(page, messages.updates.unsupportedDescription);
+            await page.screenshot({path: join(evidenceDirectory, 'after-reload.png')});
+
+            writeFileSync(join(evidenceDirectory, 'observations.json'), JSON.stringify({
+                newWindow,
+                reload,
+            }, null, 2));
+            // The check ran in this window and its result was closed; neither a
+            // new window nor a renderer start may open it again.
+            expect({
+                newWindow,
+                reload,
+            }).toEqual({
+                newWindow: false,
+                reload: false,
+            });
+        } catch (error) {
+            await page.screenshot({path: join(evidenceDirectory, 'failure.png')});
+            throw error;
+        } finally {
+            if (destination && !destination.isClosed()) {
+                await destination.close();
+            }
+        }
+    }, DIALOG_TIMEOUT_MS * 4);
 
     it('localizes updater failure reasons after a trusted check in all nine locales', async () => {
         const {page} = sessionFixture.getSession();
@@ -542,7 +635,6 @@ describe('Electron E2E - dialog layout stability', () => {
                     // an unsupported runtime cannot become supported in place.
                     await setSavedLocale(page, locale);
                     await page.waitForSelector(`button[aria-label="${messages.toolbar.settings}"]`, {visible: true});
-                    await closeRestoredUpdateStatus(page, locale);
                     await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
                         phase: 'idle',
                         origin: 'auto',
@@ -686,8 +778,6 @@ describe('Electron E2E - dialog layout stability', () => {
         const {page} = session;
         await setSavedLocale(page, 'en');
         await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
-        // The updater test above leaves a manual check's status in the native owner.
-        await closeRestoredUpdateStatus(page, 'en');
         await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
             undefined, {description: 'Settings button'});
         // The assistant card is the stacked one; the MCP card is the other.

@@ -354,4 +354,74 @@ describe('useAppUpdates', () => {
         expect(getState).toHaveBeenCalledTimes(2);
         expect(updates.status.value.phase).toBe('unsupported');
     });
+
+    const RESTORED_PHASES = [
+        'idle',
+        'checking',
+        'available',
+        'downloading',
+        'downloaded',
+        'no-update',
+        'error',
+        'unsupported',
+    ] as const;
+    const RESTORED_ORIGINS = [
+        'auto',
+        'manual',
+    ] as const;
+    const RESTORED_STATUS_CASES = RESTORED_PHASES.flatMap(phase => RESTORED_ORIGINS.map(origin => ({
+        phase,
+        origin,
+    })));
+
+    it.each(RESTORED_STATUS_CASES)('restores $phase status from $origin origin without opening the modal', async ({
+        phase, origin,
+    }) => {
+        const restoredStatus: IAppUpdateStatus = {
+            phase,
+            origin,
+            version: '2.0.0',
+            percent: phase === 'downloaded' ? 100 : null,
+            message: null,
+        };
+        const updatesCapability = createElectronPlatformApiFixture({updates: {getState: vi.fn(async () => restoredStatus)}}).updates;
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
+
+        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+        await expect(updates.ensureInitialized()).resolves.toBe(true);
+
+        expect(updates.status.value.phase).toBe(phase);
+        expect(updates.dialog.value.open).toBe(false);
+    });
+
+    it('presents a restored ready update as the offer whose View action opens the ready dialog', async () => {
+        const restoredReady: IAppUpdateStatus = {
+            phase: 'downloaded',
+            origin: 'manual',
+            version: '2.0.0',
+            percent: 100,
+            message: null,
+        };
+        const updatesCapability = createElectronPlatformApiFixture({updates: {getState: vi.fn(async () => restoredReady)}}).updates;
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
+
+        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+        await updates.ensureInitialized();
+
+        expect(updates.dialog.value.open).toBe(false);
+        expect(updates.status.value).toMatchObject({
+            phase: 'downloaded',
+            origin: 'auto',
+            version: '2.0.0',
+        });
+
+        updates.showUpdateDialog();
+        expect(updates.dialog.value).toMatchObject({
+            open: true,
+            kind: 'ready',
+            version: '2.0.0',
+        });
+    });
 });

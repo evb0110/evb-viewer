@@ -161,6 +161,21 @@ function applyStatus(
     }
 }
 
+// The owner keeps its last status for the life of the process, so a window that
+// starts later is handed a result it never asked for. A restored status fills
+// Settings and the offer notice but never opens the modal. A ready update is the
+// one restored result that must stay reachable, so it is presented as the
+// automatic offer, whose View action opens the ready dialog.
+function restoreStatus(restoredStatus: IAppUpdateStatus) {
+    status.value = restoredStatus.phase === 'downloaded'
+        ? {
+            ...restoredStatus,
+            origin: 'auto',
+        }
+        : restoredStatus;
+    activeUpdateFailure = null;
+}
+
 function showUpdateDialog() {
     const current = status.value;
     if (current.phase === 'available') {
@@ -216,7 +231,7 @@ async function ensureInitialized() {
         try {
             const currentState = await updates.getState();
             if (!statusEvents.receivedPushedStatus) {
-                applyStatus(currentState);
+                restoreStatus(currentState);
             }
             initialized.value = true;
             return true;
