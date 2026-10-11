@@ -253,14 +253,6 @@ fn is_text_show(operator: &str) -> bool {
     matches!(operator, "Tj" | "TJ" | "'" | "\"")
 }
 
-fn paints(operator: &str) -> bool {
-    is_text_show(operator)
-        || matches!(
-            operator,
-            "Do" | "sh" | "BI" | "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*"
-        )
-}
-
 fn unsupported_replacement(detail: &str) -> Box<dyn Error> {
     domain_error(
         NativeErrorCode::InvalidRequest,
@@ -399,8 +391,8 @@ fn read_content_stream(
 
 /// Remove previous OCR text from a page whose dictionary is already in the
 /// incremental revision. EVB layers go by their marker. Hidden text from
-/// other producers goes by rendering mode; a stream left with nothing that
-/// paints is dropped, a stream that still paints is rewritten without it.
+/// other producers goes by rendering mode; a stream that holds it is rewritten
+/// without those show operators and otherwise unchanged.
 fn strip_previous_ocr_text(
     incremental: &mut IncrementalDocument,
     input_path: &Path,
@@ -434,6 +426,9 @@ fn strip_previous_ocr_text(
             continue;
         }
         changed = true;
+        // Only the show operators go. The stream's graphics state (cm, clip,
+        // Tr, colour, width) may scale or clip a later stream's painting, so
+        // the rest of the stream stays even when it paints nothing itself.
         let remaining = content
             .operations
             .into_iter()
@@ -441,12 +436,6 @@ fn strip_previous_ocr_text(
             .filter(|(index, _)| hidden.binary_search(index).is_err())
             .map(|(_, operation)| operation)
             .collect::<Vec<_>>();
-        if !remaining
-            .iter()
-            .any(|operation| paints(&operation.operator))
-        {
-            continue;
-        }
         let mut stream = Stream::new(
             Dictionary::new(),
             Content {

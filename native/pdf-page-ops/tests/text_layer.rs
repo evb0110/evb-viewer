@@ -1698,6 +1698,52 @@ fn places_words_in_the_displayed_orientation_of_a_rotated_page() {
     }
 }
 
+#[test]
+fn keeps_the_ink_of_a_scale_that_an_old_ocr_stream_only_sets() {
+    let source = path("state-only-source", "pdf");
+    let input = path("state-only-input", "pdf");
+    let output = path("state-only-output", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    // The first stream's hidden text is the only thing it paints. It scales
+    // the second stream's red square to 20 by 20 points, so the square must
+    // still cover 400 pixels once the old text is gone.
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![
+            b"q 2 0 0 2 0 0 cm BT /F1 12 Tf 3 Tr 10 20 Td (old OCR) Tj ET".to_vec(),
+            b"1 0 0 rg 0 0 10 10 re f Q".to_vec(),
+        ],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let text = pdftotext_all(&output, &[]);
+    assert!(text.contains("Recognized"), "{text}");
+    assert!(!text.contains("old OCR"), "{text}");
+    let before = red_pixels(&input).len();
+    let after = red_pixels(&output).len();
+    assert_eq!(before, 400);
+    assert_eq!(after, before, "the square changed size");
+
+    for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}
+
 /// One page whose resources hold a Form XObject `/Fm0` with `form_content`
 /// and an image `/Im0` the form and the page may both draw.
 fn save_ocr_page_with_form(path: &Path, contents: Vec<Vec<u8>>, form_content: &[u8]) {
