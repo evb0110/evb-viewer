@@ -77,6 +77,24 @@ struct RawPdfCombineBookmarkEntry {
 /// terminate the relevant walk, and both depth and node limits bound work on a
 /// large or malformed catalog. Page references are indexed only when an
 /// outline points at them, so a sparse page tree does not force a dense map.
+/// The catalog a split page tree writes: its page tree and the source's page
+/// labels. The assembled output takes its document-level entries from this
+/// primary input, so outlines, names, viewer preferences, metadata, forms and
+/// optional content stay with the source.
+pub(crate) fn split_catalog(
+    source: &Document,
+    catalog_id: ObjectId,
+    pages_id: ObjectId,
+) -> Result<Dictionary> {
+    let mut catalog = Dictionary::new();
+    catalog.set("Type", "Catalog");
+    catalog.set("Pages", pages_id);
+    if let Ok(page_labels) = source.get_dictionary(catalog_id)?.get(b"PageLabels") {
+        catalog.set("PageLabels", page_labels.clone());
+    }
+    Ok(catalog)
+}
+
 pub(crate) fn read_pdf_combine_catalog(
     document: &impl PdfObjectSource,
 ) -> Result<PdfCombineCatalog> {

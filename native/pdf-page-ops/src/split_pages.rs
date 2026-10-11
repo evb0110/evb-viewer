@@ -384,154 +384,6 @@ fn apply_content_transform_incremental(
     )
 }
 
-const MAX_OC_GRAPH_DEPTH: usize = 64;
-const MAX_OC_GRAPH_NODES: usize = 100_000;
-
-fn optional_content_limit(message: impl Into<String>) -> Box<dyn Error> {
-    domain_error(NativeErrorCode::TooLarge, message)
-}
-
-fn push_object_graph_children<'a>(
-    stack: &mut Vec<(&'a Object, usize)>,
-    children: impl IntoIterator<Item = &'a Object>,
-    child_depth: usize,
-    visited_nodes: usize,
-    max_depth: usize,
-    max_nodes: usize,
-) -> Result<()> {
-    if child_depth > max_depth {
-        return Err(optional_content_limit(format!(
-            "PDF optional-content graph exceeds the {max_depth}-level traversal ceiling"
-        )));
-    }
-    for child in children {
-        if visited_nodes.saturating_add(stack.len()) >= max_nodes {
-            return Err(optional_content_limit(format!(
-                "PDF optional-content graph exceeds the {max_nodes}-node traversal ceiling"
-            )));
-        }
-        stack.push((child, child_depth));
-    }
-    Ok(())
-}
-
-fn object_graph_is_complete_with_limits(
-    document: &Document,
-    root: &Object,
-    max_depth: usize,
-    max_nodes: usize,
-) -> Result<bool> {
-    let mut seen = HashSet::new();
-    let mut stack = vec![(root, 0usize)];
-    let mut visited_nodes = 0usize;
-    while let Some((object, depth)) = stack.pop() {
-        if visited_nodes >= max_nodes {
-            return Err(optional_content_limit(format!(
-                "PDF optional-content graph exceeds the {max_nodes}-node traversal ceiling"
-            )));
-        }
-        visited_nodes += 1;
-        let child_depth = depth.saturating_add(1);
-        match object {
-            Object::Reference(object_id) => {
-                if !seen.insert(*object_id) {
-                    continue;
-                }
-                let Some(referenced) = document.objects.get(object_id) else {
-                    return Ok(false);
-                };
-                push_object_graph_children(
-                    &mut stack,
-                    std::iter::once(referenced),
-                    child_depth,
-                    visited_nodes,
-                    max_depth,
-                    max_nodes,
-                )?;
-            }
-            Object::Array(items) => push_object_graph_children(
-                &mut stack,
-                items,
-                child_depth,
-                visited_nodes,
-                max_depth,
-                max_nodes,
-            )?,
-            Object::Dictionary(dictionary) => push_object_graph_children(
-                &mut stack,
-                dictionary.iter().map(|(_, value)| value),
-                child_depth,
-                visited_nodes,
-                max_depth,
-                max_nodes,
-            )?,
-            Object::Stream(stream) => push_object_graph_children(
-                &mut stack,
-                stream.dict.iter().map(|(_, value)| value),
-                child_depth,
-                visited_nodes,
-                max_depth,
-                max_nodes,
-            )?,
-            _ => {}
-        }
-    }
-    Ok(true)
-}
-
-fn object_graph_is_complete(document: &Document, root: &Object) -> Result<bool> {
-    object_graph_is_complete_with_limits(document, root, MAX_OC_GRAPH_DEPTH, MAX_OC_GRAPH_NODES)
-}
-
-fn resolve_object<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {
-    document.dereference(object).ok().map(|(_, value)| value)
-}
-
-fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId) -> Result<bool> {
-    let Ok(catalog) = document.get_dictionary(catalog_id) else {
-        return Ok(false);
-    };
-    let Ok(properties) = catalog.get(b"OCProperties") else {
-        return Ok(true);
-    };
-    if !object_graph_is_complete(document, properties)? {
-        return Ok(false);
-    }
-    let Some(properties) =
-        resolve_object(document, properties).and_then(|value| value.as_dict().ok())
-    else {
-        return Ok(false);
-    };
-    let Some(groups) = properties
-        .get(b"OCGs")
-        .ok()
-        .and_then(|value| resolve_object(document, value))
-        .and_then(|value| value.as_array().ok())
-    else {
-        return Ok(false);
-    };
-    Ok(groups.iter().all(|group| {
-        resolve_object(document, group)
-            .and_then(|value| value.as_dict().ok())
-            .is_some_and(|dictionary| {
-                dictionary
-                    .get(b"Type")
-                    .and_then(Object::as_name)
-                    .is_ok_and(|name| name == b"OCG")
-            })
-    }))
-}
-
-fn drop_invalid_oc_properties(document: &mut Document, catalog_id: ObjectId) -> Result<()> {
-    if has_valid_oc_properties(document, catalog_id)? {
-        return Ok(());
-    }
-    document
-        .get_dictionary_mut(catalog_id)?
-        .remove(b"OCProperties");
-    Ok(())
-}
-
 fn split_source_page_number(source_page_index: usize) -> Result<u32> {
     let page_number = source_page_index.checked_add(1).ok_or_else(|| {
         domain_error(
@@ -559,8 +411,10 @@ pub(crate) fn split_pages(
     // which is what the shared incremental helpers expect of a base document.
     let mut document = Document::with_version(source.version.clone());
     document.max_id = source.max_id;
-    document.trailer = source.trailer.clone();
     let pages_id = document.new_object_id();
+    let catalog_id = source.trailer.get(b"Root")?.as_reference()?;
+    let catalog = split_catalog(&source, catalog_id, pages_id)?;
+    document.trailer.set("Root", catalog_id);
     let mut output_page_ids = Vec::new();
 
     for instruction in &instructions.pages {
@@ -617,11 +471,7 @@ pub(crate) fn split_pages(
         }
         .into(),
     );
-    let catalog_id = document.trailer.get(b"Root")?.as_reference()?;
-    document
-        .get_dictionary_mut(catalog_id)?
-        .set("Pages", pages_id);
-    drop_invalid_oc_properties(&mut document, catalog_id)?;
+    document.objects.insert(catalog_id, catalog.into());
     document.prune_objects();
     if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
         let info_id = document.add_object(dictionary! {
@@ -759,24 +609,10 @@ pub(crate) fn split_pages_incremental(
         .trailer
         .get(b"Root")?
         .as_reference()?;
-    let valid_oc_properties = has_valid_oc_properties(&incremental.previous_document, catalog_id)?;
-    let catalog = incremental
-        .previous_document
-        .get_dictionary(catalog_id)?
-        .clone();
+    let catalog = split_catalog(&incremental.previous_document, catalog_id, pages_id)?;
     incremental
         .new_document
         .set_object(catalog_id, Object::Dictionary(catalog));
-    incremental
-        .new_document
-        .get_dictionary_mut(catalog_id)?
-        .set("Pages", pages_id);
-    if !valid_oc_properties {
-        incremental
-            .new_document
-            .get_dictionary_mut(catalog_id)?
-            .remove(b"OCProperties");
-    }
     if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
         let info_id = incremental.new_document.add_object(dictionary! {
             "EVBScanCleanup" => Object::string_literal(stamp.as_bytes().to_vec()),
@@ -784,111 +620,6 @@ pub(crate) fn split_pages_incremental(
         incremental.new_document.trailer.set("Info", info_id);
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod optional_content_traversal_tests {
-    use super::*;
-
-    fn assert_too_large(result: Result<bool>, message_fragment: &str) {
-        let error = result.unwrap_err();
-        let native_error = error.downcast_ref::<NativeError>().unwrap();
-        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
-        assert!(native_error.message.contains(message_fragment));
-    }
-
-    #[test]
-    fn rejects_split_source_index_overflow_as_an_invalid_request() {
-        let error = split_source_page_number(usize::MAX).unwrap_err();
-        let native_error = error.downcast_ref::<NativeError>().unwrap();
-        assert_eq!(native_error.code, NativeErrorCode::InvalidRequest);
-        assert_eq!(
-            native_error.message,
-            "split-pages sourcePageIndex is too large"
-        );
-    }
-
-    #[test]
-    fn rejects_deep_direct_optional_content_nesting_without_recursion() {
-        let document = Document::new();
-        let mut nested = Object::Null;
-        for _ in 0..65 {
-            nested = Object::Array(vec![nested]);
-        }
-
-        assert_too_large(
-            object_graph_is_complete(&document, &nested),
-            "64-level traversal ceiling",
-        );
-    }
-
-    #[test]
-    fn rejects_broad_optional_content_graphs_at_the_node_ceiling() {
-        let document = Document::new();
-        let broad = Object::Array(vec![Object::Null; 8]);
-
-        assert_too_large(
-            object_graph_is_complete_with_limits(&document, &broad, 4, 4),
-            "4-node traversal ceiling",
-        );
-    }
-
-    #[test]
-    fn accepts_optional_content_reference_cycles_once_each() {
-        let mut document = Document::new();
-        document.set_object((1, 0), Object::Reference((2, 0)));
-        document.set_object(
-            (2, 0),
-            dictionary! {
-                "Back" => Object::Reference((1, 0)),
-            },
-        );
-
-        assert!(
-            object_graph_is_complete_with_limits(&document, &Object::Reference((1, 0)), 8, 8,)
-                .unwrap()
-        );
-    }
-
-    #[test]
-    fn accepts_valid_nested_optional_content_arrays_dictionaries_and_streams() {
-        let mut document = Document::new();
-        let pages_id = document.add_object(dictionary! {
-            "Type" => "Pages",
-            "Kids" => Vec::<Object>::new(),
-            "Count" => 0,
-        });
-        let group_id = document.add_object(dictionary! {
-            "Type" => "OCG",
-            "Name" => Object::string_literal("Layer"),
-        });
-        let usage_id = document.add_object(Stream::new(
-            dictionary! {
-                "Nested" => dictionary! {
-                    "Values" => vec![Object::Reference(group_id)],
-                },
-            },
-            Vec::new(),
-        ));
-        let properties_id = document.add_object(dictionary! {
-            "OCGs" => vec![Object::Reference(group_id)],
-            "D" => dictionary! {
-                "Order" => vec![
-                    Object::string_literal("Layers"),
-                    Object::Array(vec![Object::Reference(group_id)]),
-                ],
-                "UsageApplication" => usage_id,
-            },
-        });
-        let catalog_id = document.add_object(dictionary! {
-            "Type" => "Catalog",
-            "Pages" => pages_id,
-            "OCProperties" => properties_id,
-        });
-        document.trailer.set("Root", catalog_id);
-
-        assert!(has_valid_oc_properties(&document, catalog_id).unwrap());
-    }
 }
 
 #[derive(Clone, Copy)]

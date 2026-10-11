@@ -418,10 +418,9 @@ export async function assembleWithCompactSourcePages(
         });
 
         const qpdfArgs = [
-            // The rasterized PDF is the primary input so its document-level Info
-            // dictionary — the native writer's provenance stamp — survives the
-            // interleave; --empty would emit a document without any Info entry.
-            rasterizedPdfPath,
+            // The preserved split is the primary input: it carries the output's
+            // catalog and provenance stamp, and each note is copied once.
+            preservedPdfPath,
             // Some otherwise capable PDF consumers only render the first stream in
             // a page Contents array. split-pages wraps preserved source content in
             // separate graphics-state streams, so leaving the array intact can make
@@ -443,9 +442,10 @@ export async function assembleWithCompactSourcePages(
             const pageNumber = output.preservedSource === undefined
                 ? index + 1
                 : ++preservedPageNumber;
+            // qpdf's name for the primary input, which is the preserved split.
             const path = output.preservedSource === undefined
                 ? rasterizedPdfPath
-                : preservedPdfPath;
+                : '.';
             if (path === runPath && pageNumber === runLast + 1) {
                 runLast = pageNumber;
                 return;

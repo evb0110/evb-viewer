@@ -5055,3 +5055,370 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
         let _ = remove_file(file);
     }
 }
+
+/// A note with a reply, on a preserved page, keeps its reply through the qpdf
+/// interleave that assembles compact cleanup. qpdf copies a listed annotation
+/// again when a reply or popup names it, so the overlay must repair those
+/// references to the listed copies before the note is read.
+#[test]
+fn overlay_text_keeps_a_preserved_note_reply_through_the_interleave() {
+    let source = path("preserved-thread-source", "pdf");
+    let split_instructions = path("preserved-thread-split", "json");
+    let split = path("preserved-thread-split-output", "pdf");
+    let raster = path("preserved-thread-raster", "pdf");
+    let assembled = path("preserved-thread-assembled", "pdf");
+    let instructions = path("preserved-thread-instructions", "json");
+    let output = path("preserved-thread-output", "pdf");
+    let parsed = path("preserved-thread-parsed", "jsonl");
+
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let root = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
+        "Contents" => Object::string_literal("Thread root"),
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
+        "Rect" => vec![45.into(), 45.into(), 55.into(), 55.into()],
+        "Contents" => Object::string_literal("Thread reply"),
+    });
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root,
+        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+    });
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Popup", popup);
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![root.into(), reply.into(), popup.into()]);
+    document.save(&source).unwrap();
+    write(
+        &split_instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+    run_split_pages(&source, &split, &split_instructions);
+    save_empty_pages(&raster, 1);
+    let interleave = Command::new(qpdf_path())
+        .arg(&raster)
+        .args(["--coalesce-contents", "--pages"])
+        .arg(&split)
+        .arg("1")
+        .arg(&raster)
+        .arg("1")
+        .arg("--")
+        .arg(&assembled)
+        .output()
+        .unwrap();
+    assert!(
+        interleave.status.success(),
+        "{}",
+        String::from_utf8_lossy(&interleave.stderr)
+    );
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&assembled, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let parse = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["parse-annotations", "--input"])
+        .arg(&output)
+        .arg("--output")
+        .arg(&parsed)
+        .args(["--modified-at", "D:20261011000000Z"])
+        .output()
+        .unwrap();
+    assert!(
+        parse.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parse.stderr)
+    );
+    let entries = fs::read_to_string(&parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    let note = entries
+        .iter()
+        .find(|entry| entry["contents"] == "Thread root")
+        .expect("the preserved note is read");
+    assert_eq!(note["kind"], "note");
+    let replies = note["replies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|reply| reply["contents"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(replies, ["Thread reply"]);
+    for file in [
+        source,
+        split_instructions,
+        split,
+        raster,
+        assembled,
+        instructions,
+        output,
+        parsed,
+    ] {
+        let _ = remove_file(file);
+    }
+}
+
+/// The note shapes that review34 found losing their replies in the qpdf
+/// interleave: identical bodies, indirect /M, /Contents and /NM, an /AP stream.
+#[derive(Clone, Copy)]
+enum NoteShape {
+    Single,
+    Identical,
+    IndirectModified,
+    IndirectContents,
+    IndirectName,
+    Appearance,
+}
+
+/// A page with one Text note per root, each with a reply and a popup. A
+/// two-root shape puts both roots on the page, so the interleave copies each
+/// one; the reply and popup are direct objects in every shape.
+fn save_note_thread_source(path: &Path, shape: NoteShape) {
+    let mut document = save_single_page(path, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let root_count = match shape {
+        NoteShape::Single | NoteShape::Appearance => 1,
+        _ => 2,
+    };
+    let mut annotations = Vec::new();
+    for index in 0..root_count {
+        let contents = match shape {
+            NoteShape::IndirectContents => Object::Reference(
+                document.add_object(Object::string_literal(format!("different body {index}"))),
+            ),
+            _ => Object::string_literal("same note"),
+        };
+        let root_id = document.new_object_id();
+        let mut root = dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+            "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
+            "Contents" => contents,
+        };
+        match shape {
+            NoteShape::IndirectModified => root.set(
+                "M",
+                document.add_object(Object::string_literal(format!("D:2026101100000{index}Z"))),
+            ),
+            NoteShape::IndirectName => root.set(
+                "NM",
+                document.add_object(Object::string_literal(format!("unique-{index}"))),
+            ),
+            NoteShape::Appearance => {
+                let normal = document.add_object(Stream::new(
+                    dictionary! {
+                        "Type" => "XObject", "Subtype" => "Form",
+                        "BBox" => vec![0.into(), 0.into(), 4.into(), 4.into()],
+                    },
+                    b"0 0 1 rg 0 0 4 4 re f".to_vec(),
+                ));
+                root.set("AP", dictionary! {"N" => normal});
+            }
+            NoteShape::Single | NoteShape::Identical | NoteShape::IndirectContents => {}
+        }
+        let reply_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root_id,
+            "Rect" => vec![45.into(), 45.into(), 55.into(), 55.into()],
+            "Contents" => Object::string_literal(format!("reply-{index}")),
+        });
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root_id,
+            "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+        });
+        root.set("Popup", popup_id);
+        document.set_object(root_id, root);
+        annotations.extend([root_id, reply_id, popup_id]);
+    }
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        annotations
+            .into_iter()
+            .map(Object::Reference)
+            .collect::<Vec<_>>(),
+    );
+    document.save(path).unwrap();
+}
+
+/// The compact cleanup of one preserved source page, assembled as the
+/// scan-cleanup product does it: split-pages, then the qpdf interleave with the
+/// split as the primary input, then the overlay that rebinds retained links.
+/// A raster page follows the preserved page when `with_raster` is set.
+fn assemble_compact_cleanup(source: &Path, label: &str, with_raster: bool) -> std::path::PathBuf {
+    let split_instructions = path(&format!("{label}-split"), "json");
+    write(
+        &split_instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+    let split = path(&format!("{label}-split-output"), "pdf");
+    run_split_pages(source, &split, &split_instructions);
+    let raster = path(&format!("{label}-raster"), "pdf");
+    save_empty_pages(&raster, 1);
+    let assembled = path(&format!("{label}-assembled"), "pdf");
+    let mut interleave = Command::new(qpdf_path());
+    interleave
+        .arg(&split)
+        .args(["--coalesce-contents", "--pages", ".", "1"]);
+    if with_raster {
+        interleave.arg(&raster).arg("1");
+    }
+    let interleave = interleave.arg("--").arg(&assembled).output().unwrap();
+    assert!(
+        interleave.status.success(),
+        "{}",
+        String::from_utf8_lossy(&interleave.stderr)
+    );
+    let instructions = path(&format!("{label}-instructions"), "json");
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true}]}"#,
+    )
+    .unwrap();
+    let output = path(&format!("{label}-output"), "pdf");
+    let result = run_overlay_text(&assembled, source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let check = Command::new(qpdf_path())
+        .arg("--check")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stdout)
+    );
+    let expected_pages = if with_raster { 2 } else { 1 };
+    assert_eq!(
+        Document::load(&output).unwrap().get_pages().len(),
+        expected_pages,
+        "the assembled cleanup has no page beyond its plan"
+    );
+    output
+}
+
+/// Each note with the contents of its replies, read the way a reader does.
+fn note_threads(pdf: &Path, label: &str) -> Vec<(String, Vec<String>)> {
+    let parsed = path(&format!("{label}-threads"), "jsonl");
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["parse-annotations", "--input"])
+        .arg(pdf)
+        .arg("--output")
+        .arg(&parsed)
+        .args(["--modified-at", "D:20261011000000Z"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let entries = fs::read_to_string(&parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    let _ = remove_file(&parsed);
+    let mut threads = entries
+        .iter()
+        .filter(|entry| entry["kind"] == "note")
+        .map(|note| {
+            let replies = note["replies"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|reply| reply["contents"].as_str().unwrap_or("").to_string())
+                .collect::<Vec<_>>();
+            (note["contents"].as_str().unwrap_or("").to_string(), replies)
+        })
+        .collect::<Vec<_>>();
+    threads.sort();
+    threads
+}
+
+/// Every note of the source keeps its own replies in the assembled cleanup.
+fn assert_compact_cleanup_keeps_note_replies(label: &str, shape: NoteShape, with_raster: bool) {
+    let source = path(&format!("{label}-source"), "pdf");
+    save_note_thread_source(&source, shape);
+    let source_threads = note_threads(&source, &format!("{label}-source"));
+    assert!(
+        source_threads.iter().all(|(_, replies)| replies.len() == 1),
+        "the source gives each note one reply: {source_threads:?}"
+    );
+    let output = assemble_compact_cleanup(&source, label, with_raster);
+    assert_eq!(note_threads(&output, label), source_threads);
+}
+
+#[test]
+fn compact_cleanup_keeps_a_note_reply_through_the_interleave() {
+    assert_compact_cleanup_keeps_note_replies("reply-single", NoteShape::Single, true);
+}
+
+#[test]
+fn compact_cleanup_keeps_each_reply_of_identical_notes() {
+    assert_compact_cleanup_keeps_note_replies("reply-identical", NoteShape::Identical, true);
+}
+
+#[test]
+fn compact_cleanup_keeps_replies_of_notes_with_indirect_modification_dates() {
+    assert_compact_cleanup_keeps_note_replies(
+        "reply-indirect-m",
+        NoteShape::IndirectModified,
+        true,
+    );
+}
+
+#[test]
+fn compact_cleanup_keeps_replies_of_notes_with_indirect_contents() {
+    assert_compact_cleanup_keeps_note_replies(
+        "reply-indirect-contents",
+        NoteShape::IndirectContents,
+        true,
+    );
+}
+
+#[test]
+fn compact_cleanup_keeps_replies_of_notes_with_indirect_names() {
+    assert_compact_cleanup_keeps_note_replies("reply-indirect-nm", NoteShape::IndirectName, true);
+}
+
+#[test]
+fn compact_cleanup_keeps_the_reply_of_a_note_with_an_appearance() {
+    assert_compact_cleanup_keeps_note_replies("reply-appearance", NoteShape::Appearance, true);
+}
+
+#[test]
+fn all_preserved_compact_cleanup_keeps_each_note_reply() {
+    assert_compact_cleanup_keeps_note_replies("reply-all-preserved", NoteShape::Identical, false);
+}
