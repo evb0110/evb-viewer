@@ -421,7 +421,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         }
     });
 
-    it('writes a multi-page DjVu TIFF whose pages keep their own density', async () => {
+    it('writes a multi-page DjVu TIFF under its trimmed name with each page at its own density', async () => {
         const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
@@ -431,29 +431,40 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 type: 'module',
             });
             await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance') === 'function');
-            const result = await page.evaluate<{bytesBase64: string}>(
-                () => Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance')(),
-            );
-            const frames = UTIF.decode(Buffer.from(result.bytesBase64, 'base64'));
-            expect(frames.map(frame => ({
-                width: firstNumber(frame.t256),
-                height: firstNumber(frame.t257),
-                dpi: readTiffFrameDpi(frame),
-            }))).toEqual([
-                {
-                    width: 640,
-                    height: 480,
-                    dpi: {
-                        x: 72,
-                        y: 72,
+            for (const chosenName of [
+                'document.tiff',
+                'document.tiff ',
+            ]) {
+                const result = await page.evaluate<{
+                    bytesBase64: string;
+                    storedName: string;
+                }, string>(
+                    name => Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance')(name),
+                    chosenName,
+                );
+                // The trailing space of the picked name neither reaches the stored name nor changes the pages' density.
+                expect(result.storedName).toBe('document.tiff');
+                const frames = UTIF.decode(Buffer.from(result.bytesBase64, 'base64'));
+                expect(frames.map(frame => ({
+                    width: firstNumber(frame.t256),
+                    height: firstNumber(frame.t257),
+                    dpi: readTiffFrameDpi(frame),
+                }))).toEqual([
+                    {
+                        width: 640,
+                        height: 480,
+                        dpi: {
+                            x: 72,
+                            y: 72,
+                        },
                     },
-                },
-                {
-                    width: 512,
-                    height: 512,
-                    dpi: PAGE_DPI,
-                },
-            ]);
+                    {
+                        width: 512,
+                        height: 512,
+                        dpi: PAGE_DPI,
+                    },
+                ]);
+            }
         } finally {
             await browser.close();
         }

@@ -353,11 +353,11 @@ async function runBrowserPdfImageExportAcceptance(chosenName: string) {
 
 Reflect.set(globalThis, '__evbRunBrowserPdfImageExportAcceptance', runBrowserPdfImageExportAcceptance);
 
-async function runBrowserDjvuMultiPageTiffExportAcceptance() {
+async function runBrowserDjvuMultiPageTiffExportAcceptance(chosenName: string) {
     // Pages 1 and 2 of this fixture are 72 and 300 DPI; the TIFF keeps each one.
     const sourcePath = await stageDjvuFixture('/fixtures/mixed-dpi.djvu');
     capturedImageExportChunks = [];
-    Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle('document.tiff'));
+    Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle(chosenName));
     try {
         const result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
             sourcePath,
@@ -370,9 +370,12 @@ async function runBrowserDjvuMultiPageTiffExportAcceptance() {
         );
         const bytes = takeCapturedImageExportBytes();
         if (!result.success || bytes.byteLength === 0) {
-            throw new Error('Browser DjVu multi-page TIFF export did not write');
+            throw new Error(`Browser DjVu multi-page TIFF export did not write ${chosenName}`);
         }
-        return {bytesBase64: encodeBase64(bytes)};
+        return {
+            bytesBase64: encodeBase64(bytes),
+            storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
+        };
     } finally {
         await browserDocumentStore.remove(sourcePath);
     }
