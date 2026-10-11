@@ -20,6 +20,7 @@ import {
     loadAllRecordKeysAvailability,
     loadRecordAvailability,
     runObjectStoresTransaction,BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA,
+    withObjectStoreReadResult,
 } from '@app/platform/browser/browserDocumentIdb';
 import {
     createChunkKey,
@@ -223,6 +224,28 @@ export async function loadBrowserPersistedDocumentRecordsResult(): Promise<IBrow
 
 export async function loadBrowserPersistedDocumentRecords(): Promise<IBrowserPersistedDocumentRecord[]> {
     return (await loadBrowserPersistedDocumentRecordsResult()).records;
+}
+
+// Detached-record cleanup may remove a source only when no working copy depends
+// on it and no live lease or dirty checkpoint names it. These are the authorities
+// the destructive sweep reads; an unreadable one keeps the ref.
+export async function isBrowserRefRetained(ref: string) {
+    const records = await loadBrowserPersistedDocumentRecords();
+    if (records.some((record) => record.ref !== ref && record.sourceRef === ref)) {
+        return true;
+    }
+    if ((await loadBrowserWorkspaceRecoveryLeasedRefs()).has(ref)) {
+        return true;
+    }
+    const leases = await withObjectStoreReadResult(
+        BROWSER_LIVE_LEASES_STORE,
+        store => store.getAll(),
+    );
+    if (!leases.available) {
+        return true;
+    }
+    const protection = readLiveLeaseProtection(leases.value);
+    return protection === null || protection.leasedRefs.has(ref);
 }
 
 function isBrokenChunkedRecord(

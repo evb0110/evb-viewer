@@ -24,7 +24,7 @@ import {
 import {
     cleanupBrowserEvictedRecentRefs,
     isBrowserRecentFileRef,
-    loadBrowserPersistedDocumentRecords,
+    isBrowserRefRetained,
     loadBrowserPersistedDocumentRecordsResult,
     sweepBrowserDocumentMaintenance,
 } from '@app/platform/browser/browserDocumentMaintenance';
@@ -480,12 +480,7 @@ export class BrowserDocumentRecordStore {
             return false;
         }
 
-        const records = await loadBrowserPersistedDocumentRecords();
-        const hasDependents = records.some((record) => (
-            record.ref !== ref
-            && record.sourceRef === ref
-        ));
-        if (hasDependents) {
+        if (await isBrowserRefRetained(ref)) {
             return false;
         }
 

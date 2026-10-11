@@ -596,6 +596,22 @@ describe('BrowserDocumentStore', () => {
         await expect(rehydratedStore.exists(ref)).resolves.toBe(false);
     });
 
+    it('keeps a source that a live lease holds when Recent Files are cleared', async () => {
+        const bytes = Uint8Array.of(65, 84, 38, 84);
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument('open.djvu', bytes, {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+        });
+        await store.touchRecentFile(ref);
+        await store.createLiveLease('open-djvu-tab', [{ref}]);
+
+        await store.clearRecentFiles();
+
+        await expect(store.exists(ref)).resolves.toBe(true);
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+    });
+
     it('evicts old recent blobs once the persisted recent-file budget is exceeded', async () => {
         const firstHandle = createFileSystemFileHandle({name: 'first.pdf'});
         const secondHandle = createFileSystemFileHandle({name: 'second.pdf'});
