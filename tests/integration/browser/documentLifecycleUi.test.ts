@@ -3877,6 +3877,69 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 120_000);
+    it('stops a catastrophic DjVu regex at the search budget and keeps the page responsive', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            const consoleProblems = collectConsoleProblems(page);
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooserPromise).setFiles(resolve(
+                process.cwd(),
+                'tests/fixtures/djvu/search/regex-budget-text-layer.djvu',
+            ));
+            await page.locator('[data-testid="document-page-source-image"]').first().waitFor({
+                state: 'visible',
+                timeout: 90_000,
+            });
+            await page.evaluate(async () => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                    throw new Error('DjVu viewer open did not settle');
+                }
+            });
+
+            const regexToggle = page.locator('.document-search-bar button[aria-label="Use regular expression"]:visible');
+            if (await regexToggle.count() === 0) {
+                if (await page.locator('[data-testid="document-sidebar"]:visible').count() === 0) {
+                    await page.locator('button[aria-label="Toggle Sidebar"]:visible').first().click();
+                }
+                await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
+            }
+            await regexToggle.first().click();
+            const searchInput = page.locator('.document-search-bar input:visible').first();
+            await searchInput.fill('a+.a+$');
+            await searchInput.press('Enter');
+
+            // Chromium takes quadratic time to match a+.a+$ over this run of a's,
+            // longer than the poll below unbounded. The 250 ms budget stops it in
+            // the worker, so the search reports the budget error instead.
+            await expect.poll(
+                () => page.locator('.document-search-results:visible').first().textContent(),
+                {timeout: 30_000},
+            ).toMatch(/matching budget/u);
+            await regexToggle.first().click();
+            await expect.poll(() => regexToggle.first().getAttribute('aria-pressed'), {timeout: 1_000}).toBe('false');
+            expect(consoleProblems).toEqual([]);
+        } finally {
+            await browser.close();
+        }
+    }, 180_000);
 
     // #937: identical lines down a page are separate search text, so each
     // copy is a result with its own box on the page.

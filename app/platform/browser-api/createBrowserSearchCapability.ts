@@ -6,13 +6,8 @@ import type {
     TSearchResultOffset,
 } from '@contracts/search';
 import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
-import {
-    SearchRegexLimitError,validateSearchQuery,
-} from '@pdf-core';
-import {
-    buildPdfSearchExcerpt,
-    matchPdfSearchPageWindow,
-} from '@pdf-core/pdfSearchCore';
+import {validateSearchQuery} from '@pdf-core';
+import {buildPdfSearchExcerpt} from '@pdf-core/pdfSearchCore';
 import { collectSearchMatchWords } from '@pdf-core/collectSearchMatchWords';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {
@@ -27,13 +22,10 @@ import {
     validateBrowserSearchQueryCost,
 } from '@app/platform/browser-api/browserSearchLimits';
 import {
-    BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS,
-    BrowserSearchWorkerTimeoutError,
     BrowserSearchWorkerUnavailableError,
     canUseBrowserSearchWorker,
-    cancelBrowserSearchWorkerRequest,
-    createBrowserSearchWorkerRequest,
 } from '@app/platform/browser-api/browserSearchWorkerClient';
+import {matchBrowserSearchPageWindow} from '@app/platform/browser-api/matchBrowserSearchPageWindow';
 import type {loadBrowserSearchDocument} from '@app/platform/browser-api/browserSearchCore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
@@ -517,7 +509,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
     }>();
     const activeMatchWorkerSearchRequests = new Map<TRequestId, {
         generation: number;
-        workerRequestId: number;
+        abort: AbortController;
     }>();
     let nextSearchGeneration = 0;
 
@@ -599,14 +591,14 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         }
     }
 
-    // A regular expression can run long inside the worker; cancelling it
-    // terminates the worker.
+    // A regular expression can run long inside the worker; aborting its page
+    // match terminates the worker.
     function cancelMatchWorkerRequest(requestId: TRequestId) {
         const workerRequest = activeMatchWorkerSearchRequests.get(requestId);
         if (!workerRequest) {
             return;
         }
-        cancelBrowserSearchWorkerRequest(workerRequest.workerRequestId, {resetWorker: true});
+        workerRequest.abort.abort();
         activeMatchWorkerSearchRequests.delete(requestId);
     }
 
@@ -691,64 +683,31 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         regexBudget: {remainingMs: number},
         resultOffset: TSearchResultOffset,
     ) {
-        if (matchOptions.useRegex && regexBudget.remainingMs <= 0) {
-            throw new SearchRegexLimitError(
-                `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
-            );
-        }
-        if (!matchOptions.useRegex) {
-            return matchPdfSearchPageWindow(pageText, query, matchOptions, maxMatches, resultOffset);
-        }
-
-        if (!canUseBrowserSearchWorker()) {
-            throw new BrowserSearchWorkerUnavailableError(
-                'Browser search worker is required for regular expression search',
-            );
-        }
-
-        const workerRequest = createBrowserSearchWorkerRequest(
-            'matchPageText',
-            {
-                text: pageText,
-                query,
-                options: matchOptions,
-                maxMatches,
-                resultOffset,
-                budgetMs: regexBudget.remainingMs,
-            },
-            {matchTimeoutMs: BROWSER_SEARCH_REGEX_WORKER_TIMEOUT_MS},
-        );
+        const pageAbort = new AbortController();
         activeMatchWorkerSearchRequests.set(requestId, {
             generation: requestGeneration,
-            workerRequestId: workerRequest.requestId,
+            abort: pageAbort,
         });
         try {
-            const {
-                matches, truncated, matchingMs, matchCount,
-            } = await workerRequest.promise;
-            regexBudget.remainingMs -= matchingMs;
+            const matchResult = await matchBrowserSearchPageWindow(
+                pageText,
+                query,
+                matchOptions,
+                maxMatches,
+                resultOffset,
+                regexBudget,
+                pageAbort.signal,
+            );
             return isSearchCanceled(requestId, requestGeneration)
                 ? {
                     matches: [],
                     truncated: false,
                     matchCount: 0,
                 }
-                : {
-                    matches,
-                    truncated,
-                    matchCount,
-                };
-        } catch (error) {
-            if (error instanceof BrowserSearchWorkerTimeoutError) {
-                throw new SearchRegexLimitError(
-                    `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms matching budget`,
-                );
-            }
-            throw error;
+                : matchResult;
         } finally {
             const activeWorkerRequest = activeMatchWorkerSearchRequests.get(requestId);
-            if (activeWorkerRequest?.generation === requestGeneration
-                && activeWorkerRequest.workerRequestId === workerRequest.requestId) {
+            if (activeWorkerRequest?.generation === requestGeneration) {
                 activeMatchWorkerSearchRequests.delete(requestId);
             }
         }

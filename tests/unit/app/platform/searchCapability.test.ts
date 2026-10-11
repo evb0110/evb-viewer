@@ -110,12 +110,13 @@ vi.mock('@app/platform/browser-api/browserSearchWorkerClient', () => ({
                 nextOptions: unknown,
             ) => unknown
         )(type, payload, options),
-    cancelBrowserSearchWorkerRequest: (requestId: unknown) =>
+    cancelBrowserSearchWorkerRequest: (requestId: unknown, options: unknown) =>
         (
             browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest as (
                 nextRequestId: unknown,
+                nextOptions: unknown,
             ) => unknown
-        )(requestId),
+        )(requestId, options),
     BrowserSearchWorkerUnavailableError: browserSearchWorkerClientMock.BrowserSearchWorkerUnavailableError,
     BrowserSearchWorkerTimeoutError: browserSearchWorkerClientMock.BrowserSearchWorkerTimeoutError,
 }));
@@ -467,6 +468,53 @@ describe('createBrowserSearchCapability', () => {
             .rejects.toThrow('Browser search worker is required for regular expression search');
         expect(browserDocumentStoreMock.stat).not.toHaveBeenCalled();
         expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).not.toHaveBeenCalled();
+    });
+
+    it('resets the search worker when a canceled search has a regex match pending', async () => {
+        const getPage = vi.fn(async () => ({
+            getTextContent: vi.fn(async () => ({items: [{str: 'aaaaaaaa'}]})),
+            cleanup: vi.fn(async () => {}),
+        }));
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage,
+            loadingTask: {destroy: vi.fn(async () => {})},
+        }) });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        browserSearchWorkerClientMock.canUseBrowserSearchWorker.mockReturnValue(true);
+        let failWorkerRequest!: (error: Error) => void;
+        browserSearchWorkerClientMock.createBrowserSearchWorkerRequest.mockReturnValue({
+            requestId: 41,
+            promise: new Promise((_resolve, reject) => {
+                failWorkerRequest = reject;
+            }),
+        });
+        browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest.mockImplementation(async () => {
+            failWorkerRequest(new Error('ERR_BROWSER_SEARCH_CANCELED'));
+        });
+
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        const { capability } = createBrowserSearchCapability();
+        const requestId = requireRequestId('regex-cancel');
+        const search = capability.run('/tmp/regex-cancel.pdf', 'a+b', {
+            matchCase: true,
+            useRegex: true,
+            requestId,
+        });
+        await vi.waitFor(() => expect(browserSearchWorkerClientMock.createBrowserSearchWorkerRequest).toHaveBeenCalled());
+
+        await capability.cancel(requestId);
+
+        await expect(search).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        expect(browserSearchWorkerClientMock.cancelBrowserSearchWorkerRequest).toHaveBeenCalledWith(41, {resetWorker: true});
     });
 
     // Regex queries run in the search worker, which this harness has not; the

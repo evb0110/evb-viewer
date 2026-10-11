@@ -726,8 +726,9 @@ export function* iteratePdfSearchMatches(
 
     let match: RegExpExecArray | null;
     const matchedText = normalizedText?.text ?? text;
+    // Started after normalization, so the budget pays for matching only.
     const regexDeadline = options?.useRegex === true
-        ? options.deadlineAtMs ?? Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS
+        ? Date.now() + (options.regexBudgetMs ?? SEARCH_REGEX_MAX_EXECUTION_MS)
         : null;
     for (;;) {
         if (regexDeadline !== null && Date.now() >= regexDeadline) {

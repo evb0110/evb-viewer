@@ -20,6 +20,7 @@ import type { IPagePreviewOutlineItem } from '@app/modules/document-viewer/publi
 import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
 import {
     SEARCH_EXCERPT_CONTEXT_CHARS,
+    SEARCH_REGEX_MAX_EXECUTION_MS,
     SEARCH_RESULT_LIMIT,
     type IPdfSearchProgress,
     type IPdfSearchResponse,
@@ -28,11 +29,11 @@ import {
 import {
     assembleSearchablePageTextItems,
     buildPdfSearchExcerpt,
-    iteratePdfSearchMatches,
     PDF_SEARCH_PROGRESS_RESULT_BATCH_LIMIT,
     validateSearchQuery,
     type IResolvedSearchMatchOptions,
 } from '@pdf-core/pdfSearchCore';
+import {matchBrowserSearchPageWindow} from '@app/platform/browser-api/matchBrowserSearchPageWindow';
 import {
     createRequestId,
     parseRequestId,
@@ -372,12 +373,25 @@ export async function searchDjvuWorkerText(
         ]);
         options.signal.throwIfAborted();
         const searchable = buildBrowserDjvuSearchPage(text, zones);
+        // Each page has its own regex budget, as the page-by-page scan did before
+        // matching moved to the worker.
+        const pageWindow = await matchBrowserSearchPageWindow(
+            searchable.text,
+            options.query,
+            options.matchOptions,
+            resultOffset === 'last' ? SEARCH_RESULT_LIMIT : SEARCH_RESULT_LIMIT - results.length + 1,
+            resultOffset === 'last' ? 'last' : Math.max(0, resultOffset - matchIndex),
+            {remainingMs: SEARCH_REGEX_MAX_EXECUTION_MS},
+            options.signal,
+        ).catch((error: unknown) => {
+            // A search canceled during a regex match reports the abort, as its other steps do.
+            options.signal.throwIfAborted();
+            throw error;
+        });
+        options.signal.throwIfAborted();
         const progressResults: Array<IPdfSearchResponse['results'][number]> = [];
-        let pageMatchIndex = 0;
-        for (const match of iteratePdfSearchMatches(searchable.text, options.query, options.matchOptions)) {
-            const currentMatchIndex = matchIndex++;
-            const currentPageMatchIndex = pageMatchIndex++;
-            if (typeof resultOffset === 'number' && currentMatchIndex < resultOffset) continue;
+        for (const match of pageWindow.matches) {
+            const currentMatchIndex = matchIndex + match.pageMatchIndex;
             if (resultOffset !== 'last' && results.length >= SEARCH_RESULT_LIMIT) {
                 truncated = true;
                 break;
@@ -386,7 +400,7 @@ export async function searchDjvuWorkerText(
             const pageSize = pageSizes[pageNumber - 1];
             const result: IPdfSearchResponse['results'][number] = {
                 pageNumber: pageNumber as IPdfSearchResponse['results'][number]['pageNumber'],
-                pageMatchIndex: currentPageMatchIndex,
+                pageMatchIndex: match.pageMatchIndex,
                 matchIndex: currentMatchIndex,
                 startOffset: match.startOffset,
                 endOffset: match.endOffset,
@@ -409,6 +423,7 @@ export async function searchDjvuWorkerText(
                 progressResults.push(result);
             }
         }
+        matchIndex += pageWindow.matchCount;
         if (progressResults.length === 0) {
             options.onProgress?.({
                 requestId: options.requestId,
