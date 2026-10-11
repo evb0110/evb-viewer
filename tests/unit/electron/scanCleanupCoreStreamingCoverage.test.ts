@@ -940,11 +940,13 @@ describe('scan-cleanup-core conversion coverage', () => {
                             startNormalized: 0.1,
                             endNormalized: 0.1,
                             valueNormalized: 0.1,
+                            size: 1,
                         },
                         {
                             startNormalized: 0.3,
                             endNormalized: 0.3,
                             valueNormalized: 0.3,
+                            size: 1,
                         },
                     ],
                     samples: [],

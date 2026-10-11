@@ -112,6 +112,7 @@ function placementAnchorSummary(
             startNormalized: 0.1,
             endNormalized: 0.1,
             valueNormalized: 0.1,
+            size: 1,
         }],
         samples: [{
             pageNumber: requirePageNumber(100),

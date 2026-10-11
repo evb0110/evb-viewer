@@ -234,6 +234,7 @@ function placementAnchorSummary(
             startNormalized: 0.1,
             endNormalized: 0.1,
             valueNormalized: 0.1,
+            size: 1,
         }],
         samples: [{
             pageNumber: requirePageNumber(1),
@@ -750,11 +751,13 @@ describe('scan cleanup workspace session detection guidance', () => {
                     startNormalized: 0.1,
                     endNormalized: 0.1,
                     valueNormalized: 0.1,
+                    size: 1,
                 },
                 {
                     startNormalized: 0.2,
                     endNormalized: 0.2,
                     valueNormalized: 0.2,
+                    size: 1,
                 },
             ],
             samples: [
@@ -1084,6 +1087,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 startNormalized: 0.1,
                 endNormalized: 0.1,
                 valueNormalized: 0.1,
+                size: 1,
             }],
             samples: [
                 {

@@ -11,7 +11,7 @@ import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/type
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     buildScanCleanupPlacementAnchorSummary,
-    resolveScanCleanupPlacementAnchorFromSummary,
+    resolveScanCleanupSheetAnchorsFromSummary,
 } from '@evb/scan-cleanup/core/placementAnchors';
 
 const options: IScanCleanupOptions = {
@@ -121,7 +121,7 @@ describe('scan-cleanup bounded ink placement summary', () => {
             1_025,
         ]);
         expect(initial.topEdgeNormalized).toBeCloseTo(0.2);
-        expect(resolveScanCleanupPlacementAnchorFromSummary(initial, 0.2)).toEqual({yNormalized: 0});
+        expect(resolveScanCleanupSheetAnchorsFromSummary(initial, {full: 0.2}).full).toEqual({yNormalized: 0});
 
         const currentOptions = structuredClone(options);
         currentOptions.pageOverrides['1'] = {
@@ -163,9 +163,41 @@ describe('scan-cleanup bounded ink placement summary', () => {
 
         expect(current.sampleCount).toBe(1_023);
         expect(current.topEdgeNormalized).toBeCloseTo(0.2);
-        expect(resolveScanCleanupPlacementAnchorFromSummary(current, 0.2)).toEqual({yNormalized: 0});
-        expect(resolveScanCleanupPlacementAnchorFromSummary(current, 0.3)).toEqual({yNormalized: expect.closeTo(0.1)});
+        expect(resolveScanCleanupSheetAnchorsFromSummary(current, {full: 0.2}).full).toEqual({yNormalized: 0});
+        expect(resolveScanCleanupSheetAnchorsFromSummary(current, {full: 0.3}).full).toEqual({yNormalized: expect.closeTo(0.1)});
         expect(current.identity.calibrationSignature).toBe('calibration-current-options');
+    });
+
+    it('prints two leaves whose ink agrees at one height when it sits below the running heads', async () => {
+        // The shape of a scanned book's front matter: running heads with a
+        // shoulder above and a tail below, and a title opening whose two leaves
+        // start 0.5 mm apart, a few millimetres under the tail. The 4 mm
+        // tolerance is 0.0143 of this sheet.
+        const tops = [
+            0.0597,
+            0.058,
+            0.03,
+            ...Array.from({length: 30}, () => 0.04),
+            0.045,
+        ];
+        const records = tops.map((top, index) => result(index + 1, top));
+
+        const summary = await buildScanCleanupPlacementAnchorSummary({
+            options,
+            resultStore: resultStore(records),
+            signal: new AbortController().signal,
+            identity: {
+                documentRevision: 'revision-title-opening',
+                detectionSignature: 'detection-title-opening',
+                calibrationSignature: 'calibration-title-opening',
+            },
+        });
+
+        const verso = resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.0597}).full?.yNormalized;
+        const recto = resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.058}).full?.yNormalized;
+        expect(verso).toBe(recto);
+        expect(recto).toBeCloseTo(0.018, 10);
+        expect(resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.04}).full).toEqual({yNormalized: 0});
     });
 
     it('measures ink against the leaves a taller cover would otherwise outgrow', async () => {
@@ -227,7 +259,7 @@ describe('scan-cleanup bounded ink placement summary', () => {
             expect.closeTo(0.2),
             expect.closeTo(0.1),
         ]);
-        expect(resolveScanCleanupPlacementAnchorFromSummary(summary, 0.3)).toEqual({yNormalized: expect.closeTo(0.2)});
+        expect(resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.3}).full).toEqual({yNormalized: expect.closeTo(0.2)});
     });
 
 });

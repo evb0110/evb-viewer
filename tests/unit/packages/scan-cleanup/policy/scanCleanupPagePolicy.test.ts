@@ -349,11 +349,13 @@ describe('scan cleanup ink placement', () => {
                 right: 0,
             },
         ]);
+        // The opening moves as one sheet: its recto keeps the 0.24 it was
+        // scanned below its verso's running head.
         expect(tops[1]).toEqual([
             2,
             {
                 left: 0,
-                right: expect.closeTo(0.239, 10),
+                right: expect.closeTo(0.24, 10),
             },
         ]);
         expect(tops.slice(2).every(([
@@ -404,6 +406,27 @@ describe('scan cleanup ink placement', () => {
                     right: 0,
                 },
             ],
+        ]);
+    });
+
+    it('moves a spread as one sheet when its halves fall in different clusters', () => {
+        // The verso's ink joins the running heads' cluster and the recto's,
+        // 0.003 lower, the next one. Snapped separately the halves would
+        // print 0.035 apart; the sheet takes the better supported correction.
+        const runningHeads = Array.from({length: 20}, (_, index) => sample(index + 2, 'full', 0.1));
+        const lowerPosition = Array.from({length: 3}, (_, index) => sample(index + 22, 'full', 0.135));
+        const tops = resolvedTops([
+            sample(1, 'left', 0.118),
+            sample(1, 'right', 0.121),
+            ...runningHeads,
+            ...lowerPosition,
+        ], 0.02);
+        expect(tops[0]).toEqual([
+            1,
+            {
+                left: 0,
+                right: expect.closeTo(0.003, 10),
+            },
         ]);
     });
 

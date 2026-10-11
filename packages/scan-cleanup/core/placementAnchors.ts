@@ -17,7 +17,9 @@ import {
 import {
     resolveScanCleanupOutputPlacement,
     resolveScanCleanupPlacementAnchorResolution,
+    resolveScanCleanupSheetInkTops,
     SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
+    type IScanCleanupSnappedInkTop,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS} from '@contracts/scan-cleanup/inputLimits';
 import {
@@ -70,29 +72,61 @@ function resolveInkSample(
     };
 }
 
-function resolveSummaryAnchor(
+function resolveSummaryInkTop(
+    summary: Pick<IScanCleanupPlacementAnchorSummary, 'clusters' | 'toleranceNormalized'>,
+    yNormalized: number,
+): IScanCleanupSnappedInkTop {
+    // A calibrated sample lies inside its own cluster. A page outside the
+    // calibration window joins the nearest cluster that would still span at
+    // most the tolerance with it, and otherwise keeps its own position.
+    let cluster = summary.clusters.find(candidate => (
+        yNormalized >= candidate.startNormalized
+        && yNormalized <= candidate.endNormalized
+    ));
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of cluster === undefined ? summary.clusters : []) {
+        const span = Math.max(candidate.endNormalized, yNormalized)
+            - Math.min(candidate.startNormalized, yNormalized);
+        const distance = Math.max(candidate.startNormalized - yNormalized, yNormalized - candidate.endNormalized);
+        if (span <= summary.toleranceNormalized && distance < nearestDistance) {
+            cluster = candidate;
+            nearestDistance = distance;
+        }
+    }
+    return {
+        yNormalized,
+        snappedNormalized: cluster?.valueNormalized ?? yNormalized,
+        support: cluster?.size ?? 1,
+    };
+}
+
+/**
+ * Anchors for the `ink` outputs of one source sheet, keyed by output half and
+ * given as measured ink tops on the reference height. The sheet's outputs are
+ * resolved together because a spread moves as one sheet.
+ */
+export function resolveScanCleanupSheetAnchorsFromSummary(
     summary: Pick<
         IScanCleanupPlacementAnchorSummary,
         'clusters' | 'topEdgeNormalized' | 'toleranceNormalized'
     >,
-    yNormalized: number,
+    inkTops: Partial<Record<TScanCleanupOutputHalf, number>>,
 ) {
-    const cluster = summary.clusters.find(candidate => (
-        yNormalized >= candidate.startNormalized
-        && yNormalized - candidate.startNormalized <= summary.toleranceNormalized
-    ));
-    const offset = Math.max(
-        0,
-        (cluster?.valueNormalized ?? yNormalized) - summary.topEdgeNormalized,
-    );
-    return {yNormalized: offset};
-}
-
-export function resolveScanCleanupPlacementAnchorFromSummary(
-    summary: IScanCleanupPlacementAnchorSummary,
-    yNormalized: number,
-) {
-    return resolveSummaryAnchor(summary, yNormalized);
+    const snapped: Partial<Record<TScanCleanupOutputHalf, IScanCleanupSnappedInkTop>> = {};
+    for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
+        const yNormalized = inkTops[half];
+        if (yNormalized !== undefined) {
+            snapped[half] = resolveSummaryInkTop(summary, yNormalized);
+        }
+    }
+    const anchors: Partial<Record<TScanCleanupOutputHalf, {yNormalized: number}>> = {};
+    for (const [
+        half,
+        placed,
+    ] of Object.entries(resolveScanCleanupSheetInkTops(snapped)) as Array<[TScanCleanupOutputHalf, number]>) {
+        anchors[half] = {yNormalized: Math.max(0, placed - summary.topEdgeNormalized)};
+    }
+    return anchors;
 }
 
 export function resolveScanCleanupPlacementAnchorsFromResult(
@@ -100,14 +134,14 @@ export function resolveScanCleanupPlacementAnchorsFromResult(
     options: IScanCleanupOptions,
     result: IScanCleanupDetectionResult,
 ): IScanCleanupPlacementAnchorCalibration['placementAnchors'] {
-    const placementAnchors: IScanCleanupPlacementAnchorCalibration['placementAnchors'] = {};
+    const inkTops: Partial<Record<TScanCleanupOutputHalf, number>> = {};
     for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
         const sample = resolveInkSample(result, options, half, summary.referenceHeightPoints);
         if (sample !== undefined) {
-            placementAnchors[half] = resolveSummaryAnchor(summary, sample.yNormalized);
+            inkTops[half] = sample.yNormalized;
         }
     }
-    return placementAnchors;
+    return resolveScanCleanupSheetAnchorsFromSummary(summary, inkTops);
 }
 
 /**
@@ -213,7 +247,8 @@ export async function buildScanCleanupPlacementAnchorSummary({
     };
     const resolvedSparseSamples = sparseSamples.map(sample => ({
         ...sample,
-        anchor: resolveSummaryAnchor(summaryBase, sample.yNormalized),
+        anchor: resolveScanCleanupSheetAnchorsFromSummary(summaryBase, {[sample.half]: sample.yNormalized})[sample.half]
+            ?? {yNormalized: 0},
     }));
     return {
         ...summaryBase,
