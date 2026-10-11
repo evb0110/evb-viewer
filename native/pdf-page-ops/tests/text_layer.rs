@@ -1745,6 +1745,50 @@ fn keeps_the_ink_of_a_scale_that_an_old_ocr_stream_only_sets() {
 }
 
 #[test]
+fn keeps_the_spacing_a_removed_hidden_quote_show_sets_for_later_text() {
+    let source = path("quote-spacing-source", "pdf");
+    let input = path("quote-spacing-input", "pdf");
+    let output = path("quote-spacing-output", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    // The hidden `"` sets word and character spacing that the red text after
+    // it paints with. Replacing the OCR must leave that text where it was.
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![
+            b"BT /F1 12 Tf 3 Tr 0 0 Td 10 5 (old OCR) \" ET".to_vec(),
+            b"1 0 0 rg BT /F1 12 Tf 0 Tr 10 40 Td (A A) Tj ET".to_vec(),
+        ],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let text = pdftotext_all(&output, &[]);
+    assert!(text.contains("Recognized"), "{text}");
+    assert!(!text.contains("old OCR"), "{text}");
+    let before = red_pixels(&input);
+    assert!(!before.is_empty());
+    assert_eq!(red_pixels(&output), before, "visible text moved");
+
+    for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}
+
+#[test]
 fn places_words_where_the_page_leaves_a_transform_open() {
     let source = path("open-transform-source", "pdf");
     save_ocr_page(

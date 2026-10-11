@@ -150,6 +150,23 @@ pub(crate) fn read_content_stream(
     Ok(crate::plain_stream_with_limit(stream, MAX_OCR_CONTENT_STREAM_BYTES).ok())
 }
 
+/// The graphics state a removed show operator leaves for later text. `"` sets
+/// word and character spacing (`aw ac "` is `aw Tw ac Tc` then a show), and
+/// the spacing persists past the show and its text object. Other show
+/// operators only move the text position, which the next text object resets.
+fn state_left_by_show(operation: ContentOperation) -> Vec<ContentOperation> {
+    if operation.operator != "\"" {
+        return Vec::new();
+    }
+    match <[Object; 3]>::try_from(operation.operands) {
+        Ok([word_spacing, character_spacing, _]) => vec![
+            ContentOperation::new("Tw", vec![word_spacing]),
+            ContentOperation::new("Tc", vec![character_spacing]),
+        ],
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Remove previous OCR text from a page whose dictionary is already in the
 /// incremental revision. EVB layers go by their marker. Hidden text from
 /// other producers goes by rendering mode; a stream that holds it is rewritten
@@ -194,8 +211,13 @@ pub(crate) fn strip_previous_ocr_text(
             .operations
             .into_iter()
             .enumerate()
-            .filter(|(index, _)| hidden.binary_search(index).is_err())
-            .map(|(_, operation)| operation)
+            .flat_map(|(index, operation)| {
+                if hidden.binary_search(&index).is_ok() {
+                    state_left_by_show(operation)
+                } else {
+                    vec![operation]
+                }
+            })
             .collect::<Vec<_>>();
         let mut stream = Stream::new(
             Dictionary::new(),
