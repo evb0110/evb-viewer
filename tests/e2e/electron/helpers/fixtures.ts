@@ -1346,6 +1346,52 @@ export async function createCompactPageLabelsFixturePdf(filename: string, pageCo
     return filePath;
 }
 
+export interface IPageLabelRangeFixture {
+    startPage: number;
+    style: 'D' | 'R' | 'r' | 'A' | 'a';
+    prefix?: string;
+    startNumber: number;
+}
+
+/** Text pages whose /PageLabels number tree holds exactly the given ranges. */
+export async function createPageLabelRangesFixturePdf(
+    filename: string,
+    pageCount: number,
+    ranges: readonly IPageLabelRangeFixture[],
+) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`Page ${pageNumber} sample text for labels`, {
+            x: 70,
+            y: 660,
+            size: 16,
+            font,
+            color: rgb(0.22, 0.22, 0.22),
+        });
+    }
+
+    const {context} = doc;
+    const nums = ranges.flatMap(range => [
+        range.startPage - 1,
+        context.register(context.obj({
+            ...(range.prefix === undefined ? {} : {P: PDFString.of(range.prefix)}),
+            S: PDFName.of(range.style),
+            St: PDFNumber.of(range.startNumber),
+        })),
+    ]);
+    doc.catalog.set(PDFName.of('PageLabels'), context.register(context.obj({Nums: nums})));
+    writeFileSync(filePath, await doc.save());
+    return filePath;
+}
+
 export async function createMixedSizeTextFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);

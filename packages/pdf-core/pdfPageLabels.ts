@@ -965,7 +965,7 @@ function findPageByLabelInModel(
         const page = segment.startPage + number - segment.startNumber;
         if (page >= segment.startPage && page <= segment.endPage) {
             const actual = model.labelAt(page);
-            if (actual === input || actual?.toLowerCase() === candidate) {
+            if ((caseInsensitive ? actual?.toLowerCase() : actual) === candidate) {
                 return page;
             }
         }

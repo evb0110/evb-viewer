@@ -325,6 +325,42 @@ describe('document page labels', () => {
         expect(findPageByPageLabelInput('14', 20, model)).toBe(4);
     });
 
+    it('matches an exact label in a later segment before a case-only match in an earlier one', () => {
+        const romanModel = createPageLabelModel(20, [
+            {
+                startPage: 1,
+                style: 'R',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 11,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
+        const alphabeticModel = createPageLabelModel(20, [
+            {
+                startPage: 1,
+                style: 'A',
+                prefix: '',
+                startNumber: 1,
+            },
+            {
+                startPage: 11,
+                style: 'a',
+                prefix: '',
+                startNumber: 1,
+            },
+        ]);
+
+        expect(findPageByPageLabelInput('iv', 20, romanModel)).toBe(14);
+        expect(findPageByPageLabelInput('IV', 20, romanModel)).toBe(4);
+        expect(findPageByPageLabelInput('a', 20, alphabeticModel)).toBe(11);
+        expect(findPageByPageLabelInput('A', 20, alphabeticModel)).toBe(1);
+    });
+
     it('builds whole-document numbering ranges without depending on existing broken labels', () => {
         const ranges = buildWholeDocumentPageLabelRanges(348, {
             style: 'D',
