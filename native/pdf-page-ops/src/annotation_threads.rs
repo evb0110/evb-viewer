@@ -66,6 +66,7 @@ pub(crate) fn transform_page_annotations(
     page: &mut Dictionary,
     transform: Option<SplitContentTransform>,
     crop: PdfRect,
+    page_index: &HashMap<ObjectId, usize>,
 ) -> Result<()> {
     let Some(entries) = page_annotation_array(source, page) else {
         return Ok(());
@@ -163,7 +164,13 @@ pub(crate) fn transform_page_annotations(
         if annotation.has(b"P") {
             annotation.set("P", page_id);
         }
-        crate::link_rebinding::place_split_copy(target, &mut annotation, source, &note_copy)?;
+        crate::link_rebinding::place_split_copy(
+            target,
+            &mut annotation,
+            source,
+            &note_copy,
+            page_index,
+        )?;
         target
             .objects
             .insert(copy_id, Object::Dictionary(annotation));

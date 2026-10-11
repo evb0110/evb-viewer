@@ -1,5 +1,6 @@
 use super::*;
 use crate::internal_destinations::resolve_destination;
+use crate::link_rebinding::page_index_by_id;
 use evb_native_support::output::AtomicOutput;
 use std::{
     path::Path,
@@ -316,11 +317,7 @@ struct OverlayDestinations<'a> {
 
 impl<'a> OverlayDestinations<'a> {
     fn new(probe: &'a Document) -> Result<Self> {
-        let page_index_by_id = probe
-            .get_pages()
-            .into_iter()
-            .map(|(number, id)| (id, number as usize - 1))
-            .collect();
+        let page_index_by_id = page_index_by_id(&probe.get_pages());
         Ok(Self {
             probe,
             page_index_by_id,

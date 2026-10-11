@@ -22,6 +22,16 @@ pub(crate) fn goto_destination<'a>(
 /// rebinds its destination. It is removed when the destination is rebound.
 pub(crate) const RETAINED_DESTINATION_PAGE_KEY: &[u8] = b"EVBDestinationPage";
 
+/// The source page index of each page object, read from the page tree once per
+/// run. A page object listed twice keeps its first index, as a tree walk would.
+pub(crate) fn page_index_by_id(pages: &BTreeMap<u32, ObjectId>) -> HashMap<ObjectId, usize> {
+    let mut index = HashMap::with_capacity(pages.len());
+    for (number, id) in pages {
+        index.entry(*id).or_insert(*number as usize - 1);
+    }
+    index
+}
+
 /// Readies a split copy of a source annotation: its retained destination, then
 /// its note placement on the output page.
 pub(crate) fn place_split_copy(
@@ -29,8 +39,9 @@ pub(crate) fn place_split_copy(
     annotation: &mut Dictionary,
     source: &Document,
     note_copy: &crate::note_placement::NoteCopy,
+    page_index: &HashMap<ObjectId, usize>,
 ) -> Result<()> {
-    prepare_retained(source, annotation)?;
+    prepare_retained(source, annotation, page_index)?;
     crate::note_placement::place_note_copy(target, annotation, Some(source), note_copy)
 }
 
@@ -39,7 +50,11 @@ pub(crate) fn place_split_copy(
 /// interleaves the page. The destination becomes explicit, and the source page
 /// index travels with the annotation until the overlay rebinds it. A destination
 /// that does not read as a page of the source is left as it is.
-pub(crate) fn prepare_retained(source: &Document, annotation: &mut Dictionary) -> Result<()> {
+pub(crate) fn prepare_retained(
+    source: &Document,
+    annotation: &mut Dictionary,
+    page_index: &HashMap<ObjectId, usize>,
+) -> Result<()> {
     annotation.remove(RETAINED_DESTINATION_PAGE_KEY);
     // Only a link is retained. A note's navigation stays as it is: a page
     // reference there makes its note recovery read the note as foreign.
@@ -54,11 +69,7 @@ pub(crate) fn prepare_retained(source: &Document, annotation: &mut Dictionary) -
     let Some((page_id, explicit)) = explicit_retained_destination(source, annotation) else {
         return Ok(());
     };
-    let Some(index) = source
-        .get_pages()
-        .into_iter()
-        .find_map(|(number, id)| (id == page_id).then_some(number as usize - 1))
-    else {
+    let Some(&index) = page_index.get(&page_id) else {
         return Ok(());
     };
     if annotation.get(b"Dest").is_err() {
