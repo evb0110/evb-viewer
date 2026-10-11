@@ -9,10 +9,13 @@ import {
     buildWholeDocumentPageLabelRanges,
     countPageLabelDifferences,
     createPageLabelModel,
+    derivePageLabelRangesFromLabels,
     findPageByPageLabelInput,
     formatPageIndicatorWithOptions,
     getMaxPageIndicatorLength,
     getPageIndicatorLayoutMetrics,
+    getPageLabelStartNumberMax,
+    normalizePageLabelRanges,
     replacePageLabelRange,
 } from '@app/modules/document-viewer/pageLabels';
 
@@ -311,6 +314,105 @@ describe('document page labels', () => {
         expect(alphabetic.labelAt(1)?.length ?? 0).toBeLessThan(10_000);
         expect(roman.labelAt(1)?.length ?? 0).toBeLessThan(1_000);
         expect(decimal.labelAt(1)).toBe('20000000000');
+    });
+
+    it('keeps the start value an imported range defines, even one the page-numbering field would not admit', () => {
+        const ranges = normalizePageLabelRanges([{
+            startPage: 1,
+            style: 'A',
+            prefix: '',
+            startNumber: 130,
+        }], 1);
+
+        expect(ranges[0]?.startNumber).toBe(130);
+        expect(createPageLabelModel(1, ranges).labelAt(1)).toBe('ZZZZZ');
+    });
+
+    it('renumbers only the edited page and keeps the numbering the later pages already had', () => {
+        const ranges = replacePageLabelRange(
+            150,
+            [{
+                startPage: 1,
+                style: 'A',
+                prefix: '',
+                startNumber: 1,
+            }],
+            {
+                startPage: 110,
+                endPage: 110,
+            },
+            {
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        );
+        const model = createPageLabelModel(150, ranges);
+
+        expect(model.labelAt(109)).toBe('EEEEE');
+        expect(model.labelAt(110)).toBe('1');
+        expect(model.labelAt(111)).toBe('GGGGG');
+    });
+
+    it('admits a typed start value only up to the bound its numbering style can print', () => {
+        const ranges = replacePageLabelRange(
+            1,
+            [],
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+            {
+                style: 'A',
+                prefix: '',
+                startNumber: 20_000_000_000,
+            },
+        );
+
+        expect(ranges[0]?.startNumber).toBe(getPageLabelStartNumberMax('A'));
+    });
+
+    it('reads an imported start value from a label too long to scan, and shows it bounded', () => {
+        // 1,000,000,000 in letter style is "L" repeated 38,461,539 times.
+        const label = 'L'.repeat(38_461_539);
+        const ranges = derivePageLabelRangesFromLabels([label], 1);
+        const shown = createPageLabelModel(1, ranges).labelAt(1) ?? '';
+
+        expect(ranges).toEqual([{
+            startPage: 1,
+            style: 'A',
+            prefix: '',
+            startNumber: 1_000_000_000,
+        }]);
+        expect(shown.length).toBeLessThan(300);
+        expect(shown.endsWith('…')).toBe(true);
+    });
+
+    it('keeps a long literal label whole in its ranges and shows only a bounded head of it', () => {
+        const label = `${'Front matter '.repeat(8)}end. `;
+        const ranges = derivePageLabelRangesFromLabels([label], 1);
+        const shown = createPageLabelModel(1, ranges).labelAt(1) ?? '';
+
+        expect(ranges).toEqual([{
+            startPage: 1,
+            style: null,
+            prefix: label,
+            startNumber: 1,
+        }]);
+        expect(shown.length).toBeLessThan(300);
+        expect(shown.endsWith('…')).toBe(true);
+    });
+
+    it('shows a huge Roman start value as a bounded label', () => {
+        const shown = createPageLabelModel(1, [{
+            startPage: 1,
+            style: 'R',
+            prefix: '',
+            startNumber: 1_000_000_000,
+        }]).labelAt(1) ?? '';
+
+        expect(shown.length).toBeLessThan(300);
+        expect(shown.endsWith('…')).toBe(true);
     });
 
     it('prefers a logical label over a coincident physical page number', () => {

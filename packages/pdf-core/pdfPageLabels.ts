@@ -71,6 +71,12 @@ function clampPageLabelStartNumber(style: TDocumentPageLabelStyle, startNumber: 
     return clamp(startNumber, 1, getPageLabelStartNumberMax(style));
 }
 
+/** Longest label the formatter returns; a longer one is cut and ends in an ellipsis. */
+const PAGE_LABEL_MAX_FORMATTED_LENGTH = 64;
+function capFormattedLabel(text: string) {
+    return text.length > PAGE_LABEL_MAX_FORMATTED_LENGTH ? `${text.slice(0, PAGE_LABEL_MAX_FORMATTED_LENGTH)}…` : text;
+}
+
 function normalizeStyle(style: unknown): TDocumentPageLabelStyle {
     if (style === null) {
         return null;
@@ -84,11 +90,9 @@ function toRoman(number: number, lowerCase = false) {
     if (number < 1) {
         return '';
     }
+    // Thousands are counted, not looped: a start value near 2^53 would take billions of steps.
+    const thousands = Math.floor(number / 1000);
     const numerals: Array<[number, string]> = [
-        [
-            1000,
-            'M',
-        ],
         [
             900,
             'CM',
@@ -139,8 +143,8 @@ function toRoman(number: number, lowerCase = false) {
         ],
     ];
 
-    let value = number;
-    let result = '';
+    let value = number - thousands * 1000;
+    let result = 'M'.repeat(Math.min(thousands, PAGE_LABEL_MAX_FORMATTED_LENGTH + 1));
     for (const [
         decimal,
         roman,
@@ -154,7 +158,7 @@ function toRoman(number: number, lowerCase = false) {
 }
 
 function parseRoman(value: string) {
-    if (!/^[ivxlcdm]+$/i.test(value)) {
+    if (value.length > PAGE_LABEL_MAX_FORMATTED_LENGTH || !/^[ivxlcdm]+$/i.test(value)) {
         return null;
     }
 
@@ -192,7 +196,7 @@ function toAlphabetic(number: number, lowerCase = false) {
     const letterIndex = (number - 1) % 26;
     const repeatCount = Math.floor((number - 1) / 26) + 1;
     const character = String.fromCharCode(baseCode + letterIndex);
-    return character.repeat(repeatCount);
+    return character.repeat(Math.min(repeatCount, PAGE_LABEL_MAX_FORMATTED_LENGTH + 1));
 }
 
 function parseAlphabetic(value: string) {
@@ -200,14 +204,10 @@ function parseAlphabetic(value: string) {
         return null;
     }
     const normalized = value.toLowerCase();
-    if (!/^([a-z])\1*$/.test(normalized)) {
+    if (normalized !== normalized.charAt(0).repeat(normalized.length)) {
         return null;
     }
-    const charCode = normalized.charCodeAt(0);
-    const offset = charCode - 0x61;
-    if (offset < 0 || offset > 25) {
-        return null;
-    }
+    const offset = normalized.charCodeAt(0) - 0x61;
     const repeatCount = normalized.length;
     return ((repeatCount - 1) * 26) + offset + 1;
 }
@@ -231,10 +231,10 @@ function formatLabelValue(style: TDocumentPageLabelStyle, number: number) {
 
 function getLabelForOffset(range: IDocumentPageLabelRange, offset: number) {
     if (range.style === null) {
-        return range.prefix;
+        return capFormattedLabel(range.prefix);
     }
     const number = Math.max(1, range.startNumber + offset);
-    return range.prefix + formatLabelValue(range.style, number);
+    return capFormattedLabel(range.prefix + formatLabelValue(range.style, number));
 }
 
 function findRangeIndexForPage(
@@ -270,67 +270,66 @@ function buildPageLabelSegmentsFromNormalizedRanges(
         ),
     }));
 }
-function createLiteralLabelCandidate(label: string): IDocumentPageLabelRange {
-    return {
-        startPage: 1,
-        style: null,
-        prefix: label,
-        startNumber: 1,
-    };
+/** A label prefix holding a line break was never inferred: the old `(.*?)` could not cross one. */
+const LINE_BREAK = /[\n\r\u2028\u2029]/u;
+/** Start of the longest trailing run of characters `inRun` accepts. A loop: a lazy regex overflows on a long label. */
+function trailingRunStart(label: string, inRun: (code: number) => boolean) {
+    let start = label.length;
+    while (start > 0 && inRun(label.charCodeAt(start - 1))) {
+        start -= 1;
+    }
+    return start;
 }
 function inferDecimalCandidate(label: string): IDocumentPageLabelRange | null {
-    const match = /^(.*?)(\d+)$/.exec(label);
-    if (!match) {
+    const start = trailingRunStart(label, code => code >= 0x30 && code <= 0x39);
+    if (start === label.length || LINE_BREAK.test(label.slice(0, start))) {
         return null;
     }
 
     return {
         startPage: 1,
         style: 'D',
-        prefix: match[1] ?? '',
-        startNumber: toPositiveInt(match[2], 1),
+        prefix: label.slice(0, start),
+        startNumber: toPositiveInt(label.slice(start), 1),
     };
 }
 function inferRomanCandidate(label: string): IDocumentPageLabelRange | null {
-    const match = /^(.*?)([ivxlcdm]+)$/i.exec(label);
-    if (!match) {
-        return null;
-    }
-
-    const suffix = match[2] ?? '';
+    const start = trailingRunStart(label, code => 'ivxlcdm'.includes(String.fromCharCode(code | 0x20)));
+    const suffix = label.slice(start);
     const romanValue = parseRoman(suffix);
-    if (romanValue === null) {
+    if (romanValue === null || LINE_BREAK.test(label.slice(0, start))) {
         return null;
     }
 
     return {
         startPage: 1,
         style: suffix === suffix.toLowerCase() ? 'r' : 'R',
-        prefix: match[1] ?? '',
+        prefix: label.slice(0, start),
         startNumber: romanValue,
     };
 }
 function inferAlphabeticCandidate(label: string): IDocumentPageLabelRange | null {
-    const match = /^(.*?)([A-Za-z]+)$/.exec(label);
-    if (!match) {
-        return null;
-    }
-
-    const suffix = match[2] ?? '';
+    const start = trailingRunStart(label, code => (code | 0x20) >= 0x61 && (code | 0x20) <= 0x7a);
+    const suffix = label.slice(start);
     const alphaValue = parseAlphabetic(suffix);
-    if (alphaValue === null) {
+    if (alphaValue === null || LINE_BREAK.test(label.slice(0, start))) {
         return null;
     }
 
     return {
         startPage: 1,
         style: suffix === suffix.toLowerCase() ? 'a' : 'A',
-        prefix: match[1] ?? '',
+        prefix: label.slice(0, start),
         startNumber: alphaValue,
     };
 }
 function inferCandidates(label: string): [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] {
-    const candidates: [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] = [createLiteralLabelCandidate(label)];
+    const candidates: [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] = [{
+        startPage: 1,
+        style: null,
+        prefix: label,
+        startNumber: 1,
+    }];
     const parsedCandidates = [
         inferDecimalCandidate(label),
         inferRomanCandidate(label),
@@ -366,7 +365,7 @@ export function normalizePageLabelRanges(
         );
         const style = normalizeStyle(range.style);
         const prefix = typeof range.prefix === 'string' ? range.prefix : '';
-        const startNumber = clampPageLabelStartNumber(style, toPositiveInt(range.startNumber, 1));
+        const startNumber = toPositiveInt(range.startNumber, 1);
 
         deduped.set(startPage, {
             startPage,
@@ -665,7 +664,7 @@ export function replacePageLabelRange(
         startPage: normalizedTarget.startPage,
         style: normalizeStyle(replacement.style),
         prefix: typeof replacement.prefix === 'string' ? replacement.prefix : '',
-        startNumber: toPositiveInt(replacement.startNumber, 1),
+        startNumber: clampPageLabelStartNumber(normalizeStyle(replacement.style), toPositiveInt(replacement.startNumber, 1)),
     });
 
     if (normalizedTarget.endPage < normalizedTotalPages) {
@@ -856,7 +855,7 @@ export function buildWholeDocumentPageLabelRanges(
         startPage: 1,
         style: options.style,
         prefix: options.prefix,
-        startNumber: options.startNumber,
+        startNumber: clampPageLabelStartNumber(options.style, toPositiveInt(options.startNumber, 1)),
     }], totalPages);
 }
 
@@ -893,7 +892,7 @@ export function derivePageLabelRangesFromLabels(
             while (pageIndex + length < totalPages) {
                 const actual = pageLabels[pageIndex + length] ?? '';
                 const expected = getLabelForOffset(candidate, length);
-                if (actual !== expected) {
+                if (capFormattedLabel(actual) !== expected) {
                     break;
                 }
                 length += 1;
