@@ -2159,7 +2159,7 @@ fn split_pages_keeps_the_source_catalog_and_info_by_default() {
 }
 
 #[test]
-fn split_pages_assembly_writes_only_the_page_tree_and_page_labels() {
+fn split_pages_assembly_keeps_page_dependencies_and_stamp_only_info() {
     let input = path("split-assembly-catalog-input", "pdf");
     let output = path("split-assembly-catalog-output", "pdf");
     let instructions = path("split-assembly-catalog-instructions", "json");
@@ -2171,7 +2171,12 @@ fn split_pages_assembly_writes_only_the_page_tree_and_page_labels() {
     let split = Document::load(&output).unwrap();
     assert_eq!(
         split_catalog_keys(&split),
-        vec![b"PageLabels".to_vec(), b"Pages".to_vec(), b"Type".to_vec()]
+        vec![
+            b"OCProperties".to_vec(),
+            b"PageLabels".to_vec(),
+            b"Pages".to_vec(),
+            b"Type".to_vec()
+        ]
     );
     assert_eq!(split.get_pages().len(), 1);
     assert!(split.trailer.get(b"ID").is_err());
@@ -2624,5 +2629,95 @@ fn split_pages_source_stamp_merges_info_while_assembly_is_stamp_only() {
                 source.trailer.get(b"ID").unwrap()
             );
         }
+    }
+}
+
+fn review_color_pixels(document: &mut Document, page: u32, color: [u8; 3]) -> usize {
+    let input = path("review-pixels", "pdf");
+    document.save(&input).unwrap();
+    let result = Command::new(external_tool::tool_path(
+        "PDFTOPPM_PATH",
+        "poppler",
+        "pdftoppm",
+    ))
+    .args([
+        "-r",
+        "72",
+        "-singlefile",
+        "-hide-annotations",
+        "-f",
+        &page.to_string(),
+        "-l",
+        &page.to_string(),
+    ])
+    .arg(&input)
+    .output()
+    .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let pixels = result
+        .stdout
+        .splitn(4, |byte| *byte == b'\n')
+        .nth(3)
+        .unwrap();
+    let count = pixels.chunks_exact(3).filter(|rgb| *rgb == color).count();
+    let _ = remove_file(input);
+    count
+}
+
+#[test]
+fn split_pages_assembly_interleave_preserves_optional_content_pixels() {
+    let mut source = review_catalog_source();
+    assert_eq!(review_color_pixels(&mut source, 1, [255, 0, 0]), 0);
+    assert_eq!(review_color_pixels(&mut source, 2, [0, 0, 255]), 4800);
+    let mut split = review_split(&mut source, &[0, 1], true, true);
+    let primary = path("review-ocg-primary", "pdf");
+    let raster = path("review-ocg-raster", "pdf");
+    let output = path("review-ocg-interleave", "pdf");
+    split.save(&primary).unwrap();
+    let mut raster_document = Document::with_version("1.7");
+    let pages = raster_document.new_object_id();
+    let page = raster_document.add_object(dictionary! {"Type" => "Page", "Parent" => pages, "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()], "Resources" => dictionary! {}});
+    raster_document.set_object(
+        pages,
+        dictionary! {"Type" => "Pages", "Kids" => vec![Object::Reference(page)], "Count" => 1},
+    );
+    let catalog = raster_document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages});
+    raster_document.trailer.set("Root", catalog);
+    raster_document.save(&raster).unwrap();
+    let result = Command::new(qpdf_path())
+        .arg(&primary)
+        .args(["--coalesce-contents", "--pages", ".", "1"])
+        .arg(&raster)
+        .args(["1", ".", "2", "--"])
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        matches!(result.status.code(), Some(0 | 3)),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let mut assembled = Document::load(&output).unwrap();
+    assert_eq!(
+        review_color_pixels(&mut assembled, 1, [255, 0, 0]),
+        0,
+        "the source's hidden red layer stays hidden"
+    );
+    assert_eq!(
+        review_color_pixels(&mut assembled, 3, [0, 0, 255]),
+        4800,
+        "the other page's blue layer stays visible"
+    );
+    assert!(
+        result.status.success(),
+        "connected forms must interleave without a widget warning: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    for file in [primary, raster, output] {
+        let _ = remove_file(file);
     }
 }

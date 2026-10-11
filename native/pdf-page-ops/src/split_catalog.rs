@@ -5,11 +5,8 @@ use crate::internal_destinations::{remap_internal_destination, resolve_destinati
 use crate::split_output::{split_annotation_matrix, SplitAnnotationMap, SplitOutputPage};
 use lopdf::dictionary;
 
-/// Which catalog a split writes. Lossless cleanup publishes the split itself, so
-/// it keeps the source's catalog. The compact assembler's split is only the
-/// primary input of its qpdf interleave, and the compact output takes its
-/// document-level entries from it, so that split writes only its page tree and
-/// the source's page labels.
+/// Source mode publishes the split. Assembly carries page labels, forms and
+/// optional-content configuration needed by preserved pages into qpdf.
 #[derive(Clone, Copy, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum SplitCatalog {
@@ -51,19 +48,16 @@ pub(crate) fn split_catalog(
 ) -> Result<Dictionary> {
     let source_catalog = source.get_dictionary(catalog_id)?;
     let mut catalog = match kind {
-        SplitCatalog::Source => {
-            let mut catalog = source_catalog.clone();
-            if !has_valid_oc_properties(source, catalog_id)? {
-                catalog.remove(b"OCProperties");
-            }
-            catalog
-        }
-        SplitCatalog::Assembly => {
-            let mut catalog = Dictionary::new();
-            catalog.set("Type", "Catalog");
-            catalog
-        }
+        SplitCatalog::Source => source_catalog.clone(),
+        SplitCatalog::Assembly => dictionary! {"Type" => "Catalog"},
     };
+    if has_valid_oc_properties(source, catalog_id)? {
+        if let Ok(properties) = source_catalog.get(b"OCProperties") {
+            catalog.set("OCProperties", properties.clone());
+        }
+    } else {
+        catalog.remove(b"OCProperties");
+    }
     if let Ok(labels) = source_catalog.get(b"PageLabels") {
         let mut ranges = Vec::new();
         read_number_tree(source, labels, 0, &mut CatalogWalkState::new(), &mut ranges)?;
