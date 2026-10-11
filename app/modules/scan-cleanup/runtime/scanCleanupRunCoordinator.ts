@@ -270,7 +270,7 @@ export interface IScanCleanupCoordinatorDependencies {
      * reader is in.
      */
     openGeneratedPdf: (path: string, signal: AbortSignal, foreground: boolean) => Promise<boolean>;
-    saveActiveDocumentAs: () => Promise<unknown>;
+    saveCompletedOutputAs: (outputPath: string) => Promise<unknown>;
     openScanCleanupForDocument?: (documentRef: string) => Promise<boolean> | boolean;
     t: TTranslateFn;
     toast: IScanCleanupToast;
@@ -718,7 +718,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                     label: terminalDependencies.t('scanCleanup.saveAs'),
                     color: 'neutral' as const,
                     variant: 'outline' as const,
-                    onClick: () => { void dependencies?.saveActiveDocumentAs(); },
+                    onClick: () => { void dependencies?.saveCompletedOutputAs(state.outputPdfPath); },
                 }],
             });
             return;

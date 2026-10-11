@@ -117,7 +117,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 await reopenCommitted.promise;
                 return true;
             },
-            saveActiveDocumentAs: vi.fn(),
+            saveCompletedOutputAs: vi.fn(),
             t: ((key: string) => key) as never,
             toast: {add: vi.fn()},
         });

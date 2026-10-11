@@ -9,7 +9,10 @@ import {
 } from '@app/modules/scan-cleanup/public/runtime';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { findDocumentTabId } from '@app/modules/workspace-shell/composables/findDocumentTabId';
+import {
+    findDocumentTabId,
+    saveScanCleanupOutputAs,
+} from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
 import {
     getDocumentOpenCapability,
     getDocumentWorkingCopyCapability,
@@ -166,12 +169,8 @@ export const useScanCleanupRunCoordinator = (
                 ? openScanCleanupGeneratedPdf(documentRef, signal, handleOpenInNewTab)
                 : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {activate: false})) && persistCheckpointNow().then(() => true, () => false);
         },
-        saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
-        openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(
-            documentRef,
-            documentSessionsByTabId.value,
-            activateTab,
-        ),
+        saveCompletedOutputAs: outputPath => saveScanCleanupOutputAs(outputPath, activeWorkspace, documentSessionsByTabId, activateTab),
+        openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(documentRef, documentSessionsByTabId.value, activateTab),
         t,
         toast,
     });
