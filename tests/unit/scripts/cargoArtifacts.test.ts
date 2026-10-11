@@ -20,6 +20,10 @@ import {
     getCargoFingerprintEnvironment,
     parseNativeToolBuildRequest,
 } from '@scripts/build-native-tool.mjs';
+import {
+    computeNativeBuildId,
+    getNativeExternalBuildInputs,
+} from '@scripts/native-build-id.mjs';
 import { createWasmToolBuildPlan } from '@scripts/build-wasm-tool.mjs';
 import { getGeneratedNativeToolResource } from '@scripts/nativeResourceManifest';
 import { getWasmArtifactByCrateName } from '@scripts/wasm-artifacts.mjs';
@@ -97,6 +101,54 @@ const {
 ) as ICargoArtifactsModule;
 
 describe('Cargo artifact staging', () => {
+    it.each([
+        'public/fonts/annotation/DejaVuSans.ttf',
+        'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+        'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
+        'public/pdf/standard_fonts/LiberationSans-Bold.ttf',
+        'public/pdf/standard_fonts/LiberationSans-Italic.ttf',
+        'public/pdf/standard_fonts/LiberationSans-BoldItalic.ttf',
+    ])('invalidates the native build ID and cache when %s changes', async (fontPath) => {
+        const root = await mkdtemp(path.join(tmpdir(), 'evb-font-build-id-'));
+        const fontPaths = [
+            'public/fonts/annotation/DejaVuSans.ttf',
+            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+            'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
+            'public/pdf/standard_fonts/LiberationSans-Bold.ttf',
+            'public/pdf/standard_fonts/LiberationSans-Italic.ttf',
+            'public/pdf/standard_fonts/LiberationSans-BoldItalic.ttf',
+        ];
+        try {
+            for (const relativePath of [
+                'native/Cargo.toml',
+                'native/Cargo.lock',
+                'native/rust-toolchain.toml',
+                'native/pdf-page-ops/Cargo.toml',
+                'native/pdf-page-ops/src/lib.rs',
+                ...fontPaths,
+            ]) {
+                await mkdir(path.dirname(path.join(root, relativePath)), {recursive: true});
+                await writeFile(path.join(root, relativePath), 'original');
+            }
+            const beforeId = computeNativeBuildId(root, 'pdf-page-ops');
+            const options = {
+                cargoArgs: ['build'],
+                projectRoot: root,
+                sourcePaths: getNativeExternalBuildInputs('pdf-page-ops').map(input => path.join(root, input)),
+                toolchain: {rustc: 'fixture'},
+            };
+            const beforeCache = await computeCargoInputFingerprint(options);
+            await writeFile(path.join(root, fontPath), 'changed font bytes');
+            expect(computeNativeBuildId(root, 'pdf-page-ops')).not.toBe(beforeId);
+            expect((await computeCargoInputFingerprint(options)).fingerprint).not.toBe(beforeCache.fingerprint);
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('shares strict CLI parsing across native and WASM tool builders', () => {
         expect(parseCargoToolBuildRequest(['pdf-search'], 'usage')).toEqual({
             dryRun: false,

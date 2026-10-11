@@ -177,6 +177,16 @@ describe('changed-area classifier', () => {
             rust: {matched: true},
             desktop_build: {matched: true},
         });
+        for (const font of [
+            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+            'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
+        ]) {
+            expect(classifyChangedFiles([font])).toMatchObject({
+                electron_smoke: {matched: true},
+                rust: {matched: true},
+                desktop_build: {matched: true},
+            });
+        }
         expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
             rust: {matched: false},
             desktop_build: {matched: false},

@@ -1,3 +1,5 @@
+import { getNativeExternalBuildInputs } from '../native-build-id.mjs';
+
 export function hasDeveloperIdSigningCredentials(env = process.env) {
     return Boolean(env.CSC_LINK && env.CSC_KEY_PASSWORD);
 }
@@ -173,7 +175,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'electron/**',
                 'packages/**',
                 'public/pdf/**',
-                'public/fonts/annotation/DejaVuSans.ttf',
+                ...getNativeExternalBuildInputs('pdf-page-ops'),
                 'vendor/**',
                 'packages/scan-cleanup/**',
                 'resources/**',
@@ -233,7 +235,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'deny.toml',
                 'native/**',
                 'packages/contracts/**',
-                'public/fonts/annotation/DejaVuSans.ttf',
+                ...getNativeExternalBuildInputs('pdf-page-ops'),
                 'resources/**',
                 'scripts/ci/apt-install.sh',
                 'scripts/ci/classify-changed-areas.mjs',
@@ -255,7 +257,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 '.github/workflows/**',
                 'build/**',
                 'native/**',
-                'public/fonts/annotation/DejaVuSans.ttf',
+                ...getNativeExternalBuildInputs('pdf-page-ops'),
                 'resources/**',
                 'server/**',
                 'scripts/afterPack.cjs',
