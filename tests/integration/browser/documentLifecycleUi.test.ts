@@ -3045,6 +3045,54 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
+    it('shows a literal percent sequence in a browser file name exactly on its tab', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            const chooser = await chooserPromise;
+            await chooser.setFiles({
+                name: 'report%20final.pdf',
+                mimeType: 'application/pdf',
+                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
+            });
+
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await page.evaluate(async () => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                    throw new Error('Active browser document did not settle');
+                }
+            });
+            const activeTab = page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            );
+            await expect.poll(() => activeTab.textContent()).toContain('report%20final.pdf');
+            await expect.poll(() => activeTab.getAttribute('aria-label')).toBe('report%20final.pdf');
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         const browser = await chromium.launch({headless: true});
         try {
