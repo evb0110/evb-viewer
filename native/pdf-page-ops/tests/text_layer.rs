@@ -4637,3 +4637,128 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
         let _ = remove_file(file);
     }
 }
+
+/// A note with a reply, on a preserved page, keeps its reply through the qpdf
+/// interleave that assembles compact cleanup. qpdf copies a listed annotation
+/// again when a reply or popup names it, so the overlay must repair those
+/// references to the listed copies before the note is read.
+#[test]
+fn overlay_text_keeps_a_preserved_note_reply_through_the_interleave() {
+    let source = path("preserved-thread-source", "pdf");
+    let split_instructions = path("preserved-thread-split", "json");
+    let split = path("preserved-thread-split-output", "pdf");
+    let raster = path("preserved-thread-raster", "pdf");
+    let assembled = path("preserved-thread-assembled", "pdf");
+    let instructions = path("preserved-thread-instructions", "json");
+    let output = path("preserved-thread-output", "pdf");
+    let parsed = path("preserved-thread-parsed", "jsonl");
+
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let root = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
+        "Contents" => Object::string_literal("Thread root"),
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
+        "Rect" => vec![45.into(), 45.into(), 55.into(), 55.into()],
+        "Contents" => Object::string_literal("Thread reply"),
+    });
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root,
+        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+    });
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Popup", popup);
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![root.into(), reply.into(), popup.into()]);
+    document.save(&source).unwrap();
+    write(
+        &split_instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+    run_split_pages(&source, &split, &split_instructions);
+    save_empty_pages(&raster, 1);
+    let interleave = Command::new(qpdf_path())
+        .arg(&raster)
+        .args(["--coalesce-contents", "--pages"])
+        .arg(&split)
+        .arg("1")
+        .arg(&raster)
+        .arg("1")
+        .arg("--")
+        .arg(&assembled)
+        .output()
+        .unwrap();
+    assert!(
+        interleave.status.success(),
+        "{}",
+        String::from_utf8_lossy(&interleave.stderr)
+    );
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&assembled, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let parse = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["parse-annotations", "--input"])
+        .arg(&output)
+        .arg("--output")
+        .arg(&parsed)
+        .args(["--modified-at", "D:20261011000000Z"])
+        .output()
+        .unwrap();
+    assert!(
+        parse.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parse.stderr)
+    );
+    let entries = fs::read_to_string(&parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    let note = entries
+        .iter()
+        .find(|entry| entry["contents"] == "Thread root")
+        .expect("the preserved note is read");
+    assert_eq!(note["kind"], "note");
+    let replies = note["replies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|reply| reply["contents"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(replies, ["Thread reply"]);
+    for file in [
+        source,
+        split_instructions,
+        split,
+        raster,
+        assembled,
+        instructions,
+        output,
+        parsed,
+    ] {
+        let _ = remove_file(file);
+    }
+}

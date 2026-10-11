@@ -146,6 +146,131 @@ fn mint_uuid(seed: &str, collision: u64) -> String {
     )
 }
 
+/// The annotation keys that name another thread member.
+const THREAD_MEMBER_KEYS: [&[u8]; 3] = [b"IRT", b"Parent", b"Popup"];
+
+/// The passes that finish a staged overlay: the thread links of assembled
+/// preserved pages, then the destinations of their retained links.
+pub(crate) fn finish_assembled_pages(
+    output_path: &Path,
+    instructions: &TextLayerFile,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    repair_assembled_threads(output_path, instructions, qpdf_path)?;
+    rebind_retained_destinations(output_path, instructions, qpdf_path)
+}
+
+/// Repairs the thread links of a preserved page after the qpdf interleave.
+/// qpdf copies an annotation that a page lists again when a reply or popup
+/// names it, so a listed reply can point at an unlisted twin of its root. The
+/// listed reference is pointed at the one listed annotation with the same
+/// content. Only a link-only page's annotations are repaired, since that page
+/// is the preserved source and its annotations come from the split output.
+pub(crate) fn repair_assembled_threads(
+    output_path: &Path,
+    instructions: &TextLayerFile,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    if !instructions
+        .pages
+        .iter()
+        .any(|instruction| instruction.link_only)
+    {
+        return Ok(());
+    }
+    let mut incremental = load_incremental_pdf_path(output_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
+    let output = incremental.get_prev_documents();
+    let resolver = PageTreeResolver::new(output)?;
+    let mut repaired = Vec::new();
+    for instruction in instructions
+        .pages
+        .iter()
+        .filter(|instruction| instruction.link_only)
+    {
+        let page = resolver.page_id(
+            output,
+            overlay_page_number(instruction.output_page_index, "outputPageIndex")?,
+        )?;
+        let Ok(annots) = output.get_dictionary(page)?.get(b"Annots") else {
+            continue;
+        };
+        let listed = output
+            .dereference(annots)?
+            .1
+            .as_array()?
+            .iter()
+            .filter_map(|entry| entry.as_reference().ok())
+            .collect::<Vec<_>>();
+        for &annotation_id in &listed {
+            let Ok(mut annotation) = output.get_dictionary(annotation_id).cloned() else {
+                continue;
+            };
+            let mut changed = false;
+            for key in THREAD_MEMBER_KEYS {
+                let Some(target) = annotation_related_ref(&annotation, key) else {
+                    continue;
+                };
+                if let Some(twin) = listed_twin(output, &listed, target) {
+                    annotation.set(key, Object::Reference(twin));
+                    changed = true;
+                }
+            }
+            if changed {
+                repaired.push((annotation_id, annotation));
+            }
+        }
+    }
+    if repaired.is_empty() {
+        return Ok(());
+    }
+    for (annotation_id, annotation) in repaired {
+        incremental
+            .new_document
+            .set_object(annotation_id, Object::Dictionary(annotation));
+    }
+    incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    let revision_bytes = build_incremental_revision(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    write_incremental_revision(
+        output_path,
+        &incremental,
+        &revision_bytes,
+        &expected_object_ids,
+    )
+}
+
+/// The listed annotation that is the same annotation as `target`, when `target`
+/// is not listed itself and exactly one listed annotation has its content. Its
+/// content is everything but references, which qpdf copies unchanged.
+fn listed_twin(output: &Document, listed: &[ObjectId], target: ObjectId) -> Option<ObjectId> {
+    if listed.contains(&target) {
+        return None;
+    }
+    let content = annotation_content(output.get_dictionary(target).ok()?);
+    let mut twins = listed.iter().copied().filter(|&id| {
+        output
+            .get_dictionary(id)
+            .is_ok_and(|annotation| annotation_content(annotation) == content)
+    });
+    let twin = twins.next()?;
+    twins.next().is_none().then_some(twin)
+}
+
+fn annotation_content(annotation: &Dictionary) -> Dictionary {
+    annotation
+        .iter()
+        .filter(|(key, value)| {
+            !matches!(value, Object::Reference(_)) && !THREAD_MEMBER_KEYS.contains(&key.as_slice())
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

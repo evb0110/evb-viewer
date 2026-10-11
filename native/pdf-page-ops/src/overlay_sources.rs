@@ -741,7 +741,7 @@ pub(crate) fn write_overlay_text_layers_path(
 ) -> Result<()> {
     with_staged_incremental_output(input_path, output_path, |staged| {
         write_overlay_text_layer_copies(input_path, source_path, staged, instructions, qpdf_path)?;
-        rebind_retained_destinations(staged, instructions, qpdf_path)
+        finish_assembled_pages(staged, instructions, qpdf_path)
     })
 }
 
