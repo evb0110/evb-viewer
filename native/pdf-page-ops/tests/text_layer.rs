@@ -308,6 +308,96 @@ fn write_sparse_malformed_source(path: &Path) -> u64 {
     write_sparse_source(path, 65, None, Some(64))
 }
 
+/// Page 0 links to each of `target_count` pages, and every target carries
+/// `target_bytes` of content. A subset that keeps all the links exceeds the byte
+/// budget, so only the link cap lets the conversion succeed.
+fn write_sparse_fanout_source(path: &Path, target_count: usize, target_bytes: u64) -> u64 {
+    let first_page_object = 3;
+    let last_page_object = first_page_object + target_count;
+    let empty_content_object = last_page_object + 1;
+    let font_object = empty_content_object + 1;
+    let first_target_content_object = font_object + 1;
+    let last_object = first_target_content_object + target_count - 1;
+    let mut offsets = vec![0_u64; last_object + 1];
+    let mut file = sparse_file::create_sparse_file(path);
+    file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
+    write_raw_object(&mut file, &mut offsets, 1, b"<</Type/Catalog/Pages 2 0 R>>");
+    let kids = (first_page_object..=last_page_object)
+        .map(|object| format!("{object} 0 R"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        2,
+        format!("<</Type/Pages/Kids[{kids}]/Count {}>>", target_count + 1).as_bytes(),
+    );
+    let links = (1..=target_count)
+        .map(|to| {
+            format!(
+                "<</Type/Annot/Subtype/Link/Rect[2 2 40 20]/Border[0 0 0]/Dest[{} 0 R/XYZ 0 120 0]>>",
+                first_page_object + to
+            )
+        })
+        .collect::<String>();
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        first_page_object,
+        format!(
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Resources<< /Font<< /F1 {font_object} 0 R>> >>/Contents {empty_content_object} 0 R/Annots[{links}]>>"
+        )
+        .as_bytes(),
+    );
+    for to in 1..=target_count {
+        let content = first_target_content_object + to - 1;
+        write_raw_object(
+            &mut file,
+            &mut offsets,
+            first_page_object + to,
+            format!("<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Contents {content} 0 R>>")
+                .as_bytes(),
+        );
+    }
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        empty_content_object,
+        b"<</Length 0>>\nstream\n\nendstream",
+    );
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        font_object,
+        b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+    );
+    for content in first_target_content_object..=last_object {
+        // DCTDecode stops qpdf from recompressing the zero-filled data, so a subset keeps its size.
+        *offsets.get_mut(content).unwrap() = file.stream_position().unwrap();
+        write!(
+            file,
+            "{content} 0 obj\n<</Length {target_bytes}/Filter/DCTDecode>>\nstream\n"
+        )
+        .unwrap();
+        file.seek(SeekFrom::Current(i64::try_from(target_bytes).unwrap()))
+            .unwrap();
+        file.write_all(b"\nendstream\nendobj\n").unwrap();
+    }
+    let xref_offset = file.stream_position().unwrap();
+    let xref_size = last_object + 1;
+    write!(file, "xref\n0 {xref_size}\n0000000000 65535 f \n").unwrap();
+    for offset in offsets.iter().skip(1) {
+        writeln!(file, "{offset:010} 00000 n ").unwrap();
+    }
+    write!(
+        file,
+        "trailer\n<</Size {xref_size}/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n"
+    )
+    .unwrap();
+    file.sync_all().unwrap();
+    fs::metadata(path).unwrap().len()
+}
+
 fn atomic_output_siblings(output: &Path) -> Vec<std::path::PathBuf> {
     let prefix = format!(
         ".{}.evb-tmp-",
@@ -1308,6 +1398,70 @@ fn assert_link_survives_source_subsets(kind: LinkTarget) {
             .count(),
         1
     );
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn overlay_text_caps_the_link_targets_one_source_subset_adds() {
+    // One subset adds at most MAX_SOURCE_PAGE_BATCH_PAGES (64) link targets.
+    const LINK_TARGET_COUNT: usize = 80;
+    const LINK_TARGET_BYTES: u64 = 7 * 1024 * 1024;
+    const CAPPED_LINK_COUNT: usize = 64;
+    let source = path("large-source-link-fanout", "pdf");
+    let input = path("large-source-link-fanout-input", "pdf");
+    let output = path("large-source-link-fanout-output", "pdf");
+    let instructions = path("large-source-link-fanout-instructions", "json");
+    let source_len = write_sparse_fanout_source(&source, LINK_TARGET_COUNT, LINK_TARGET_BYTES);
+    assert!(source_len > 512 * 1024 * 1024);
+    save_empty_pages(&input, LINK_TARGET_COUNT + 1);
+    let mut page_instructions =
+        vec![r#"{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}"#.to_owned()];
+    page_instructions.extend((1..=LINK_TARGET_COUNT).map(|page_index| {
+        format!(
+            r#"{{"sourcePageIndex":{page_index},"outputPageIndex":{page_index},"matrix":[1,0,0,1,0,0],"linkOnly":true}}"#
+        )
+    }));
+    write(
+        &instructions,
+        format!(r#"{{"pages":[{}]}}"#, page_instructions.join(",")),
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "overlay-text failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let overlaid = Document::load(&output).unwrap();
+    let link_page_id = *overlaid.get_pages().get(&1).unwrap();
+    let annotations = overlaid
+        .get_dictionary(link_page_id)
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone();
+    // Every link keeps its annotation; only the links past the cap lose their destination.
+    assert_eq!(annotations.len(), LINK_TARGET_COUNT);
+    let destinations = annotations
+        .iter()
+        .filter(|annotation| {
+            overlaid
+                .dereference(annotation)
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap()
+                .get(b"Dest")
+                .is_ok()
+        })
+        .count();
+    assert_eq!(destinations, CAPPED_LINK_COUNT);
 
     for path in [source, input, output, instructions] {
         let _ = remove_file(path);
