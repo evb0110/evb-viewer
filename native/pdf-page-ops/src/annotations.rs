@@ -2281,16 +2281,10 @@ pub(crate) fn set_annotation_dict_contents(dict: &mut Dictionary, text: &str, mo
     set_annotation_modified_at(dict, modified_at);
 }
 
+/// Decodes any PDF text string: UTF-16BE or UTF-8 by BOM, otherwise
+/// PDFDocEncoding. Callers share this so one string decodes the same everywhere.
 pub(crate) fn pdf_string_to_text(object: &Object) -> Option<String> {
-    let bytes = object.as_str().ok()?;
-    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-        let mut units = Vec::with_capacity((bytes.len() - 2) / 2);
-        for chunk in bytes[2..].chunks_exact(2) {
-            units.push(u16::from_be_bytes([chunk[0], chunk[1]]));
-        }
-        return String::from_utf16(&units).ok();
-    }
-    Some(String::from_utf8_lossy(bytes).into_owned())
+    lopdf::decode_text_string(object).ok()
 }
 
 pub(crate) fn encode_pdf_text_string(text: &str) -> Vec<u8> {
