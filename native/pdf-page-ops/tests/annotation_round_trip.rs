@@ -2099,9 +2099,32 @@ fn print_freetext_courier_wraps_all_sixty_glyphs_in_six_lines() {
         })
         .collect();
     assert_eq!(glyph_counts, vec![11, 11, 11, 11, 11, 5]);
-    // Poppler's AP-less Courier and the independent 600-unit plain-content
-    // reference both retain all 60 glyphs, with 1648 nonwhite pixels at 72 dpi.
-    assert_eq!(poppler_ink_pixels(&printed), 1648);
+    // Render an independent, ordinary page-content Courier reference with
+    // this run's reader. Host font substitutions must not change the verdict.
+    let reference = temp.root.join("courier-reference.pdf");
+    let mut document = Document::load(&temp.pdf).unwrap();
+    let mut content = String::from("BT /Helv 18 Tf 0 g\n");
+    for (index, count) in [11, 11, 11, 11, 11, 5].iter().enumerate() {
+        content.push_str(&format!(
+            "1 0 0 1 100 {} Tm ({}) Tj\n",
+            682.0 - index as f64 * 21.6,
+            "i".repeat(*count)
+        ));
+    }
+    content.push_str("ET\n");
+    let content = document.add_object(lopdf::Stream::new(
+        lopdf::dictionary! {},
+        content.into_bytes(),
+    ));
+    let page = document.get_pages()[&1];
+    let page = document.get_dictionary_mut(page).unwrap();
+    page.remove(b"Annots");
+    page.set("Contents", content);
+    document.save(&reference).unwrap();
+    assert!(
+        poppler_pixels(&printed) == poppler_pixels(&reference),
+        "all Courier pixels match the same-reader reference"
+    );
 }
 #[test]
 fn print_collapsed_lines_keep_geometric_endings() {
