@@ -1,8 +1,8 @@
 use crc32fast::Hasher;
 use evb_raster_io::{
-    decode_png, decode_png_composited_rgb, encode_png, encode_png_fast, read_png_dimensions,
-    read_png_metadata, read_png_passthrough, write_png_with_dpi, DecodeLimits, PassthroughLimits,
-    PixelBuffer, PngColorType, PngDensity, RasterError,
+    decode_png, decode_png_composited_rgb, decode_png_gray, encode_png, encode_png_fast,
+    read_png_dimensions, read_png_metadata, read_png_passthrough, write_png_with_dpi, DecodeLimits,
+    PassthroughLimits, PixelBuffer, PngColorType, PngDensity, RasterError,
 };
 use flate2::{write::ZlibEncoder, Compression};
 use std::io::Write;
@@ -329,6 +329,40 @@ fn composites_sixteen_bit_keys_at_full_sample_depth() {
             .unwrap()
             .data(),
         &[0x12, 0, 0, 0x12, 0, 0]
+    );
+}
+
+#[test]
+fn expanded_decode_paints_keyed_samples_white_on_every_gray_and_rgb_path() {
+    // Interlaced keyed RGB: the black pixel matches the key and must be white
+    // in the RGB plane and the gray plane, as the ordinary path already does.
+    let keyed = make_adam7_png(2, 1, &[0, 0, 0, 1, 2, 3], Some(&[0, 0, 0, 0, 0, 0]));
+    let decoded = decode_png(&keyed[..], DECODE).unwrap();
+    assert_eq!(decoded.rgb.data(), &[255, 255, 255, 1, 2, 3]);
+    assert_eq!(decoded.gray.data(), &[255, 2]);
+    assert_eq!(
+        decode_png_gray(&keyed[..], DECODE).unwrap().data(),
+        decoded.gray.data()
+    );
+
+    // 16-bit gray with a 16-bit key. 0x1234 matches in full and turns white;
+    // 0x12ff shares the high byte but must keep its gray value 0x12.
+    let samples = [0x12, 0x34, 0x12, 0xff];
+    let keyed = encode_variant(
+        2,
+        1,
+        png::ColorType::Grayscale,
+        png::BitDepth::Sixteen,
+        None,
+        Some(&[0x12, 0x34]),
+        &samples,
+    );
+    let decoded = decode_png(&keyed[..], DECODE).unwrap();
+    assert_eq!(decoded.gray.data(), &[255, 0x12]);
+    assert_eq!(decoded.rgb.data(), &[255, 255, 255, 0x12, 0x12, 0x12]);
+    assert_eq!(
+        decode_png_gray(&keyed[..], DECODE).unwrap().data(),
+        decoded.gray.data()
     );
 }
 

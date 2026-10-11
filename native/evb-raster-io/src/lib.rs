@@ -1,4 +1,7 @@
-use std::io::{self, Cursor, Read, Write};
+use std::{
+    borrow::Cow,
+    io::{self, Cursor, Read, Write},
+};
 
 use crc32fast::Hasher;
 use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
@@ -35,6 +38,15 @@ impl PngColorType {
             Self::Indexed => 1,
             Self::GrayAlpha8 => 2,
             Self::Rgba8 => 4,
+        }
+    }
+
+    /// The layout of a keyed source once its tRNS alpha is flattened away.
+    fn without_alpha(self) -> Self {
+        match self {
+            Self::GrayAlpha8 => Self::Gray8,
+            Self::Rgba8 => Self::Rgb8,
+            other => other,
         }
     }
 }
@@ -214,15 +226,9 @@ pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayI
         .read_info()
         .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?;
     let (output_color, _) = reader.output_color_type();
-    let color_type = match output_color {
-        png::ColorType::Grayscale => PngColorType::Gray8,
-        png::ColorType::Rgb => PngColorType::Rgb8,
-        png::ColorType::GrayscaleAlpha => PngColorType::GrayAlpha8,
-        png::ColorType::Rgba => PngColorType::Rgba8,
-        png::ColorType::Indexed => {
-            return Err(RasterError::invalid("PNG decoder returned indexed pixels"));
-        }
-    };
+    let expanded = png_color_type(output_color)?;
+    let keyed = parsed.transparency.is_some().then_some(expanded);
+    let color_type = keyed.map_or(expanded, PngColorType::without_alpha);
     let mut gray = GrayImage::new(header.width as usize, header.height as usize, 255);
     if header.interlace_method == 0 {
         let mut y = 0;
@@ -230,7 +236,7 @@ pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayI
             .next_row()
             .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?
         {
-            let gray_row = normalize_png_row_to_gray(row.data(), color_type);
+            let gray_row = normalize_png_row_to_gray(&keyed_row(row.data(), keyed), color_type);
             gray.row_mut(y).copy_from_slice(&gray_row);
             y += 1;
         }
@@ -239,7 +245,8 @@ pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayI
             .next_interlaced_row()
             .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?
         {
-            let gray_row = normalize_png_row_to_gray(interlaced_row.data(), color_type);
+            let gray_row =
+                normalize_png_row_to_gray(&keyed_row(interlaced_row.data(), keyed), color_type);
             if let png::InterlaceInfo::Adam7(info) = interlaced_row.interlace() {
                 png::expand_interlaced_row(
                     gray.data_mut(),
@@ -362,8 +369,13 @@ struct PngPixels {
 enum PngRows {
     /// Ordinary 8-bit noninterlaced data, inflated row by row on demand.
     Ordinary { idat: Vec<u8>, header: PngHeader },
-    /// Rows the png crate already expanded, `row_bytes` apart.
-    Expanded { pixels: Vec<u8>, row_bytes: usize },
+    /// Rows the png crate already expanded, `row_bytes` apart. `keyed` is the
+    /// expanded layout when tRNS added its alpha channel.
+    Expanded {
+        pixels: Vec<u8>,
+        row_bytes: usize,
+        keyed: Option<PngColorType>,
+    },
 }
 impl PngPixels {
     fn read<R: Read>(reader: R, limits: DecodeLimits) -> Result<Self, RasterError> {
@@ -403,23 +415,18 @@ impl PngPixels {
             .next_frame(&mut filtered)
             .map_err(|error| RasterError::invalid(format!("PNG decode failed: {error}")))?;
         filtered.truncate(output.buffer_size());
-        let color_type = match output.color_type {
-            png::ColorType::Grayscale => PngColorType::Gray8,
-            png::ColorType::Rgb => PngColorType::Rgb8,
-            png::ColorType::GrayscaleAlpha => PngColorType::GrayAlpha8,
-            png::ColorType::Rgba => PngColorType::Rgba8,
-            png::ColorType::Indexed => {
-                return Err(RasterError::invalid("PNG decoder returned indexed pixels"));
-            }
-        };
+        let expanded = png_color_type(output.color_type)?;
+        let keyed = parsed.transparency.is_some().then_some(expanded);
         Ok(Self {
             width: header.width as usize,
             height: header.height as usize,
-            color_type,
+            color_type: keyed.map_or(expanded, PngColorType::without_alpha),
             rows: PngRows::Expanded {
                 pixels: filtered,
                 row_bytes: output.line_size,
+                keyed,
             },
+            // Keyed samples are already white in the expanded rows.
             transparency: None,
         })
     }
@@ -427,14 +434,51 @@ impl PngPixels {
     fn for_each_row(self, mut row: impl FnMut(usize, &[u8])) -> Result<(), RasterError> {
         match self.rows {
             PngRows::Ordinary { idat, header } => for_each_ordinary_png_row(&idat, header, row),
-            PngRows::Expanded { pixels, row_bytes } => {
+            PngRows::Expanded {
+                pixels,
+                row_bytes,
+                keyed,
+            } => {
                 for y in 0..self.height {
-                    row(y, &pixels[y * row_bytes..(y + 1) * row_bytes]);
+                    let source = &pixels[y * row_bytes..(y + 1) * row_bytes];
+                    row(y, &keyed_row(source, keyed));
                 }
                 Ok(())
             }
         }
     }
+}
+
+fn png_color_type(color: png::ColorType) -> Result<PngColorType, RasterError> {
+    match color {
+        png::ColorType::Grayscale => Ok(PngColorType::Gray8),
+        png::ColorType::Rgb => Ok(PngColorType::Rgb8),
+        png::ColorType::GrayscaleAlpha => Ok(PngColorType::GrayAlpha8),
+        png::ColorType::Rgba => Ok(PngColorType::Rgba8),
+        png::ColorType::Indexed => Err(RasterError::invalid("PNG decoder returned indexed pixels")),
+    }
+}
+
+/// tRNS expansion gives a keyed source an alpha channel that is 0 exactly on
+/// its key matches, at full sample depth, so the alpha survives 16-bit
+/// stripping where the key itself would not. Composite that alpha onto white
+/// and return the row in the source's own channels; other rows pass through.
+fn keyed_row(source: &[u8], keyed: Option<PngColorType>) -> Cow<'_, [u8]> {
+    let Some(expanded) = keyed else {
+        return Cow::Borrowed(source);
+    };
+    let channels = expanded.channels();
+    Cow::Owned(
+        source
+            .chunks_exact(channels)
+            .flat_map(|pixel| {
+                let alpha = pixel[channels - 1];
+                pixel[..channels - 1]
+                    .iter()
+                    .map(move |&value| composite_channel(value, alpha))
+            })
+            .collect(),
+    )
 }
 fn write_png_row(
     gray_row: &mut [u8],
