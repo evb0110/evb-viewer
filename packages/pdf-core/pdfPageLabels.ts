@@ -1,10 +1,16 @@
 import { clamp } from 'es-toolkit/math';
-import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
+import {
+    admitPdfPageLabelStartNumber, PDF_PAGE_LABEL_STYLE_VALUES,
+} from '@contracts/pdfPageLabels';
+import {
+    getLabelForOffset, pageLabelMatchesText, pageLabelValuesMatch, formatPageLabelForDisplay,
+} from '@pdf-core/pdfPageLabelFormatting';
 import type {
     IPdfPageLabelRange,
     IPdfPageLabelSegment,
     TPdfPageLabelStyle,
 } from '@contracts/pdfPageLabels';
+export { formatPageLabelForDisplay } from '@pdf-core/pdfPageLabelFormatting';
 
 /** Maximum number of labels returned by one bounded window read. */
 export const PAGE_LABEL_MAX_WINDOW_PAGES = 128;
@@ -47,35 +53,9 @@ function toPositiveInt(value: unknown, fallback: number) {
     return parsed;
 }
 
-/**
- * Largest start number the alphabetic style admits: four letters, the length
- * a toolbar page indicator can show. Its labels grow by one letter per 26.
- */
-export const PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER = 26 * 4;
-
-/** Largest start number a Roman numeral can express in the classic form (MMMCMXCIX). */
-export const PAGE_LABEL_MAX_ROMAN_START_NUMBER = 3999;
-
-/** Largest start number the given style can format, for the admission boundary and its UI. */
-export function getPageLabelStartNumberMax(style: TDocumentPageLabelStyle): number {
-    if (style === 'A' || style === 'a') {
-        return PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER;
-    }
-    if (style === 'R' || style === 'r') {
-        return PAGE_LABEL_MAX_ROMAN_START_NUMBER;
-    }
-    return Number.MAX_SAFE_INTEGER;
-}
-
-function clampPageLabelStartNumber(style: TDocumentPageLabelStyle, startNumber: number) {
-    return clamp(startNumber, 1, getPageLabelStartNumberMax(style));
-}
-
-/** Longest label the formatter returns; a longer one is cut and ends in an ellipsis. */
-const PAGE_LABEL_MAX_FORMATTED_LENGTH = 64;
-function capFormattedLabel(text: string) {
-    return text.length > PAGE_LABEL_MAX_FORMATTED_LENGTH ? `${text.slice(0, PAGE_LABEL_MAX_FORMATTED_LENGTH)}…` : text;
-}
+export {
+    getPageLabelStartNumberMax, PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER, PAGE_LABEL_MAX_ROMAN_START_NUMBER,
+} from '@contracts/pdfPageLabels';
 
 function normalizeStyle(style: unknown): TDocumentPageLabelStyle {
     if (style === null) {
@@ -86,79 +66,8 @@ function normalizeStyle(style: unknown): TDocumentPageLabelStyle {
     }
     return 'D';
 }
-function toRoman(number: number, lowerCase = false) {
-    if (number < 1) {
-        return '';
-    }
-    // Thousands are counted, not looped: a start value near 2^53 would take billions of steps.
-    const thousands = Math.floor(number / 1000);
-    const numerals: Array<[number, string]> = [
-        [
-            900,
-            'CM',
-        ],
-        [
-            500,
-            'D',
-        ],
-        [
-            400,
-            'CD',
-        ],
-        [
-            100,
-            'C',
-        ],
-        [
-            90,
-            'XC',
-        ],
-        [
-            50,
-            'L',
-        ],
-        [
-            40,
-            'XL',
-        ],
-        [
-            10,
-            'X',
-        ],
-        [
-            9,
-            'IX',
-        ],
-        [
-            5,
-            'V',
-        ],
-        [
-            4,
-            'IV',
-        ],
-        [
-            1,
-            'I',
-        ],
-    ];
-
-    let value = number - thousands * 1000;
-    let result = 'M'.repeat(Math.min(thousands, PAGE_LABEL_MAX_FORMATTED_LENGTH + 1));
-    for (const [
-        decimal,
-        roman,
-    ] of numerals) {
-        while (value >= decimal) {
-            result += roman;
-            value -= decimal;
-        }
-    }
-    return lowerCase ? result.toLowerCase() : result;
-}
-
 function parseRoman(value: string) {
-    if (value.length > PAGE_LABEL_MAX_FORMATTED_LENGTH || !/^[ivxlcdm]+$/i.test(value)) {
+    if (!/^[ivxlcdm]+$/i.test(value)) {
         return null;
     }
 
@@ -184,19 +93,12 @@ function parseRoman(value: string) {
         return null;
     }
 
-    const canonical = toRoman(total, value === value.toLowerCase());
-    return canonical === value ? total : null;
-}
-
-function toAlphabetic(number: number, lowerCase = false) {
-    if (number < 1) {
-        return '';
-    }
-    const baseCode = lowerCase ? 0x61 : 0x41;
-    const letterIndex = (number - 1) % 26;
-    const repeatCount = Math.floor((number - 1) / 26) + 1;
-    const character = String.fromCharCode(baseCode + letterIndex);
-    return character.repeat(Math.min(repeatCount, PAGE_LABEL_MAX_FORMATTED_LENGTH + 1));
+    return pageLabelMatchesText({
+        startPage: 1,
+        style: value === value.toLowerCase() ? 'r' : 'R',
+        prefix: '',
+        startNumber: total,
+    }, 0, value) ? total : null;
 }
 
 function parseAlphabetic(value: string) {
@@ -210,31 +112,6 @@ function parseAlphabetic(value: string) {
     const offset = normalized.charCodeAt(0) - 0x61;
     const repeatCount = normalized.length;
     return ((repeatCount - 1) * 26) + offset + 1;
-}
-
-function formatLabelValue(style: TDocumentPageLabelStyle, number: number) {
-    switch (style) {
-        case 'D':
-            return String(number);
-        case 'R':
-            return toRoman(number, false);
-        case 'r':
-            return toRoman(number, true);
-        case 'A':
-            return toAlphabetic(number, false);
-        case 'a':
-            return toAlphabetic(number, true);
-        case null:
-            return '';
-    }
-}
-
-function getLabelForOffset(range: IDocumentPageLabelRange, offset: number) {
-    if (range.style === null) {
-        return capFormattedLabel(range.prefix);
-    }
-    const number = Math.max(1, range.startNumber + offset);
-    return capFormattedLabel(range.prefix + formatLabelValue(range.style, number));
 }
 
 function findRangeIndexForPage(
@@ -664,7 +541,7 @@ export function replacePageLabelRange(
         startPage: normalizedTarget.startPage,
         style: normalizeStyle(replacement.style),
         prefix: typeof replacement.prefix === 'string' ? replacement.prefix : '',
-        startNumber: clampPageLabelStartNumber(normalizeStyle(replacement.style), toPositiveInt(replacement.startNumber, 1)),
+        startNumber: admitPdfPageLabelStartNumber(normalizeStyle(replacement.style), toPositiveInt(replacement.startNumber, 1)),
     });
 
     if (normalizedTarget.endPage < normalizedTotalPages) {
@@ -734,9 +611,9 @@ export function applySparsePageLabelUpdates(
         if (page < 1 || page > totalPages) {
             continue;
         }
-        const currentModel = createPageLabelModel(totalPages, nextRanges);
+        const currentRange = getRangeForPage(page, nextRanges);
         const nextLabel = typeof update.label === 'string' ? update.label : '';
-        if (currentModel.labelAt(page) === nextLabel) {
+        if (pageLabelMatchesText(currentRange, page - currentRange.startPage, nextLabel)) {
             continue;
         }
         nextRanges = setPageLabelAt(totalPages, nextRanges, page, nextLabel);
@@ -763,8 +640,6 @@ export function countPageLabelDifferences(
 
     const before = normalizePageLabelRanges(beforeRanges, normalizedTotalPages);
     const after = normalizePageLabelRanges(afterRanges, normalizedTotalPages);
-    const beforeModel = createPageLabelModel(normalizedTotalPages, before);
-    const afterModel = createPageLabelModel(normalizedTotalPages, after);
     const boundaries = new Set<number>([
         1,
         normalizedTotalPages + 1,
@@ -790,17 +665,18 @@ export function countPageLabelDifferences(
             continue;
         }
 
+        const beforeRange = getRangeForPage(startPage, before);
+        const afterRange = getRangeForPage(startPage, after);
+        if (pageLabelFormulasMatch(beforeRange, afterRange)) {
+            continue;
+        }
         if (pageCount > EXACT_INTERVAL_SCAN_LIMIT) {
-            const beforeRange = getRangeForPage(startPage, before);
-            const afterRange = getRangeForPage(startPage, after);
-            if (!pageLabelFormulasMatch(beforeRange, afterRange)) {
-                changed += pageCount;
-            }
+            changed += pageCount;
             continue;
         }
 
         for (let page = startPage; page <= endPage; page += 1) {
-            if (beforeModel.labelAt(page) !== afterModel.labelAt(page)) {
+            if (!pageLabelValuesMatch(beforeRange, page - beforeRange.startPage, afterRange, page - afterRange.startPage)) {
                 changed += 1;
             }
         }
@@ -855,7 +731,7 @@ export function buildWholeDocumentPageLabelRanges(
         startPage: 1,
         style: options.style,
         prefix: options.prefix,
-        startNumber: clampPageLabelStartNumber(options.style, toPositiveInt(options.startNumber, 1)),
+        startNumber: admitPdfPageLabelStartNumber(options.style, toPositiveInt(options.startNumber, 1)),
     }], totalPages);
 }
 
@@ -891,8 +767,7 @@ export function derivePageLabelRangesFromLabels(
             let length = 1;
             while (pageIndex + length < totalPages) {
                 const actual = pageLabels[pageIndex + length] ?? '';
-                const expected = getLabelForOffset(candidate, length);
-                if (capFormattedLabel(actual) !== expected) {
+                if (!pageLabelMatchesText(candidate, length, actual)) {
                     break;
                 }
                 length += 1;
@@ -963,13 +838,82 @@ function findPageByLabelInModel(
         }
         const page = segment.startPage + number - segment.startNumber;
         if (page >= segment.startPage && page <= segment.endPage) {
-            const actual = model.labelAt(page);
-            if ((caseInsensitive ? actual?.toLowerCase() : actual) === candidate) {
+            if (pageLabelMatchesText(segment, page - segment.startPage, input, caseInsensitive)) {
                 return page;
             }
         }
     }
     return null;
+}
+
+/** Shortened text is a target only when exactly one physical page displays it. */
+function findPageByPresentedLabel(input: string, labels: Exclude<TDocumentPageLabelLookup, null>, folded = false): number | null {
+    const candidate = folded ? input.toLowerCase() : input;
+    let match: number | null = null;
+    const matches = (text: string) => (folded ? text.toLowerCase() : text) === candidate;
+    if (isPageLabelArray(labels)) {
+        for (let index = 0; index < labels.length; index += 1) {
+            if (matches(formatPageLabelForDisplay(labels[index] ?? ''))) {
+                if (match !== null) {
+                    return null;
+                }
+                match = index + 1;
+            }
+        }
+        return match;
+    }
+    for (const segment of labels.segments) {
+        function* candidates() {
+            if (segment.style === null) {
+                yield segment.startPage;
+                yield segment.startPage + 1;
+                return;
+            }
+            const suffix = input.slice(input.lastIndexOf('…') + 1);
+            const number = parseSegmentNumber(segment.style, folded ? suffix.toLowerCase() : suffix);
+            if (number !== null) {
+                yield segment.startPage + number - segment.startNumber;
+            }
+            if (!input.endsWith('…')) {
+                return;
+            }
+            if (segment.style === 'A' || segment.style === 'a') {
+                // Once the repeated letters fill the head, every later cycle has that same view.
+                for (let residue = 0; residue < 26; residue += 1) {
+                    const firstNumber = Math.max(26 * 32 + residue + 1,
+                        segment.startNumber + (residue - (segment.startNumber - 1) % 26 + 26) % 26);
+                    for (let step = 0; step <= 65; step += 1) {
+                        yield segment.startPage + firstNumber + step * 26 - segment.startNumber;
+                    }
+                }
+            } else if (segment.style === 'R' || segment.style === 'r') {
+                // Roman remainder repeats every thousand; the head stabilizes within 65 thousands.
+                for (let remainder = 0; remainder < 1000; remainder += 1) {
+                    const suffixLength = remainder === 0 ? 0
+                        : getLabelForOffset({
+                            ...segment,
+                            prefix: '',
+                            startNumber: remainder,
+                        }, 0).length;
+                    const thousands = Math.max(0, 33 - suffixLength, Math.ceil((segment.startNumber - remainder) / 1000));
+                    for (let step = 0; step <= 65; step += 1) {
+                        yield segment.startPage + (thousands + step) * 1000 + remainder - segment.startNumber;
+                    }
+                }
+            }
+        }
+        for (const page of candidates()) {
+            if (page < segment.startPage || page > segment.endPage
+                || !matches(formatPageLabelForDisplay(segment, page - segment.startPage))) {
+                continue;
+            }
+            if (match !== null && match !== page) {
+                return null;
+            }
+            match = page;
+        }
+    }
+    return match;
 }
 
 export function findPageByPageLabelInput(input: string, totalPages: number, pageLabels: TDocumentPageLabelLookup) {
@@ -999,6 +943,14 @@ export function findPageByPageLabelInput(input: string, totalPages: number, page
         const caseInsensitiveModelPage = findPageByLabelInModel(trimmed, pageLabels, true);
         if (caseInsensitiveModelPage !== null) {
             return caseInsensitiveModelPage;
+        }
+    }
+
+    if (pageLabels && trimmed.includes('…')) {
+        const displayed = findPageByPresentedLabel(trimmed, pageLabels)
+            ?? findPageByPresentedLabel(trimmed, pageLabels, true);
+        if (displayed !== null) {
+            return displayed;
         }
     }
 

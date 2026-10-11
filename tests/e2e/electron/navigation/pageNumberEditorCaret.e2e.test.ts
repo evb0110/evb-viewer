@@ -32,6 +32,19 @@ describe('Electron E2E - page number editor caret', () => {
         await goToPageLabelViaToolbar(page, '14');
         await waitForToolbarCurrentPage(page, 4);
         expect(await page.$eval('.page_container[data-page="4"]', node => node.textContent ?? '')).toContain('Page 4 sample text');
+        const prefix = 'LongPrefix-'.repeat(6);
+        const longLabelFixture = await createPageLabelRangesFixturePdf(`page-label-long-entry-${Date.now()}.pdf`, 3, [{
+            startPage: 1,
+            style: 'D',
+            prefix,
+            startNumber: 1,
+        }]);
+        await openPdfInApp(page, longLabelFixture);
+        await waitForPdfLoaded(page);
+        await goToPageLabelViaToolbar(page, `${prefix}2`);
+        await waitForToolbarCurrentPage(page, 2);
+        expect(await page.$eval('.page_container[data-page="2"]', node => node.textContent ?? '')).toContain('Page 2 sample text');
+
     }, 90_000);
 
     it('goes to the lowercase label a typed value names, not the uppercase label of the same letters', async () => {
