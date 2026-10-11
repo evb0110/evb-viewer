@@ -21,7 +21,7 @@ import type {
     TPrintOrientation,
 } from '@contracts/shared';
 import {
-    createJobId,
+    requireJobId,
     createRequestId,
 } from '@contracts/shared';
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
@@ -386,10 +386,8 @@ async function prepareDjvuPrint(
         };
     }
     const requestId = createDriverPrintRequestId();
-    const jobId = createJobId('djvu-print');
-    let cancelRequested = false;
+    const jobId = requireJobId(`djvu-print-${requestId}`);
     const cancelPrint = () => {
-        cancelRequested = true;
         void getDjvuCapability().cancel(jobId).catch(() => undefined);
     };
     throwIfDriverPrintAborted(command.signal);
@@ -415,7 +413,7 @@ async function prepareDjvuPrint(
                 pdfStrategy: 'compact-djvu-aware',
                 ...(command.fileName ? { fileName: command.fileName } : {}),
             });
-            if (command.signal?.aborted || cancelRequested || result.canceled) {
+            if (command.signal?.aborted || result.canceled) {
                 throw createDriverPrintAbortError();
             }
             if (!result.success) {

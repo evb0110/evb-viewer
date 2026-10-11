@@ -17,6 +17,8 @@ import {
     requireDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
+import type {IDjvuPrintOptions} from '@contracts/electronApiDjvu';
+import type {TJobId} from '@contracts/shared';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfSource } from '@app/types/pdfUi';
 import {
@@ -35,7 +37,7 @@ import {
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const driverMocks = vi.hoisted(() => ({
-    cancel: vi.fn(async () => true),
+    cancel: vi.fn(async (_jobId: TJobId) => true),
     createDocumentProjectionSession: vi.fn((options: unknown) => options),
     ensurePdfProjection: vi.fn(async (
         _session: unknown,
@@ -46,7 +48,7 @@ const driverMocks = vi.hoisted(() => ({
         status: 'handoff',
         artifactPath: '/managed/print.pdf',
     })),
-    printDjvuPath: vi.fn(async () => ({
+    printDjvuPath: vi.fn(async (_path: TDocumentRef, _options: IDjvuPrintOptions) => ({
         success: true,
         canceled: false,
         jobId: 'djvu-print-job',
@@ -300,6 +302,59 @@ describe('WorkspaceDocumentDriver', () => {
         expect(driverMocks.getJobState).toHaveBeenCalledWith('djvu-print-job');
         expect(driverMocks.getJobState.mock.invocationCallOrder[0])
             .toBeLessThan(onNativePrintHandoffStart.mock.invocationCallOrder[0]!);
+    });
+
+    it('cancels the admitted native print job before its dialog handoff', async () => {
+        const admitted = Promise.withResolvers<undefined>();
+        const preparation = Promise.withResolvers<undefined>();
+        let nativeJobId: string | undefined;
+        let canceled = false;
+        const dialog = vi.fn();
+        driverMocks.printDjvuPath.mockImplementationOnce(async (_path, options) => {
+            const admittedJobId = `djvu-print-${options.requestId}`;
+            nativeJobId = admittedJobId;
+            admitted.resolve(undefined);
+            await preparation.promise;
+            if (!canceled) dialog();
+            return {
+                success: !canceled,
+                canceled,
+                jobId: admittedJobId,
+            };
+        });
+        driverMocks.cancel.mockImplementationOnce(async jobId => {
+            canceled = jobId === nativeJobId;
+            preparation.resolve(undefined);
+            return canceled;
+        });
+        const driver = useWorkspaceDocumentDriver({
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/managed/source.djvu')),
+            isDjvuMode: ref(true),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
+        }).activeDocumentDriver.value!;
+        const controller = new AbortController();
+        const result = driver.run({
+            kind: 'prepare-print',
+            request: {
+                orientation: 'portrait',
+                viewMode: 'single',
+            },
+            fileName: 'source.djvu',
+            sourceCapabilities: {
+                annotations: false,
+                directImageExport: true,
+                outline: false,
+                pageEdits: false,
+                search: false,
+                text: false,
+            },
+            signal: controller.signal,
+        }).catch(error => error as Error);
+        await admitted.promise;
+        controller.abort();
+        expect(await result).toMatchObject({name: 'AbortError'});
+        expect(dialog).not.toHaveBeenCalled();
     });
 
     it('does not invent an abort signal when DjVu print has no cancellation source', async () => {
