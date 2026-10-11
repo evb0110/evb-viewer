@@ -72,28 +72,38 @@ pub(crate) fn check_xref_chain<'a>(
     mut section_at: impl FnMut(usize, usize) -> Result<(std::borrow::Cow<'a, [u8]>, bool)>,
 ) -> Result<XrefChain> {
     let mut pending = Vec::with_capacity(MAX_PDF_XREF_REVISIONS);
-    let mut visited = HashSet::with_capacity(MAX_PDF_XREF_REVISIONS);
+    let mut sections = HashMap::with_capacity(MAX_PDF_XREF_REVISIONS);
     let mut spans = Vec::new();
     let mut chain = XrefChain {
         encrypted: false,
         size: None,
     };
-    pending.push(root);
+    pending.push((root, false));
 
-    while let Some(offset) = pending.pop() {
+    while let Some((offset, finished)) = pending.pop() {
+        if finished {
+            sections.insert(offset, true);
+            continue;
+        }
+        match sections.get(&offset) {
+            Some(true) => continue, // Shared ancestry already validated.
+            Some(false) => {
+                return Err(xref_error(
+                    "PDF cross-reference revision chain contains a cycle",
+                ))
+            }
+            None => {}
+        }
         if offset >= input_len {
             return Err(xref_error("PDF cross-reference offset is outside the file"));
         }
-        if visited.len() == MAX_PDF_XREF_REVISIONS && !visited.contains(&offset) {
+        if sections.len() == MAX_PDF_XREF_REVISIONS {
             return Err(limit_error(format!(
                 "PDF cross-reference chain exceeds the {MAX_PDF_XREF_REVISIONS}-revision admission ceiling"
             )));
         }
-        if !visited.insert(offset) {
-            return Err(xref_error(
-                "PDF cross-reference revision chain contains a repeated offset",
-            ));
-        }
+        sections.insert(offset, false);
+        pending.push((offset, true));
 
         let mut window_len = FIRST_XREF_SECTION_WINDOW_BYTES;
         let (dictionary, consumed) = loop {
@@ -130,12 +140,7 @@ pub(crate) fn check_xref_chain<'a>(
             if linked >= input_len {
                 return Err(xref_error("PDF cross-reference link is outside the file"));
             }
-            if pending.len() == MAX_PDF_XREF_REVISIONS {
-                return Err(limit_error(format!(
-                    "PDF cross-reference chain exceeds the {MAX_PDF_XREF_REVISIONS}-revision admission ceiling"
-                )));
-            }
-            pending.push(linked);
+            pending.push((linked, false));
         }
     }
     check_xref_spans(spans, input_len)?;

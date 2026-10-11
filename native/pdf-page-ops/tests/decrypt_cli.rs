@@ -445,3 +445,48 @@ fn decrypt_rejects_direct_xref_length_overrun_in_every_key_order() {
         let _ = remove_file(format!("{}.decrypt.json", output.display()));
     }
 }
+
+#[test]
+fn decrypt_opens_hybrid_xref_with_a_shared_predecessor() {
+    let input = path("hybrid-shared-prev", "pdf");
+    let output = path("hybrid-shared-prev-output", "pdf");
+    let mut bytes = plaintext_fixture();
+    let text = String::from_utf8_lossy(&bytes);
+    let previous = text
+        .rsplit_once("startxref\n")
+        .unwrap()
+        .1
+        .lines()
+        .next()
+        .unwrap()
+        .parse::<usize>()
+        .unwrap();
+    let root = Document::load_mem(&bytes)
+        .unwrap()
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap()
+        .0;
+    let stream = bytes.len();
+    bytes.extend(format!("5 0 obj << /Type /XRef /Size 6 /Index [5 1] /W [1 4 2] /Root {root} 0 R /Prev {previous} /Length 7 >>\nstream\n").as_bytes());
+    bytes.push(1);
+    bytes.extend((stream as u32).to_be_bytes());
+    bytes.extend(0_u16.to_be_bytes());
+    bytes.extend(b"\nendstream\nendobj\n");
+    let classic = bytes.len();
+    bytes.extend(format!("xref\n5 1\n{stream:010} 00000 n \ntrailer << /Size 6 /Root {root} 0 R /XRefStm {stream} /Prev {previous} >>\nstartxref\n{classic}\n%%EOF\n").as_bytes());
+    write(&input, &bytes).unwrap();
+    let result = run_decrypt(&input, &output, None);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(read(&input).unwrap(), bytes);
+    assert!(!output.exists());
+    let _ = remove_file(input);
+    let _ = remove_file(&output);
+    let _ = remove_file(format!("{}.decrypt.json", output.display()));
+}
