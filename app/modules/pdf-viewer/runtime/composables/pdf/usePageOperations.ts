@@ -12,6 +12,7 @@ import {
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {
+    IPageOpsMetadataSnapshot,
     IPageOpsMutationOptions,
     IPageOpsResult,
     TPageOpsPageSelection,
@@ -107,6 +108,25 @@ export type TPageOperationCancelState = 'idle' | 'canceling' | 'finishing';
 
 function didPageOperationSucceed(outcome: TPageOperationOutcome) {
     return outcome.status === 'succeeded';
+}
+
+export function buildPageMetadataSnapshot(source: {
+    pageLabels?: readonly string[] | null | undefined;
+    pageLabelRanges?: readonly IPdfPageLabelRange[] | undefined;
+    pageLabelsResolved?: boolean | undefined;
+    bookmarks?: readonly IPdfBookmarkEntry[] | undefined;
+    bookmarksResolved?: boolean | undefined;
+    untitledBookmarkLabel: string;
+}): IPageOpsMetadataSnapshot | undefined {
+    if (source.pageLabels === undefined && source.pageLabelRanges === undefined && source.bookmarks === undefined) {
+        return undefined;
+    }
+    return {
+        ...(source.pageLabelsResolved === false || source.pageLabels === undefined ? {} : {pageLabels: source.pageLabels ? [...source.pageLabels] : null}),
+        ...(source.pageLabelsResolved === false || source.pageLabelRanges === undefined ? {} : {pageLabelRanges: structuredClone(source.pageLabelRanges)}),
+        ...(source.bookmarksResolved === false || source.bookmarks === undefined ? {} : {bookmarks: structuredClone(source.bookmarks)}),
+        untitledBookmarkLabel: source.untitledBookmarkLabel,
+    };
 }
 
 export const usePageOperations = (deps: {
@@ -217,20 +237,14 @@ export const usePageOperations = (deps: {
 
     function capturePageMutationOptions(): IPageOpsMutationOptions | undefined {
         const token = documentRevisionToken?.value;
-        const metadataSnapshot = pageLabels || pageLabelRanges || bookmarkItems
-            ? {
-                ...(pageLabelsResolved?.value === false ? {} : pageLabels
-                    ? {pageLabels: pageLabels.value ? [...pageLabels.value] : null}
-                    : {}),
-                ...(pageLabelsResolved?.value === false ? {} : pageLabelRanges
-                    ? {pageLabelRanges: structuredClone(pageLabelRanges.value)}
-                    : {}),
-                ...(bookmarksResolved?.value === false ? {} : bookmarkItems
-                    ? {bookmarks: structuredClone(bookmarkItems.value)}
-                    : {}),
-                untitledBookmarkLabel: t('bookmarks.untitled', undefined),
-            }
-            : undefined;
+        const metadataSnapshot = buildPageMetadataSnapshot({
+            pageLabels: pageLabels?.value,
+            pageLabelRanges: pageLabelRanges?.value,
+            pageLabelsResolved: pageLabelsResolved?.value,
+            bookmarks: bookmarkItems?.value,
+            bookmarksResolved: bookmarksResolved?.value,
+            untitledBookmarkLabel: t('bookmarks.untitled', undefined),
+        });
         if (!token && !metadataSnapshot) {
             return undefined;
         }
