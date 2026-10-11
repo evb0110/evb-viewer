@@ -1,0 +1,35 @@
+app/assets/css/main.css
+  s_a9c00567311776::t_ecde571a0665c6 639-640
+app/components/document-viewer/DocumentPageSkeleton.vue
+  s_a9c00567311776::t_ecde571a0665c6 6-11,62-67,90,93-94,144-147,234-241
+app/modules/document-viewer/page-source-renderer/DocumentPageSourcePageVisual.vue
+  s_a9c00567311776::t_1ecf551a23bd34 14,63,77
+app/modules/pdf-viewer/components/PdfViewerPage.vue
+  s_a9c00567311776::t_ecde571a0665c6 30,77,93
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_a9c00567311776::t_4921ec805f24b6 3107-3118,3120-3122,3124-3155,3157,3159-3163
+  s_a9c00567311776::t_f5ad0da53441e3 1357-1365,1367,3119,3123,3156,3158
+  s_a9c00567311776::t_ae0c0a929a9613 1366
+app/modules/pdf-viewer/components/PdfViewerViewport.vue
+  s_a9c00567311776::t_ecde571a0665c6 37,58,214-218
+app/modules/document-viewer/runtime/documentOpenSurfaceReducer.ts
+  s_a9c00567311776::t_4cfbac543d28d6 42-43,471-474,481,665
+app/modules/document-viewer/page-source-renderer/DocumentPageSourceFeaturePack.vue
+  s_a9c00567311776::t_1ecf551a23bd34 52,84-91,96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "891909ece6773c16b9a8f49b9f28ed99e64a0d9d",
+  "prompts": {},
+  "sessions": {
+    "s_a9c00567311776": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8948f8e1-87f2-4488-ab51-15641b8b81f7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
