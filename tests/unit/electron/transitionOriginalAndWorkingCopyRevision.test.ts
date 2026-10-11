@@ -256,6 +256,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
     it.each([
         'in-place',
         'replacement',
+        'long-name',
     ])('retains the bytes displaced by a last-instant %s edit', async mutation => {
         const fs = await import('node:fs/promises');
         let originalPath = '';
@@ -285,7 +286,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             rename: renameWithEdit,
         }));
         try {
-            const fixture = await prepare('old-original', 'accepted-unsaved-work');
+            const fixture = await prepare('old-original', 'accepted-unsaved-work', mutation === 'long-name' ? `${'a'.repeat(220)}.pdf` : 'original.pdf');
             originalPath = fixture.originalPath;
             await writeFile(originalPath, original);
             await fs.utimes(originalPath, 1700000000, 1700000000);
@@ -309,7 +310,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             expect(result).toBeNull();
             expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
             expect(await readFile(originalPath, 'utf8')).toBe('new-committed-pdf');
-            const retained = (await readdir(tempRoot)).filter(name => name.endsWith('.bak.conflict'));
+            const retained = (await readdir(tempRoot)).filter(name => name.includes('.evb-transition-') && name.endsWith('.bak'));
             expect(retained).toHaveLength(1);
             expect((await readFile(join(tempRoot, retained[0]!))).equals(external)).toBe(true);
             const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');

@@ -1,6 +1,4 @@
-import {
-    rename, rm,
-} from 'node:fs/promises';
+import {rm} from 'node:fs/promises';
 import type {TDocumentRevisionChangeReason} from '@contracts/documentRevision';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {linkOriginalBackup} from '@electron/file-access/linkOriginalBackup';
@@ -86,11 +84,8 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         try {
                             await assertPathMatchesSaveWitnessSnapshot(originalBackupPath, original.preparedSnapshot!, {contentOnly: true});
                         } catch (error) {
-                            const backupPath = `${originalBackupPath}.conflict`;
-                            await rename(originalBackupPath, backupPath);
                             await recordWorkingCopyJournalOriginal(transitionJournal, {
                                 ...original,
-                                backupPath,
                                 state: 'conflicted',
                             });
                             throw error;
