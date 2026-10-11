@@ -6,10 +6,15 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     effectScope,
     nextTick,
     ref,
 } from 'vue';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { saveScanCleanupOutputAs } from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
+import { cast } from '@tests/helpers/cast';
 import type {
     IScanCleanupCapability,
     TScanCleanupJobState,
@@ -167,5 +172,42 @@ describe('scan-cleanup workspace reopen handoff', () => {
             lifecycle.dispose();
             scope.stop();
         }
+    });
+
+    it('saves the cleanup output from its own tab after another document becomes active', async () => {
+        const outputTab = {snapshot: ref({identity: {
+            documentRef: '/managed/book — cleaned.pdf',
+            workingCopyPath: '/managed/book — cleaned.pdf',
+            originalPath: null,
+        }})};
+        const activeTab = {snapshot: ref({identity: {
+            documentRef: '/source/other.pdf',
+            workingCopyPath: '/source/other.pdf',
+            originalPath: '/source/other.pdf',
+        }})};
+        const sessions = cast<Record<string, IWorkspaceDocumentController>>({
+            'tab-output': outputTab,
+            'tab-other': activeTab,
+        });
+        const activeTabId = ref('tab-other');
+        const saveAsByTab = {
+            'tab-output': vi.fn(async () => true),
+            'tab-other': vi.fn(async () => true),
+        };
+        const activeWorkspace = computed(() => cast<IWorkspaceExpose>({handleSaveAs: saveAsByTab[activeTabId.value as keyof typeof saveAsByTab]}));
+        const activateTab = vi.fn((tabId: string) => {
+            activeTabId.value = tabId;
+        });
+
+        await expect(saveScanCleanupOutputAs(
+            '/managed/book — cleaned.pdf',
+            activeWorkspace,
+            computed(() => sessions),
+            activateTab,
+        )).resolves.toBe(true);
+
+        expect(activateTab).toHaveBeenCalledWith('tab-output');
+        expect(saveAsByTab['tab-output']).toHaveBeenCalledOnce();
+        expect(saveAsByTab['tab-other']).not.toHaveBeenCalled();
     });
 });
