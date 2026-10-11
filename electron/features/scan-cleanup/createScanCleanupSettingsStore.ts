@@ -18,6 +18,7 @@ import {
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS,
     SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES,
     SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
+    type IScanCleanupGlobalPreferences,
     type IScanCleanupDocumentOverrideEntry,
     type IScanCleanupLegacyStorageExport,
     type IScanCleanupSettingsFile,
@@ -55,6 +56,7 @@ interface IScanCleanupSettingsStoreOptions {
     filePath: string;
     logger?: Pick<ILogger, 'warn'>;
     now?: () => number;
+    onSettingsChanged?: (settings: IScanCleanupGlobalPreferences) => void;
     fileSystem?: Partial<IScanCleanupSettingsStoreFileSystem>;
     replace?: (sourcePath: string, targetPath: string) => Promise<void>;
 }
@@ -579,7 +581,11 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             }
             pruneDocumentOverrides(state, now());
             await writeState(state);
-            return cloneSettingsResult(state, loaded.repaired);
+            const result = cloneSettingsResult(state, loaded.repaired);
+            if (request.settings !== undefined || request.settingsPatch !== undefined) {
+                options.onSettingsChanged?.(result.settings);
+            }
+            return result;
         });
     }
 

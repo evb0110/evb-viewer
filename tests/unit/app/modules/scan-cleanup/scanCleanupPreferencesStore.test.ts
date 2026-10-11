@@ -52,6 +52,11 @@ const capability = vi.hoisted(() => ({value: {
     onSettingsChanged: vi.fn(),
 }}));
 const temporaryDirectories: string[] = [];
+const settingsSubscribers = new Set<(settings: IScanCleanupGlobalPreferences) => void>();
+
+function broadcastSettings(settings: IScanCleanupGlobalPreferences) {
+    for (const subscriber of settingsSubscribers) subscriber(settings);
+}
 
 async function createDurableSettingsStore() {
     await mkdir(join(process.cwd(), '.devkit'), {recursive: true});
@@ -60,30 +65,19 @@ async function createDurableSettingsStore() {
     const filePath = join(directory, 'scan-cleanup-settings.json');
     return {
         filePath,
-        store: createScanCleanupSettingsStore({filePath}),
+        store: createScanCleanupSettingsStore({
+            filePath,
+            onSettingsChanged: broadcastSettings,
+        }),
     };
 }
 
 // Stands in for the main process: a committed global write reaches every
 // renderer subscriber, the writer's own included.
 function connectMainProcessSettings(store: ReturnType<typeof createScanCleanupSettingsStore>) {
-    const subscribers = new Set<(settings: IScanCleanupGlobalPreferences) => void>();
     capability.value.getSettings.mockImplementation(store.get);
-    capability.value.onSettingsChanged.mockImplementation((subscriber: (settings: IScanCleanupGlobalPreferences) => void) => {
-        subscribers.add(subscriber);
-        return () => {
-            subscribers.delete(subscriber);
-        };
-    });
-    capability.value.updateSettings.mockImplementation(async request => {
-        const committed = await store.update(request);
-        if (request.settingsPatch !== undefined) {
-            for (const subscriber of subscribers) {
-                subscriber(committed.settings);
-            }
-        }
-        return committed;
-    });
+    capability.value.updateSettings.mockImplementation(store.update);
+
 }
 
 vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => true}));
@@ -95,8 +89,17 @@ describe('scan cleanup renderer preference store', () => {
         localStorage.clear();
         vi.clearAllMocks();
         capability.value.getSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
-        capability.value.updateSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
-        capability.value.onSettingsChanged.mockReturnValue(() => undefined);
+        capability.value.updateSettings.mockImplementation(async request => {
+            const result = createDefaultScanCleanupSettingsFile();
+            Object.assign(result.settings, request.settingsPatch);
+            if (request.settingsPatch !== undefined) broadcastSettings(result.settings);
+            return result;
+        });
+        settingsSubscribers.clear();
+        capability.value.onSettingsChanged.mockImplementation((subscriber: (settings: IScanCleanupGlobalPreferences) => void) => {
+            settingsSubscribers.add(subscriber);
+            return () => { settingsSubscribers.delete(subscriber); };
+        });
     });
 
     afterEach(async () => {
@@ -131,8 +134,7 @@ describe('scan cleanup renderer preference store', () => {
         const {
             filePath, store,
         } = await createDurableSettingsStore();
-        capability.value.getSettings.mockImplementation(store.get);
-        capability.value.updateSettings.mockImplementation(store.update);
+        connectMainProcessSettings(store);
 
         const firstPreferences = firstStoreModule.getScanCleanupPreferencesStore();
         await firstStoreModule.whenScanCleanupPreferencesReady();
@@ -293,6 +295,91 @@ describe('scan cleanup renderer preference store', () => {
         expect(getScanCleanupPreferencesStore().readingOrder).toBe('ltr');
         await whenScanCleanupPreferencesReady();
         expect(getScanCleanupPreferencesStore().readingOrder).toBe('ltr');
+    });
+
+    it('keeps a newer broadcast when an older hydration reply arrives', async () => {
+        vi.resetModules();
+        const first = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        const {
+            store, filePath,
+        } = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const firstPreferences = first.getScanCleanupPreferencesStore();
+        await first.whenScanCleanupPreferencesReady();
+        const older = await store.get();
+        let releaseRead!: () => void;
+        const gate = new Promise<void>(resolve => { releaseRead = resolve; });
+        capability.value.getSettings.mockImplementationOnce(async () => {
+            await gate;
+            return older;
+        });
+        vi.resetModules();
+        const second = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        const secondPreferences = second.getScanCleanupPreferencesStore();
+        try {
+            firstPreferences.readingOrder = 'rtl';
+            await nextTick();
+            await first.flushScanCleanupPreferencesStore();
+            expect(secondPreferences.readingOrder).toBe('rtl');
+            releaseRead();
+            await second.whenScanCleanupPreferencesReady();
+
+            expect(secondPreferences.readingOrder).toBe('rtl');
+            expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('rtl');
+        } finally {
+            releaseRead();
+            await second.whenScanCleanupPreferencesReady();
+            first.resetScanCleanupPreferencesStore();
+            second.resetScanCleanupPreferencesStore();
+        }
+    });
+
+    it('keeps a later window commit when an older writer reply arrives', async () => {
+        vi.resetModules();
+        const first = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        const {
+            store, filePath,
+        } = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const firstPreferences = first.getScanCleanupPreferencesStore();
+        await first.whenScanCleanupPreferencesReady();
+        vi.resetModules();
+        const second = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        const secondPreferences = second.getScanCleanupPreferencesStore();
+        await second.whenScanCleanupPreferencesReady();
+        const writeSettings = capability.value.updateSettings.getMockImplementation()!;
+        let releaseReply!: () => void;
+        let commitStarted!: () => void;
+        const committed = new Promise<void>(resolve => { commitStarted = resolve; });
+        const gate = new Promise<void>(resolve => { releaseReply = resolve; });
+        capability.value.updateSettings.mockImplementationOnce(async request => {
+            const result = await writeSettings(request);
+            commitStarted();
+            await gate;
+            return result;
+        });
+        firstPreferences.readingOrder = 'rtl';
+        await nextTick();
+        const flush = first.flushScanCleanupPreferencesStore();
+        try {
+            await committed;
+            await nextTick();
+            secondPreferences.readingOrder = 'ltr';
+            await nextTick();
+            await second.flushScanCleanupPreferencesStore();
+            releaseReply();
+            await flush;
+            await nextTick();
+
+            expect(firstPreferences.readingOrder).toBe('ltr');
+            expect(secondPreferences.readingOrder).toBe('ltr');
+            expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('ltr');
+        } finally {
+            releaseReply();
+            await flush;
+            first.resetScanCleanupPreferencesStore();
+            second.resetScanCleanupPreferencesStore();
+        }
     });
 
     it('warns when a desktop document patch has no authoritative source hash', async () => {
@@ -1139,7 +1226,10 @@ describe('scan cleanup renderer preference store', () => {
         const durable = createDefaultScanCleanupSettingsFile();
         capability.value.getSettings.mockImplementation(async () => structuredClone(durable));
         capability.value.updateSettings.mockImplementation(async (request) => {
-            if ('settingsPatch' in request) Object.assign(durable.settings, request.settingsPatch);
+            if ('settingsPatch' in request) {
+                Object.assign(durable.settings, request.settingsPatch);
+                broadcastSettings(durable.settings);
+            }
             return structuredClone(durable);
         });
         getScanCleanupPreferencesStore();
@@ -1176,6 +1266,7 @@ describe('scan cleanup renderer preference store', () => {
                     await firstWrite;
                 }
                 Object.assign(durable.settings, request.settingsPatch);
+                broadcastSettings(durable.settings);
             }
             return structuredClone(durable);
         });
@@ -1209,6 +1300,7 @@ describe('scan cleanup renderer preference store', () => {
         capability.value.updateSettings.mockImplementation(async request => {
             if ('settingsPatch' in request) {
                 Object.assign(durable.settings, request.settingsPatch);
+                broadcastSettings(durable.settings);
             }
             return structuredClone(durable);
         });
@@ -1290,9 +1382,7 @@ describe('scan cleanup renderer preference store', () => {
         vi.useFakeTimers();
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
         const failure = new Error('quota exceeded');
-        capability.value.updateSettings
-            .mockRejectedValueOnce(failure)
-            .mockResolvedValueOnce(createDefaultScanCleanupSettingsFile());
+        capability.value.updateSettings.mockRejectedValueOnce(failure);
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
         const preferences = getScanCleanupPreferencesStore();
@@ -1308,10 +1398,7 @@ describe('scan cleanup renderer preference store', () => {
     });
 
     it('explicitly retries a settled global failure with a fresh write promise', async () => {
-        const durable = createDefaultScanCleanupSettingsFile();
-        capability.value.updateSettings
-            .mockRejectedValueOnce(new Error('temporary failure'))
-            .mockResolvedValueOnce(durable);
+        capability.value.updateSettings.mockRejectedValueOnce(new Error('temporary failure'));
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
         const preferences = getScanCleanupPreferencesStore();

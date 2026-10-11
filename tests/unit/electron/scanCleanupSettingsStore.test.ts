@@ -2,6 +2,7 @@ import {
     mkdtemp,
     readFile,
     readdir,
+    rename,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -70,6 +71,49 @@ describe('file-backed scan-cleanup settings store', () => {
             readingOrder: 'rtl',
             firstRunGuidanceDismissed: true,
         });
+    });
+
+    it('publishes durable global commits in owner order while replies are delayed', async () => {
+        const filePath = await createStoreFile();
+        await writeFile(filePath, JSON.stringify(createDefaultScanCleanupSettingsFile()), 'utf8');
+        const published: string[] = [];
+        let replacementStarted!: () => void;
+        let releaseReplacement!: () => void;
+        let releaseReply!: () => void;
+        const started = new Promise<void>(resolve => { replacementStarted = resolve; });
+        const replacement = new Promise<void>(resolve => { releaseReplacement = resolve; });
+        const reply = new Promise<void>(resolve => { releaseReply = resolve; });
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            onSettingsChanged: settings => { published.push(settings.readingOrder); },
+            replace: async (source, target) => {
+                replacementStarted();
+                await replacement;
+                await rename(source, target);
+            },
+        });
+        const olderReply = store.update({settingsPatch: {readingOrder: 'rtl'}}).then(async result => {
+            await reply;
+            return result;
+        });
+        await started;
+        const newerReply = store.update({settingsPatch: {readingOrder: 'ltr'}});
+        const latestRead = store.get();
+        expect(published).toEqual([]);
+        releaseReplacement();
+        const newer = await newerReply;
+        const latest = await latestRead;
+        releaseReply();
+        const older = await olderReply;
+
+        expect(published).toEqual([
+            'rtl',
+            'ltr',
+        ]);
+        expect(older.settings.readingOrder).toBe('rtl');
+        expect(newer.settings.readingOrder).toBe('ltr');
+        expect(latest.settings.readingOrder).toBe('ltr');
+        expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('ltr');
     });
 
     it('quarantines malformed JSON, preserves its bytes, and atomically writes defaults', async () => {

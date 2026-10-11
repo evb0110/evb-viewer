@@ -26,7 +26,10 @@ import {sweepStaleScanCleanupScratchDirs} from '@evb/scan-cleanup/core/scratchCl
 
 const previewService = scanCleanupPreviewLifecycle(defaultDependencies);
 const service = createScanCleanupService();
-const settingsStore = createScanCleanupSettingsStore({filePath: join(app.getPath('userData'), SCAN_CLEANUP_SETTINGS_FILE_NAME)});
+const settingsStore = createScanCleanupSettingsStore({
+    filePath: join(app.getPath('userData'), SCAN_CLEANUP_SETTINGS_FILE_NAME),
+    onSettingsChanged: broadcastGlobalPreferences,
+});
 const logger = createLogger('scan-cleanup-scratch');
 const settingsLogger = createLogger('scan-cleanup-settings');
 
@@ -77,13 +80,7 @@ const featureBindings = {
     // the store instead of adding a renderer-id namespace with no isolation
     // boundary behind it.
     getSettings: (_context, request) => settingsStore.get(request),
-    updateSettings: async (_context, request) => {
-        const result = await settingsStore.update(request);
-        if (request.settings !== undefined || request.settingsPatch !== undefined) {
-            broadcastGlobalPreferences(result.settings);
-        }
-        return result;
-    },
+    updateSettings: (_context, request) => settingsStore.update(request),
     getPendingCompletedOutputs: async context => [...await service.getPendingCompletedOutputs(context.sender)],
     acknowledgeCompletedOutputs: outputPaths => service.acknowledgeCompletedOutputs(outputPaths),
 } satisfies TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;

@@ -70,7 +70,7 @@ let acknowledgedPreferences: IScanCleanupGlobalPreferences | null = null;
 let observedPreferences: IScanCleanupGlobalPreferences | null = null;
 let unsubscribeCommittedGlobalPreferences: (() => void) | null = null;
 
-const pendingGlobalFields = new Map<keyof IScanCleanupGlobalPreferences, {value: unknown;}>();
+const pendingGlobalFields = new Map<keyof IScanCleanupGlobalPreferences, unknown>();
 interface IPendingDocumentUpdate {
     request: IScanCleanupSettingsUpdateRequest;
     token: IScanCleanupDocumentPersistenceToken;
@@ -368,8 +368,20 @@ function queueRemoteUpdate(
         }
         const result = await updateSettings(request);
         remoteSettingsFile = result;
-        if (isGlobalPreferencesWrite) {
-            await applyCommittedGlobalPreferences(result.settings);
+        if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
+            pendingRemoteGlobalUpdate = null;
+            pendingRemoteGlobalRevision = 0;
+            for (const [
+                key,
+                intent,
+            ] of pendingGlobalFields) {
+                const sentValue = request.settingsPatch?.[key];
+                if (isEqual(intent, sentValue) || isEqual(intent, acknowledgedPreferences?.[key])) pendingGlobalFields.delete(key);
+            }
+            // Replies acknowledge our patch; only the ordered owner stream supplies
+            // the committed baseline, which may already include a later window edit.
+            await applyCommittedGlobalPreferences(acknowledgedPreferences!);
+            pendingPreferences = pendingGlobalFields.size === 0 ? null : cloneScanCleanupPreferenceValue(preferences!);
         }
         committed = true;
     });
@@ -404,20 +416,6 @@ function queueRemoteUpdate(
             persistenceRetryAttempt = 0;
         }
         if (isGlobalPreferencesWrite) {
-            if (pendingRemoteGlobalUpdate === queuedRequest) {
-                pendingRemoteGlobalUpdate = null;
-                pendingRemoteGlobalRevision = 0;
-                for (const [
-                    key,
-                    intent,
-                ] of pendingGlobalFields) {
-                    const sentValue = (queuedRequest as {settingsPatch: IScanCleanupGlobalPreferencePatch}).settingsPatch[key];
-                    if (isEqual(intent.value, sentValue) || isEqual(intent.value, acknowledgedPreferences?.[key])) {
-                        pendingGlobalFields.delete(key);
-                    }
-                }
-                pendingPreferences = pendingGlobalFields.size === 0 ? null : cloneScanCleanupPreferenceValue(preferences!);
-            }
             if (pendingRemoteGlobalWrite === observedWrite) pendingRemoteGlobalWrite = null;
             return;
         }
@@ -449,18 +447,8 @@ async function hydratePreferences() {
             true,
         ));
         remoteSettingsFile = result;
-        acknowledgedPreferences = cloneScanCleanupPreferenceValue(result.settings);
-        const localPatch = Object.fromEntries([...pendingGlobalFields].map(([
-            key,
-            intent,
-        ]) => [
-            key,
-            intent.value,
-        ])) as IScanCleanupGlobalPreferencePatch;
-        applyingRemotePreferences = true;
-        Object.assign(preferences, result.settings, localPatch);
-        await nextTick();
-        observedPreferences = cloneScanCleanupPreferenceValue(preferences);
+        // The initial read seeds the projection only until the owner stream arrives.
+        await applyCommittedGlobalPreferences(acknowledgedPreferences ?? result.settings);
         const hydratedSourceSha256 = isScanCleanupSourceSha256(requestContext.sourceSha256)
             ? requestContext.sourceSha256.toLowerCase()
             : null;
@@ -476,8 +464,6 @@ async function hydratePreferences() {
     } catch (error) {
         BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
         throw error;
-    } finally {
-        applyingRemotePreferences = false;
     }
 }
 
@@ -495,7 +481,7 @@ function scheduleScanCleanupPreferencesPersistence(value: IScanCleanupGlobalPref
         pendingPreferencesRevision += 1;
     }
     for (const key of changedKeys) {
-        pendingGlobalFields.set(key, {value: cloneScanCleanupPreferenceValue(value[key])});
+        pendingGlobalFields.set(key, cloneScanCleanupPreferenceValue(value[key]));
     }
     observedPreferences = cloneScanCleanupPreferenceValue(value);
     pendingPreferences = cloneScanCleanupPreferenceValue(value);
@@ -556,7 +542,7 @@ export async function flushScanCleanupPreferencesStore(): Promise<void> {
             intent,
         ]) => [
             key,
-            intent.value,
+            intent,
         ])) as IScanCleanupGlobalPreferencePatch;
         if (Object.keys(settingsPatch).length === 0) {
             pendingPreferences = null;
