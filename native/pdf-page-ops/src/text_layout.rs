@@ -10,6 +10,7 @@ use unicode_segmentation::UnicodeSegmentation;
 #[derive(Debug)]
 pub(crate) struct Glyph {
     pub id: u16,
+    pub font: usize,
     pub x: f64,
     pub y: f64,
 }
@@ -46,7 +47,7 @@ fn script_runs(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
 }
 
 fn shape_line(
-    font: &Shaper<'_>,
+    fonts: &[(Shaper<'_>, FontRef<'_>)],
     space_advance: f64,
     text: &str,
     bidi: &BidiInfo<'_>,
@@ -83,7 +84,6 @@ fn shape_line(
         levels: bidi.levels[range.start..range.start + text.len()].to_vec(),
         paragraphs: vec![line_paragraph.clone()],
     };
-    let scale = font_size / f64::from(font.units_per_em());
     let mut glyphs = Vec::new();
     let mut advance = 0.0;
     let (levels, runs) = line_bidi.visual_runs(&line_paragraph, 0..text.len());
@@ -94,30 +94,70 @@ fn shape_line(
             scripts.reverse();
         }
         for script in scripts {
-            let mut buffer = UnicodeBuffer::new();
-            let segment = &text[script];
-            buffer.push_str(segment);
-            buffer.guess_segment_properties();
-            buffer.set_direction(if rtl {
-                Direction::RightToLeft
-            } else {
-                Direction::LeftToRight
-            });
-            let shaped = font.shape(buffer, ShapeOptions::default());
-            for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
-                if segment.as_bytes().get(info.cluster as usize) == Some(&b'\t') {
-                    let tab_stop = 4.0 * space_advance * scale;
-                    if tab_stop > 0.0 {
-                        advance = ((advance / tab_stop).floor() + 1.0) * tab_stop;
-                    }
-                    continue;
-                }
-                glyphs.push(Glyph {
-                    id: info.glyph_id as u16,
-                    x: advance + f64::from(position.x_offset) * scale,
-                    y: f64::from(position.y_offset) * scale,
+            // Keep grapheme clusters together, so combining marks and joining
+            // scripts use one glyph-capable font. Shape in bidi visual order.
+            let mut font_runs: Vec<(usize, String)> = Vec::new();
+            for cluster in text[script].graphemes(true) {
+                let supported = fonts.iter().position(|(_, face)| {
+                    cluster
+                        .chars()
+                        .all(|c| invisible(c) || face.charmap().map(c).is_some())
                 });
-                advance += f64::from(position.x_advance) * scale;
+                let characters: Vec<_> = supported.map_or_else(
+                    || {
+                        cluster
+                            .chars()
+                            .map(|c| {
+                                fonts
+                                    .iter()
+                                    .position(|(_, face)| {
+                                        invisible(c) || face.charmap().map(c).is_some()
+                                    })
+                                    .map_or((0, "�".to_string()), |i| (i, c.to_string()))
+                            })
+                            .collect()
+                    },
+                    |index| vec![(index, cluster.to_string())],
+                );
+                for (index, fragment) in characters {
+                    if let Some((_, run)) = font_runs.last_mut().filter(|(i, _)| *i == index) {
+                        run.push_str(&fragment);
+                    } else {
+                        font_runs.push((index, fragment));
+                    }
+                }
+            }
+            if rtl {
+                font_runs.reverse();
+            }
+            for (index, segment) in font_runs {
+                let font = &fonts[index].0;
+                let scale = font_size / f64::from(font.units_per_em());
+                let mut buffer = UnicodeBuffer::new();
+                buffer.push_str(&segment);
+                buffer.guess_segment_properties();
+                buffer.set_direction(if rtl {
+                    Direction::RightToLeft
+                } else {
+                    Direction::LeftToRight
+                });
+                let shaped = font.shape(buffer, ShapeOptions::default());
+                for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
+                    if segment.as_bytes().get(info.cluster as usize) == Some(&b'\t') {
+                        let tab_stop = 4.0 * space_advance * scale;
+                        if tab_stop > 0.0 {
+                            advance = ((advance / tab_stop).floor() + 1.0) * tab_stop;
+                        }
+                        continue;
+                    }
+                    glyphs.push(Glyph {
+                        id: info.glyph_id as u16,
+                        font: index,
+                        x: advance + f64::from(position.x_offset) * scale,
+                        y: f64::from(position.y_offset) * scale,
+                    });
+                    advance += f64::from(position.x_advance) * scale;
+                }
             }
         }
     }
@@ -130,12 +170,41 @@ fn shape_line(
 }
 
 pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
-    let font = face();
-    static SHAPER_DATA: std::sync::OnceLock<ShaperData> = std::sync::OnceLock::new();
-    let shaper = SHAPER_DATA
-        .get_or_init(|| ShaperData::new(&font))
-        .shaper(&font)
+    let face = face();
+    static DATA: std::sync::OnceLock<ShaperData> = std::sync::OnceLock::new();
+    let shaper = DATA
+        .get_or_init(|| ShaperData::new(&face))
+        .shaper(&face)
         .build();
+    layout_shaped(text, width, font_size, &[(shaper, face)])
+}
+
+pub(crate) fn layout_with_fonts(
+    text: &str,
+    width: f64,
+    font_size: f64,
+    programs: &[&[u8]],
+) -> Vec<Line> {
+    let faces: Vec<_> = programs
+        .iter()
+        .map(|bytes| FontRef::from_index(bytes, 0).expect("resolved font program"))
+        .collect();
+    let data: Vec<_> = faces.iter().map(ShaperData::new).collect();
+    let shapers: Vec<_> = faces
+        .iter()
+        .zip(&data)
+        .map(|(face, data)| (data.shaper(face).build(), face.clone()))
+        .collect();
+    layout_shaped(text, width, font_size, &shapers)
+}
+
+fn layout_shaped(
+    text: &str,
+    width: f64,
+    font_size: f64,
+    shapers: &[(Shaper<'_>, FontRef<'_>)],
+) -> Vec<Line> {
+    let font = &shapers[0].1;
     let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
     let space_advance = f64::from(
         font.charmap()
@@ -174,7 +243,7 @@ pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
                 let trimmed = paragraph_text[boundaries[start]..boundaries[end]]
                     .trim_end_matches([' ', '\t']);
                 shape_line(
-                    &shaper,
+                    shapers,
                     space_advance,
                     paragraph_text,
                     &bidi,
@@ -216,7 +285,7 @@ pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
                     .unwrap_or(fit)
             };
             result.push(shape_line(
-                &shaper,
+                shapers,
                 space_advance,
                 paragraph_text,
                 &bidi,

@@ -221,28 +221,152 @@ fn shaped_free_text_appearance(
         page_rotation,
         "",
     )?;
-    crate::text_box_font::validate_text(&parsed.text)?;
     let source = marker_rect_to_pdf_rect_unbounded(parsed.rect, page_view, page_rotation)?;
+    let geometry = crate::text_box_font::geometry(source, parsed.rotation, page_rotation)?;
     let color = parse_css_rgb_color(Some(&parsed.color)).ok_or("Invalid FreeText print color")?;
-    let editor = TextBoxMutation {
-        page_index: 0,
-        stable_key: String::new(),
-        annotation_id: None,
-        text: parsed.text,
-        rect: [source.x1, source.y1, source.x2, source.y2],
-        rotation: u16::try_from(parsed.rotation)?,
-        font_size: parsed.font_size,
-        color: [color.r, color.g, color.b],
-        author: None,
-        created_at: None,
-        modified_at: None,
-    };
     let rect =
         read_box(document, annotation, b"Rect")?.ok_or("Invalid FreeText print rectangle")?;
-    let font_ref = *font_ref.get_or_insert_with(|| {
-        crate::text_box_font::existing_font(document)
-            .unwrap_or_else(|| crate::text_box_font::embed_font(document))
-    });
-    build_text_box_appearance(document, &editor, rect, font_ref, page_rotation)
+    let mut programs = vec![crate::text_box_font::FONT.to_vec()];
+    let page = materialized_page_dictionary(document, page_id)?;
+    let catalog = document.catalog()?;
+    let acroform = catalog
+        .get(b"AcroForm")
+        .ok()
+        .and_then(|v| document.dereference(v).ok()?.1.as_dict().ok());
+    for resource in [
+        annotation.get(b"DR").ok(),
+        page.get(b"Resources").ok(),
+        acroform.and_then(|d| d.get(b"DR").ok()),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let Some(fonts) = document
+            .dereference(resource)
+            .ok()
+            .and_then(|(_, r)| r.as_dict().ok())
+            .and_then(|r| {
+                document
+                    .dereference(r.get(b"Font").ok()?)
+                    .ok()?
+                    .1
+                    .as_dict()
+                    .ok()
+            })
+        else {
+            continue;
+        };
+        for (_, font) in fonts {
+            let program = (|| -> Result<Vec<u8>> {
+                let mut font = document.dereference(font)?.1.as_dict()?;
+                if let Ok(descendants) = font.get(b"DescendantFonts") {
+                    font = document
+                        .dereference(
+                            document
+                                .dereference(descendants)?
+                                .1
+                                .as_array()?
+                                .first()
+                                .ok_or("No descendant font")?,
+                        )?
+                        .1
+                        .as_dict()?;
+                }
+                let descriptor = document
+                    .dereference(font.get(b"FontDescriptor")?)?
+                    .1
+                    .as_dict()?;
+                let stream = document
+                    .dereference(descriptor.get(b"FontFile2")?)?
+                    .1
+                    .as_stream()?;
+                let bytes = crate::decompressed_stream_with_limit(stream, 16 * 1024 * 1024)?;
+                use skrifa::{raw::TableProvider, MetadataProvider};
+                let face = skrifa::FontRef::from_index(&bytes, 0)?;
+                let metrics = face.metrics(
+                    skrifa::instance::Size::unscaled(),
+                    skrifa::instance::LocationRef::default(),
+                );
+                if face.glyf().is_err() || metrics.bounds.is_none() || metrics.units_per_em == 0 {
+                    return Err("Unusable print font program".into());
+                }
+                Ok(bytes)
+            })();
+            if let Ok(program) = program {
+                if !programs.contains(&program) {
+                    programs.push(program);
+                }
+            }
+        }
+    }
+    programs.push(
+        include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf").to_vec(),
+    );
+    let programs: Vec<_> = programs.iter().map(Vec::as_slice).collect();
+    let padding = crate::text_box_font::PADDING_X * parsed.font_size;
+    let width = (geometry.width - 2.0 * padding).max(0.0);
+    let lines =
+        crate::text_box_font::layout_with_fonts(&parsed.text, width, parsed.font_size, &programs);
+    let mut fonts = Dictionary::new();
+    for index in lines
+        .iter()
+        .flat_map(|l| &l.glyphs)
+        .map(|g| g.font)
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        let reference = if index == 0 {
+            *font_ref.get_or_insert_with(|| {
+                crate::text_box_font::existing_font(document)
+                    .unwrap_or_else(|| crate::text_box_font::embed_font(document))
+            })
+        } else {
+            crate::text_box_font::embed_font_program(
+                document,
+                programs[index],
+                &format!("PrintFont{index}"),
+                false,
+            )
+        };
+        fonts.set(format!("PrintFont{index}"), reference);
+    }
+    let mut content = format!(
+        "q {} cm 0 0 {} {} re W n BT {} rg\n",
+        format_operands(&geometry.matrix),
+        geometry.width,
+        geometry.height,
+        format_operands(&[
+            f64::from(color.r) / 255.0,
+            f64::from(color.g) / 255.0,
+            f64::from(color.b) / 255.0
+        ])
+    );
+    for (index, line) in lines.iter().enumerate() {
+        let left = padding
+            + if line.rtl {
+                (width - line.width).max(0.0)
+            } else {
+                0.0
+            };
+        let baseline = geometry.height
+            - crate::text_box_font::baseline_from_top(parsed.font_size)
+            - index as f64 * crate::text_box_font::LINE_HEIGHT * parsed.font_size;
+        content.push_str(&format!(
+            "/Span << /ActualText <{}> >> BDC\n",
+            crate::text_box_font::unicode_hex(&line.text, true)
+        ));
+        for glyph in &line.glyphs {
+            content.push_str(&format!(
+                "/PrintFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
+                glyph.font,
+                parsed.font_size,
+                left + glyph.x,
+                baseline + glyph.y,
+                glyph.id
+            ));
+        }
+        content.push_str("EMC\n");
+    }
+    content.push_str("ET Q\n");
+    Ok(document.add_object(Stream::new(lopdf::dictionary! {"Type"=>"XObject", "Subtype"=>"Form", "BBox"=>rect_object(rect), "Resources"=>lopdf::dictionary! {"Font"=>fonts}, "Matrix"=>vec![1.into(),0.into(),0.into(),1.into(),number_object(-rect.x1),number_object(-rect.y1)]},content.into_bytes())))
 }
 

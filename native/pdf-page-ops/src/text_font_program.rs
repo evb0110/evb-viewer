@@ -10,19 +10,28 @@ fn compressed_stream(document: &mut Document, dictionary: Dictionary, bytes: Vec
 }
 
 pub(crate) fn embed_font(document: &mut Document) -> ObjectId {
-    let font = face();
+    embed_font_program(document, FONT, "DejaVuSans", true)
+}
+
+pub(crate) fn embed_font_program(
+    document: &mut Document,
+    program: &[u8],
+    name: &str,
+    editor: bool,
+) -> ObjectId {
+    let font = FontRef::from_index(program, 0).expect("resolved font program");
     let metrics = font.metrics(Size::unscaled(), LocationRef::default());
     let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
     let units = f64::from(metrics.units_per_em);
     let metric = |value: f32| number_object(f64::from(value) * 1000.0 / units);
     let program = compressed_stream(
         document,
-        lopdf::dictionary! { "Length1" => FONT.len() as i64 },
-        FONT.to_vec(),
+        lopdf::dictionary! { "Length1" => program.len() as i64 },
+        program.to_vec(),
     );
     let bounds = metrics.bounds.expect("the bundled font has global bounds");
     let descriptor = document.add_object(lopdf::dictionary! {
-        "Type" => "FontDescriptor", "FontName" => "DejaVuSans", "Flags" => 32,
+        "Type" => "FontDescriptor", "FontName" => name, "Flags" => 32,
         "FontBBox" => vec![metric(bounds.x_min), metric(bounds.y_min), metric(bounds.x_max), metric(bounds.y_max)],
         "ItalicAngle" => 0, "Ascent" => metric(metrics.ascent), "Descent" => metric(metrics.descent),
         "CapHeight" => metric(metrics.cap_height.unwrap_or(metrics.ascent)), "StemV" => 80,
@@ -41,7 +50,7 @@ pub(crate) fn embed_font(document: &mut Document) -> ObjectId {
         })
         .collect();
     let descendant = document.add_object(lopdf::dictionary! {
-        "Type" => "Font", "Subtype" => "CIDFontType2", "BaseFont" => "DejaVuSans",
+        "Type" => "Font", "Subtype" => "CIDFontType2", "BaseFont" => name,
         "CIDSystemInfo" => lopdf::dictionary! { "Registry" => Object::string_literal("Adobe"), "Ordering" => Object::string_literal("Identity"), "Supplement" => 0 },
         "FontDescriptor" => descriptor, "CIDToGIDMap" => "Identity",
         "W" => vec![Object::Integer(0), Object::Array(widths)],
@@ -73,11 +82,13 @@ pub(crate) fn embed_font(document: &mut Document) -> ObjectId {
     }
     cmap.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend");
     let to_unicode = compressed_stream(document, Dictionary::new(), cmap.into_bytes());
-    document.add_object(lopdf::dictionary! {
-        "Type" => "Font", "Subtype" => "Type0", "BaseFont" => "DejaVuSans",
+    let mut dictionary = lopdf::dictionary! {
+        "Type" => "Font", "Subtype" => "Type0", "BaseFont" => name,
         "Encoding" => "Identity-H", "DescendantFonts" => vec![Object::Reference(descendant)],
         "ToUnicode" => to_unicode,
-        "EVBTextFontVersion" => Object::string_literal(FONT_VERSION),
-    })
+    };
+    if editor {
+        dictionary.set("EVBTextFontVersion", Object::string_literal(FONT_VERSION));
+    }
+    document.add_object(dictionary)
 }
-

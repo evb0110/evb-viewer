@@ -1732,3 +1732,81 @@ fn print_preserves_freetext_background_border_and_text() {
         .count();
     assert!(black_text > 50, "DA black text, got {black_text}");
 }
+
+fn write_print_text_pdf(
+    path: &Path,
+    text: &str,
+    font: Option<&str>,
+    page: i64,
+    own: i64,
+    rect: [i64; 4],
+    size: i64,
+) {
+    let contents = std::iter::once(0xfeff)
+        .chain(text.encode_utf16())
+        .map(|unit| format!("{unit:04X}"))
+        .collect::<String>();
+    write_single_annotation_pdf(path, &format!("/Subtype /FreeText /Rect [{} {} {} {}] /BS << /W 0 >> /Rotate {own} /Contents <{contents}> /DA (/Helv {size} Tf 0 g)", rect[0], rect[1], rect[2], rect[3]));
+    let mut document = Document::load(path).unwrap();
+    let page_id = document.get_pages()[&1];
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Rotate", page);
+    if let Some(name) = font {
+        let font = document
+            .add_object(lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"Type1", "BaseFont"=> name});
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Resources",
+            lopdf::dictionary! {"Font"=>lopdf::dictionary! {"Helv"=>font}},
+        );
+    }
+    document.save(path).unwrap();
+}
+
+#[test]
+fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
+    let temp = TempPaths::new("print-text-runs");
+    let printed = temp.root.join("printed.pdf");
+    for text in [
+        "Latin abc ܐ xyz",
+        "ܫܠܡܐ ܥܠܝܟܘܢ",
+        "שלום עולם\nשורה שנייה",
+        "السلام عليكم\nمرحبا بالعالم",
+        "שלום abc 123\nمرحبا xyz",
+        "Latin abc 日本語 xyz",
+    ] {
+        write_print_text_pdf(&temp.pdf, text, None, 0, 0, [100, 450, 400, 700], 20);
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert!(
+            poppler_ink_pixels(&printed) > 300,
+            "lost supported text: {text}"
+        );
+    }
+    write_print_text_pdf(
+        &temp.pdf,
+        "Latin abc \u{10FFFF} xyz",
+        None,
+        0,
+        0,
+        [100, 450, 400, 700],
+        20,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    let unknown = poppler_pixels(&printed);
+    write_print_text_pdf(
+        &temp.pdf,
+        "Latin abc � xyz",
+        None,
+        0,
+        0,
+        [100, 450, 400, 700],
+        20,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(
+        unknown,
+        poppler_pixels(&printed),
+        "one visible replacement, keeping surrounding text"
+    );
+}
