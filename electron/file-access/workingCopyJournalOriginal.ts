@@ -6,9 +6,11 @@ import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {
     assertPathMatchesSaveWitnessSnapshot,
     capturePathSaveWitness,
+} from '@electron/file-access/originalPathSaveWitness';
+import {
     hashContentFingerprintFilePath,
     OriginalPathSaveConflictError,
-} from '@electron/file-access/originalPathSaveWitness';
+} from '@electron/file-access/originalPathSnapshot';
 import {originalSaveSnapshotSchema} from '@electron/file-access/workingCopyManifest';
 import * as v from 'valibot';
 

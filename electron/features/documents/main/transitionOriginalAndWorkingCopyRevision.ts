@@ -15,10 +15,8 @@ import {captureIntendedContentFingerprint} from '@electron/file-access/workingCo
 import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
-import {
-    OriginalPathSaveConflictError,
-    type IOriginalPathSaveWitness,
-} from '@electron/file-access/originalPathSaveWitness';
+import type {IOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 
 async function measureTransitionPhase<T>(
     phase: string,

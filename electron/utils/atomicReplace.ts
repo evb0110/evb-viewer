@@ -25,8 +25,8 @@ import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-acces
 import {
     assertPathMatchesSaveWitnessSnapshot,
     capturePathSaveWitness,
-    type IOriginalPathSaveJournalSnapshot,
 } from '@electron/file-access/originalPathSaveWitness';
+import type {IOriginalPathSaveJournalSnapshot} from '@electron/file-access/originalPathSnapshot';
 import { fsyncFile as fsyncPath } from '@electron/utils/fsyncPath';
 import {runtimeConfig} from '@electron/runtimeConfig';
 

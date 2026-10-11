@@ -54,10 +54,8 @@ import {
     pdfNeedsAppendBaseRewrite,
     type INormalizePdfAppendBaseOptions,
 } from '@electron/pdf/pdfAppendBase';
-import {
-    captureOpenSourceWitness,
-    OriginalPathSaveConflictError,
-} from '@electron/file-access/originalPathSaveWitness';
+import {captureOpenSourceWitness} from '@electron/file-access/originalPathSaveWitness';
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {
     initializeFreshWorkingCopyRevision,
     markWorkingCopyContentChanged,

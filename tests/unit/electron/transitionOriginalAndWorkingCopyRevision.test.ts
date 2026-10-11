@@ -18,7 +18,7 @@ import {
 import type * as WorkingCopyManifestModule from '@electron/file-access/workingCopyManifest';
 import type * as WorkingCopyJournalModule from '@electron/file-access/workingCopyJournal';
 import type * as DocumentFileWriteAtomicModule from '@electron/file-access/documentFileWriteAtomic';
-import type * as OriginalPathSaveWitnessModule from '@electron/file-access/originalPathSaveWitness';
+import type * as OriginalPathSnapshotModule from '@electron/file-access/originalPathSnapshot';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -393,10 +393,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             workingCopyPath,
         } = await prepare('old-original', 'old-working');
         const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
-        const {
-            captureOriginalPathSaveWitness,
-            OriginalPathSaveConflictError,
-        } = await import('@electron/file-access/originalPathSaveWitness');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {OriginalPathSaveConflictError} = await import('@electron/file-access/originalPathSnapshot');
         const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
         await expect(transitionOriginalAndWorkingCopyRevision({
@@ -579,8 +577,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
     it('keeps an external edit made while recovery checks the original against its intended bytes', async () => {
         let replaceAfterHash: (() => Promise<void>) | null = null;
-        vi.doMock('@electron/file-access/originalPathSaveWitness', async (importOriginal) => {
-            const actual = await importOriginal<typeof OriginalPathSaveWitnessModule>();
+        vi.doMock('@electron/file-access/originalPathSnapshot', async (importOriginal) => {
+            const actual = await importOriginal<typeof OriginalPathSnapshotModule>();
             return {
                 ...actual,
                 hashContentFingerprintFilePath: async (
@@ -632,15 +630,15 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             await expect(readFile(originalPath, 'utf8')).resolves.toBe('external-edit');
             await expect(stat(getWorkingCopyJournalPath(workingCopyPath))).resolves.toBeTruthy();
         } finally {
-            vi.doUnmock('@electron/file-access/originalPathSaveWitness');
+            vi.doUnmock('@electron/file-access/originalPathSnapshot');
         }
     });
 
     it('leaves no original backup when a save is cancelled while EVB fingerprints its output', async () => {
         const controller = new AbortController();
         let stagedHashPath = '';
-        vi.doMock('@electron/file-access/originalPathSaveWitness', async (importOriginal) => {
-            const actual = await importOriginal<typeof OriginalPathSaveWitnessModule>();
+        vi.doMock('@electron/file-access/originalPathSnapshot', async (importOriginal) => {
+            const actual = await importOriginal<typeof OriginalPathSnapshotModule>();
             return {
                 ...actual,
                 hashContentFingerprintFilePath: (...args: Parameters<typeof actual.hashContentFingerprintFilePath>) => {
@@ -658,7 +656,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 workingCopyPath,
             } = await prepare('old-original', 'old-working');
             stagedHashPath = stagedPath;
-            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
             const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
             await expect(transitionOriginalAndWorkingCopyRevision({
@@ -667,7 +665,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 reason: 'native-mutation',
                 senderId: 7,
                 signal: controller.signal,
-                captureOriginalWitness: () => capturePathSaveWitness(originalPath),
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
                 publishedSourcePath: stagedPath,
                 publishOriginal: () => rename(stagedPath, originalPath),
             })).rejects.toThrow('save cancelled');
@@ -676,7 +674,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
             expect((await readdir(dirname(originalPath))).filter(name => name.endsWith('.bak'))).toEqual([]);
         } finally {
-            vi.doUnmock('@electron/file-access/originalPathSaveWitness');
+            vi.doUnmock('@electron/file-access/originalPathSnapshot');
         }
     });
 

@@ -73,9 +73,9 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
 const {
     captureOpenSourceWitness,
     captureOriginalPathSaveWitness,
-    OriginalPathSaveConflictError,
     originalPathSaveBaseMatches,
 } = await import('@electron/file-access/originalPathSaveWitness');
+const {OriginalPathSaveConflictError} = await import('@electron/file-access/originalPathSnapshot');
 
 async function captureExpectation(path: string) {
     const fileStat = await stat(path, {bigint: true});
