@@ -915,6 +915,7 @@ export default {
         'completedTitle': 'Очистка скана завершена',
         'completedPartialTitle': 'Выбранные страницы очищены',
         'openResultFailed': 'Не удалось открыть очищенный PDF',
+        'outputClosedBeforeSaveAs': 'Очищенный PDF больше не открыт, поэтому ничего не сохранено. Откройте его снова, чтобы сохранить.',
         'saveAs': 'Сохранить как…',
         'cancel': 'Отменить очистку',
         'canceling': 'Отмена…',

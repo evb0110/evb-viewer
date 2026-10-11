@@ -903,6 +903,7 @@ export default {
         'completedTitle': 'Scan cleanup complete',
         'completedPartialTitle': 'Selected pages cleaned',
         'openResultFailed': 'The cleaned PDF could not be opened',
+        'outputClosedBeforeSaveAs': 'The cleaned PDF is no longer open, so nothing was saved. Reopen it to save it.',
         'saveAs': 'Save as…',
         'cancel': 'Cancel cleanup',
         'canceling': 'Canceling…',

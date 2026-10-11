@@ -444,6 +444,7 @@ export default {
         'completedTitle': 'Scanopschoning voltooid',
         'completedPartialTitle': 'Geselecteerde pagina\'s opgeschoond',
         'openResultFailed': 'De opgeschoonde PDF kon niet worden geopend',
+        'outputClosedBeforeSaveAs': 'De opgeschoonde PDF is niet meer geopend, dus er is niets opgeslagen. Open hem opnieuw om hem op te slaan.',
         'saveAs': 'Opslaan als…',
         'cancel': 'Opschoning annuleren',
         'canceling': 'Annuleren…',

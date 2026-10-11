@@ -444,6 +444,7 @@ export default {
         'completedTitle': 'Pulizia delle scansioni completata',
         'completedPartialTitle': 'Pagine selezionate pulite',
         'openResultFailed': 'Non è stato possibile aprire il PDF pulito',
+        'outputClosedBeforeSaveAs': 'Il PDF pulito non è più aperto, quindi non è stato salvato nulla. Riaprilo per salvarlo.',
         'saveAs': 'Salva con nome...',
         'cancel': 'Annulla la pulizia',
         'canceling': 'Annullamento…',

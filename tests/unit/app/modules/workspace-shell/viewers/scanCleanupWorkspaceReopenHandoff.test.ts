@@ -15,6 +15,7 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { saveScanCleanupOutputAs } from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
 import { cast } from '@tests/helpers/cast';
+import type { TTranslateFn } from '@i18n-app';
 import type {
     IScanCleanupCapability,
     TScanCleanupJobState,
@@ -204,10 +205,40 @@ describe('scan-cleanup workspace reopen handoff', () => {
             activeWorkspace,
             computed(() => sessions),
             activateTab,
+            {add: vi.fn()},
+            cast<TTranslateFn>((key: string) => key),
         )).resolves.toBe(true);
 
         expect(activateTab).toHaveBeenCalledWith('tab-output');
         expect(saveAsByTab['tab-output']).toHaveBeenCalledOnce();
         expect(saveAsByTab['tab-other']).not.toHaveBeenCalled();
+    });
+
+    it('reports a closed output tab without saving the active document', async () => {
+        const sessions = cast<Record<string, IWorkspaceDocumentController>>({'tab-other': {snapshot: ref({identity: {
+            documentRef: '/source/other.pdf',
+            workingCopyPath: '/source/other.pdf',
+            originalPath: '/source/other.pdf',
+        }})}});
+        const handleSaveAs = vi.fn(async () => true);
+        const activeWorkspace = computed(() => cast<IWorkspaceExpose>({handleSaveAs}));
+        const activateTab = vi.fn();
+        const toastAdd = vi.fn();
+
+        await expect(saveScanCleanupOutputAs(
+            '/managed/book — cleaned.pdf',
+            activeWorkspace,
+            computed(() => sessions),
+            activateTab,
+            {add: toastAdd},
+            cast<TTranslateFn>((key: string) => key),
+        )).resolves.toBe(false);
+
+        expect(activateTab).not.toHaveBeenCalled();
+        expect(handleSaveAs).not.toHaveBeenCalled();
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'warning',
+            title: 'scanCleanup.outputClosedBeforeSaveAs',
+        }));
     });
 });

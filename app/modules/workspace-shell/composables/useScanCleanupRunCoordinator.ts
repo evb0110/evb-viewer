@@ -169,7 +169,7 @@ export const useScanCleanupRunCoordinator = (
                 ? openScanCleanupGeneratedPdf(documentRef, signal, handleOpenInNewTab)
                 : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {activate: false})) && persistCheckpointNow().then(() => true, () => false);
         },
-        saveCompletedOutputAs: outputPath => saveScanCleanupOutputAs(outputPath, activeWorkspace, documentSessionsByTabId, activateTab),
+        saveCompletedOutputAs: outputPath => saveScanCleanupOutputAs(outputPath, activeWorkspace, documentSessionsByTabId, activateTab, toast, t),
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(documentRef, documentSessionsByTabId.value, activateTab),
         t,
         toast,

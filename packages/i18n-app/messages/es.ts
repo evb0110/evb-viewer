@@ -444,6 +444,7 @@ export default {
         'completedTitle': 'Limpieza del escaneo completada',
         'completedPartialTitle': 'Páginas seleccionadas limpiadas',
         'openResultFailed': 'El PDF limpio no se pudo abrir',
+        'outputClosedBeforeSaveAs': 'El PDF limpio ya no está abierto, así que no se guardó nada. Vuelva a abrirlo para guardarlo.',
         'saveAs': 'Guardar como…',
         'cancel': 'Cancelar limpieza',
         'canceling': 'Cancelando…',
