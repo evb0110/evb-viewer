@@ -1106,7 +1106,7 @@ pub(crate) fn check_xref_chain<'a>(
 ) -> Result<XrefChain> {
     let mut pending = Vec::with_capacity(MAX_PDF_XREF_REVISIONS);
     let mut visited = HashSet::with_capacity(MAX_PDF_XREF_REVISIONS);
-    let mut scanned_bytes = 0_usize;
+    let mut spans = Vec::new();
     let mut chain = XrefChain {
         encrypted: false,
         size: None,
@@ -1151,14 +1151,7 @@ pub(crate) fn check_xref_chain<'a>(
                 Err(error) => return Err(error),
             }
         };
-        scanned_bytes = scanned_bytes
-            .checked_add(consumed)
-            .ok_or_else(|| limit_error("PDF cross-reference scan length overflow"))?;
-        if scanned_bytes > input_len {
-            return Err(xref_error(
-                "PDF cross-reference sections overlap or exceed the input",
-            ));
-        }
+        spans.push((offset, consumed));
         if offset == root {
             chain.size = dictionary.size;
         }
@@ -1178,7 +1171,27 @@ pub(crate) fn check_xref_chain<'a>(
             pending.push(linked);
         }
     }
+    check_xref_spans(spans, input_len)?;
     Ok(chain)
+}
+
+/// Rejects a chain whose sections overlap or run past the input. Each section's
+/// span is the bytes its parser consumed. The window a section was read through
+/// may run into later sections, so the window does not count.
+fn check_xref_spans(mut spans: Vec<(usize, usize)>, input_len: usize) -> Result<()> {
+    spans.sort_unstable();
+    let mut previous_end = 0;
+    for (start, consumed) in spans {
+        match start.checked_add(consumed).filter(|end| *end <= input_len) {
+            Some(end) if start >= previous_end => previous_end = end,
+            _ => {
+                return Err(xref_error(
+                    "PDF cross-reference sections overlap or exceed the input",
+                ))
+            }
+        }
+    }
+    Ok(())
 }
 
 /// What a cross-reference chain says about a file without loading its body.
@@ -1313,7 +1326,22 @@ fn parse_xref_stream_section(
     if !stream_cursor.consume(b"stream") {
         return Err(xref_error("PDF cross-reference stream data is missing"));
     }
-    Ok((dictionary, dictionary_end.saturating_sub(offset)))
+    // A direct /Length says where the section's data ends, so the span covers
+    // the data and `check_xref_spans` checks it against the file. An indirect
+    // /Length is not resolved here, and the span stops at the dictionary.
+    let data = match bytes.get(stream_cursor.cursor..) {
+        Some([b'\r', b'\n', ..]) => stream_cursor.cursor + 2,
+        Some([b'\r' | b'\n', ..]) => stream_cursor.cursor + 1,
+        _ => stream_cursor.cursor,
+    };
+    let end = match dictionary.length.filter(|_| dictionary.length_is_direct) {
+        Some(length) => usize::try_from(length)
+            .ok()
+            .and_then(|length| data.checked_add(length))
+            .ok_or_else(|| xref_error("PDF cross-reference stream data is outside the file"))?,
+        None => dictionary_end,
+    };
+    Ok((dictionary, end.saturating_sub(offset)))
 }
 
 fn parse_xref_dictionary(
@@ -1445,16 +1473,22 @@ fn parse_xref_dictionary(
                     array.item_count += 1;
                 } else if array_depth == 0 {
                     match dictionary.pending_key.take() {
-                        Some(AdmissionKey::Length) => dictionary.length = Some(value),
+                        Some(AdmissionKey::Length) => {
+                            dictionary.length = Some(value);
+                            dictionary.length_is_direct = true;
+                        }
                         Some(AdmissionKey::Prev) => dictionary.prev = Some(value),
                         Some(AdmissionKey::Size) => dictionary.size = Some(value),
                         Some(AdmissionKey::XrefStm) => dictionary.xref_stm = Some(value),
-                        _ => {}
+                        // A number that is not a value takes the length as the
+                        // first half of `N G R`, so the length is not direct.
+                        _ => dictionary.length_is_direct = false,
                     }
                 }
             }
             AdmissionToken::Keyword(_) if dictionary_depth == 1 && array_depth == 0 => {
                 dictionary.pending_key = None;
+                dictionary.length_is_direct = false;
             }
             AdmissionToken::Name(name) if dictionary_depth == 2 && array_depth == 0 => {
                 if let Some((_, key)) = decode_parms.as_mut() {
@@ -1488,77 +1522,7 @@ pub(crate) fn path_has_encryption_entry(path: &Path) -> Result<bool> {
     let file_len = fs::metadata(path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
         .len();
-    let (terminal_xref, _) = read_terminal_xref(path, file_len)?;
-    let mut pending = vec![terminal_xref];
-    let mut visited = HashSet::new();
-    let mut scanned_bytes = 0_u64;
-
-    while let Some(offset) = pending.pop() {
-        if offset >= file_len {
-            return Err(xref_error("PDF cross-reference offset is outside the file"));
-        }
-        if !visited.insert(offset) {
-            return Err(xref_error(
-                "PDF cross-reference revision chain contains a repeated offset",
-            ));
-        }
-        if visited.len() > MAX_PDF_XREF_REVISIONS {
-            return Err(limit_error(format!(
-                "PDF cross-reference chain exceeds the {MAX_PDF_XREF_REVISIONS}-revision admission ceiling"
-            )));
-        }
-
-        let section = read_xref_probe_window(path, offset)?;
-        let parsed = if section.starts_with(b"xref") {
-            parse_classic_xref_section(&section, 0, PDF_PATH_LOAD_POLICY)
-        } else {
-            parse_xref_stream_section(&section, 0, PDF_PATH_LOAD_POLICY)
-        };
-        let (dictionary, consumed) = match parsed {
-            Ok(parsed) => parsed,
-            Err(_error) if section.len() == MAX_XREF_PROBE_BYTES => {
-                return Err(limit_error(
-                    "PDF cross-reference section exceeds the structural probe ceiling",
-                ));
-            }
-            Err(error) => return Err(error),
-        };
-        if dictionary.has_encrypt {
-            return Ok(true);
-        }
-        if consumed == 0 {
-            return Err(xref_error("PDF cross-reference section consumed no bytes"));
-        }
-        // The parsed section, not its read window (which runs into later revisions), is xref data.
-        scanned_bytes = scanned_bytes
-            .checked_add(consumed as u64)
-            .ok_or_else(|| limit_error("PDF cross-reference scan length overflow"))?;
-        if scanned_bytes > file_len {
-            return Err(xref_error(
-                "PDF cross-reference sections overlap or exceed the input",
-            ));
-        }
-        for linked in [dictionary.prev, dictionary.xref_stm].into_iter().flatten() {
-            if linked >= file_len {
-                return Err(xref_error("PDF cross-reference link is outside the file"));
-            }
-            pending.push(linked);
-        }
-    }
-
-    Ok(false)
-}
-
-fn read_xref_probe_window(path: &Path, offset: u64) -> Result<Vec<u8>> {
-    let mut file =
-        File::open(path).map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    file.seek(SeekFrom::Start(offset))
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    let mut bytes = Vec::new();
-    file.take(MAX_XREF_PROBE_BYTES as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-    Ok(bytes)
+    Ok(path_xref_chain(path, file_len)?.encrypted)
 }
 
 fn xref_error(message: impl Into<String>) -> Box<dyn Error> {
