@@ -2,9 +2,10 @@ use super::*;
 
 /// The bounded structural reader omits stream bytes from path-backed PDFs
 /// above the eager-load ceiling. Annotation parsing still needs the small
-/// appearance form and JPEG stream for managed placed images, so restore only
-/// those reachable streams through qpdf before parsing the annotation graph.
-pub(crate) fn materialize_managed_stamp_streams(
+/// appearance form and JPEG stream for managed placed images, and a note's
+/// normal appearance for its recovery snapshot, so restore only those
+/// reachable streams through qpdf before parsing the annotation graph.
+pub(crate) fn materialize_annotation_appearance_streams(
     incremental: &mut IncrementalDocument,
     input_path: &Path,
     qpdf_path: Option<&Path>,
@@ -25,28 +26,33 @@ pub(crate) fn materialize_managed_stamp_streams(
                 let Ok(dictionary) = annotation.as_dict() else {
                     continue;
                 };
-                if !is_managed_placed_image_stamp(dictionary) {
-                    continue;
-                }
-                if let Ok(graph) = stamp_image_graph(&document, dictionary) {
-                    for (object_id, stream) in graph {
-                        let is_image = stream
-                            .dict
-                            .get(b"Subtype")
-                            .ok()
-                            .and_then(|value| value.as_name().ok())
-                            == Some(b"Image".as_slice());
-                        if !seen_streams.insert(object_id) {
-                            continue;
+                if is_managed_placed_image_stamp(dictionary) {
+                    if let Ok(graph) = stamp_image_graph(&document, dictionary) {
+                        for (object_id, stream) in graph {
+                            let is_image = stream
+                                .dict
+                                .get(b"Subtype")
+                                .ok()
+                                .and_then(|value| value.as_name().ok())
+                                == Some(b"Image".as_slice());
+                            if !seen_streams.insert(object_id) {
+                                continue;
+                            }
+                            stream_refs.push((
+                                object_id,
+                                if is_image {
+                                    MAX_PLACED_IMAGE_BYTES as usize
+                                } else {
+                                    MAX_STAMP_APPEARANCE_STREAM_BYTES
+                                },
+                            ));
                         }
-                        stream_refs.push((
-                            object_id,
-                            if is_image {
-                                MAX_PLACED_IMAGE_BYTES as usize
-                            } else {
-                                MAX_STAMP_APPEARANCE_STREAM_BYTES
-                            },
-                        ));
+                    }
+                } else if is_text_annotation(&document, dictionary) {
+                    for object_id in note_appearance_stream_refs(&document, dictionary) {
+                        if seen_streams.insert(object_id) {
+                            stream_refs.push((object_id, MAX_STAMP_APPEARANCE_STREAM_BYTES));
+                        }
                     }
                 }
             }
@@ -77,4 +83,42 @@ pub(crate) fn materialize_managed_stamp_streams(
         remaining = remaining.saturating_sub(size);
     }
     Ok(())
+}
+
+/// The normal appearance streams of a note, direct or one state level down.
+/// A reference that is not a stream is left out: the materializer reads
+/// streams only, and a non-stream would otherwise fail the whole parse.
+fn note_appearance_stream_refs(
+    document: &impl PdfObjectSource,
+    dictionary: &Dictionary,
+) -> Vec<ObjectId> {
+    let Some(normal) = dictionary
+        .get(b"AP")
+        .ok()
+        .and_then(|object| document.resolved(object).ok())
+        .and_then(|object| object.as_dict().ok())
+        .and_then(|appearance| appearance.get(b"N").ok())
+    else {
+        return Vec::new();
+    };
+    let references: Vec<ObjectId> = match normal {
+        Object::Dictionary(states) => states
+            .iter()
+            .filter_map(|(_, state)| state.as_reference().ok())
+            .collect(),
+        reference => reference.as_reference().ok().into_iter().collect(),
+    };
+    references
+        .into_iter()
+        .filter(|object_id| matches!(document.object(*object_id), Ok(Object::Stream(_))))
+        .collect()
+}
+
+fn is_text_annotation(document: &impl PdfObjectSource, dictionary: &Dictionary) -> bool {
+    dictionary
+        .get(b"Subtype")
+        .ok()
+        .and_then(|subtype| document.resolved(subtype).ok())
+        .and_then(|subtype| subtype.as_name().ok())
+        .is_some_and(|name| name.eq_ignore_ascii_case(b"Text"))
 }

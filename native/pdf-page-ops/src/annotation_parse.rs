@@ -282,7 +282,7 @@ pub(crate) fn write_annotation_parse_path(
             "Encrypted PDFs are not supported by the annotation parse operation",
         ));
     }
-    materialize_managed_stamp_streams(&mut incremental, input_path, qpdf_path)?;
+    materialize_annotation_appearance_streams(&mut incremental, input_path, qpdf_path)?;
 
     let mut output = AtomicOutput::create(output_path)?;
     #[cfg(unix)]

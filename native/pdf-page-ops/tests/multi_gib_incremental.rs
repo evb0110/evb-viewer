@@ -1121,6 +1121,33 @@ fn scanned_file_sidecars_match_the_eager_reader() {
 }
 
 #[test]
+fn note_with_a_small_appearance_parses_as_a_note_above_the_structural_ceiling() {
+    let small = temp_path("note-appearance-small", "pdf");
+    let large = temp_path("note-appearance-large", "pdf");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    // A foreign sticky note whose normal appearance is a few bytes. Above the
+    // eager-load ceiling the parse must still read that appearance, or the
+    // note imports as foreign and drops out of the editable notes.
+    let objects: [&[u8]; 3] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Reader note)/T(Reader)/NM(note-1)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/Popup 6 0 R/AP<</N 7 0 R>>>>",
+        b"<</Type/Annot/Subtype/Popup/Rect[40 40 140 80]/Parent 5 0 R/P 3 0 R/Open false>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+    ];
+    write_scanned_annotation_pdf(&small, 20 * 1024 * 1024, &objects, &[5, 6]);
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5, 6]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for pdf in [&small, &large] {
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(5, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+    }
+}
+
+#[test]
 fn preserves_hash_named_resources_through_two_large_annotation_appends() {
     let pdf = temp_path("structural-hash-resources", "pdf");
     let first_mutations = temp_path("structural-hash-first", "json");
