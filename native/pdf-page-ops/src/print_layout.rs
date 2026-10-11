@@ -679,19 +679,7 @@ mod tests {
             b"1 0 0 rg 0 0 100 50 re f"
         );
         let text = appearance(b"PrintAnnot2");
-        let resources = resolved_dictionary(&document, text.dict.get(b"Resources").ok()).unwrap();
-        let xobjects = resolved_dictionary(&document, resources.get(b"XObject").ok()).unwrap();
-        let text_id = xobjects.get(b"PrintText").unwrap().as_reference().unwrap();
-        let text_content = String::from_utf8(
-            document
-                .get_object(text_id)
-                .unwrap()
-                .as_stream()
-                .unwrap()
-                .content
-                .clone(),
-        )
-        .unwrap();
+        let text_content = String::from_utf8(text.content.clone()).unwrap();
         assert!(text_content.contains("1 0 0 rg"));
         assert!(text_content.contains(
             "/ActualText <FEFF0046006F0072006500690067006E002000460072006500650054006500780074>"

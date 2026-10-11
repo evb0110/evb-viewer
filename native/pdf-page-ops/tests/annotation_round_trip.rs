@@ -1810,3 +1810,26 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
         "one visible replacement, keeping surrounding text"
     );
 }
+#[test]
+fn print_freetext_missing_fonts_use_pdf_rotation_without_editor_metadata() {
+    let temp = TempPaths::new("print-text-pdf-rotation");
+    let printed = temp.root.join("printed.pdf");
+    for page in [0, 90, 180, 270] {
+        for own in [0, 90, 180, 270] {
+            write_print_text_pdf(
+                &temp.pdf,
+                "Rotate ABC",
+                None,
+                page,
+                own,
+                [100, 500, 300, 620],
+                20,
+            );
+            print_annotation_pdf(&temp.pdf, &printed);
+            assert!(
+                poppler_ink_pixels(&printed) > 500,
+                "missing font page={page} annotation={own}"
+            );
+        }
+    }
+}

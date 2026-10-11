@@ -25,6 +25,7 @@ import {
 import { decode as decodePng } from 'fast-png';
 import {
     PDFDocument,
+    PDFHexString,
     PDFName,
     PDFString,
     rgb,
@@ -5869,11 +5870,32 @@ describe('Electron E2E - Document Output', () => {
                 ],
             })),
         ];
-        for (const annotation of annotations) {
+        const printAnnotations = [
+            ...annotations,
+            {
+                Subtype: 'FreeText',
+                Contents: PDFHexString.fromText('Latin abc ܐ xyz'),
+                DA: PDFString.of('/Missing 20 Tf 0 g'),
+                BS: {W: 0},
+                C: [],
+            },
+            {
+                Subtype: 'FreeText',
+                Contents: PDFString.of('Rotate ABC'),
+                DA: PDFString.of('/Missing 20 Tf 0 g'),
+                BS: {W: 0},
+                C: [],
+                PageRotation: 90,
+            },
+        ];
+        for (const annotation of printAnnotations) {
             const page = pdf.addPage([
                 595.28,
                 841.89,
             ]);
+            if ('PageRotation' in annotation) {
+                page.node.set(PDFName.of('Rotate'), pdf.context.obj(annotation.PageRotation));
+            }
             page.node.set(PDFName.of('Resources'), pdf.context.obj({Font: {Helv: font.ref}}));
             const reference = pdf.context.register(pdf.context.obj({
                 Type: 'Annot',
@@ -5936,7 +5958,7 @@ describe('Electron E2E - Document Output', () => {
             '--orientation',
             'portrait',
         ]);
-        expect((await PDFDocument.load(await readFile(printedPath))).getPageCount()).toBe(annotations.length);
+        expect((await PDFDocument.load(await readFile(printedPath))).getPageCount()).toBe(printAnnotations.length);
         const rasterizer = resolve(process.cwd(), 'resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftoppm.exe' : 'pdftoppm');
         await execFileAsync(rasterizer, [
             '-r',
@@ -5959,6 +5981,23 @@ describe('Electron E2E - Document Output', () => {
             await copyFile(printedPath, join(evidenceDirectory, 'printed.pdf'));
             await copyFile(expectedPath, join(evidenceDirectory, 'native.pdf'));
             await session.page.screenshot({path: join(evidenceDirectory, 'completed.png')});
+        }
+        for (const pageNumber of [
+            printAnnotations.length - 1,
+            printAnnotations.length,
+        ]) {
+            const image = decodePng(await readFile(join(printDirectory, `app-${pageNumber}.png`)));
+            let ink = 0;
+            for (let i = 0; i < image.data.length; i += image.channels) {
+                if (Math.min(Number(image.data[i]), Number(image.data[i + 1]), Number(image.data[i + 2])) < 220) {
+                    ink += 1;
+                }
+            }
+            if (evidenceDirectory) {
+                await copyFile(join(printDirectory, `app-${pageNumber}.png`), join(evidenceDirectory, `printed-page-${pageNumber}.png`));
+            }
+            console.info(`[FreeText print] page=${pageNumber} ink=${ink}`);
+            expect.soft(ink, `FreeText page ${pageNumber} must print its text`).toBeGreaterThan(300);
         }
     }, 180_000);
 
