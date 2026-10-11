@@ -675,4 +675,33 @@ describe('Electron E2E - dialog layout stability', () => {
         await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
         await waitForViewerInteractive(page, DIALOG_TIMEOUT_MS);
     }, DIALOG_TIMEOUT_MS * 4);
+
+    it('shows the external MCP status in Settings while the assistant panel is off', async () => {
+        const session: IElectronE2ESession = sessionFixture.getSession();
+        const {page} = session;
+        await setSavedLocale(page, 'en');
+        await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+        await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
+            undefined, {description: 'Settings button'});
+        // The assistant card is the stacked one; the MCP card is the other.
+        const mcpCardSelector = '.settings-agent-card:not(.settings-agent-card--stack)';
+        await page.waitForSelector(mcpCardSelector, {visible: true});
+
+        const readMcpCard = () => page.evaluate(selector => ({
+            label: document.querySelector(`${selector} .settings-agent-status-label`)?.textContent?.trim() ?? '',
+            primaryDisabled: (document.querySelector(`${selector} .settings-agent-actions button`) as HTMLButtonElement | null)?.disabled ?? true,
+        }), mcpCardSelector);
+        const checkingStatus = LOCALE_MESSAGES.en.settings.agentMcpStatusStarting;
+        await expect.poll(async () => (await readMcpCard()).label, {timeout: DIALOG_TIMEOUT_MS})
+            .not.toBe(checkingStatus);
+        expect(await readMcpCard()).toMatchObject({primaryDisabled: false});
+
+        await clickFoundAsUser(page, (label: string) => document.querySelector<HTMLButtonElement>(
+            `button[aria-label="${label}"]`,
+        ), LOCALE_MESSAGES.en.settings.agentMcpRefresh, {description: 'MCP refresh button'});
+        // Refresh is busy until its status request settles, which disables the primary action.
+        await expect.poll(async () => (await readMcpCard()).primaryDisabled, {timeout: DIALOG_TIMEOUT_MS})
+            .toBe(false);
+        expect(await readMcpCard()).toMatchObject({label: expect.not.stringContaining(checkingStatus)});
+    }, DIALOG_TIMEOUT_MS * 2);
 });
