@@ -631,27 +631,6 @@ function persistActiveJob(jobId: TJobId | null, documentRef: string | null = sca
     }
 }
 
-function summaryText(state: Extract<TScanCleanupJobState, {status: 'completed'}>) {
-    const counters = dependencies?.t('scanCleanup.summary', {
-        input: state.summary.inputPages,
-        output: state.summary.outputPages,
-        spreads: state.summary.spreadsSplit,
-        offcuts: state.summary.offcutsDiscarded,
-    }) ?? '';
-    const omission = state.summary.sourceTextOmission;
-    if (!omission || omission.count === 0 || !dependencies) return counters;
-    const pages = omission.count > omission.pages.length
-        ? dependencies.t('scanCleanup.sourceTextOmittedMorePages', {
-            pages: omission.pages.join(', '),
-            remaining: omission.count - omission.pages.length,
-        })
-        : omission.pages.join(', ');
-    return `${counters} ${dependencies.t('scanCleanup.sourceTextOmitted', {
-        count: omission.count,
-        pages,
-    })}`;
-}
-
 async function handleTerminalState(state: TScanCleanupJobState) {
     const terminalDependencies = dependencies;
     if (!terminalDependencies || terminalJobs.has(state.jobId)) {
@@ -708,12 +687,30 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                     await acknowledgeCompletedOutputs([completedOutputPath]).catch(() => undefined);
                 }
             }
+            const t = terminalDependencies.t;
+            const notices = [t('scanCleanup.summary', {
+                input: state.summary.inputPages,
+                output: state.summary.outputPages,
+                spreads: state.summary.spreadsSplit,
+                offcuts: state.summary.offcutsDiscarded,
+            })];
+            const omission = state.summary.sourceTextOmission;
+            if (omission && omission.count > 0) notices.push(t('scanCleanup.sourceTextOmitted', {
+                count: omission.count,
+                pages: omission.count > omission.pages.length
+                    ? t('scanCleanup.sourceTextOmittedMorePages', {
+                        pages: omission.pages.join(', '),
+                        remaining: omission.count - omission.pages.length,
+                    })
+                    : omission.pages.join(', '),
+            }));
+            if (state.summary.accessibilityTagsRemoved) notices.push(t('scanCleanup.accessibilityTagsRemoved'));
             terminalDependencies.toast.add({
-                color: state.summary.sourceTextOmission?.count ? 'warning' : 'success',
+                color: state.summary.sourceTextOmission?.count || state.summary.accessibilityTagsRemoved ? 'warning' : 'success',
                 title: terminalDependencies.t(state.partial
                     ? 'scanCleanup.completedPartialTitle'
                     : 'scanCleanup.completedTitle'),
-                description: summaryText(state),
+                description: notices.join(' '),
                 actions: [{
                     label: terminalDependencies.t('scanCleanup.saveAs'),
                     color: 'neutral' as const,

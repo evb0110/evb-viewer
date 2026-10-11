@@ -519,6 +519,7 @@ export default {
         'summary': 'Aus {input} Quellseiten wurden {output} Ausgabeseiten; {spreads} Doppelseiten wurden geteilt und {offcuts} Randstücke verworfen.',
         'sourceTextOmitted': 'Der Quelltext wurde bei der Ausgabe von {count} Quellseite(n) weggelassen: {pages}. Auf den betroffenen Ausgabeseiten sind Textsuche und Kopieren nicht verfügbar. Führen Sie OCR für die bereinigte PDF aus, um durchsuchbaren Text wiederherzustellen.',
         'sourceTextOmittedMorePages': '{pages} und {remaining} weitere',
+        'accessibilityTagsRemoved': 'Barrierefreiheits-Tags wurden entfernt, weil die bereinigten Seiten nicht mehr zur ursprünglichen Dokumentstruktur passen.',
     },
     'app': {
         'title': 'EVB Viewer',

@@ -1436,6 +1436,37 @@ describe('scan cleanup run coordinator', () => {
         }
     });
 
+    it('warns in the completion toast when accessibility tags were removed', async () => {
+        let listener: (state: TScanCleanupJobState) => void = () => undefined;
+        capability.value = stubCapability(next => { listener = next; }, () => 'removed-tags');
+        const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
+        const toastAdd = vi.fn();
+        const cleanup = coordinator.installScanCleanupRunCoordinator({
+            openGeneratedPdf: vi.fn(async () => true),
+            saveCompletedOutputAs: vi.fn(async () => undefined),
+            t: translate,
+            toast: {add: toastAdd},
+        });
+        try {
+            await coordinator.startScanCleanup({
+                ...ownerContext,
+                sourcePdfPath: '/source/book.pdf',
+                options: createScanCleanupOptions(),
+            });
+            const completed = completedState('removed-tags');
+            if (completed.status !== 'completed') throw new Error('expected completed fixture');
+            completed.summary.accessibilityTagsRemoved = true;
+            listener(completed);
+            await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'warning',
+                title: 'scanCleanup.completedTitle',
+                description: toastDescriptionContaining('scanCleanup.accessibilityTagsRemoved'),
+            })));
+        } finally {
+            cleanup();
+        }
+    });
+
     it('holds the run guard and active job until the generated PDF finishes opening', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         const openGate = Promise.withResolvers<boolean>();

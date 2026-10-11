@@ -519,6 +519,7 @@ export default {
         'summary': '{input} páginas de origem passaram a {output} páginas de saída; foram divididas {spreads} páginas duplas e descartados {offcuts} recortes.',
         'sourceTextOmitted': 'O texto original foi omitido na saída de {count} página(s) de origem: {pages}. A pesquisa e a cópia não estão disponíveis nas páginas de saída afetadas. Execute OCR no PDF limpo para restaurar o texto pesquisável.',
         'sourceTextOmittedMorePages': '{pages} e mais {remaining}',
+        'accessibilityTagsRemoved': 'As etiquetas de acessibilidade foram removidas porque as páginas limpas já não correspondem à estrutura original do documento.',
     },
     'app': {
         'title': 'EVB Viewer',
