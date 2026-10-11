@@ -28,13 +28,21 @@ pub(super) fn line_ending_appearance(
         (style(0), first, first_segment),
         (style(1), last, last_segment),
     ] {
-        let Some(other) = other else {
+        let (ux, uy, size) = if let Some(other) = other {
+            let (dx, dy) = (tip.0 - other.0, tip.1 - other.1);
+            let length = dx.hypot(dy);
+            (
+                dx / length,
+                dy / length,
+                (6.0 * width).max(6.0).min(length * 0.4),
+            )
+        } else if matches!(kind, Some(b"Square" | b"Circle" | b"Diamond")) {
+            // These endings need a size, not a line direction. Use a fixed
+            // horizontal frame and center the geometry on coincident tips.
+            (1.0, 0.0, (6.0 * width).max(6.0))
+        } else {
             continue;
         };
-        let (dx, dy) = (tip.0 - other.0, tip.1 - other.1);
-        let length = dx.hypot(dy);
-        let (ux, uy) = (dx / length, dy / length);
-        let size = (6.0 * width).max(6.0).min(length * 0.4);
         let radius = size / 2.0;
         let closed = matches!(
             kind,
@@ -82,7 +90,14 @@ pub(super) fn line_ending_appearance(
         // agree with Poppler's synthesized endpoint paths.
         content.push_str(&format!(
             "q 0 J 0 j {} cm\n",
-            format_operands(&[ux, uy, -uy, ux, tip.0, tip.1])
+            format_operands(&[
+                ux,
+                uy,
+                -uy,
+                ux,
+                tip.0 + if other.is_none() { radius } else { 0.0 },
+                tip.1
+            ])
         ));
         if let Some(interior) = interior {
             content.push_str(&format!("{}\n", colour_operands(interior, true)));

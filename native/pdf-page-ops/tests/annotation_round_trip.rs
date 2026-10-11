@@ -1983,3 +1983,22 @@ fn print_freetext_courier_wraps_all_sixty_glyphs_in_six_lines() {
     // reference both retain all 60 glyphs, with 1648 nonwhite pixels at 72 dpi.
     assert_eq!(poppler_ink_pixels(&printed), 1648);
 }
+#[test]
+fn print_collapsed_lines_keep_geometric_endings() {
+    let temp = TempPaths::new("print-collapsed-endings");
+    let printed = temp.root.join("printed.pdf");
+    for ending in ["Circle", "Square", "Diamond"] {
+        write_single_annotation_pdf(&temp.pdf, &format!("/Subtype /Line /Rect [170 570 230 630] /C [1 0 0] /IC [0 0 1] /BS << /W 4 >> /L [200 600 200 600] /LE [/{ending} /{ending}]"));
+        print_annotation_pdf(&temp.pdf, &printed);
+        let blue = poppler_pixels(&printed)
+            .chunks_exact(3)
+            .filter(|rgb| rgb[2] > 220 && rgb[0] < 100 && rgb[1] < 100)
+            .count();
+        // MuPDF retains geometric decoration here; Poppler drops it. These
+        // endings have no directional requirement in ISO 32000 table 176.
+        assert!(
+            blue > 100,
+            "collapsed {ending} must retain its filled interior, got {blue}"
+        );
+    }
+}
