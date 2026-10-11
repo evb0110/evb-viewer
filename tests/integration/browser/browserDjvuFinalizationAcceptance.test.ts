@@ -469,4 +469,34 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             await browser.close();
         }
     });
+
+    it('writes a multi-page PDF TIFF under its trimmed name with both pages', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance') === 'function');
+            for (const chosenName of [
+                'document.tiff',
+                'document.tiff ',
+            ]) {
+                const result = await page.evaluate<{
+                    bytesBase64: string;
+                    storedName: string;
+                }, string>(
+                    name => Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance')(name),
+                    chosenName,
+                );
+                // The trailing space of the picked name neither reaches the stored name nor drops a page.
+                expect(result.storedName).toBe('document.tiff');
+                expect(UTIF.decode(Buffer.from(result.bytesBase64, 'base64'))).toHaveLength(2);
+            }
+        } finally {
+            await browser.close();
+        }
+    });
 });

@@ -488,36 +488,6 @@ async function encodeRenderedTiffToBytes(
     return output;
 }
 
-async function encodeTiffToWritable(
-    pdfDocument: Pick<IPdfDocument, 'getPage'>,
-    pageDescriptors: IBrowserTiffPageDescriptor[],
-    encoder: ITiffEncoderModule,
-    handle: FileSystemFileHandle,
-    onPageWritten?: (processed: number) => void,
-) {
-    return encodeRenderedTiffToWritable(
-        pageDescriptors,
-        encoder,
-        pageNumber => renderPdfPage(pdfDocument, pageNumber),
-        handle,
-        onPageWritten,
-    );
-}
-
-async function encodeTiffToBytes(
-    pdfDocument: Pick<IPdfDocument, 'getPage'>,
-    pageDescriptors: IBrowserTiffPageDescriptor[],
-    encoder: ITiffEncoderModule,
-    onPageWritten?: (processed: number) => void,
-) {
-    return encodeRenderedTiffToBytes(
-        pageDescriptors,
-        encoder,
-        pageNumber => renderPdfPage(pdfDocument, pageNumber),
-        onPageWritten,
-    );
-}
-
 async function storeTiffAtHandle(
     fileName: string,
     handle: FileSystemFileHandle,
@@ -1028,6 +998,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     canceled: true,
                 };
             }
+            const saveName = normalizeBrowserImageExportFileName(firstSaveTarget.fileName, 'tiff');
             const pdfDocument = await loadPdfDocument(workingCopyPath);
             try {
                 const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
@@ -1049,12 +1020,13 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     percent: (processed / descriptors.length) * 90,
                 });
                 emitPageProgress(0);
+                const renderPage: TTiffPageRenderer = pageNumber => renderPdfPage(pdfDocument.pdfDocument, pageNumber);
 
                 if (firstSaveTarget.handle) {
-                    const fileSize = await encodeTiffToWritable(
-                        pdfDocument.pdfDocument,
+                    const fileSize = await encodeRenderedTiffToWritable(
                         descriptors,
                         encoder,
+                        renderPage,
                         firstSaveTarget.handle,
                         emitPageProgress,
                     );
@@ -1064,7 +1036,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                         total: 1,
                         percent: 100,
                     });
-                    const outputRef = await storeTiffAtHandle(firstSaveTarget.fileName, firstSaveTarget.handle, fileSize);
+                    const outputRef = await storeTiffAtHandle(saveName, firstSaveTarget.handle, fileSize);
                     return {
                         success: true,
                         outputPath: outputRef,
@@ -1079,10 +1051,10 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     );
                 }
 
-                const tiffBytes = await encodeTiffToBytes(
-                    pdfDocument.pdfDocument,
+                const tiffBytes = await encodeRenderedTiffToBytes(
                     descriptors,
                     encoder,
+                    renderPage,
                     emitPageProgress,
                 );
                 emitBrowserImageExportProgress(requestId, 'multipage-tiff', {
@@ -1093,7 +1065,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 });
 
                 const saveResult = await saveBytesToPickerOrDownload(tiffBytes, {
-                    suggestedName: firstSaveTarget.fileName,
+                    suggestedName: saveName,
                     mimeType: 'image/tiff',
                     pickerTypes: buildTiffSaveTypes(),
                 });

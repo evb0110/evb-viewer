@@ -286,12 +286,14 @@ async function stageDjvuFixture(fixturePath: string) {
     );
 }
 
-async function stagePdfFixture() {
+async function stagePdfFixture(pageCount = 1) {
     const document = await PDFDocument.create();
-    document.addPage([
-        240,
-        240,
-    ]);
+    for (let page = 0; page < pageCount; page += 1) {
+        document.addPage([
+            240,
+            240,
+        ]);
+    }
     return browserDocumentStore.createStoredDocument(
         'browser-pdf-image-export.pdf',
         await document.save(),
@@ -353,32 +355,48 @@ async function runBrowserPdfImageExportAcceptance(chosenName: string) {
 
 Reflect.set(globalThis, '__evbRunBrowserPdfImageExportAcceptance', runBrowserPdfImageExportAcceptance);
 
+// Exports pages 1 and 2 as one TIFF under the chosen name and reads back the saved bytes and stored name.
+async function exportMultiPageTiffAs(sourcePath: TDocumentRef, sourceKind: 'djvu' | 'pdf', chosenName: string) {
+    capturedImageExportChunks = [];
+    Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle(chosenName));
+    const result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+        sourcePath,
+        [
+            requirePageNumber(1),
+            requirePageNumber(2),
+        ],
+        requireRequestId(`browser-${sourceKind}-multi-page-tiff-export`),
+        sourceKind,
+    );
+    const bytes = takeCapturedImageExportBytes();
+    if (!result.success || bytes.byteLength === 0) {
+        throw new Error(`Browser ${sourceKind} multi-page TIFF export did not write ${chosenName}`);
+    }
+    return {
+        bytesBase64: encodeBase64(bytes),
+        storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
+    };
+}
+
 async function runBrowserDjvuMultiPageTiffExportAcceptance(chosenName: string) {
     // Pages 1 and 2 of this fixture are 72 and 300 DPI; the TIFF keeps each one.
     const sourcePath = await stageDjvuFixture('/fixtures/mixed-dpi.djvu');
-    capturedImageExportChunks = [];
-    Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle(chosenName));
     try {
-        const result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
-            sourcePath,
-            [
-                requirePageNumber(1),
-                requirePageNumber(2),
-            ],
-            requireRequestId('browser-djvu-multi-page-tiff-export'),
-            'djvu',
-        );
-        const bytes = takeCapturedImageExportBytes();
-        if (!result.success || bytes.byteLength === 0) {
-            throw new Error(`Browser DjVu multi-page TIFF export did not write ${chosenName}`);
-        }
-        return {
-            bytesBase64: encodeBase64(bytes),
-            storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
-        };
+        return await exportMultiPageTiffAs(sourcePath, 'djvu', chosenName);
     } finally {
         await browserDocumentStore.remove(sourcePath);
     }
 }
 
 Reflect.set(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance', runBrowserDjvuMultiPageTiffExportAcceptance);
+
+async function runBrowserPdfMultiPageTiffExportAcceptance(chosenName: string) {
+    const sourcePath = await stagePdfFixture(2);
+    try {
+        return await exportMultiPageTiffAs(sourcePath, 'pdf', chosenName);
+    } finally {
+        await browserDocumentStore.remove(sourcePath);
+    }
+}
+
+Reflect.set(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance', runBrowserPdfMultiPageTiffExportAcceptance);
