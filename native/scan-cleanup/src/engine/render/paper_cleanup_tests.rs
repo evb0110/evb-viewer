@@ -211,6 +211,44 @@ fn whitens_a_full_height_scanner_strip_on_the_raster_edge() {
 }
 
 #[test]
+fn keeps_an_authored_frame_rule_and_picture_pixels_short_of_the_full_height() {
+    let mut page = GrayImage::new(400, 400, 255);
+    // A frame rule more than two strokes wide beside the left edge, and a picture
+    // owner's dark edge band. Both stop short of the page's height: neither is a
+    // scanner strip.
+    fill(&mut page, 10..18, 50..350, 80);
+    fill(&mut page, 0..8, 100..300, 60);
+    let mut picture = BinaryImage::new(400, 400);
+    for y in 100..300 {
+        for x in 0..8 {
+            picture.set(x, y, true);
+        }
+    }
+    let original = page.clone();
+
+    whiten_unmarked_paper(&mut page, Some(&picture), calibration(), 150.0);
+
+    for y in 50..350 {
+        for x in 10..18 {
+            assert_eq!(
+                page.get(x, y),
+                original.get(x, y),
+                "frame rule lost at ({x}, {y})"
+            );
+        }
+    }
+    for y in 100..300 {
+        for x in 0..8 {
+            assert_eq!(
+                page.get(x, y),
+                original.get(x, y),
+                "picture pixel changed at ({x}, {y})"
+            );
+        }
+    }
+}
+
+#[test]
 fn whitens_paper_away_from_marks_and_keeps_every_mark_pixel() {
     let mut page = GrayImage::new(400, 400, 238);
     // A soft paper cloud far from any mark.
