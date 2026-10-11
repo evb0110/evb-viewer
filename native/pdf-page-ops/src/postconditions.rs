@@ -1265,44 +1265,6 @@ fn validate_bookmark_level(
     Ok(())
 }
 
-fn validate_bookmark_destination(
-    document: &impl PdfObjectSource,
-    page_resolver: &PageTreeResolver,
-    bookmark: &Dictionary,
-    item: &BookmarkEntry,
-) -> Result<()> {
-    if let Some(page_index) = item.page_index {
-        let page_id = page_resolver.page_id(
-            document,
-            page_index
-                .checked_add(1)
-                .ok_or("Invalid bookmark page index")?,
-        )?;
-        let page_view = resolve_page_view(document, page_id)?;
-        let expected_top = resolve_bookmark_destination_top(&page_view, item.page_y_ratio);
-        let destination = bookmark.get(b"Dest")?.as_array()?;
-        if destination.len() != 5
-            || destination[0].as_reference()? != page_id
-            || destination[1].as_name()? != b"XYZ"
-            || !destination[2].is_null()
-            || (f64::from(destination[3].as_float()?) - expected_top).abs() > 0.01
-            || !destination[4].is_null()
-        {
-            return Err("Bookmark destination did not match the requested page position".into());
-        }
-        return Ok(());
-    }
-
-    if let Some(named_dest) = item.named_dest.as_deref() {
-        if bookmark.get(b"Dest")?.as_str()? != named_dest.as_bytes() {
-            return Err("Bookmark named destination did not match the request".into());
-        }
-    } else if bookmark.get(b"Dest").is_ok() {
-        return Err("Bookmark unexpectedly retained a destination".into());
-    }
-    Ok(())
-}
-
 pub(crate) fn validate_shapes_document_postconditions(
     document: &impl PdfObjectSource,
     shapes: &ShapesMutation,
