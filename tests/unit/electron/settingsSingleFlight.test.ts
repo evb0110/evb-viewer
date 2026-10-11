@@ -48,7 +48,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     const actual = await importOriginal<typeof FsPromises>();
     return {
         ...actual,
-        readFile: mocks.readFile,
+        readFile: (...args: Parameters<typeof actual.readFile>) => {
+            if (args[0] === join(mocks.userDataPath, 'settings.json')) {
+                return mocks.readFile(...args);
+            }
+            return Promise.reject(Object.assign(new Error('No such file'), {code: 'ENOENT'}));
+        },
     };
 });
 vi.mock('node:os', async (importOriginal) => {
