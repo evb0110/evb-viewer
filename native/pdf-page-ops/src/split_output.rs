@@ -110,6 +110,15 @@ pub(crate) fn build_split_output(
     }
 
     let annotations = transform_split_annotations(source, target, &mut pages, &page_index)?;
+    if matches!(instructions.catalog, SplitCatalog::Source) {
+        for copies in annotations.values() {
+            for (_, id) in copies {
+                target
+                    .get_dictionary_mut(*id)?
+                    .remove(crate::split_navigation::SOURCE_ANNOTATION_SLOT);
+            }
+        }
+    }
     let kids = pages
         .iter()
         .map(|page| Object::Reference(page.id))
@@ -175,12 +184,10 @@ pub(crate) fn allocate_split_annotations(
     let mut copies = crate::split_output::SplitAnnotationMap::new();
     let mut pending = Vec::new();
     for (index, output) in pages.iter_mut().enumerate() {
-        let Some(entries) = page_annotation_array(source, &output.page) else {
-            continue;
-        };
+        let entries = crate::split_navigation::source_annotation_entries(source, output.source_id);
         let mut kept = Vec::with_capacity(entries.len());
-        for entry in entries {
-            let Some((source_id, annotation)) = source
+        for (slot, entry) in entries.into_iter().enumerate() {
+            let Some((source_id, mut annotation)) = source
                 .dereference(&entry)
                 .ok()
                 .and_then(|(id, object)| Some((id, object.as_dict().ok()?.clone())))
@@ -207,35 +214,16 @@ pub(crate) fn allocate_split_annotations(
                     .or_default()
                     .push((output.id, copy_id));
             }
+            annotation.set(
+                crate::split_navigation::SOURCE_ANNOTATION_SLOT,
+                i64::try_from(slot)?,
+            );
             kept.push(Object::Reference(copy_id));
             pending.push((index, copy_id, annotation));
         }
-        output.page.set("Annots", kept);
-    }
-    // A popup may legally appear only through its owner's /Popup. Put that
-    // companion in the page list too, so every copied member has one identity.
-    let mut cursor = 0;
-    while cursor < pending.len() {
-        let (index, _, annotation) = &pending[cursor];
-        let index = *index;
-        if let Some(popup) = annotation_related_ref(annotation, b"Popup") {
-            if !copies
-                .get(&popup)
-                .is_some_and(|copies| copies.iter().any(|(page, _)| *page == pages[index].id))
-            {
-                if let Ok(member) = source.get_dictionary(popup) {
-                    let id = target.new_object_id();
-                    copies.entry(popup).or_default().push((pages[index].id, id));
-                    pages[index]
-                        .page
-                        .get_mut(b"Annots")?
-                        .as_array_mut()?
-                        .push(id.into());
-                    pending.push((index, id, member.clone()));
-                }
-            }
+        if output.page.has(b"Annots") {
+            output.page.set("Annots", kept);
         }
-        cursor += 1;
     }
     Ok((copies, pending))
 }

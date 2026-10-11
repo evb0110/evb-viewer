@@ -186,9 +186,17 @@ pub(crate) fn rebind_retained_destinations(
         return Ok(());
     }
     for (annotation_id, annotation) in rebound {
-        incremental
-            .new_document
-            .set_object(annotation_id, Object::Dictionary(annotation));
+        if let Ok(current) = incremental.new_document.get_dictionary_mut(annotation_id) {
+            current.remove(RETAINED_DESTINATION_PAGE_KEY);
+            current.remove(b"Dest");
+            if let Ok(destination) = annotation.get(b"Dest") {
+                current.set("Dest", destination.clone());
+            }
+        } else {
+            incremental
+                .new_document
+                .set_object(annotation_id, annotation);
+        }
     }
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let revision_bytes = build_incremental_revision(&mut incremental)?;
@@ -211,18 +219,21 @@ fn restore_source_catalog(
     qpdf_path: Option<&Path>,
 ) -> Result<bool> {
     let mut source = load_incremental_pdf_path(source_path, qpdf_path)?.previous_document;
+    let output_pages = output_plan_pages(&output.previous_document, instructions)?;
+    let annotations = rebind_output_threads(
+        &source,
+        &output.previous_document,
+        &mut output.new_document,
+        &output_pages,
+    )?;
     let resolver = PageTreeResolver::new(&source)?;
     let mut navigation = Document::with_version(source.version.clone());
     navigation.max_id = source.max_id;
-    let output_pages = output_plan_pages(&output.previous_document, instructions)?;
     let mut identities = HashMap::new();
     let pages = output_pages
         .iter()
         .map(|page| {
-            let source_id = resolver.page_id(
-                &source,
-                overlay_page_number(page.2.source_page_index, "sourcePageIndex")?,
-            )?;
+            let source_id = resolver.page_id(&source, page.0 .0)?;
             let id = navigation.new_object_id();
             identities.insert(id, page.1);
             Ok((source_id, id, page.2, page.3))
@@ -237,7 +248,7 @@ fn restore_source_catalog(
         &pages,
     )?;
     if catalog.is_empty() {
-        return Ok(false);
+        return Ok(!annotations.is_empty());
     }
     // The mapped nodes replace their source identities before graph import.
     for (id, object) in std::mem::take(&mut source.objects) {
@@ -566,4 +577,99 @@ fn split_outlines(
         target.set_object(id, node);
     }
     Ok(())
+}
+
+/// Thread links derive only from annotations listed in the complete final
+/// output. A rasterized-away or removed root leaves standalone reply text.
+pub(crate) fn rebind_output_threads(
+    source: &Document,
+    output: &Document,
+    target: &mut Document,
+    pages: &[OverlayPage<'_>],
+) -> Result<crate::split_output::SplitAnnotationMap> {
+    let resolver = PageTreeResolver::new(source)?;
+    let mut copies: crate::split_output::SplitAnnotationMap = HashMap::new();
+    let mut pending = Vec::new();
+    for page in pages {
+        let source_page = resolver.page_id(source, page.0 .0)?;
+        let entries = source_annotation_entries(source, source_page);
+        for entry in
+            page_annotation_array(output, output.get_dictionary(page.1)?).unwrap_or_default()
+        {
+            let Ok(id) = entry.as_reference() else {
+                continue;
+            };
+            let mut annotation = output.get_dictionary(id)?.clone();
+            let Some(slot) = annotation.remove(SOURCE_ANNOTATION_SLOT) else {
+                continue;
+            };
+            let slot = usize::try_from(slot.as_i64()?)?;
+            let original = entries
+                .get(slot)
+                .ok_or("overlay-text source annotation slot is invalid")?;
+            let (source_id, original) = source.dereference(original)?;
+            if let Some(source_id) = source_id {
+                copies.entry(source_id).or_default().push((page.1, id));
+            }
+            pending.push((page.1, id, annotation, original.as_dict()?.clone()));
+        }
+    }
+    for (page, id, mut annotation, original) in pending {
+        for key in [b"IRT".as_slice(), b"Parent".as_slice(), b"Popup".as_slice()] {
+            let Some(related) = annotation_related_ref(&original, key) else {
+                continue;
+            };
+            if !source
+                .get_dictionary(related)
+                .is_ok_and(|member| member.has(b"Subtype"))
+            {
+                continue;
+            }
+            match copies.get(&related).and_then(|copies| {
+                copies
+                    .iter()
+                    .find(|(owner, _)| *owner == page)
+                    .or_else(|| copies.first())
+            }) {
+                Some((_, related)) => annotation.set(key, *related),
+                None => {
+                    annotation.remove(key);
+                    if key == b"IRT" {
+                        annotation.remove(b"RT");
+                    }
+                }
+            }
+        }
+        target.set_object(id, annotation);
+    }
+    Ok(copies)
+}
+
+/// A source slot survives qpdf renumbering and subset extraction. The final
+/// output plan supplies its source page; popup-only companions follow the list.
+pub(crate) const SOURCE_ANNOTATION_SLOT: &[u8] = b"EVBSourceAnnotation";
+
+pub(crate) fn source_annotation_entries(source: &Document, page: ObjectId) -> Vec<Object> {
+    let mut entries = source
+        .get_dictionary(page)
+        .ok()
+        .and_then(|page| page_annotation_array(source, page))
+        .unwrap_or_default();
+    let mut cursor = 0;
+    while cursor < entries.len() {
+        if let Ok((_, object)) = source.dereference(&entries[cursor]) {
+            if let Ok(annotation) = object.as_dict() {
+                if let Some(popup) = annotation_related_ref(annotation, b"Popup") {
+                    if !entries
+                        .iter()
+                        .any(|entry| entry.as_reference().ok() == Some(popup))
+                    {
+                        entries.push(popup.into());
+                    }
+                }
+            }
+        }
+        cursor += 1;
+    }
+    entries
 }

@@ -3066,3 +3066,110 @@ fn r8_cross_page_reply_uses_its_own_crop_geometry() {
         }
     }
 }
+
+#[test]
+fn r8_mixed_compact_replies_target_only_listed_final_annotations() {
+    for preserved_reply in [true, false] {
+        for remove_root in [false, true] {
+            if remove_root && !preserved_reply {
+                continue;
+            }
+            let input = path("r8-mixed-input", "pdf");
+            let primary = path("r8-mixed-primary", "pdf");
+            let raster = path("r8-mixed-raster", "pdf");
+            let interleave = path("r8-mixed-interleave", "pdf");
+            let output = path("r8-mixed-output", "pdf");
+            let instructions = path("r8-mixed-instructions", "json");
+            let mut source = r8_cross_source();
+            source.save(&input).unwrap();
+            review_split(
+                &mut source,
+                &[if preserved_reply { 0 } else { 2 }],
+                true,
+                false,
+            )
+            .save(&primary)
+            .unwrap();
+            save_single_page_pdf(&raster, Stream::new(Dictionary::new(), b"".to_vec()));
+            let result = Command::new(qpdf_path())
+                .arg(&primary)
+                .args(["--coalesce-contents", "--pages"])
+                .args(if preserved_reply {
+                    vec![".", "1"]
+                } else {
+                    vec![]
+                })
+                .arg(&raster)
+                .arg("1")
+                .args(if preserved_reply {
+                    vec![]
+                } else {
+                    vec![".", "1"]
+                })
+                .arg("--")
+                .arg(&interleave)
+                .output()
+                .unwrap();
+            assert!(
+                matches!(result.status.code(), Some(0 | 3)),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            write(&instructions, serde_json::json!({"pages": [
+                {"sourcePageIndex": 0, "outputPageIndex": 0, "matrix": [1,0,0,1,0,0], "linkOnly": preserved_reply},
+                {"sourcePageIndex": 2, "outputPageIndex": 1, "matrix": [1,0,0,1,0,0], "linkOnly": !preserved_reply,
+                    "filterToOutputPage": remove_root,
+                    "sourceRegion": if remove_root {serde_json::json!({"matrix": [1,0,0,1,0,0], "rect": {"x":0,"y":0,"width":100,"height":120}})} else {serde_json::Value::Null}}
+            ]}).to_string()).unwrap();
+            // A retained raster page may crop away its root annotation.
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .args(["overlay-text", "--qpdf"])
+                .arg(qpdf_path())
+                .arg("--input")
+                .arg(&interleave)
+                .arg("--source")
+                .arg(&input)
+                .arg("--output")
+                .arg(&output)
+                .arg("--instructions-file")
+                .arg(&instructions)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let split = Document::load(&output).unwrap();
+            let annotations = (1..=2)
+                .flat_map(|page| split_page_annotations(&split, page))
+                .collect::<Vec<_>>();
+            let reply = &annotations
+                .iter()
+                .find(|(_, a)| a.get(b"Contents").and_then(Object::as_str).ok() == Some(b"reply"))
+                .unwrap()
+                .1;
+            if remove_root {
+                assert!(!reply.has(b"IRT"));
+            } else {
+                let root = annotations
+                    .iter()
+                    .find(|(_, a)| {
+                        a.get(b"Contents").and_then(Object::as_str).ok() == Some(b"remote root")
+                    })
+                    .unwrap()
+                    .0;
+                assert_eq!(
+                    reply.get(b"IRT").ok().and_then(|id| id.as_reference().ok()),
+                    Some(root)
+                );
+            }
+            assert!(annotations
+                .iter()
+                .all(|(_, a)| !a.has(b"EVBSourceAnnotation")));
+            for file in [input, primary, raster, interleave, output, instructions] {
+                let _ = remove_file(file);
+            }
+        }
+    }
+}
