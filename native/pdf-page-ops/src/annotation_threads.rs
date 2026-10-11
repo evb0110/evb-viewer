@@ -163,7 +163,7 @@ pub(crate) fn transform_page_annotations(
         if annotation.has(b"P") {
             annotation.set("P", page_id);
         }
-        crate::overlay_sources::place_split_copy(target, &mut annotation, source, &note_copy)?;
+        crate::link_rebinding::place_split_copy(target, &mut annotation, source, &note_copy)?;
         target
             .objects
             .insert(copy_id, Object::Dictionary(annotation));

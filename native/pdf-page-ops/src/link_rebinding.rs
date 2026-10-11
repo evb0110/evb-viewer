@@ -3,7 +3,7 @@
 //! stamps the source page index; this pass maps that index to the output page.
 
 use super::*;
-use crate::internal_destinations::remap_internal_destination;
+use crate::internal_destinations::{remap_internal_destination, resolve_destination};
 
 /// The `/D` of a GoTo action, the only action whose destination names a page of
 /// this document. A remote or launch action's `/D` names something else.
@@ -16,6 +16,63 @@ pub(crate) fn goto_destination<'a>(
         return None;
     }
     action.get(b"D").ok()
+}
+
+/// The page-index key that a retained annotation carries until the overlay
+/// rebinds its destination. It is removed when the destination is rebound.
+pub(crate) const RETAINED_DESTINATION_PAGE_KEY: &[u8] = b"EVBDestinationPage";
+
+/// Readies a split copy of a source annotation: its retained destination, then
+/// its note placement on the output page.
+pub(crate) fn place_split_copy(
+    target: &mut Document,
+    annotation: &mut Dictionary,
+    source: &Document,
+    note_copy: &crate::note_placement::NoteCopy,
+) -> Result<()> {
+    prepare_retained(source, annotation)?;
+    crate::note_placement::place_note_copy(target, annotation, Some(source), note_copy)
+}
+
+/// Readies an annotation that a preserved page retains. Its destination names a
+/// source page object, which the split output holds but qpdf renumbers when it
+/// interleaves the page. The destination becomes explicit, and the source page
+/// index travels with the annotation until the overlay rebinds it. A destination
+/// that does not read as a page of the source is left as it is.
+pub(crate) fn prepare_retained(source: &Document, annotation: &mut Dictionary) -> Result<()> {
+    annotation.remove(RETAINED_DESTINATION_PAGE_KEY);
+    let Some((page_id, explicit)) = explicit_retained_destination(source, annotation) else {
+        return Ok(());
+    };
+    let Some(index) = source
+        .get_pages()
+        .into_iter()
+        .find_map(|(number, id)| (id == page_id).then_some(number as usize - 1))
+    else {
+        return Ok(());
+    };
+    if annotation.get(b"Dest").is_err() {
+        annotation.remove(b"A");
+    }
+    annotation.set("Dest", Object::Array(explicit));
+    annotation.set(RETAINED_DESTINATION_PAGE_KEY, index as i64);
+    Ok(())
+}
+
+/// The annotation's destination as an explicit array, with its page reference
+/// and resolved values, when it names a page object.
+fn explicit_retained_destination(
+    source: &Document,
+    annotation: &Dictionary,
+) -> Option<(ObjectId, Vec<Object>)> {
+    let destination = annotation_destination(source, annotation)?;
+    let array = resolve_destination(source, &destination).ok()??;
+    let page_id = array.first()?.as_reference().ok()?;
+    let mut explicit = vec![Object::Reference(page_id)];
+    for value in &array[1..] {
+        explicit.push(source.dereference(value).ok()?.1.clone());
+    }
+    Some((page_id, explicit))
 }
 
 /// The output plan over the output document. A retained destination names its
