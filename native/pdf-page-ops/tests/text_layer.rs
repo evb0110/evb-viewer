@@ -4607,22 +4607,35 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
     )
     .unwrap();
 
-    // A separate output and an input that is also the output: both keep their bytes.
-    fs::copy(&assembled, &output).unwrap();
+    // A separate output and an input that is also the output: both keep their
+    // bytes, the run fails on the retained destination itself, and no staged
+    // sibling is left behind.
+    let assert_refused_on_destination = |refused: std::process::Output| {
+        assert!(!refused.status.success());
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            stderr.contains("ambiguous internal destination"),
+            "unexpected failure: {stderr}"
+        );
+        assert!(atomic_output_siblings(&output).is_empty());
+    };
     write(
         &output,
         b"existing output must survive a refused retained destination",
     )
     .unwrap();
     let separate_before = fs::read(&output).unwrap();
-    let refused = run_overlay_text(&assembled, &source, &output, &instructions);
-    assert!(!refused.status.success());
+    assert_refused_on_destination(run_overlay_text(
+        &assembled,
+        &source,
+        &output,
+        &instructions,
+    ));
     assert_eq!(fs::read(&output).unwrap(), separate_before);
 
     fs::copy(&assembled, &output).unwrap();
     let same_path_before = fs::read(&output).unwrap();
-    let refused = run_overlay_text(&output, &source, &output, &instructions);
-    assert!(!refused.status.success());
+    assert_refused_on_destination(run_overlay_text(&output, &source, &output, &instructions));
     assert_eq!(fs::read(&output).unwrap(), same_path_before);
 
     for file in [
