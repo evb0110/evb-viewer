@@ -153,6 +153,13 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
     });
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
+    const completed = Promise.withResolvers<undefined>();
+    owner.send.mockImplementation((channel: string, state: {status?: string}) => {
+        if (channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState
+            && state.status === 'completed') {
+            completed.resolve(undefined);
+        }
+    });
     const started = await service.detectAll(owner, detectionRequest);
     service.subscribeDetectionJob(owner, started.jobId, detectionRequest);
 
@@ -215,12 +222,9 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         .filter(result => result.pageNumber === 1)
         .map(result => result.confidence)).toContain(0.9));
     finishReconciliation.resolve(undefined);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await completed.promise;
     expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)).toMatchObject({
+        status: 'completed',
         progress: {
             stage: 'detecting',
             completedUnits: 3,

@@ -1,6 +1,5 @@
 import {
     afterEach,
-    beforeAll,
     beforeEach,
     describe,
     expect,
@@ -90,18 +89,25 @@ vi.mock('@electron/pdf/pdfAppendBase', async importOriginal => ({
     pdfNeedsAppendBaseRewrite: vi.fn(async () => false),
 }));
 
-describe('workingCopy', () => {
-    beforeAll(async () => {
-        // The first import transforms the whole working-copy module graph,
-        // which takes seconds on a loaded machine. Tests re-import it after
-        // resetModules from the transform cache, so pay that cost once here
-        // rather than inside whichever test happens to run first. The IPC
-        // handlers reach the larger PDF conversion graph, which creation
-        // does not import.
-        await import('@electron/file-access/workingCopyCreation');
-        await import('@electron/features/documents/main/documentWorkingCopyHandlers');
-    });
+// The first import transforms the whole working-copy module graph, which takes
+// seconds on a loaded machine. Collection pays that once, outside every test and
+// hook budget; tests re-import these after resetModules from the transform cache.
+// The IPC handlers reach the larger PDF conversion graph, which creation does not
+// import.
+await import('@electron/file-access/workingCopyCreation');
+await import('@electron/features/documents/main/documentWorkingCopyHandlers');
+await import('@electron/file-access/workingCopyStore');
+await import('@electron/file-access/workingCopyDirectory');
+await import('@electron/file-access/openPathCapabilities');
+await import('@electron/file-access/workingCopyCleanup');
+await import('@electron/file-access/workingCopyMutationQueue');
+await import('@electron/operation-lifecycle/mainOperationLifecycle');
+await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+await import('@electron/utils/atomicReplace');
+await import('@electron/pdf/pdfAppendBase');
+await import('@electron/file-access/originalPathSaveWitness');
 
+describe('workingCopy', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();

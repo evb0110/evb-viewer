@@ -31,6 +31,19 @@ import {
     vi,
 } from 'vitest';
 
+// The first import transforms the module graph, which takes seconds on a loaded
+// machine. Collection pays that once, outside every test and hook budget; tests
+// re-import these after resetModules from the transform cache.
+await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+await import('@electron/file-access/originalPathSaveWitness');
+await import('@electron/file-access/documentFileWriteAtomic');
+await import('@electron/file-access/workingCopyStore');
+await import('@electron/file-access/documentRevisionStore');
+await import('@electron/file-access/workingCopyManifest');
+await import('@electron/workspaceCheckpointStore');
+await import('@electron/utils/atomicReplace');
+await import('@electron/file-access/workingCopyJournal');
+
 let tempRoot = '';
 
 function deferred() {
