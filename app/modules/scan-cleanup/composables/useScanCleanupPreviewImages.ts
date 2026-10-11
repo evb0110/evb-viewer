@@ -416,9 +416,16 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
             return;
         }
         cleanedFrameError.value = '';
-        const supersedesUncommittedInitial = decision.action === 'coalesce'
-            && pendingCleanedFrame?.kind === 'initial'
-            && pendingCleanedFrame.transitionKey === transitionKey;
+        // A frame the main process could not match to the document's page size
+        // holds no page size worth keeping still: the first matched one replaces
+        // it rather than waiting for detection to settle.
+        const replacesUnmatchedFrame = displayedCleanedFrame.value?.transitionKey === transitionKey
+            && displayedCleanedFrame.value.result.outputs.some(output => output.metadata.canvasPolicy === 'intrinsic')
+            && nextResult.outputs.every(output => output.metadata.canvasPolicy !== 'intrinsic');
+        const supersedesUncommittedInitial = decision.action === 'coalesce' && (
+            replacesUnmatchedFrame
+            || (pendingCleanedFrame?.kind === 'initial' && pendingCleanedFrame.transitionKey === transitionKey)
+        );
         clearPendingCleanedFrame();
         const nextFrame = {
             kind: supersedesUncommittedInitial

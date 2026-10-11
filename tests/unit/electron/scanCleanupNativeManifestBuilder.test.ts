@@ -137,7 +137,7 @@ const cases: IGoldenCase[] = [
 ];
 
 describe('native scan-cleanup manifest builder', () => {
-    it('keeps manual crops out of automatic page-plan evidence but retains them for rendering', () => {
+    it('keeps manual crops and exclusion out of automatic page-plan evidence but retains them for rendering', () => {
         const manualContentBoxes = {right: {
             xNormalized: 0.55,
             yNormalized: 0.1,
@@ -150,7 +150,7 @@ describe('native scan-cleanup manifest builder', () => {
             pageOverrides: {'1': {
                 rotationDegrees: 0,
                 layoutOverride: 'auto',
-                excluded: false,
+                excluded: true,
                 manualSplit: null,
                 manualContentBoxes,
             }},
@@ -186,7 +186,9 @@ describe('native scan-cleanup manifest builder', () => {
         });
 
         expect(pagePlan.pages[0]?.options.manualContentBoxes).toEqual({});
+        expect(pagePlan.pages[0]?.options.excluded).toBe(false);
         expect(preview.pages[0]?.options.manualContentBoxes).toEqual(manualContentBoxes);
+        expect(preview.pages[0]?.options.excluded).toBe(true);
     });
 
     it('carries the admitted raster cap into automatic native page budgets', () => {
