@@ -1,27 +1,10 @@
 import type {TDocumentRef} from '@contracts/documentRef';
-import {
-    addScanCleanupPaperCohortRect,
-    createScanCleanupPaperCohortTally,
-    resolveScanCleanupInkReferenceHeightPoints,
-    resolveScanCleanupSheetRect,
-} from '@evb/scan-cleanup/core/policy/scanCleanupPaperCohort';
-import {requirePageNumber} from '@contracts/pageNumbers';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
-import type {
-    IScanCleanupPagePlanEvidence,
-    IScanCleanupSourcePageMetadata,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {IScanCleanupPagePlanEvidence} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {attachScanCleanupPageOverrideDefaults} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
-    attachScanCleanupPageOverrideDefaults,
-    getScanCleanupPageOverride,
-    SCAN_CLEANUP_OUTPUT_HALVES,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {
-    type IScanCleanupPlacementAnchorSample,
     type TScanCleanupPlacementAnchorsByPage,
-    resolveScanCleanupPlacementAnchors,
-    SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
-    usesScanCleanupInkAlignment,
+    resolveScanCleanupDocumentInkAnchors,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {isScanCleanupRunning} from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
@@ -37,34 +20,6 @@ import type {TScanCleanupPreviewFrameRevealOutcome} from '@app/modules/scan-clea
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 
 const SCAN_CLEANUP_PREVIEW_REVEAL_DEADLINE_MS = 10_000;
-
-const POINTS_PER_MM = 72 / 25.4;
-
-/**
- * The height every ink sample and the snapping tolerance are measured against:
- * the dominant sheet the document produces, which is the rectangle the matched
- * canvas settles on. Content boxes come normalized against their own sheet, so
- * another sheet's box is rescaled onto this reference before it is compared,
- * and a millimetre tolerance becomes comparable once divided by it. Paper that
- * cannot be measured leaves the tolerance at zero, which still keeps every
- * output on its own ink and only stops pages from snapping together.
- */
-function resolveInkReferenceHeightPoints(
-    pages: Iterable<readonly [number, {layoutClassification: string}]>,
-    metadataByPage: ReadonlyMap<number, IScanCleanupSourcePageMetadata>,
-) {
-    const sheets = createScanCleanupPaperCohortTally();
-    for (const [
-        pageNumber,
-        evidence,
-    ] of pages) {
-        const sheet = resolveScanCleanupSheetRect(metadataByPage.get(pageNumber));
-        if (sheet !== null) {
-            addScanCleanupPaperCohortRect(sheets, sheet, evidence.layoutClassification === 'two-page-spread' ? 2 : 1);
-        }
-    }
-    return resolveScanCleanupInkReferenceHeightPoints(sheets);
-}
 
 interface IUseScanCleanupWorkspaceSessionOptions {
     active: () => boolean;
@@ -155,53 +110,18 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     // than per request: the preview the user judges and the run they start
     // must place a page identically.
     const placementAnchorsByPage = computed<TScanCleanupPlacementAnchorsByPage>(() => {
-        const cleanupOptions = resolvedOptions.value;
-        if (!usesScanCleanupInkAlignment(cleanupOptions)) {
-            return new Map();
-        }
         const metadataByPage = detection.sourcePageMetadataByPage.value;
-        const included = [...detection.pagePlanEvidenceByPage].filter(
-            ([pageNumber]) => !getScanCleanupPageOverride(
-                cleanupOptions.pageOverrides,
-                requirePageNumber(pageNumber),
-            ).excluded,
-        );
-        const referenceHeightPoints = resolveInkReferenceHeightPoints(included, metadataByPage);
-        const samples: IScanCleanupPlacementAnchorSample[] = [];
-        // A sheet that cannot be measured keeps its own-sheet fraction, which
-        // is not comparable with the others; snapping is only meaningful when
-        // every included output speaks the reference height's units.
-        let everySheetMeasured = referenceHeightPoints > 0;
-        for (const [
-            pageNumber,
-            evidence,
-        ] of included) {
-            const brandedPageNumber = requirePageNumber(pageNumber);
-            const pageOverride = getScanCleanupPageOverride(
-                cleanupOptions.pageOverrides,
-                brandedPageNumber,
-            );
-            const sheetHeightPoints = resolveScanCleanupSheetRect(metadataByPage.get(pageNumber))?.heightPoints ?? 0;
-            const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
-            everySheetMeasured &&= measured;
-            const scale = measured ? sheetHeightPoints / referenceHeightPoints : 1;
-            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
-                const box = pageOverride.manualContentBoxes?.[half] ?? evidence.outputs[half]?.contentBox;
-                if (box === undefined) {
-                    continue;
-                }
-                samples.push({
-                    pageNumber: brandedPageNumber,
-                    half,
-                    yNormalized: box.yNormalized * scale,
-                });
-            }
-        }
-        return resolveScanCleanupPlacementAnchors(
-            samples,
-            everySheetMeasured
-                ? SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM / referenceHeightPoints
-                : 0,
+        return resolveScanCleanupDocumentInkAnchors(
+            resolvedOptions.value,
+            [...detection.pagePlanEvidenceByPage].map(([
+                pageNumber,
+                evidence,
+            ]) => ({
+                pageNumber,
+                layoutClassification: evidence.layoutClassification,
+                evidence,
+                metadata: metadataByPage.get(pageNumber),
+            })),
         );
     });
     previewResult = useScanCleanupPreviewSession({

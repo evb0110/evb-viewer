@@ -8,14 +8,7 @@ import type {
 import type {TScanCleanupLog} from '@evb/scan-cleanup/core/types';
 import {resolveReusablePagePlanResult} from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {ScanCleanupContractError} from '@evb/scan-cleanup/core/errors';
-import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import { requirePageNumber } from '@contracts/pageNumbers';
-
-const SCAN_CLEANUP_OUTPUT_HALVES = [
-    'full',
-    'left',
-    'right',
-] as const;
+import {collectScanCleanupSheetInkTops} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 
 interface IPagePlanEvidenceInput {
     options: IScanCleanupOptions;
@@ -53,23 +46,19 @@ export function createPagePlanResolver(
                 );
             }
             const placementAnchors = input.placementAnchorsByPage?.[String(pageNumber)];
-            const pageOverride = getScanCleanupPageOverride(
-                input.options.pageOverrides,
-                requirePageNumber(pageNumber),
-                input.options.pageOverrideDefaults,
-                input.options.marginsMm,
-            );
-            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
-                const alignment = pageOverride.placementOverrides?.[half]
-                    ?? input.options.pageAlignment;
-                const contentBox = pageOverride.manualContentBoxes?.[half]
-                    ?? result.plan.automaticContentBoxes?.[half];
-                if (
-                    input.options.matchPageSize
-                    && alignment === 'ink'
-                    && contentBox !== undefined
-                    && placementAnchors?.[half] === undefined
-                ) {
+            // Every output the anchor producers place must arrive with its
+            // anchor; they and this check read the sheet through one rule.
+            const evidence = input.pagePlanEvidenceByPage?.[String(pageNumber)];
+            const inkTops = input.options.matchPageSize
+                ? collectScanCleanupSheetInkTops(input.options, {
+                    pageNumber,
+                    layoutClassification: input.layoutByPage?.[String(pageNumber)] ?? evidence?.layoutClassification,
+                    evidence,
+                    metadata: undefined,
+                }, 0)
+                : {};
+            for (const half of Object.keys(inkTops) as TScanCleanupOutputHalf[]) {
+                if (placementAnchors?.[half] === undefined) {
                     throw new ScanCleanupContractError(
                         `missing ink placement anchor for page ${String(pageNumber)} ${half} output`,
                     );

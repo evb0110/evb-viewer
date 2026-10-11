@@ -9,14 +9,12 @@ import {
     type IScanCleanupPagePlanEvidence,
     type IScanCleanupPlacementAnchorCalibration,
     type IScanCleanupPlacementAnchorSummary,
-    type IScanCleanupPlacementAnchor,
     type IScanCleanupRawPreviewEvent,
     type IScanCleanupRawPreviewResult,
     type IScanCleanupPreviewRequest,
     type IScanCleanupPreviewResult,
     type TScanCleanupErrorCode,
     type TScanCleanupOutputMode,
-    type TScanCleanupOutputHalf,
     type TScanCleanupPreviewWireResult,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
@@ -35,7 +33,6 @@ import {
     getScanCleanupPageOverride,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
-    resolveScanCleanupOutputPlacement,
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
@@ -575,25 +572,6 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             && usesScanCleanupInkAlignment(options.settings)
         ) {
             return undefined;
-        }
-        if (summary !== null && options.settings.matchPageSize) {
-            const pageOverride = getScanCleanupPageOverride(
-                options.settings.pageOverrides,
-                requirePageNumber(pageNumber),
-            );
-            const summaryAnchors = summary.samples
-                .filter(sample => sample.pageNumber === pageNumber && resolveScanCleanupOutputPlacement(
-                    options.settings.pageAlignment,
-                    pageOverride,
-                    sample.half,
-                ) === 'ink')
-                .reduce<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>>((resolved, sample) => {
-                    resolved[sample.half] = sample.anchor;
-                    return resolved;
-                }, {});
-            if (Object.keys(summaryAnchors).length > 0) {
-                return summaryAnchors;
-            }
         }
         const anchors = options.placementAnchorsByPage.value.get(pageNumber);
         return anchors !== undefined && Object.keys(anchors).length > 0 ? anchors : undefined;

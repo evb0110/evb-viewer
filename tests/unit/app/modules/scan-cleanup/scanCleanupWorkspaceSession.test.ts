@@ -228,19 +228,15 @@ function placementAnchorSummary(
         sampleCount: 1_025,
         referenceHeightPoints: 792,
         toleranceNormalized: 0.014,
-        topEdgeNormalized: 0.1,
+        // Marks which calibration is installed; the renderer reads anchors
+        // from the per-page calibration, not from the summary.
+        topEdgeNormalized: anchorY,
         identity: placementAnchorIdentity(options),
         clusters: [{
             startNormalized: 0.1,
             endNormalized: 0.1,
             valueNormalized: 0.1,
             size: 1,
-        }],
-        samples: [{
-            pageNumber: requirePageNumber(1),
-            half: 'full',
-            yNormalized: 0.1,
-            anchor: {yNormalized: anchorY},
         }],
     };
 }
@@ -760,20 +756,6 @@ describe('scan cleanup workspace session detection guidance', () => {
                     size: 1,
                 },
             ],
-            samples: [
-                {
-                    pageNumber: requirePageNumber(1),
-                    half: 'full',
-                    yNormalized: 0.1,
-                    anchor: {yNormalized: 0},
-                },
-                {
-                    pageNumber: requirePageNumber(1_025),
-                    half: 'full',
-                    yNormalized: 0.2,
-                    anchor: {yNormalized: 0.1},
-                },
-            ],
         };
         state.results = state.results.map((result, index) => ({
             ...result,
@@ -862,7 +844,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             const callsBefore = recalculationCalls().length;
             mounted.session.selection.updatePageOverride(1, override);
             await vi.waitFor(() => expect(recalculationCalls().length).toBeGreaterThan(callsBefore));
-            await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.samples[0]?.anchor.yNormalized)
+            await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.topEdgeNormalized)
                 .toBe(anchorY));
             expect(harness.value.detectAll).toHaveBeenCalledOnce();
             expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false);
@@ -957,7 +939,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.detection.placementAnchorSummary.value).toBe(null);
         expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(true);
         second.resolve(placementAnchorCalibration(0.3, mounted.session.settings.values));
-        await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.samples[0]?.anchor.yNormalized)
+        await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.topEdgeNormalized)
             .toBe(0.3));
         expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false);
         expect(harness.value.detectAll).toHaveBeenCalledOnce();
@@ -1089,27 +1071,13 @@ describe('scan cleanup workspace session detection guidance', () => {
                 valueNormalized: 0.1,
                 size: 1,
             }],
-            samples: [
-                {
-                    pageNumber: requirePageNumber(1),
-                    half: 'full',
-                    yNormalized: 0.1,
-                    anchor: {yNormalized: 0},
-                },
-                {
-                    pageNumber: requirePageNumber(10_001),
-                    half: 'full',
-                    yNormalized: 0.2,
-                    anchor: {yNormalized: 0.1},
-                },
-                {
-                    pageNumber: requirePageNumber(20_001),
-                    half: 'full',
-                    yNormalized: 0.2,
-                    anchor: {yNormalized: 0.1},
-                },
-            ],
         };
+        // A store-backed document previews through the main process, which
+        // resolves each page from the same summary the run streams with.
+        setPlacementAnchorCalibrationCapability(harness.value, vi.fn(async () => ({
+            summary: placementAnchorSummary,
+            placementAnchors: {full: {yNormalized: 0}},
+        })));
         const state = detectionState('detect-1', 'completed');
         state.progress = {
             ...state.progress,

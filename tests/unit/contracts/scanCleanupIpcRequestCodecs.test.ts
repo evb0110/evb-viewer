@@ -427,26 +427,6 @@ describe('scan-cleanup IPC request codecs', () => {
                 valueNormalized: 0.1005,
                 size: 1,
             }],
-            samples: [
-                {
-                    pageNumber: 1,
-                    half: 'full' as const,
-                    yNormalized: 0.1,
-                    anchor: {yNormalized: 0},
-                },
-                {
-                    pageNumber: 10_001,
-                    half: 'full' as const,
-                    yNormalized: 0.3,
-                    anchor: {yNormalized: 0.2},
-                },
-                {
-                    pageNumber: 20_001,
-                    half: 'full' as const,
-                    yNormalized: 0.2,
-                    anchor: {yNormalized: 0.1},
-                },
-            ],
         };
         expect(v.parse(SCAN_CLEANUP_START_ARGS_SCHEMA, [{
             ...request,
@@ -471,9 +451,9 @@ describe('scan-cleanup IPC request codecs', () => {
             },
             {
                 ...placementAnchorSummary,
-                samples: [{
-                    ...placementAnchorSummary.samples[0],
-                    anchor: {yNormalized: Number.NaN},
+                clusters: [{
+                    ...placementAnchorSummary.clusters[0],
+                    size: 0,
                 }],
             },
         ]) {

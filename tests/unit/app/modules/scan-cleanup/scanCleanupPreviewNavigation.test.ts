@@ -93,10 +93,7 @@ function scanCleanupOptions(): IScanCleanupOptions {
     };
 }
 
-function placementAnchorSummary(
-    detectionSignature: string,
-    anchorY: number,
-): IScanCleanupPlacementAnchorSummary {
+function placementAnchorSummary(detectionSignature: string): IScanCleanupPlacementAnchorSummary {
     return {
         schemaVersion: 1,
         sampleCount: 1,
@@ -113,12 +110,6 @@ function placementAnchorSummary(
             endNormalized: 0.1,
             valueNormalized: 0.1,
             size: 1,
-        }],
-        samples: [{
-            pageNumber: requirePageNumber(100),
-            half: 'full',
-            yNormalized: 0.1,
-            anchor: {yNormalized: anchorY},
         }],
     };
 }
@@ -746,7 +737,7 @@ describe('scan cleanup preview navigation', () => {
         const backend = previewBackend();
         capability.value = backend.capability;
         const summary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(
-            placementAnchorSummary('detection-current', 0.2),
+            placementAnchorSummary('detection-current'),
         );
         const oldCalibration = Promise.withResolvers<IScanCleanupPlacementAnchorCalibration>();
         const resolvePlacementAnchorsForPage = vi.fn(async () => oldCalibration.promise);
@@ -764,7 +755,7 @@ describe('scan cleanup preview navigation', () => {
 
         summary.value!.identity.detectionSignature = 'detection-new';
         oldCalibration.resolve({
-            summary: placementAnchorSummary('detection-current', 0.2),
+            summary: placementAnchorSummary('detection-current'),
             placementAnchors: {full: {yNormalized: 0.2}},
         });
         for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();

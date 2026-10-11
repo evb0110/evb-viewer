@@ -267,6 +267,74 @@ describe('scan-cleanup detection cache', () => {
         }
     });
 
+    it('places a CLI conversion over 256 outputs from every sheet, as a run does', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-cli-ink-full-set-'));
+        temporaryDirectories.push(directory);
+        const inkOptions: IScanCleanupOptions = {
+            ...options,
+            pageAlignment: 'ink',
+        };
+        // The bounded calibration keeps 256 evenly spaced outputs; the 44 it
+        // skips start higher and, among all 300, hold enough pages to be the
+        // book's top edge. A run measures from them, so the CLI must too.
+        const calibrated = new Set(Array.from({length: 256}, (_, index) => Math.floor(index * 299 / 255)));
+        const records: IScanCleanupDetectionResult[] = Array.from({length: 300}, (_, index) => {
+            const pageNumber = requirePageNumber(index + 1);
+            return {
+                ...result,
+                pageNumber,
+                sourcePageMetadata: {
+                    pageNumber,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    sourceDpi: 144,
+                },
+                pagePlanEvidence: {
+                    pageNumber,
+                    rotationDegrees: 0,
+                    layoutClassification: 'single-uncut-page',
+                    outputs: {full: {contentBox: {
+                        xNormalized: 0.1,
+                        yNormalized: calibrated.has(index) ? 0.2 : 0.05,
+                        widthNormalized: 0.8,
+                        heightNormalized: 0.2,
+                        rotationDegrees: 0,
+                    }}},
+                },
+            };
+        });
+        const store = await createFileBackedScanCleanupDetectionResultStore({
+            rootDir: directory,
+            pageCount: records.length,
+        });
+        try {
+            for (const record of records) await store.append(record);
+            const placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
+                options: inkOptions,
+                resultStore: store,
+                signal: new AbortController().signal,
+                identity: {
+                    documentRevision: 'revision',
+                    detectionSignature: 'detection',
+                    calibrationSignature: 'calibration',
+                },
+            });
+            const fields = buildScanCleanupCliDetectionRequestFields({
+                results: records,
+                resultStore: store,
+                placementAnchorSummary,
+            }, inkOptions);
+            expect(fields.placementAnchorsByPage?.['1']).toEqual({full: {yNormalized: expect.closeTo(0.15, 10)}});
+            const skippedPage = Array.from({length: 300}, (_, index) => index).find(index => !calibrated.has(index))! + 1;
+            expect(fields.placementAnchorsByPage?.[String(skippedPage)]).toEqual({full: {yNormalized: 0}});
+        } finally {
+            await store.close();
+        }
+    });
+
     it('keys source bytes and every detection option canonically', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-detection-cache-key-'));
         temporaryDirectories.push(directory);
