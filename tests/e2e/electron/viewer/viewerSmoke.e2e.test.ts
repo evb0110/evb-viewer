@@ -1354,6 +1354,17 @@ async function readWindowLayoutObservation(session: IElectronE2ESession, anchor:
     });
 }
 
+interface ISkeletonFlashProbe {
+    frames: Array<{
+        elapsedMs: number;
+        rendered: boolean;
+        skeletonVisible: boolean;
+    }>;
+    startedAt: number | null;
+}
+
+interface ISkeletonFlashProbeWindow extends Window {__skeletonFlashProbe?: ISkeletonFlashProbe;}
+
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
@@ -3091,6 +3102,63 @@ describe('Electron E2E - Viewer Smoke', () => {
             const pageRect = pageTwo.getBoundingClientRect();
             return Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 100;
         }, { timeout: 5_000 });
+    });
+
+    it('jumps to a distant page without flashing its skeleton', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixturePath = await createMultiPageTextFixturePdf(`skeleton-flash-${Date.now()}.pdf`, 80);
+        const targetPage = 60;
+        await openPdfInApp(page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewportQuiet(page);
+
+        // Every frame from the Enter that commits the jump: is the target's
+        // skeleton on screen? A page that paints quickly should go from the
+        // old page to its own content without the placeholder in between.
+        await page.evaluate((target: number) => {
+            const probe: ISkeletonFlashProbe = {
+                frames: [],
+                startedAt: null,
+            };
+            (window as ISkeletonFlashProbeWindow).__skeletonFlashProbe = probe;
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && probe.startedAt === null) {
+                    probe.startedAt = performance.now();
+                }
+            }, {capture: true});
+            const sample = () => {
+                if (probe.startedAt !== null) {
+                    const container = document.querySelector<HTMLElement>(
+                        `.editor-pane.is-active #pdf-viewer .page_container[data-page="${target}"]`,
+                    );
+                    const skeleton = container?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
+                    const style = skeleton ? window.getComputedStyle(skeleton) : null;
+                    probe.frames.push({
+                        elapsedMs: Math.round(performance.now() - probe.startedAt),
+                        rendered: container?.classList.contains('page_container--rendered') === true,
+                        skeletonVisible: Boolean(
+                            style
+                            && style.display !== 'none'
+                            && style.visibility !== 'hidden'
+                            && Number.parseFloat(style.opacity) > 0.01,
+                        ),
+                    });
+                }
+                if (probe.frames.length < 120) {
+                    requestAnimationFrame(sample);
+                }
+            };
+            requestAnimationFrame(sample);
+        }, targetPage);
+
+        await goToPageViaToolbar(page, targetPage);
+        await waitForFunctionInPage(page, () => (
+            ((window as ISkeletonFlashProbeWindow).__skeletonFlashProbe?.frames ?? []).some(frame => frame.rendered)
+        ), {timeout: 10_000});
+        const frames = await page.evaluate(() => (window as ISkeletonFlashProbeWindow).__skeletonFlashProbe?.frames ?? []);
+
+        const earlySkeletonFrames = frames.filter(frame => frame.skeletonVisible && frame.elapsedMs < 150);
+        expect(earlySkeletonFrames, JSON.stringify(frames.slice(0, 40))).toEqual([]);
     });
 
     // R1, R3 in its weak form, L1 and L4 across a resize of the real window.
