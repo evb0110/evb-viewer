@@ -26,6 +26,7 @@ import {
     getNativeExternalBuildInputs,
 } from './native-build-id.mjs';
 import { getRequestedNativeRustTarget } from './native-rust-targets.mjs';
+import { readBuildEnvironment } from './lib/build-environment.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const usage = `Usage: node scripts/build-native-tool.mjs <tool...>|--all [--dry-run]
@@ -233,7 +234,7 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
     const tools = await resolveTools(request);
     const target = getRequestedNativeRustTarget();
     const staticLinuxCrt = target.platform === 'linux'
-        && process.env.EVB_NATIVE_TARGET_PLATFORM !== undefined;
+        && readBuildEnvironment(process.env).EVB_NATIVE_TARGET_PLATFORM !== undefined;
     const plans = tools.map(tool => ({
         ...createNativeToolBuildPlan({
             projectRoot,
@@ -296,8 +297,9 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
                 // Optional Cargo configuration files are absent in most worktrees.
             }
         }
-        const cargoHome = cargoEnvironment.env.CARGO_HOME
-            ? path.resolve(cargoEnvironment.env.CARGO_HOME)
+        const configuredCargoHome = readBuildEnvironment(cargoEnvironment.env).CARGO_HOME;
+        const cargoHome = configuredCargoHome
+            ? path.resolve(configuredCargoHome)
             : path.join(os.homedir(), '.cargo');
         for (const cargoConfigName of [
             'config',

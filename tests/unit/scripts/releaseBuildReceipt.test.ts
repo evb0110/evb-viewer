@@ -16,6 +16,7 @@ import {
     validateReleaseBuildReceipt,
     writeReleaseBuildReceipt,
 } from '@scripts/release/build-receipt.mjs';
+import {getRequestedNativeRustTarget} from '@scripts/native-rust-targets.mjs';
 
 function fakeToolchain(command: string, args: string[]) {
     return `${command} ${args.join(' ')} test-version`;
@@ -224,6 +225,126 @@ describe('release strict-build receipts', () => {
             for (const secret of secrets) {
                 expect(JSON.stringify(state.contract)).not.toContain(secret);
             }
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('rebuilds when a value that the Nuxt or Electron build reads changes under unchanged source', () => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-reads-'));
+        const receiptPath = path.join(projectRoot, '.devkit', 'receipt.json');
+        writeFileSync(path.join(projectRoot, 'source.ts'), 'export const value = 1;\n');
+        mkdirSync(path.join(projectRoot, 'dist-electron'));
+        writeFileSync(path.join(projectRoot, 'dist-electron', 'main.js'), 'built-output\n');
+        const optionsFor = (env: Record<string, string>) => ({
+            env,
+            inputFiles: ['source.ts'],
+            outputPaths: ['dist-electron'],
+            projectRoot,
+            runCommand: fakeToolchain,
+        });
+        try {
+            writeReleaseBuildReceipt(receiptPath, optionsFor({NODE_ENV: 'production'}));
+            for (const [
+                name,
+                value,
+            ] of [
+                    [
+                        'VERCEL',
+                        '1',
+                    ],
+                    [
+                        'NOW_BUILDER',
+                        '1',
+                    ],
+                    [
+                        'VERCEL_ENV',
+                        'production',
+                    ],
+                    [
+                        'EVB_NUXT_BUILD_DIR',
+                        'nuxt-build',
+                    ],
+                    [
+                        'EVB_NUXT_VITE_CACHE_DIR',
+                        'vite-cache',
+                    ],
+                    [
+                        'EVB_NUXT_OUTPUT_DIR',
+                        'isolated-output',
+                    ],
+                    [
+                        'EVB_ELECTRON_SOURCEMAP',
+                        '1',
+                    ],
+                    [
+                        'GITHUB_SHA',
+                        'a'.repeat(40),
+                    ],
+                    [
+                        'CARGO_HOME',
+                        '/opt/cargo',
+                    ],
+                ] as const) {
+                expect(validateReleaseBuildReceipt(receiptPath, optionsFor({
+                    NODE_ENV: 'production',
+                    [name]: value,
+                })), name).toEqual({
+                    reason: 'inputs-changed',
+                    valid: false,
+                });
+            }
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('rebuilds when the Nuxt output directory the build writes to changes or goes missing', () => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-output-dir-'));
+        const receiptPath = path.join(projectRoot, '.devkit', 'receipt.json');
+        const {platformArch} = getRequestedNativeRustTarget({});
+        writeFileSync(path.join(projectRoot, 'source.ts'), 'export const value = 1;\n');
+        for (const directory of [
+            'dist-electron',
+            'nuxt-output',
+            'isolated-output',
+            '.tmp/native-stage',
+        ]) {
+            mkdirSync(path.join(projectRoot, directory), {recursive: true});
+            writeFileSync(path.join(projectRoot, directory, 'built.js'), 'built-output\n');
+        }
+        writeFileSync(path.join(projectRoot, '.tmp', 'generated-electron-builder-resources.yml'), 'resources: []\n');
+        mkdirSync(path.join(projectRoot, '.tmp', 'native-build-manifest'), {recursive: true});
+        writeFileSync(
+            path.join(projectRoot, '.tmp', 'native-build-manifest', `${platformArch}.json`),
+            `${JSON.stringify({
+                platformArch,
+                schemaVersion: 1,
+                stagingRoots: ['.tmp/native-stage'],
+            })}\n`,
+        );
+        const options = {
+            env: {EVB_NUXT_OUTPUT_DIR: 'isolated-output'},
+            inputFiles: ['source.ts'],
+            projectRoot,
+            runCommand: fakeToolchain,
+        };
+        try {
+            writeReleaseBuildReceipt(receiptPath, options);
+            expect(validateReleaseBuildReceipt(receiptPath, options)).toMatchObject({valid: true});
+
+            // The stable nuxt-output directory is untouched; the directory this build writes is gone.
+            rmSync(path.join(projectRoot, 'isolated-output'), {
+                force: true,
+                recursive: true,
+            });
+            expect(validateReleaseBuildReceipt(receiptPath, options)).toMatchObject({valid: false});
         } finally {
             rmSync(projectRoot, {
                 force: true,

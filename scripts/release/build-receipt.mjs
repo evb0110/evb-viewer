@@ -10,6 +10,12 @@ import {
     writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import {
+    BUILD_PRESENCE_ENVIRONMENT_KEYS,
+    BUILD_SECRET_ENVIRONMENT_KEYS,
+    nuxtOutputDirectory,
+    readBuildEnvironment,
+} from '../lib/build-environment.mjs';
 import { getRequestedNativeRustTarget } from '../native-rust-targets.mjs';
 
 const RECEIPT_SCHEMA_VERSION = 1;
@@ -39,36 +45,17 @@ function getBuildOutputs(env, projectRoot) {
     }
     return [
         'dist-electron',
-        'nuxt-output',
+        nuxtOutputDirectory(readBuildEnvironment(env)),
         '.tmp/generated-electron-builder-resources.yml',
         nativeManifest,
         ...manifest.stagingRoots,
     ];
 }
-const BUILD_ENVIRONMENT_KEYS = [
-    'NODE_ENV',
-    'RUSTFLAGS',
-    'TARGET_ARCH',
-    'npm_config_arch',
-    'EVB_APP_VERSION',
-    'EVB_NATIVE_TARGET_ARCH',
-    'EVB_NATIVE_TARGET_PLATFORM',
-    'EVB_NUXT_COMPATIBILITY_VERSION',
-    'EVB_RELEASE_TARGET_ARCH',
-    'EVB_RELEASE_TARGET_PLATFORM',
-    'EVB_RELEASE_TARGET_DIST',
-    'EVB_ELECTRON_SOURCEMAP',
-];
+// Nuxt and Vite read these by prefix, for their own overrides. The named values
+// the build reads come from readBuildEnvironment.
 const BUILD_ENVIRONMENT_PREFIXES = [
     'NUXT_',
     'VITE_',
-];
-// Secrets that change compiled output (the Sentry DSNs are baked into the
-// bundles). The contract records a SHA-256 of each value: a change rebuilds,
-// and no secret is stored.
-const BUILD_SECRET_ENVIRONMENT_KEYS = [
-    'SENTRY_BROWSER_DSN',
-    'SENTRY_DESKTOP_DSN',
 ];
 // Nuxt loads only the root .env into the build (setupDotenv's default file
 // name), and a value there is compiled in like one set in the environment.
@@ -183,23 +170,35 @@ function dotenvDigests(projectRoot) {
 
 /** @param {NodeJS.ProcessEnv} env */
 function buildEnvironment(env) {
-    const plain = Object.fromEntries(Object.entries(env)
-        .filter(([key]) => (
-            BUILD_ENVIRONMENT_KEYS.includes(key)
-            || BUILD_ENVIRONMENT_PREFIXES.some(prefix => key.startsWith(prefix))
-        ) && !SENSITIVE_BUILD_ENVIRONMENT_KEY.test(key))
+    const buildEnv = readBuildEnvironment(env);
+    const plain = Object.fromEntries([
+        ...Object.entries(env).filter(([key]) => BUILD_ENVIRONMENT_PREFIXES.some(prefix => key.startsWith(prefix))),
+        ...Object.entries(buildEnv).filter(([
+            key,
+            value,
+        ]) => (
+            value !== undefined
+            && !BUILD_SECRET_ENVIRONMENT_KEYS.includes(key)
+            && !BUILD_PRESENCE_ENVIRONMENT_KEYS.includes(key)
+        )),
+    ]
+        .filter(([key]) => !SENSITIVE_BUILD_ENVIRONMENT_KEY.test(key))
         .sort(([left], [right]) => left.localeCompare(right, 'en')));
+    // Secrets compiled into a bundle: a change rebuilds, and no secret is stored.
     const digests = Object.fromEntries(BUILD_SECRET_ENVIRONMENT_KEYS.map(key => [
         `${key}_SHA256`,
         createHash('sha256').update(env[key]?.trim() ?? '').digest('hex'),
     ]));
+    // The build tests these only for truthiness (nuxt.config.ts, build-electron.mjs),
+    // so the value is not compiled in and only the presence bit changes the output.
+    const presence = Object.fromEntries(BUILD_PRESENCE_ENVIRONMENT_KEYS.map(key => [
+        `${key}_SET`,
+        Boolean(env[key]),
+    ]));
     return {
         ...plain,
         ...digests,
-        // The build tests the raw token for truthiness (nuxt.config.ts and
-        // build-electron.mjs), so the token value is not compiled in and only
-        // this presence bit changes the output.
-        SENTRY_AUTH_TOKEN_SET: Boolean(env.SENTRY_AUTH_TOKEN),
+        ...presence,
     };
 }
 

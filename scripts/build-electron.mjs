@@ -14,12 +14,14 @@ import {
 import esbuild from 'esbuild';
 import {fileURLToPath} from 'node:url';
 import {computeNativeBuildIds} from './native-build-id.mjs';
+import {readBuildEnvironment} from './lib/build-environment.mjs';
 
 const { WORKER_BUNDLES } = await import(new URL('../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href);
 
 // Maps are emitted for local debugging or for a release build that uploads
 // them to Sentry (scripts/upload-sentry-sourcemaps.mjs deletes them).
-const emitSourceMaps = process.env.EVB_ELECTRON_SOURCEMAP === '1' || Boolean(process.env.SENTRY_AUTH_TOKEN);
+const buildEnv = readBuildEnvironment(process.env);
+const emitSourceMaps = buildEnv.EVB_ELECTRON_SOURCEMAP === '1' || Boolean(buildEnv.SENTRY_AUTH_TOKEN);
 const buildGitSha = resolveBuildGitSha();
 const buildGitShaDefine = {
     '__EVB_BUILD_GIT_SHA__': JSON.stringify(buildGitSha),
@@ -49,7 +51,7 @@ const buildMetadataDefine = {
 };
 const mainSentryDefine = {
     ...buildMetadataDefine,
-    '__EVB_SENTRY_DSN__': JSON.stringify(process.env.SENTRY_DESKTOP_DSN?.trim() ?? ''),
+    '__EVB_SENTRY_DSN__': JSON.stringify(buildEnv.SENTRY_DESKTOP_DSN?.trim() ?? ''),
 };
 const initialBundleOptions = {
     sourcemap: emitSourceMaps ? 'external' : false,
@@ -83,7 +85,7 @@ function resolveBuildGitSha() {
             '--porcelain',
         ], gitOptions).trim();
     } catch {
-        const ciSha = process.env.GITHUB_SHA?.trim().toLowerCase() ?? '';
+        const ciSha = buildEnv.GITHUB_SHA?.trim().toLowerCase() ?? '';
         // Keep in sync with SCAN_CLEANUP_GIT_SHA_HEX_PATTERN in packages/scan-cleanup/core/provenanceStamp.ts.
         return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(ciSha) ? ciSha : null;
     }
@@ -175,7 +177,7 @@ await cp(
 
 function resolveCanvasTargetPackage() {
     const platform = process.platform;
-    const architecture = process.env.EVB_RELEASE_TARGET_ARCH?.trim() || process.arch;
+    const architecture = buildEnv.EVB_RELEASE_TARGET_ARCH?.trim() || process.arch;
     if (platform === 'darwin' && architecture === 'arm64') {
         return 'canvas-darwin-arm64';
     }
