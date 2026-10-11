@@ -43,6 +43,7 @@ mod markup_hints;
 mod note_markers;
 mod note_placement;
 mod ocr_layer;
+mod ocr_layer_contents;
 mod overlay_destinations;
 mod overlay_sources;
 mod page_geometry;
@@ -101,6 +102,7 @@ pub(crate) use markup_hints::*;
 pub(crate) use note_markers::*;
 pub(crate) use note_placement::*;
 pub(crate) use ocr_layer::*;
+pub(crate) use ocr_layer_contents::*;
 pub(crate) use overlay_sources::*;
 pub(crate) use page_geometry::*;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
