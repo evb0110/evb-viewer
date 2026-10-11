@@ -1,4 +1,5 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
+import {isEqual} from 'es-toolkit/predicate';
 
 import type {
     IScanCleanupPageOverride,
@@ -114,7 +115,9 @@ export function setScanCleanupPageOverride(
 ) {
     const key = String(pageNumber);
     const normalized = createScanCleanupPageOverride(value, documentMargins);
-    if (isDefaultScanCleanupPageOverride(normalized)) {
+    // An absent page resolves to the all-pages defaults, so only a value equal to
+    // them is redundant. A built-in value is kept when the defaults differ.
+    if (isEqual(normalized, getScanCleanupPageOverrideDefaults(overrides))) {
         Reflect.deleteProperty(overrides, key);
         return;
     }

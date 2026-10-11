@@ -17,6 +17,7 @@ import {
     createScanCleanupPlacementAnchorCalibrationSignature,
 } from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
+    attachScanCleanupPageOverrideDefaults,
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     setScanCleanupPageOverride,
@@ -136,6 +137,23 @@ describe('scan cleanup page overrides', () => {
         });
         setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride());
         expect(overrides).toEqual({});
+    });
+
+    it('keeps a built-in page value that differs from the all-pages default', () => {
+        const overrides = {};
+        attachScanCleanupPageOverrideDefaults(overrides, createScanCleanupPageOverride({rotationDegrees: 90}));
+        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride());
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(3)).rotationDegrees).toBe(0);
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(4)).rotationDegrees).toBe(90);
+
+        setScanCleanupPageOverride(overrides, requirePageNumber(5), createScanCleanupPageOverride({rotationDegrees: 90}));
+        expect(Object.keys(overrides)).toEqual(['3']);
+
+        const excludedDefaults = {};
+        attachScanCleanupPageOverrideDefaults(excludedDefaults, createScanCleanupPageOverride({excluded: true}));
+        setScanCleanupPageOverride(excludedDefaults, requirePageNumber(2), createScanCleanupPageOverride());
+        expect(getScanCleanupPageOverride(excludedDefaults, requirePageNumber(2)).excluded).toBe(false);
+        expect(getScanCleanupPageOverride(excludedDefaults, requirePageNumber(1)).excluded).toBe(true);
     });
 
     it('preserves and resets a per-page manual deskew angle', () => {
