@@ -622,15 +622,22 @@ export function buildOutlineFromBookmarkEntries(
         const pageIndex = typeof frame.entry.pageIndex === 'number' && Number.isFinite(frame.entry.pageIndex)
             ? parsePageIndex(Math.max(0, Math.trunc(frame.entry.pageIndex)))
             : null;
+        const dest = frame.entry.originalDestination
+            ? [
+                frame.entry.originalDestination.sourceTarget,
+                {name: frame.entry.originalDestination.kind},
+                ...frame.entry.originalDestination.coordinates,
+            ]
+            : frame.entry.namedDest;
         const id = createId({
             parentId: frame.parentId,
             title: frame.entry.title,
             pageIndex,
-            dest: frame.entry.namedDest,
+            dest,
         });
         frame.target.push({
             title: frame.entry.title,
-            dest: frame.entry.namedDest,
+            dest,
             id,
             pageIndex,
             ...(typeof frame.entry.pageYRatio === 'number' && Number.isFinite(frame.entry.pageYRatio)

@@ -341,6 +341,14 @@ fn offset_wasm_bookmark(
             .map(|page| page.saturating_add(page_offset)),
         page_y_ratio: bookmark.page_y_ratio,
         named_dest: bookmark.named_dest,
+        original_destination: bookmark.original_destination.map(|mut destination| {
+            if let evb_native_support::pdf_catalog::BookmarkSourceTarget::PageIndex(index) =
+                &mut destination.source_target
+            {
+                *index = index.saturating_add(page_offset);
+            }
+            destination
+        }),
         bold: bookmark.bold,
         italic: bookmark.italic,
         color: bookmark.color,
@@ -861,7 +869,8 @@ mod tests {
                 dest[0].as_reference().unwrap(),
                 *saved.get_pages().get(&page_number).unwrap()
             );
-            assert_eq!(f64::from(dest[3].as_float().unwrap()), 75.0);
+            assert_eq!(dest[1].as_name().unwrap(), b"FitH");
+            assert_eq!(f64::from(dest[2].as_float().unwrap()), 75.0);
         }
     }
 

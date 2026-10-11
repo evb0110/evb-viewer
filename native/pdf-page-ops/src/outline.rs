@@ -1,6 +1,8 @@
 use super::*;
+use evb_native_support::pdf_catalog::{BookmarkOriginalDestination, BookmarkSourceTarget};
 use serde::Serialize;
 
+type BookmarkPageTarget = (ObjectId, Option<f64>, Option<BookmarkOriginalDestination>);
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PdfCombineBookmarkEntry {
@@ -9,6 +11,8 @@ pub(crate) struct PdfCombineBookmarkEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) page_y_ratio: Option<f64>,
     pub(crate) named_dest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) original_destination: Option<BookmarkOriginalDestination>,
     pub(crate) bold: bool,
     pub(crate) italic: bool,
     pub(crate) color: Option<String>,
@@ -19,6 +23,7 @@ pub(super) struct RawPdfCombineBookmarkEntry {
     title: String,
     page_id: Option<ObjectId>,
     page_y_ratio: Option<f64>,
+    original_destination: Option<BookmarkOriginalDestination>,
     items: Vec<RawPdfCombineBookmarkEntry>,
     bold: bool,
     italic: bool,
@@ -68,7 +73,7 @@ pub(super) fn read_outline_items<'a>(
             .map(|value| destination_page_target(document, catalog, named_destinations, value))
             .transpose()?
             .flatten();
-        let page_id = page_target.map(|(page_id, _)| page_id);
+        let page_id = page_target.as_ref().map(|(page_id, _, _)| *page_id);
         if let Some(page_id) = page_id {
             page_ids.insert(page_id);
         }
@@ -83,7 +88,8 @@ pub(super) fn read_outline_items<'a>(
         output.push(RawPdfCombineBookmarkEntry {
             title,
             page_id,
-            page_y_ratio: page_target.and_then(|(_, ratio)| ratio),
+            page_y_ratio: page_target.as_ref().and_then(|(_, ratio, _)| *ratio),
+            original_destination: page_target.and_then(|(_, _, destination)| destination),
             items: read_outline_items(
                 document,
                 catalog,
@@ -111,7 +117,7 @@ fn destination_page_target<'a>(
     catalog: &'a Dictionary,
     named_destinations: &mut Option<HashMap<String, &'a Object>>,
     value: &Object,
-) -> Result<Option<(ObjectId, Option<f64>)>> {
+) -> Result<Option<BookmarkPageTarget>> {
     let mut destination = document.resolved(value)?.clone();
     if let Some(name) = pdf_name_or_string(&destination) {
         let Some(named_destination) =
@@ -137,7 +143,16 @@ fn destination_page_target<'a>(
         return Ok(None);
     };
     let ratio = destination_page_y_ratio(document, page_id, array)?;
-    Ok(Some((page_id, ratio)))
+    let original_destination = if array.len() > 6 {
+        None
+    } else {
+        serde_json::from_value(serde_json::json!({
+        "sourceTarget": {"num": page_id.0, "gen": page_id.1},
+        "kind": array.get(1).and_then(|value| value.as_name().ok()).and_then(|value| std::str::from_utf8(value).ok()),
+        "coordinates": array.iter().skip(2).map(|value| if value.is_null() { Ok(None) } else { value.as_float().map(|number| Some(f64::from(number))) }).collect::<std::result::Result<Vec<_>, _>>().ok(),
+    })).ok()
+    };
+    Ok(Some((page_id, ratio, original_destination)))
 }
 
 fn destination_page_y_ratio(
@@ -298,11 +313,16 @@ pub(super) fn finalize_bookmark(
     bookmark: RawPdfCombineBookmarkEntry,
     page_indices: &HashMap<ObjectId, u32>,
 ) -> PdfCombineBookmarkEntry {
+    let page_index = bookmark
+        .page_id
+        .and_then(|page_id| page_indices.get(&page_id).copied());
     PdfCombineBookmarkEntry {
         title: bookmark.title,
-        page_index: bookmark
-            .page_id
-            .and_then(|page_id| page_indices.get(&page_id).copied()),
+        page_index,
+        original_destination: bookmark.original_destination.and_then(|mut destination| {
+            destination.source_target = BookmarkSourceTarget::PageIndex(page_index?);
+            Some(destination)
+        }),
         page_y_ratio: bookmark.page_y_ratio,
         named_dest: None,
         bold: bookmark.bold,
@@ -390,6 +410,7 @@ pub(crate) fn normalize_bookmark_entries(
                     .filter(|value| value.is_finite())
                     .map(|value| value.clamp(0.0, 1.0)),
                 named_dest,
+                original_destination: item.original_destination.clone(),
                 bold: item.bold,
                 italic: item.italic,
                 color: normalize_bookmark_color(item.color.as_deref()),
@@ -399,12 +420,56 @@ pub(crate) fn normalize_bookmark_entries(
         .collect()
 }
 
+fn original_bookmark_destination(
+    document: &impl PdfObjectSource,
+    page_resolver: &PageTreeResolver,
+    item: &BookmarkEntry,
+) -> Result<Option<Object>> {
+    use evb_native_support::pdf_catalog::BookmarkSourceTarget;
+    let Some(original) = &item.original_destination else {
+        return Ok(None);
+    };
+    let page_id = match (item.page_index, &original.source_target) {
+        (Some(index), _) => page_resolver.page_id(
+            document,
+            index.checked_add(1).ok_or("Invalid bookmark page index")?,
+        )?,
+        (None, BookmarkSourceTarget::PageIndex(index)) => page_resolver.page_id(
+            document,
+            index.checked_add(1).ok_or("Invalid bookmark page index")?,
+        )?,
+        (None, BookmarkSourceTarget::Reference { num, gen }) => (*num, *gen),
+    };
+    // A source reference must still be a page, rather than an arbitrary object.
+    let page = document.dictionary(page_id)?;
+    if page.get(b"Type")?.as_name()? != b"Page" {
+        return Err("Original bookmark destination does not reference a page".into());
+    }
+    let mut destination = vec![
+        Object::Reference(page_id),
+        Object::Name(original.kind.pdf_name().to_vec()),
+    ];
+    destination.extend(
+        original
+            .coordinates
+            .iter()
+            .map(|value| value.map(number_object).unwrap_or(Object::Null)),
+    );
+    Ok(Some(Object::Array(destination)))
+}
+
 pub(crate) fn validate_bookmark_destination(
     document: &impl PdfObjectSource,
     page_resolver: &PageTreeResolver,
     bookmark: &Dictionary,
     item: &BookmarkEntry,
 ) -> Result<()> {
+    if let Some(destination) = original_bookmark_destination(document, page_resolver, item)? {
+        if bookmark.get(b"Dest")? != &destination {
+            return Err("Bookmark original destination did not match the request".into());
+        }
+        return Ok(());
+    }
     if let Some(page_index) = item.page_index {
         let page_id = page_resolver.page_id(
             document,
@@ -472,6 +537,10 @@ pub(crate) fn set_bookmark_destination(
     dict: &mut Dictionary,
     item: &BookmarkEntry,
 ) -> Result<()> {
+    if let Some(destination) = original_bookmark_destination(base_document, page_resolver, item)? {
+        dict.set("Dest", destination);
+        return Ok(());
+    }
     if let Some(page_index) = item.page_index {
         let page_number = page_index
             .checked_add(1)

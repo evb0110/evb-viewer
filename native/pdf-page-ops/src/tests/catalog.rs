@@ -36,6 +36,7 @@ fn appends_page_labels_and_bookmarks_as_incremental_revision() {
                     page_index: Some(0),
                     page_y_ratio: Some(0.5),
                     named_dest: None,
+                    original_destination: None,
                     bold: true,
                     italic: false,
                     color: Some("#336699".to_string()),
@@ -305,6 +306,7 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
         page_index: Some(0),
         page_y_ratio: None,
         named_dest: None,
+                    original_destination: None,
         bold: false,
         italic: false,
         color: None,
@@ -343,6 +345,7 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
             page_index: Some(0),
             page_y_ratio: None,
             named_dest: None,
+                    original_destination: None,
             bold: false,
             italic: false,
             color: None,
@@ -437,6 +440,7 @@ fn appends_metadata_removal_as_incremental_revision() {
                 page_index: Some(0),
                 page_y_ratio: None,
                 named_dest: None,
+                    original_destination: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -769,6 +773,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
                 page_index: Some(0),
                 page_y_ratio: Some(0.25),
                 named_dest: None,
+                    original_destination: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -779,6 +784,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
                 page_index: Some(999_999),
                 page_y_ratio: Some(0.75),
                 named_dest: None,
+                    original_destination: None,
                 bold: true,
                 italic: true,
                 color: Some("#336699".to_string()),
@@ -1435,5 +1441,36 @@ fn saved_bookmark_anchor_uses_rotated_crop_coordinates() {
             (f64::from(dest[3].as_float().unwrap()) - expected.1).abs() < 0.01,
             "rotation {rotation}"
         );
+    }
+}
+
+#[test]
+fn saved_bookmark_preserves_original_destination_before_lookup() {
+    for (kind, coordinates) in [
+        ("XYZ", serde_json::json!([null, null, null])), ("FitH", serde_json::json!([null])),
+        ("FitR", serde_json::json!([100, 200, 500, 600])), ("Fit", serde_json::json!([])),
+        ("FitV", serde_json::json!([null])), ("FitB", serde_json::json!([])),
+        ("FitBH", serde_json::json!([25])), ("FitBV", serde_json::json!([null])),
+    ] {
+        let (mut document, page_id) = create_test_document();
+        let mut input = Vec::new(); document.save_to(&mut input).unwrap();
+        for source_target in [serde_json::json!({"num": page_id.0, "gen": page_id.1}), serde_json::json!(0)] {
+            let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks":{
+                "totalPages":1, "untitledLabel":"Untitled", "items":[{"title":"Renamed", "pageIndex":null, "namedDest":null,
+                "originalDestination":{"sourceTarget":source_target,"kind":kind,"coordinates":coordinates},
+                "bold":true,"italic":false,"color":null,"items":[]}]
+            }})).unwrap()).unwrap();
+            let output = append_native_mutations_to_bytes(&input, &mutations, "D:20261011000000Z").unwrap();
+            let loaded = Document::load_mem(&output.data).unwrap();
+            let outlines = loaded.get_dictionary(loaded.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
+            let bookmark = loaded.get_dictionary(outlines.get(b"First").unwrap().as_reference().unwrap()).unwrap();
+            let destination = bookmark.get(b"Dest").unwrap().as_array().unwrap();
+            assert_eq!(destination[0].as_reference().unwrap(), page_id);
+            assert_eq!(destination[1].as_name().unwrap(), kind.as_bytes());
+            for (actual, expected) in destination.iter().skip(2).zip(coordinates.as_array().unwrap()) {
+                if expected.is_null() {assert!(actual.is_null(), "{kind}");}
+                else {assert_eq!(f64::from(actual.as_float().unwrap()), expected.as_f64().unwrap());}
+            }
+        }
     }
 }

@@ -1004,6 +1004,13 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
                 ?? null;
             updated.namedDest = namedDest && namedDest.trim().length > 0 ? namedDest.trim() : null;
         }
+        if (
+            hasAgentInputKey(bookmarkUpdates, 'page') || hasAgentInputKey(bookmarkUpdates, 'pageNumber')
+            || hasAgentInputKey(bookmarkUpdates, 'pageIndex') || (hasAgentBookmarkPageYRatioInput(bookmarkUpdates) && updated.pageIndex !== null)
+            || hasAgentInputKey(bookmarkUpdates, 'namedDest') || hasAgentInputKey(bookmarkUpdates, 'dest')
+        ) {
+            delete updated.originalDestination;
+        }
         if (hasAgentInputKey(bookmarkUpdates, 'bold')) {
             updated.bold = getAgentBooleanInput(bookmarkUpdates, 'bold') ?? false;
         }

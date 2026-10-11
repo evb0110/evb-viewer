@@ -1,3 +1,5 @@
+import {PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA} from '@contracts/pdfBookmarkEntry';
+import * as v from 'valibot';
 import type {
     IBookmarkItem,
     TBookmarkDisplayMode,
@@ -472,12 +474,18 @@ export const usePdfOutlineEditing = (
     function mapBookmarksForPersistence(items: IBookmarkItem[]): IPdfBookmarkEntry[] {
         return items.map((item) => {
             const title = item.title.trim();
+            const destination = Array.isArray(item.dest) && item.dest.length <= 6 ? v.safeParse(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA, {
+                sourceTarget: item.dest[0],
+                kind: typeof item.dest[1] === 'object' && item.dest[1] !== null && 'name' in item.dest[1] ? item.dest[1].name : undefined,
+                coordinates: item.dest.slice(2),
+            }) : null;
             return {
                 title: title.length > 0 ? title : t('bookmarks.untitled'),
                 pageIndex: typeof item.pageIndex === 'number' ? item.pageIndex : null,
                 pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio)
                     ? clamp(item.pageYRatio, 0, 1)
                     : null,
+                ...(destination?.success ? {originalDestination: destination.output} : {}),
                 namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
                 bold: item.bold,
                 italic: item.italic,

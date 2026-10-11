@@ -1,5 +1,5 @@
 import {
-    PDFDocument, degrees,
+    PDFDocument, PDFName, PDFString, PDFArray, PDFDict, PDFNumber, PDFNull, degrees,
 } from 'pdf-lib';
 import {
     copyFile, mkdtemp, readFile, realpath, writeFile,
@@ -11,7 +11,7 @@ import {
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, saveViaWindowHandle, waitForPdfLoaded, waitForToolbarCurrentPage,
+    goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbar, saveViaWindowHandle, waitForPdfLoaded, waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     createOutlinePageLabelFixturePdf, fixtureBookmark, readPdfMetadataWithQpdf,
@@ -63,6 +63,124 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await waitForToolbarCurrentPage(page, 1);
         await waitForViewportQuiet(page);
     }, 90_000);
+
+    it('keeps destination kinds and null coordinates when renaming a large outline', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`destination-fidelity-${Date.now()}.pdf`, []);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        const definitions = [
+            {
+                title: 'XYZ unspecified',
+                page: 0,
+                kind: 'XYZ',
+                coordinates: [
+                    null,
+                    null,
+                    null,
+                ],
+            },
+            {
+                title: 'FitH unspecified',
+                page: 1,
+                kind: 'FitH',
+                coordinates: [null],
+            },
+            {
+                title: 'Fit rectangle',
+                page: 2,
+                kind: 'FitR',
+                coordinates: [
+                    100,
+                    200,
+                    500,
+                    600,
+                ],
+            },
+            {
+                title: 'Fit page',
+                page: 3,
+                kind: 'Fit',
+                coordinates: [],
+            },
+        ];
+        const outlines = pdf.context.obj({Type: PDFName.of('Outlines')});
+        const outlinesRef = pdf.context.register(outlines);
+        const entries = Array.from({length: 4_999}, (_, index) => {
+            const definition = definitions[index] ?? {
+                title: `Section ${index + 1}`,
+                page: index % 4,
+                kind: 'FitH',
+                coordinates: [null],
+            };
+            const entry = pdf.context.obj({
+                Title: PDFString.of(definition.title),
+                Parent: outlinesRef,
+                Dest: [
+                    pdf.getPages()[definition.page]!.ref,
+                    PDFName.of(definition.kind),
+                    ...definition.coordinates,
+                ],
+            });
+            return {
+                entry,
+                ref: pdf.context.register(entry),
+            };
+        });
+        entries.forEach(({entry}, index) => {
+            if (index > 0) entry.set(PDFName.of('Prev'), entries[index - 1]!.ref);
+            if (index + 1 < entries.length) entry.set(PDFName.of('Next'), entries[index + 1]!.ref);
+        });
+        outlines.set(PDFName.of('First'), entries[0]!.ref);
+        outlines.set(PDFName.of('Last'), entries.at(-1)!.ref);
+        outlines.set(PDFName.of('Count'), pdf.context.obj(entries.length));
+        pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
+        await writeFile(fixture, await pdf.save());
+        const expectedDestinations = await readOriginalDestinationSamples(fixture);
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        for (const definition of definitions) {
+            await goToPageViaToolbar(page, definition.page === 3 ? 1 : 4);
+            await scrollBookmarkListToTop(page);
+            await activateBookmark(page, definition.title);
+            await waitForToolbarCurrentPage(page, definition.page + 1);
+        }
+        await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
+        const row = await findBookmarkRow(page, 'XYZ unspecified');
+        await clickAsUser(page, row, {button: 'right'});
+        await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control');
+        await page.keyboard.type('XYZ renamed'); await page.keyboard.press('Enter');
+        await findBookmarkRow(page, 'XYZ renamed');
+        await saveViaVisibleToolbar(page, 90_000, fixture);
+        expect(await readOriginalDestinationSamples(fixture)).toEqual(expectedDestinations);
+        await clickAsUser(page, 'button[aria-label="Close Tab"]');
+        await page.waitForSelector('.page_container', {hidden: true});
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        for (const [
+            index,
+            title,
+        ] of [
+                'XYZ renamed',
+                'FitH unspecified',
+                'Fit rectangle',
+                'Fit page',
+            ].entries()) {
+            await goToPageViaToolbar(page, index === 3 ? 1 : 4);
+            await scrollBookmarkListToTop(page);
+            await activateBookmark(page, title);
+            await waitForToolbarCurrentPage(page, index + 1);
+        }
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-destination-fidelity-'));
+        await copyFile(fixture, join(evidence, 'saved.pdf'));
+        await scrollBookmarkListToTop(page);
+        await page.screenshot({path: join(evidence, 'reopened.png')});
+        console.info(`Bookmark fidelity evidence: ${evidence}`);
+    }, 300_000);
 
     it('keeps imported destinations when one bookmark title is renamed and saved', async () => {
         const evidenceDirectory = await mkdtemp(join(tmpdir(), 'evb-e2e-bookmark-rename-'));
@@ -183,6 +301,20 @@ async function activateBookmark(page: Page, title: string) {
     await clickAsUser(page, row);
 }
 
+async function scrollBookmarkListToTop(page: Page) {
+    const scroller = await page.$eval('.document-bookmark-tree__list', (element) => {
+        const box = element.getBoundingClientRect();
+        return {
+            x: box.x + box.width / 2,
+            y: box.y + box.height / 2,
+            distance: element.scrollHeight,
+        };
+    });
+    await page.mouse.move(scroller.x, scroller.y);
+    await page.mouse.wheel({deltaY: -scroller.distance});
+    await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
+}
+
 async function findBookmarkRow(page: Page, title: string) {
     await waitForFunctionInPage(page, (expected: string) => Array.from(document.querySelectorAll('.pdf-bookmark-item-row, .document-bookmark-item__row'))
         .some(row => row.textContent?.trim() === expected), {}, title);
@@ -193,4 +325,25 @@ async function findBookmarkRow(page: Page, title: string) {
         }
     }
     throw new Error(`Bookmark is not rendered: ${title}`);
+}
+
+async function readOriginalDestinationSamples(path: string) {
+    const pdf = await PDFDocument.load(await readFile(path));
+    const outlines = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict);
+    let entry = outlines.lookup(PDFName.of('First'), PDFDict);
+    const samples = [];
+    for (let index = 0; index < 4; index += 1) {
+        const destination = entry.lookup(PDFName.of('Dest'), PDFArray).asArray();
+        samples.push({
+            pageIndex: pdf.getPages().findIndex(page => page.ref.toString() === destination[0]!.toString()),
+            kind: destination[1]!.toString(),
+            coordinates: destination.slice(2).map(value => {
+                if (value === PDFNull) return null;
+                if (!(value instanceof PDFNumber)) throw new Error('Saved bookmark coordinate must be numeric or null');
+                return value.asNumber();
+            }),
+        });
+        if (index < 3) entry = entry.lookup(PDFName.of('Next'), PDFDict);
+    }
+    return samples;
 }

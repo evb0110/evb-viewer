@@ -1,3 +1,4 @@
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     computed,
     ref,
@@ -11,6 +12,12 @@ import {
 } from 'vitest';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import { usePdfOutlineEditing } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing';
+import {usePdfOutlineDragDrop} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
+import {
+    buildResolvedOutline, parseOutlineItems, resolveBookmarkPageTargets,
+} from '@app/utils/pdfOutlineHelpers';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {cast} from '@tests/helpers/cast';
 
 function createBookmark(id: string, items: IBookmarkItem[] = []): IBookmarkItem {
     return {
@@ -99,6 +106,176 @@ function createEditingHarness(initialBookmarks: IBookmarkItem[]) {
 describe('usePdfOutlineEditing', () => {
     beforeEach(() => {
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+    });
+
+    it.each([
+        'rename',
+        'delete',
+        'reorder',
+    ])('retains source destinations when %s cancels a held lookup', async (operation) => {
+        const held = Promise.withResolvers<undefined>();
+        const started = Promise.withResolvers<undefined>();
+        const pdf = cast<IPdfDocument>({
+            numPages: 2,
+            getPageIndex: async () => {
+                started.resolve(undefined);
+                await held.promise;
+                return 0;
+            },
+        });
+        let nextId = 0;
+        const items = await buildResolvedOutline(parseOutlineItems([
+            {
+                title: 'first',
+                dest: [
+                    {
+                        num: 1,
+                        gen: 0,
+                    },
+                    {name: 'XYZ'},
+                    null,
+                    600,
+                    null,
+                ],
+            },
+            {
+                title: 'second',
+                dest: [
+                    {
+                        num: 2,
+                        gen: 0,
+                    },
+                    {name: 'XYZ'},
+                    null,
+                    400,
+                    null,
+                ],
+            },
+        ]), pdf, new Map(), new Map(), () => String(++nextId), {resolveDestinations: false});
+        const controller = new AbortController();
+        const resolution = resolveBookmarkPageTargets(pdf, items, new Map(), new Map(), controller.signal);
+        await started.promise;
+        const harness = createEditingHarness(items);
+        harness.emitBookmarksChange.mockImplementation(() => controller.abort());
+        if (operation === 'rename') harness.editing.renameBookmark({
+            id: '1',
+            title: 'renamed',
+        });
+        else if (operation === 'delete') harness.editing.removeBookmark('1');
+        else {
+            harness.selectedBookmarkIds.value = new Set(['1']);
+            const dragging = usePdfOutlineDragDrop(
+                harness.bookmarks, harness.expandedBookmarkIds, computed(() => true), harness.selectedBookmarkIds,
+                computed(() => createParentMap(harness.bookmarks.value)), computed(() => createOrderMap(harness.bookmarks.value)),
+                vi.fn(), vi.fn(),
+            );
+            dragging.handleBookmarkDragStart({id: '1'});
+            dragging.handleBookmarkDrop({
+                targetId: '2',
+                position: 'after',
+            }, harness.activeItemId, harness.emitBookmarksChange);
+        }
+        held.resolve(undefined);
+        await expect(resolution).rejects.toMatchObject({name: 'AbortError'});
+        const saved = harness.editing.mapBookmarksForPersistence(harness.bookmarks.value);
+        expect(saved.map(item => item.title)).toEqual(operation === 'rename' ? [
+            'renamed',
+            'second',
+        ] : operation === 'delete' ? ['second'] : [
+            'second',
+            'first',
+        ]);
+        expect(saved.map(item => item.originalDestination)).toEqual(harness.bookmarks.value.map(item => ({
+            kind: 'XYZ',
+            sourceTarget: Array.isArray(item.dest) ? item.dest[0] : null,
+            coordinates: Array.isArray(item.dest) ? item.dest.slice(2) : [],
+        })));
+        expect(saved.every(item => item.pageIndex === null)).toBe(true);
+    });
+
+    it.each([
+        [
+            'XYZ',
+            [
+                null,
+                null,
+                null,
+            ],
+        ],
+        [
+            'FitH',
+            [null],
+        ],
+        [
+            'FitR',
+            [
+                100,
+                200,
+                500,
+                600,
+            ],
+        ],
+        [
+            'Fit',
+            [],
+        ],
+        [
+            'FitV',
+            [null],
+        ],
+        [
+            'FitB',
+            [],
+        ],
+        [
+            'FitBH',
+            [25],
+        ],
+        [
+            'FitBV',
+            [null],
+        ],
+    ])('keeps the original %s destination through unrelated edits before lookup completes', (kind, coordinates) => {
+        const sourceTarget = {
+            num: 17,
+            gen: 0,
+        };
+        const item = {
+            ...createBookmark('original'),
+            dest: [
+                sourceTarget,
+                {name: kind},
+                ...coordinates,
+            ],
+        };
+        const harness = createEditingHarness([
+            item,
+            createBookmark('other'),
+        ]);
+        harness.editing.renameBookmark({
+            id: 'original',
+            title: 'Renamed',
+        });
+        harness.editing.toggleBookmarkBold('original');
+        harness.editing.removeBookmark('other');
+        expect(harness.editing.mapBookmarksForPersistence(harness.bookmarks.value)[0]).toMatchObject({
+            title: 'Renamed',
+            pageIndex: null,
+            originalDestination: {
+                kind,
+                sourceTarget,
+                coordinates,
+            },
+        });
+        // Passive lookup may derive a convenience anchor, but cannot replace the source destination.
+        harness.bookmarks.value[0]!.pageIndex = requirePageIndex(0);
+        harness.bookmarks.value[0]!.pageYRatio = 0;
+        expect(harness.editing.mapBookmarksForPersistence(harness.bookmarks.value)[0]?.originalDestination)
+            .toEqual({
+                kind,
+                sourceTarget,
+                coordinates,
+            });
     });
 
     it('removes selected sibling bookmarks in one edit', () => {

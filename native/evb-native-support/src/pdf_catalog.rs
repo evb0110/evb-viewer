@@ -16,6 +16,116 @@ pub struct PageLabelRange {
     pub start_number: u32,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum BookmarkSourceTarget {
+    PageIndex(u32),
+    Reference { num: u32, gen: u16 },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+pub enum BookmarkDestinationKind {
+    XYZ,
+    Fit,
+    FitH,
+    FitV,
+    FitR,
+    FitB,
+    FitBH,
+    FitBV,
+}
+
+impl BookmarkDestinationKind {
+    pub fn coordinate_count(self) -> usize {
+        match self {
+            Self::XYZ => 3,
+            Self::Fit | Self::FitB => 0,
+            Self::FitR => 4,
+            _ => 1,
+        }
+    }
+
+    pub fn pdf_name(self) -> &'static [u8] {
+        match self {
+            Self::XYZ => b"XYZ",
+            Self::Fit => b"Fit",
+            Self::FitH => b"FitH",
+            Self::FitV => b"FitV",
+            Self::FitR => b"FitR",
+            Self::FitB => b"FitB",
+            Self::FitBH => b"FitBH",
+            Self::FitBV => b"FitBV",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookmarkOriginalDestination {
+    pub kind: BookmarkDestinationKind,
+    pub source_target: BookmarkSourceTarget,
+    pub coordinates: Vec<Option<f64>>,
+}
+
+impl<'de> Deserialize<'de> for BookmarkOriginalDestination {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Wire {
+            kind: BookmarkDestinationKind,
+            source_target: BookmarkSourceTarget,
+            #[serde(deserialize_with = "deserialize_destination_coordinates")]
+            coordinates: Vec<Option<f64>>,
+        }
+        let wire = Wire::deserialize(deserializer)?;
+        if wire.coordinates.len() != wire.kind.coordinate_count()
+            || wire
+                .coordinates
+                .iter()
+                .flatten()
+                .any(|value| !(*value as f32).is_finite())
+            || matches!(
+                wire.source_target,
+                BookmarkSourceTarget::Reference { num: 0, .. }
+            )
+        {
+            return Err(serde::de::Error::custom(
+                "Invalid original bookmark destination",
+            ));
+        }
+        Ok(Self {
+            kind: wire.kind,
+            source_target: wire.source_target,
+            coordinates: wire.coordinates,
+        })
+    }
+}
+
+fn deserialize_destination_coordinates<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<Option<f64>>, D::Error> {
+    struct Coordinates;
+    impl<'de> Visitor<'de> for Coordinates {
+        type Value = Vec<Option<f64>>;
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("at most four numeric or null destination coordinates")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
+            let mut coordinates = Vec::with_capacity(4);
+            while let Some(value) = sequence.next_element()? {
+                if coordinates.len() == 4 {
+                    return Err(serde::de::Error::custom(
+                        "Too many bookmark destination coordinates",
+                    ));
+                }
+                coordinates.push(value);
+            }
+            Ok(coordinates)
+        }
+    }
+    deserializer.deserialize_seq(Coordinates)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BookmarkEntry {
@@ -25,6 +135,8 @@ pub struct BookmarkEntry {
     pub page_y_ratio: Option<f64>,
     #[serde(default)]
     pub named_dest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_destination: Option<BookmarkOriginalDestination>,
     #[serde(default)]
     pub bold: bool,
     #[serde(default)]
@@ -137,6 +249,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
         let mut page_index = None;
         let mut page_y_ratio = None;
         let mut named_dest = None;
+        let mut original_destination = None;
         let mut bold = false;
         let mut italic = false;
         let mut color = None;
@@ -147,6 +260,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
                 "pageIndex" => page_index = Some(map.next_value()?),
                 "pageYRatio" => page_y_ratio = map.next_value()?,
                 "namedDest" => named_dest = map.next_value()?,
+                "originalDestination" => original_destination = map.next_value()?,
                 "bold" => bold = map.next_value()?,
                 "italic" => italic = map.next_value()?,
                 "color" => color = map.next_value()?,
@@ -164,6 +278,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
             page_index: page_index.unwrap_or(None),
             page_y_ratio,
             named_dest,
+            original_destination,
             bold,
             italic,
             color,
@@ -177,6 +292,7 @@ const BOOKMARK_FIELDS: &[&str] = &[
     "pageIndex",
     "pageYRatio",
     "namedDest",
+    "originalDestination",
     "bold",
     "italic",
     "color",
@@ -307,6 +423,7 @@ pub fn normalize_bookmark_entries(
                     .filter(|value| value.is_finite())
                     .map(|value| value.clamp(0.0, 1.0)),
                 named_dest,
+                original_destination: item.original_destination.clone(),
                 bold: item.bold,
                 italic: item.italic,
                 color: normalize_bookmark_color(item.color.as_deref()),
@@ -393,6 +510,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_unbounded_or_incomplete_original_destinations() {
+        for invalid in [
+            r#"{"kind":"XYZ","sourceTarget":0,"coordinates":[null]}"#,
+            r#"{"kind":"FitR","sourceTarget":0,"coordinates":[0,0,100,100,0]}"#,
+            r#"{"kind":"FitH","sourceTarget":{"num":0,"gen":0},"coordinates":[null]}"#,
+            r#"{"kind":"FitH","sourceTarget":0,"coordinates":[1e100]}"#,
+            r#"{"kind":"unknown","sourceTarget":0,"coordinates":[]}"#,
+        ] {
+            assert!(serde_json::from_str::<BookmarkOriginalDestination>(invalid).is_err());
+        }
+        let destination: BookmarkOriginalDestination = serde_json::from_str(
+            r#"{"kind":"XYZ","sourceTarget":{"num":17,"gen":0},"coordinates":[null,null,null]}"#,
+        )
+        .unwrap();
+        assert_eq!(destination.coordinates, vec![None, None, None]);
+    }
+
+    #[test]
     fn normalizes_page_label_ranges_by_page_and_adds_default() {
         let ranges = normalize_page_label_ranges(
             &[
@@ -426,6 +561,7 @@ mod tests {
                 page_index: Some(99),
                 page_y_ratio: Some(f64::NAN),
                 named_dest: Some("  ".to_string()),
+                original_destination: None,
                 bold: true,
                 italic: false,
                 color: Some("#abc".to_string()),

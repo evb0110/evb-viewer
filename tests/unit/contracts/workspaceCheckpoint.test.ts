@@ -39,6 +39,32 @@ function createCheckpoint() {
 }
 
 describe('decodeWorkspaceCheckpoint', () => {
+    it('keeps original bookmark destinations in accepted metadata recovery', () => {
+        const originalDestination = {
+            kind: 'FitH',
+            sourceTarget: {
+                num: 17,
+                gen: 0,
+            },
+            coordinates: [null],
+        };
+        const metadata = {bookmarks: {
+            revision: 2,
+            dirty: true,
+            items: [{
+                title: 'Source',
+                pageIndex: null,
+                namedDest: null,
+                originalDestination,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            }],
+        }};
+        expect(readWorkspaceRecoveryMetadata({metadata})).toEqual(metadata);
+    });
+
     it('admits explicit metadata deletion and keeps legacy annotation artifacts readable', () => {
         const metadata = {
             bookmarks: {

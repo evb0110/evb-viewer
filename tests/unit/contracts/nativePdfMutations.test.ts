@@ -144,6 +144,71 @@ function countBookmarkItems(items: readonly INativeBookmarkTestItem[]): number {
 }
 
 describe('native PDF mutation contracts', () => {
+    it('preserves bounded source destinations through save and rejects invalid coordinate shapes', () => {
+        const originalDestination = {
+            kind: 'XYZ',
+            sourceTarget: {
+                num: 17,
+                gen: 0,
+            },
+            coordinates: [
+                null,
+                null,
+                null,
+            ],
+        };
+        const bookmark = {
+            title: 'Source',
+            pageIndex: null,
+            pageYRatio: null,
+            namedDest: null,
+            originalDestination,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        };
+        const mutations = {bookmarks: {
+            totalPages: 2,
+            untitledLabel: 'Untitled',
+            items: [bookmark],
+        }};
+        expect(normalizePdfNativeMutationSet(mutations, 'mutations').bookmarks?.items[0]?.originalDestination).toEqual(originalDestination);
+        for (const invalid of [
+            {
+                ...originalDestination,
+                kind: 'Invalid',
+            },
+            {
+                ...originalDestination,
+                coordinates: [null],
+            },
+            {
+                ...originalDestination,
+                coordinates: [
+                    NaN,
+                    null,
+                    null,
+                ],
+            },
+            {
+                ...originalDestination,
+                sourceTarget: {
+                    num: -1,
+                    gen: 0,
+                },
+            },
+        ]) {
+            expect(() => normalizePdfNativeMutationSet({bookmarks: {
+                ...mutations.bookmarks,
+                items: [{
+                    ...bookmark,
+                    originalDestination: invalid,
+                }],
+            }}, 'mutations')).toThrow();
+        }
+    });
+
     it('normalizes native canonical identity bindings without changing their proof', () => {
         expect(normalizePdfNativeAnnotationIdentityBindings([{
             annotationId: '  app-annotation-1 ',

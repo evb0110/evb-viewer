@@ -1,3 +1,4 @@
+import {isEqual} from 'es-toolkit/predicate';
 import type { TPageIndex } from '@contracts/pageNumbers';
 
 import { clamp } from 'es-toolkit/math';
@@ -33,6 +34,7 @@ function areEntryFieldsEqual(left: IPdfBookmarkEntry, right: IPdfBookmarkEntry) 
     return normalizeTitle(left.title) === normalizeTitle(right.title)
         && normalizePageIndex(left.pageIndex) === normalizePageIndex(right.pageIndex)
         && normalizePageYRatio(left.pageYRatio) === normalizePageYRatio(right.pageYRatio)
+        && isEqual(left.originalDestination, right.originalDestination)
         && normalizeNamedDest(left.namedDest) === normalizeNamedDest(right.namedDest)
         && (left.bold === true) === (right.bold === true)
         && (left.italic === true) === (right.italic === true)

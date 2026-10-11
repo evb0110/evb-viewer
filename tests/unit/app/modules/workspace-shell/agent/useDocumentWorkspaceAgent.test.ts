@@ -704,6 +704,51 @@ describe('createDocumentWorkspaceAgent', () => {
         }));
     });
 
+    it('keeps the source destination through rename and clears it for a complete explicit page target', async () => {
+        const originalDestination = {
+            kind: 'FitH' as const,
+            sourceTarget: {
+                num: 17,
+                gen: 0,
+            },
+            coordinates: [null],
+        };
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            title: 'Original',
+            pageIndex: null,
+            namedDest: null,
+            originalDestination,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        }]);
+        const options = createAgentOptions({bookmarkItems});
+        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        const agent = createDocumentWorkspaceAgent(options);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            title: 'Renamed',
+        });
+        expect(bookmarkItems.value[0]?.originalDestination).toEqual(originalDestination);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            pageYRatio: 0.25,
+        });
+        expect(bookmarkItems.value[0]?.originalDestination).toEqual(originalDestination);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            page: 2,
+            pageYRatio: 0.25,
+        });
+        expect(bookmarkItems.value[0]).toMatchObject({
+            title: 'Renamed',
+            pageIndex: 1,
+            pageYRatio: 0.25,
+        });
+        expect(bookmarkItems.value[0]?.originalDestination).toBeUndefined();
+    });
+
     it('adds nested bookmarks with children aliases and pageYRatio anchors', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([createBookmark('Lesson 5')]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {

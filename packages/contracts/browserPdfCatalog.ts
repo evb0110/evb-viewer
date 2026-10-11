@@ -1,9 +1,13 @@
+import {
+    decodeBookmarkOriginalDestination, type TPdfBookmarkOriginalDestination,
+} from '@contracts/pdfBookmarkEntry';
 import {isRecord} from '@contracts/runtimeGuards';
 
 export interface IBrowserPdfCatalogBookmark {
     title: string;
     pageIndex: number | null;
     pageYRatio?: number | null;
+    originalDestination?: TPdfBookmarkOriginalDestination;
     namedDest: string | null;
     bold: boolean;
     italic: boolean;
@@ -60,6 +64,10 @@ function decodeBookmark(
     ) {
         return null;
     }
+    let originalDestination: TPdfBookmarkOriginalDestination | undefined;
+    if (value.originalDestination !== undefined) {
+        try { originalDestination = decodeBookmarkOriginalDestination(value.originalDestination); } catch { return null; }
+    }
     state.count += 1;
     const items: IBrowserPdfCatalogBookmark[] = [];
     for (const item of value.items) {
@@ -73,6 +81,7 @@ function decodeBookmark(
         title: value.title,
         pageIndex: value.pageIndex,
         ...(value.pageYRatio === undefined ? {} : {pageYRatio: value.pageYRatio}),
+        ...(originalDestination === undefined ? {} : {originalDestination}),
         namedDest: value.namedDest,
         bold: value.bold,
         italic: value.italic,

@@ -567,6 +567,12 @@ describe('browser page-ops WASM fast path', () => {
             bookmarks: [{
                 title: 'Page three',
                 pageIndex: 2,
+                pageYRatio: 0,
+                originalDestination: {
+                    kind: 'Fit',
+                    coordinates: [],
+                    sourceTarget: 2,
+                },
                 namedDest: null,
                 bold: false,
                 italic: false,
@@ -608,6 +614,11 @@ describe('browser page-ops WASM fast path', () => {
             bookmarks: [{
                 title: 'Page three',
                 pageIndex: 2,
+                originalDestination: {
+                    kind: 'Fit',
+                    coordinates: [],
+                    sourceTarget: 2,
+                },
             }],
             pageLabels: [
                 {

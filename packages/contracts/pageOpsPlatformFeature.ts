@@ -1,3 +1,4 @@
+import {decodeBookmarkOriginalDestination} from '@contracts/pdfBookmarkEntry';
 import type {
     TPageNumber,
     IPageMoveRangeSegment,
@@ -251,6 +252,7 @@ function decodeBookmarkEntries(
             title: raw.title,
             pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             ...(pageYRatio === undefined ? {} : {pageYRatio}),
+            ...(raw.originalDestination === undefined ? {} : {originalDestination: decodeBookmarkOriginalDestination(raw.originalDestination)}),
             namedDest: raw.namedDest,
             bold: raw.bold,
             italic: raw.italic,
