@@ -64,12 +64,20 @@ async function runStep(
  * divided by the steps still to run, so every step keeps a turn, and a step
  * that finishes early hands its unused share to the ones after it.
  */
-async function runBoundedSteps(logger: ILogger, steps: IShutdownStep[], deadlineAt?: number) {
+async function runBoundedSteps(
+    logger: ILogger,
+    steps: IShutdownStep[],
+    deadlineAt?: number,
+    isHeld?: () => boolean,
+) {
     let failed = false;
     for (const [
         index,
         step,
     ] of steps.entries()) {
+        if (isHeld?.()) {
+            break;
+        }
         const stepTimeoutMs = step.timeoutMs ?? SHUTDOWN_STEP_TIMEOUT_MS;
         const timeoutMs = deadlineAt === undefined
             ? stepTimeoutMs
@@ -81,6 +89,18 @@ async function runBoundedSteps(logger: ILogger, steps: IShutdownStep[], deadline
         failed ||= result.failed;
     }
     return {failed};
+}
+
+/**
+ * A retryable failure holds a quit the user asked for. The windows stay open and
+ * must keep saving, printing and retrying close, so preservation stops before its
+ * next step (main-operation admission, operation cancellation, the write drain)
+ * and cleanup does not dispose services. Fatal and system shutdowns are never
+ * held: they must finish preservation and cleanup.
+ */
+function isQuitHeldForRetry(context: IShutdownContext) {
+    return context.retryablePreservationFailure === true
+        && (context.reason === 'graceful' || context.reason === 'recovery-relaunch');
 }
 
 /**
@@ -100,6 +120,8 @@ export function createShutdownPhaseRunners(
                 const result = await runBoundedSteps(
                     logger,
                     options.createPreservationSteps(context),
+                    undefined,
+                    () => isQuitHeldForRetry(context),
                 );
                 // If any preservation step itself failed, retain every recovery
                 // artifact. A partial path list is not sufficient evidence that
@@ -115,6 +137,9 @@ export function createShutdownPhaseRunners(
             }
         },
         async runBestEffortCleanupSteps(context: IShutdownContext) {
+            if (isQuitHeldForRetry(context)) {
+                return;
+            }
             const steps = options.createBestEffortCleanupSteps(context);
             const deadlineAt = Date.now() + SHUTDOWN_CLEANUP_TIMEOUT_MS;
 
