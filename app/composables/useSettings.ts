@@ -188,7 +188,7 @@ export const useSettings = () => {
         },
     });
 
-    if (import.meta.client && unsubscribeSettingsChanges === null) {
+    if (typeof window !== 'undefined' && unsubscribeSettingsChanges === null) {
         unsubscribeSettingsChanges = getSettingsCapability().onChanged((committed) => {
             const adopted = selectAdoptedSettings(settings.value, lastSavedSettings.value, committed);
             if (Object.hasOwn(adopted, 'clientDiagnosticsPreference')) {
@@ -233,11 +233,11 @@ export const useSettings = () => {
             getSettingsSnapshot: () => toRaw(settings.value),
             getLastSavedSettings: () => lastSavedSettings.value,
             savePatch: patch => getSettingsCapability().save(patch),
-            onSaved(nextSettings) {
-                rememberSavedSettings(nextSettings);
+            // The owner's committed values reached lastSavedSettings before the save resolved.
+            onSaved() {
                 refreshSettingsBootstrapCookieSnapshot();
                 for (const key of pendingSettingsIntent.keys()) {
-                    if (settings.value[key] === nextSettings[key]) {
+                    if (settings.value[key] === lastSavedSettings.value?.[key]) {
                         pendingSettingsIntent.delete(key);
                     }
                 }

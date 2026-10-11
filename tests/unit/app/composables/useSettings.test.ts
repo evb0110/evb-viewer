@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import {
     beforeEach,
     describe,
@@ -16,12 +17,25 @@ import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNu
 
 const mockGet = vi.fn<() => Promise<ISettingsData>>();
 const mockSave = vi.fn<(settings: TSettingsSavePatch) => Promise<void>>();
+const settingsChangeListeners = new Set<(settings: ISettingsData) => void>();
+const mockOnChanged = vi.fn((listener: (settings: ISettingsData) => void) => {
+    settingsChangeListeners.add(listener);
+    return () => settingsChangeListeners.delete(listener);
+});
 const cookieStore = new Map<string, Ref<unknown>>();
 const stateStore = new Map<string, Ref<unknown>>();
 const mockPlatformApi = createElectronPlatformApiFixture({settings: {
     get: mockGet,
+    onChanged: mockOnChanged,
     save: mockSave,
 }});
+
+// The owner sends each committed write to every window, this one included, before the save replies.
+function emitSettingsChange(settings: ISettingsData) {
+    for (const listener of settingsChangeListeners) {
+        listener(settings);
+    }
+}
 const colorMode = {preference: 'light'};
 
 vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
@@ -52,6 +66,7 @@ describe('useSettings', () => {
         vi.clearAllMocks();
         mockGet.mockReset();
         mockSave.mockReset();
+        settingsChangeListeners.clear();
         vi.useRealTimers();
         cookieStore.clear();
         stateStore.clear();
@@ -321,7 +336,13 @@ describe('useSettings', () => {
     it('shares one in-flight save queue across settings composable callers', async () => {
         const firstSave = createDeferred();
         mockSave
-            .mockImplementationOnce(() => firstSave.promise)
+            .mockImplementationOnce(async (patch) => {
+                await firstSave.promise;
+                emitSettingsChange({
+                    ...DEFAULT_SETTINGS,
+                    ...patch,
+                });
+            })
             .mockResolvedValue(undefined);
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -351,7 +372,13 @@ describe('useSettings', () => {
     it('drains a setting edit admitted while the close flush is in flight', async () => {
         const firstSave = createDeferred();
         mockSave
-            .mockImplementationOnce(() => firstSave.promise)
+            .mockImplementationOnce(async (patch) => {
+                await firstSave.promise;
+                emitSettingsChange({
+                    ...DEFAULT_SETTINGS,
+                    ...patch,
+                });
+            })
             .mockResolvedValue(undefined);
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -369,6 +396,50 @@ describe('useSettings', () => {
 
         expect(mockSave).toHaveBeenCalledTimes(2);
         expect(mockSave).toHaveBeenLastCalledWith({theme: 'dark'});
+    });
+
+    it('keeps the committed value of a key another window saved while this save was in flight', async () => {
+        const firstSave = createDeferred();
+        mockGet.mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            locale: 'en',
+            theme: 'light',
+        });
+        mockSave.mockImplementationOnce(() => firstSave.promise);
+
+        const { useSettings } = await import('@app/composables/useSettings');
+        const {
+            load,
+            save,
+            settings,
+        } = useSettings();
+        await load();
+
+        settings.value.theme = 'dark';
+        const savePromise = save();
+        await vi.waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
+        // Another window changes the locale while this save is in flight, then the owner commits this save.
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            locale: 'ru',
+            theme: 'light',
+        });
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            locale: 'ru',
+            theme: 'dark',
+        });
+        firstSave.resolve();
+        await savePromise;
+
+        expect(settings.value.locale).toBe('ru');
+        // Nothing is pending in this window for the locale, so another window's next change is adopted.
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            locale: 'en',
+            theme: 'dark',
+        });
+        expect(settings.value.locale).toBe('en');
     });
 });
 

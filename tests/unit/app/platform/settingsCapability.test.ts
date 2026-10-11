@@ -510,4 +510,36 @@ describe('browserSettingsCapability', () => {
 
         await expect(browserSettingsCapability.save({authorName: 'Unsaved'})).rejects.toThrow('localStorage');
     });
+
+    it('delivers a save to this page\'s own listeners before the save resolves', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', {localStorage});
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        const changes: unknown[] = [];
+        const unsubscribe = browserSettingsCapability.onChanged(settings => changes.push(settings));
+
+        await browserSettingsCapability.save({locale: 'ru'});
+
+        expect(changes.at(-1)).toMatchObject({locale: 'ru'});
+        unsubscribe();
+    });
+
+    it('does not let a grant that committed before a withdrawal reopen reporting', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', {localStorage});
+        const {browserSettingsCapability} = await import('@app/platform/browser-api/browserSettingsCapability');
+        const changes: Array<{clientDiagnosticsPreference: string}> = [];
+        const unsubscribe = browserSettingsCapability.onChanged(settings => changes.push(settings));
+
+        const grant = browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
+        const withdrawal = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
+        await Promise.all([
+            grant,
+            withdrawal,
+        ]);
+
+        expect(changes.some(settings => settings.clientDiagnosticsPreference === 'granted')).toBe(false);
+        expect(changes.at(-1)).toMatchObject({clientDiagnosticsPreference: 'denied'});
+        unsubscribe();
+    });
 });
