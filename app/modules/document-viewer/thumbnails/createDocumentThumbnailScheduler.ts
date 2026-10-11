@@ -205,8 +205,9 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
             const timeoutPromise = new Promise<never>((_resolve, reject) => {
                 renderTimer = setTimeout(() => {
                     renderTimedOut = true;
-                    controller.abort();
-                    reject(new Error(`Thumbnail render timed out after ${String(renderTimeoutMs)}ms`));
+                    const error = new Error(`Thumbnail render timed out after ${String(renderTimeoutMs)}ms`);
+                    reject(error);
+                    controller.abort(error);
                 }, renderTimeoutMs);
             });
             const lease = await Promise.race([
@@ -260,7 +261,8 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 previous.releaseOnce.release();
             }
         } catch (error) {
-            if (!controller.signal.aborted && isAbortError(error)) {
+            if (renderTimedOut && controller.signal.reason === error) options.onError?.(error, demand);
+            else if (!controller.signal.aborted && isAbortError(error)) {
                 // The source refused the page, as a closing document does;
                 // asking again at once would spin, so the next reconcile asks.
                 if (desired.get(pageNumber) === demand) desired.delete(pageNumber);
