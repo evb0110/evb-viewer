@@ -127,6 +127,38 @@ describe('workingCopyMaterialization', () => {
         expect(revisionAfter).toEqual(revisionBefore);
     });
 
+    it('reports a published copy as materialized when its later cache invalidation fails', async () => {
+        const fixture = await registerLazyWorkingCopy(Buffer.from('%PDF-1.7\npublished\n%%EOF\n'));
+        const {
+            ensureWorkingCopyMaterialized,
+            onWorkingCopyBackingSwapCacheInvalidation,
+            onWorkingCopyMaterializationProgress,
+        } = await import('@electron/file-access/workingCopyMaterialization');
+        const statuses: string[] = [];
+        const removeProgressListener = onWorkingCopyMaterializationProgress((event) => {
+            statuses.push(event.status);
+        });
+        const removeInvalidator = onWorkingCopyBackingSwapCacheInvalidation(() => {
+            if (existsSync(fixture.workingPath)) {
+                throw new Error('cache invalidation failed');
+            }
+        });
+
+        const result = await ensureWorkingCopyMaterialized(fixture.workingPath, {
+            ownerWebContentsId: 7,
+            reason: 'save',
+        });
+
+        removeInvalidator();
+        removeProgressListener();
+        expect(readFileSync(fixture.workingPath).equals(fixture.bytes)).toBe(true);
+        expect(result.sourceFingerprint).toMatch(/^sha256-full-v1:/u);
+        const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
+        expect(getWorkingCopyBackingEntry(fixture.workingPath, 7)?.backingState).toBe('materialized');
+        expect(statuses).not.toContain('failed');
+        expect(statuses.at(-1)).toBe('completed');
+    });
+
     it('shares one flight across concurrent demand waiters', async () => {
         const fixture = await registerLazyWorkingCopy(Buffer.alloc(MULTI_CHUNK_FIXTURE_BYTES, 19));
         const {
