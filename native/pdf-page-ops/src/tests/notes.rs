@@ -3068,3 +3068,28 @@ fn metadata_free_freetext_on_a_swapped_page_stays_foreign() {
         }
     }
 }
+
+#[test]
+fn print_layout_draws_a_text_note_without_appearance_for_any_standard_icon() {
+    for icon in ["Note", "Comment", "Help", "Key", "NewParagraph", "Paragraph", "Insert"] {
+        let (mut document, page_id) = create_test_document();
+        let annot_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "Name" => icon,
+            "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+            "F" => 4,
+        });
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annot_id)]);
+
+        build_print_layout(&mut document, None, PrintViewMode::Single, PrintOrientation::Auto)
+            .unwrap_or_else(|error| panic!("/{icon} note failed to print: {error}"));
+        assert!(
+            print_annotation_appearance(&document).is_some(),
+            "/{icon} note was not drawn"
+        );
+    }
+}

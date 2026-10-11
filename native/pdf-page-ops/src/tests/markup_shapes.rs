@@ -2799,3 +2799,94 @@ fn rewrites_an_indirect_source_rect_when_the_shape_moved() {
     assert_approximately(rect[0], 30.0);
     assert_approximately(rect[2], 110.0);
 }
+
+#[test]
+fn print_layout_draws_each_evb_shape_saved_without_appearance() {
+    let rect = || vec![20.into(), 20.into(), 100.into(), 80.into()];
+    let line_endings = |start: &[u8], end: &[u8]| {
+        Object::Array(vec![
+            Object::Name(start.to_vec()),
+            Object::Name(end.to_vec()),
+        ])
+    };
+    let shapes = [
+        ("Square", dictionary! {
+            "Subtype" => "Square", "Rect" => rect(), "C" => vec![1.into(), 0.into(), 0.into()],
+            "Border" => vec![0.into(), 0.into(), 2.into()],
+        }, b"re".as_slice()),
+        ("Circle", dictionary! {
+            "Subtype" => "Circle", "Rect" => rect(), "C" => vec![0.into(), 0.into(), 1.into()],
+            "IC" => vec![1.into(), 1.into(), 0.into()],
+        }, b" c\n".as_slice()),
+        ("Line", dictionary! {
+            "Subtype" => "Line", "Rect" => rect(), "L" => vec![20.into(), 20.into(), 100.into(), 80.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()], "LE" => line_endings(b"None", b"OpenArrow"),
+        }, b" l\nS\n".as_slice()),
+        ("PolyLine", dictionary! {
+            "Subtype" => "PolyLine", "Rect" => rect(),
+            "Vertices" => vec![20.into(), 20.into(), 60.into(), 80.into(), 100.into(), 20.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()],
+        }, b" l\nS\n".as_slice()),
+        ("Polygon", dictionary! {
+            "Subtype" => "Polygon", "Rect" => rect(),
+            "Vertices" => vec![20.into(), 20.into(), 60.into(), 80.into(), 100.into(), 20.into()],
+            "C" => vec![0.into(), 0.into(), 0.into()], "IC" => vec![0.into(), 1.into(), 0.into()],
+        }, b"h\nb\n".as_slice()),
+    ];
+    for (label, mut annotation, expected_operator) in shapes {
+        let (mut document, page_id) = create_test_document();
+        annotation.set("F", 4);
+        let annot_id = document.add_object(annotation);
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annot_id)]);
+
+        build_print_layout(&mut document, None, PrintViewMode::Single, PrintOrientation::Auto)
+            .unwrap_or_else(|error| panic!("{label} saved without appearance failed to print: {error}"));
+        let appearance = print_annotation_appearance(&document)
+            .unwrap_or_else(|| panic!("{label} was not drawn"));
+        assert!(
+            appearance.windows(expected_operator.len()).any(|window| window == expected_operator),
+            "{label} appearance lacks {:?}: {}",
+            String::from_utf8_lossy(expected_operator),
+            String::from_utf8_lossy(&appearance)
+        );
+    }
+}
+
+#[test]
+fn print_layout_skips_a_shape_without_the_print_flag() {
+    let (mut document, page_id) = create_test_document();
+    let annot_id = document.add_object(dictionary! {
+        "Subtype" => "Square",
+        "Rect" => vec![20.into(), 20.into(), 100.into(), 80.into()],
+        "F" => 0,
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annot_id)]);
+
+    build_print_layout(&mut document, None, PrintViewMode::Single, PrintOrientation::Auto).unwrap();
+    assert!(print_annotation_appearance(&document).is_none());
+}
+
+#[test]
+fn print_layout_still_refuses_an_ink_annotation_without_appearance() {
+    let (mut document, page_id) = create_test_document();
+    let annot_id = document.add_object(dictionary! {
+        "Subtype" => "Ink",
+        "Rect" => vec![20.into(), 20.into(), 100.into(), 80.into()],
+        "InkList" => vec![Object::Array(vec![20.into(), 20.into(), 100.into(), 80.into()])],
+        "F" => 4,
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annot_id)]);
+
+    let error = build_print_layout(&mut document, None, PrintViewMode::Single, PrintOrientation::Auto)
+        .unwrap_err();
+    assert!(error.to_string().contains("has no normal appearance"));
+}

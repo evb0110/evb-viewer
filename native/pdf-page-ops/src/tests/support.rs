@@ -231,3 +231,15 @@
             .set("Annots", vec![Object::Reference(annot_id)]);
         (document, page_id, annot_id)
     }
+
+/// The synthesized appearance of the first flattened annotation, or `None`
+/// when print layout drew nothing for it.
+fn print_annotation_appearance(document: &Document) -> Option<Vec<u8>> {
+    let page_id = *document.get_pages().values().next().unwrap();
+    let resources = document.get_dictionary(page_id).unwrap().get(b"Resources").unwrap();
+    let form_id = resources.as_dict().unwrap().get(b"XObject").unwrap().as_dict().unwrap().get(b"P0").unwrap().as_reference().unwrap();
+    let form = document.get_object(form_id).unwrap().as_stream().unwrap();
+    let names = form.dict.get(b"Resources").unwrap().as_dict().unwrap().get(b"XObject").ok()?;
+    let appearance_id = names.as_dict().unwrap().get(b"PrintAnnot0").ok()?.as_reference().unwrap();
+    Some(document.get_object(appearance_id).unwrap().as_stream().unwrap().decompressed_content().unwrap())
+}
