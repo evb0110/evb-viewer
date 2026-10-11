@@ -2187,3 +2187,118 @@ fn split_pages_assembly_writes_only_the_page_tree_and_page_labels() {
     let _ = remove_file(output);
     let _ = remove_file(instructions);
 }
+
+/// The public synthetic three-page catalog_probe.py source from review-b6h.
+/// It includes labels, destinations, forms, tags, Info and two disjoint OCGs.
+fn review_catalog_source() -> Document {
+    let hex = include_str!("fixtures/scan-cleanup-catalog.pdf.hex");
+    let bytes = hex.split_whitespace().collect::<String>();
+    let bytes = bytes
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect::<Vec<_>>();
+    Document::load_mem(&bytes).unwrap()
+}
+
+fn review_split(source: &mut Document, order: &[usize], assembly: bool, stamp: bool) -> Document {
+    let input = path("review-catalog-input", "pdf");
+    let output = path("review-catalog-output", "pdf");
+    let instructions = path("review-catalog-instructions", "json");
+    source.save(&input).unwrap();
+    let mut value = serde_json::json!({"pages": order.iter().map(|index| serde_json::json!({
+        "sourcePageIndex": index, "rotationQuarterTurns": 0,
+        "outputs": [{"cropRect": {"x": 0, "y": 0, "width": 200, "height": 120},
+            "contentTransform": {"scale": 1, "translateX": 0, "translateY": 0}}]
+    })).collect::<Vec<_>>()});
+    if assembly {
+        value["catalog"] = "assembly".into();
+    }
+    if stamp {
+        value["provenanceStampHex"] = "54455354".into();
+    }
+    write(&instructions, value.to_string()).unwrap();
+    run_split_pages(&input, &output, &instructions);
+    let split = Document::load(&output).unwrap();
+    for file in [input, output, instructions] {
+        let _ = remove_file(file);
+    }
+    split
+}
+
+#[test]
+fn split_pages_cross_page_reply_targets_the_listed_output_note() {
+    for order in [&[0, 1, 2][..], &[2, 0][..]] {
+        let mut source = review_catalog_source();
+        let target = source.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => (5, 0),
+            "Rect" => vec![100.into(), 60.into(), 120.into(), 80.into()],
+            "Contents" => Object::string_literal("other-root"),
+        });
+        source
+            .get_dictionary_mut((5, 0))
+            .unwrap()
+            .set("Annots", vec![Object::Reference(target)]);
+        source
+            .get_dictionary_mut((21, 0))
+            .unwrap()
+            .set("IRT", target);
+        let split = review_split(&mut source, order, false, false);
+        let annotations = (1..=order.len() as u32)
+            .flat_map(|number| split_page_annotations(&split, number))
+            .collect::<Vec<_>>();
+        let (root, _) = annotations
+            .iter()
+            .find(|(_, annotation)| {
+                annotation.get(b"Contents").and_then(Object::as_str).ok() == Some(b"other-root")
+            })
+            .unwrap();
+        let (_, reply) = annotations
+            .iter()
+            .find(|(_, annotation)| annotation.has(b"IRT"))
+            .unwrap();
+        assert_eq!(
+            reply.get(b"IRT").unwrap().as_reference().unwrap(),
+            *root,
+            "the cross-page reply must target the listed note, never an unlisted twin"
+        );
+    }
+}
+
+#[test]
+fn split_pages_removed_reply_target_keeps_text_without_an_unlisted_clone() {
+    let mut source = review_catalog_source();
+    let target = source.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => (5, 0),
+        "Rect" => vec![100.into(), 60.into(), 120.into(), 80.into()],
+        "Contents" => Object::string_literal("other-root"),
+    });
+    source
+        .get_dictionary_mut((5, 0))
+        .unwrap()
+        .set("Annots", vec![Object::Reference(target)]);
+    source
+        .get_dictionary_mut((21, 0))
+        .unwrap()
+        .set("IRT", target);
+    let split = review_split(&mut source, &[0], false, false);
+    let annotations = split_page_annotations(&split, 1);
+    let (_, reply) = annotations
+        .iter()
+        .find(|(_, annotation)| {
+            annotation.get(b"Contents").and_then(Object::as_str).ok() == Some(b"reply")
+        })
+        .unwrap();
+    assert!(
+        !reply.has(b"IRT"),
+        "a removed target leaves a standalone note with the reply's text"
+    );
+    assert!(!split
+        .objects
+        .values()
+        .filter_map(|object| object.as_dict().ok())
+        .any(
+            |annotation| annotation.get(b"Contents").and_then(Object::as_str).ok()
+                == Some(b"other-root")
+        ));
+}

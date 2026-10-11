@@ -1,6 +1,6 @@
 //! Builds the output page and annotation graph once for both PDF writers.
 use super::*;
-use crate::annotation_threads::transform_page_annotations;
+use crate::annotation_threads::transform_split_annotations;
 use crate::split_pages::validate_content_transform;
 use lopdf::dictionary;
 
@@ -19,12 +19,8 @@ fn set_page_box(page: &mut Dictionary, key: &str, rect: PdfRect) {
 fn apply_content_transform_incremental(
     base: &Document,
     target: &mut Document,
-    source_page_id: ObjectId,
-    page_id: ObjectId,
     page: &mut Dictionary,
     transform: Option<SplitContentTransform>,
-    crop: PdfRect,
-    page_index: &HashMap<ObjectId, usize>,
 ) -> Result<()> {
     let transform = transform.map(validate_content_transform).transpose()?;
     if let Some(transform) = transform {
@@ -46,16 +42,7 @@ fn apply_content_transform_incremental(
             Object::Array(streams.into_iter().map(Object::Reference).collect()),
         );
     }
-    transform_page_annotations(
-        base,
-        target,
-        source_page_id,
-        page_id,
-        page,
-        transform,
-        crop,
-        page_index,
-    )
+    Ok(())
 }
 
 fn split_source_page_number(source_page_index: usize) -> Result<u32> {
@@ -73,6 +60,16 @@ fn split_source_page_number(source_page_index: usize) -> Result<u32> {
     })
 }
 
+pub(crate) struct SplitOutputPage {
+    pub(crate) source_id: ObjectId,
+    pub(crate) id: ObjectId,
+    pub(crate) page: Dictionary,
+    pub(crate) crop: PdfRect,
+    pub(crate) transform: Option<SplitContentTransform>,
+}
+
+pub(crate) type SplitAnnotationMap = HashMap<ObjectId, Vec<(ObjectId, ObjectId)>>;
+
 pub(crate) fn build_split_output(
     source: &Document,
     target: &mut Document,
@@ -81,7 +78,7 @@ pub(crate) fn build_split_output(
     let source_pages = source.get_pages();
     let page_index = page_index_by_id(&source_pages);
     let pages_id = target.new_object_id();
-    let mut output_page_ids = Vec::new();
+    let mut pages = Vec::new();
 
     for instruction in &instructions.pages {
         if !(0..=3).contains(&instruction.rotation_quarter_turns) {
@@ -100,12 +97,8 @@ pub(crate) fn build_split_output(
             apply_content_transform_incremental(
                 source,
                 target,
-                source_page_id,
-                page_id,
                 &mut page,
                 output_instruction.content_transform,
-                crop,
-                &page_index,
             )?;
             set_page_box(&mut page, "MediaBox", crop);
             set_page_box(&mut page, "CropBox", crop);
@@ -117,26 +110,34 @@ pub(crate) fn build_split_output(
                 normalize_page_rotation(source_rotation + instruction.rotation_quarter_turns * 90),
             );
             page.set("Parent", pages_id);
-            target.objects.insert(page_id, page.into());
-            output_page_ids.push(page_id);
+            pages.push(SplitOutputPage {
+                source_id: source_page_id,
+                id: page_id,
+                page,
+                crop,
+                transform: output_instruction.content_transform,
+            });
         }
     }
 
-    let kids = output_page_ids
+    transform_split_annotations(source, target, &mut pages, &page_index)?;
+    let kids = pages
         .iter()
-        .copied()
-        .map(Object::Reference)
+        .map(|page| Object::Reference(page.id))
         .collect::<Vec<_>>();
     target.objects.insert(
         pages_id,
         dictionary! {
             "Type" => "Pages",
             "Kids" => kids,
-            "Count" => i64::try_from(output_page_ids.len())?,
+            "Count" => i64::try_from(pages.len())?,
         }
         .into(),
     );
 
+    for page in pages {
+        target.set_object(page.id, page.page);
+    }
     let catalog_id = source.trailer.get(b"Root")?.as_reference()?;
     let catalog = split_catalog(source, catalog_id, pages_id, instructions.catalog)?;
     target.set_object(catalog_id, Object::Dictionary(catalog));
@@ -147,4 +148,92 @@ pub(crate) fn build_split_output(
         target.trailer.set("Info", info_id);
     }
     Ok(())
+}
+
+pub(crate) fn split_annotation_matrix(transform: Option<SplitContentTransform>) -> [f64; 6] {
+    transform.map_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0], |transform| {
+        [
+            transform.scale,
+            0.0,
+            0.0,
+            transform.scale,
+            transform.translate_x,
+            transform.translate_y,
+        ]
+    })
+}
+
+type PendingSplitAnnotations = Vec<(usize, ObjectId, Dictionary)>;
+
+pub(crate) fn allocate_split_annotations(
+    source: &Document,
+    target: &mut Document,
+    pages: &mut [SplitOutputPage],
+) -> Result<(SplitAnnotationMap, PendingSplitAnnotations)> {
+    let mut copies = crate::split_output::SplitAnnotationMap::new();
+    let mut pending = Vec::new();
+    for (index, output) in pages.iter_mut().enumerate() {
+        let Some(entries) = page_annotation_array(source, &output.page) else {
+            continue;
+        };
+        let mut kept = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let Some((source_id, annotation)) = source
+                .dereference(&entry)
+                .ok()
+                .and_then(|(id, object)| Some((id, object.as_dict().ok()?.clone())))
+            else {
+                kept.push(entry);
+                continue;
+            };
+            if !crate::annotation_threads::keep_split_annotation(source, output, &annotation)? {
+                continue;
+            }
+            let copy_id = match source_id
+                .and_then(|id| copies.get(&id))
+                .and_then(|copies| copies.iter().find(|(page, _)| *page == output.id))
+            {
+                Some((_, id)) => {
+                    kept.push(Object::Reference(*id));
+                    continue;
+                }
+                None => target.new_object_id(),
+            };
+            if let Some(source_id) = source_id {
+                copies
+                    .entry(source_id)
+                    .or_default()
+                    .push((output.id, copy_id));
+            }
+            kept.push(Object::Reference(copy_id));
+            pending.push((index, copy_id, annotation));
+        }
+        output.page.set("Annots", kept);
+    }
+    // A popup may legally appear only through its owner's /Popup. Put that
+    // companion in the page list too, so every copied member has one identity.
+    let mut cursor = 0;
+    while cursor < pending.len() {
+        let (index, _, annotation) = &pending[cursor];
+        let index = *index;
+        if let Some(popup) = annotation_related_ref(annotation, b"Popup") {
+            if !copies
+                .get(&popup)
+                .is_some_and(|copies| copies.iter().any(|(page, _)| *page == pages[index].id))
+            {
+                if let Ok(member) = source.get_dictionary(popup) {
+                    let id = target.new_object_id();
+                    copies.entry(popup).or_default().push((pages[index].id, id));
+                    pages[index]
+                        .page
+                        .get_mut(b"Annots")?
+                        .as_array_mut()?
+                        .push(id.into());
+                    pending.push((index, id, member.clone()));
+                }
+            }
+        }
+        cursor += 1;
+    }
+    Ok((copies, pending))
 }
