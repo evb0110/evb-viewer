@@ -1,7 +1,17 @@
 use super::*;
 use std::{
-    env, fs, process,
+    env, fs,
+    io::BufWriter,
+    path::{Path, PathBuf},
+    process,
     time::{SystemTime, UNIX_EPOCH},
+};
+use tiff::{
+    encoder::{
+        colortype::{self, ColorType},
+        Rational, TiffEncoder,
+    },
+    tags::{ResolutionUnit, Tag},
 };
 
 #[test]
