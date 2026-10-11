@@ -678,6 +678,10 @@ async function emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             y: number
         }}).__recentPressPoint!
     ));
+    // Sampling starts only once the row is actionable, so its per-frame
+    // visibility walks stay out of the timed interval. Only frames from the
+    // press onward are read, so nothing it skipped is asserted.
+    await installCommittedSurfaceSampler(session.page);
     if (activation === 'keyboard') {
         // Focus is setup; the activation itself is a trusted keyboard input.
         await evaluateInPage(session.page, (targetSourcePath: string) => {
@@ -928,7 +932,6 @@ describe('Electron E2E - Recent Files', () => {
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
 
-        await installCommittedSurfaceSampler(session.page);
         await startToolbarTransitionSampling(session);
         const sourceDeferred = await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__deferDocumentOpenForAutomation?.(path) ?? false
