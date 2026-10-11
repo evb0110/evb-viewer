@@ -465,13 +465,6 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         workingCopyCleanupSkipPaths.clear();
         return [
             {
-                label: 'assistant-history-preservation',
-                onFailure: () => {
-                    context.retryablePreservationFailure = true;
-                },
-                run: () => preserveAssistantStateForShutdownIfLoaded(),
-            },
-            {
                 label: 'renderer-save-flush',
                 timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS + 500,
                 run: async () => {
@@ -507,6 +500,13 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                         logger.info(`Renderer flushed ${result.flushedWorkingCopyPaths.length} working copy path(s) before shutdown`);
                     }
                 },
+            },
+            {
+                label: 'assistant-history-preservation',
+                onFailure: () => {
+                    context.retryablePreservationFailure = true;
+                },
+                run: () => preserveAssistantStateForShutdownIfLoaded(),
             },
             {
                 label: 'main-operation-shutdown',
