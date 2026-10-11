@@ -74,6 +74,9 @@ const STOCK_FIXTURE = join(
 );
 const ACCEPTANCE_TIMEOUT_MS = 180_000;
 const SAVE_TIMEOUT_MS = 60_000;
+// The hidden window presents a committed canvas 100-250 ms later; a frame that
+// stays stale for seconds is a presentation defect, not capture timing.
+const PRESENTED_FRAME_TIMEOUT_MS = 5_000;
 const EXPECTED_IMPORTED_KINDS = [
     'note',
     'placed-image',
@@ -402,12 +405,12 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         }
         async function captureAppearance(label: string) {
             const screenshotPath = join(artifactDirectory, `${label}.png`);
-            const deadline = Date.now() + SAVE_TIMEOUT_MS;
+            const deadline = Date.now() + PRESENTED_FRAME_TIMEOUT_MS;
             // The readback above sees the committed canvas as soon as it is drawn,
             // but the hidden window presents it on a later frame: the first capture
             // after the commit can still return the frame from before it, and the
             // next capture shows the ink a person would see. Capture again until the
-            // presented frame holds the appearance, within the save budget.
+            // presented frame holds the appearance.
             let appearance = await captureAppearanceFrame(screenshotPath);
             while (appearance.inkCount <= 100 && Date.now() < deadline) {
                 appearance = await captureAppearanceFrame(screenshotPath);
