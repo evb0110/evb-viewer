@@ -258,26 +258,6 @@ export async function admitBrowserMaintenance<T>(
     );
 }
 
-// A working copy is judged by the recovery journal and in-flight transfers only.
-// The window's own lease names a copy until the next checkpoint or heartbeat
-// republishes it, so a copy that an edit or save has superseded would stay pinned
-// until reload. The sweep still honours every lease for working copies, which is
-// how another window's open document keeps its copy.
-function isRefRetainedBy(
-    authorities: IBrowserMaintenanceAuthorities,
-    ref: string,
-    kind: IBrowserPersistedDocumentRecord['kind'] | undefined,
-) {
-    if (authorities.recoveryLeasedRefs.has(ref) || authorities.transfers.leasedRefs.has(ref)) {
-        return true;
-    }
-    if (kind === 'working') {
-        return false;
-    }
-    return authorities.documents.some((record) => record.ref !== ref && record.sourceRef === ref)
-        || authorities.liveLeases.leasedRefs.has(ref);
-}
-
 type TBrowserDetachedRecordRemoval = 'absent' | 'deleted' | 'retained';
 
 // Detached-record cleanup may delete a source only in the admission that judged
@@ -294,7 +274,9 @@ export async function removeBrowserDetachedRecordIfUnretained(
             return 'retained';
         }
         const record = authorities.documents.find(candidate => candidate.ref === ref);
-        if (isRefRetainedBy(authorities, ref, record?.kind)) {
+        if (authorities.recoveryLeasedRefs.has(ref) || authorities.transfers.leasedRefs.has(ref)
+            || authorities.liveLeases.leasedRefs.has(ref)
+            || authorities.documents.some(candidate => candidate.ref !== ref && candidate.sourceRef === ref)) {
             return 'retained';
         }
         // Read after the documents lock, like the sweep's admission.

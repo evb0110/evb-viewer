@@ -877,17 +877,20 @@ describe('BrowserDocumentStore', () => {
         await expect(store.exists(workingRef)).resolves.toBe(true);
     });
 
-    it('deletes a superseded working copy even while its window lease still names it', async () => {
-        // The window's own lease is republished only at a checkpoint or heartbeat, so
-        // a copy superseded by an edit or a save stays named until reload. Working
-        // copies are judged by the recovery journal and transfers, not this lease.
+    it('keeps a working copy readable while another owner holds its live lease', async () => {
         const store = await createFreshBrowserDocumentStore();
-        const sourceRef = await createStoredPdf(store, 'superseded.pdf', Uint8Array.of(5));
-        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
-        await store.createLiveLease('window:self', [{ref: workingRef}]);
+        const sourceRef = await createStoredPdf(store, 'leased-working.pdf', Uint8Array.of(5));
+        const workingRef = await store.cloneStoredDocument(sourceRef, {
+            kind: 'working',
+            sourceRef,
+        });
+        const lease = await store.createLiveLease('window:reader', [{ref: workingRef}]);
+        const cleaner = new BrowserDocumentStore();
 
-        await expect(store.cleanupDetachedDocument(workingRef)).resolves.toBe(true);
-        await expect(store.exists(workingRef)).resolves.toBe(false);
+        await expect(cleaner.cleanupDetachedDocument(workingRef)).resolves.toBe(false);
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(5));
+        await store.releaseLiveLease('window:reader', lease.generation);
+        await expect(cleaner.cleanupDetachedDocument(workingRef)).resolves.toBe(true);
     });
 
     it('keeps the save source of a working dependent with its own bytes', async () => {
