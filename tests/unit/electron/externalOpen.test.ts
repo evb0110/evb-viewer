@@ -234,6 +234,18 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([expectedPath]);
     });
 
+    it('keeps a relative trailing-whitespace filename in the second instance folder', () => {
+        const harness = createManagerHarness();
+        const secondInstanceCwd = resolve('/work/folder-b');
+        const exactPath = resolve(secondInstanceCwd, 'report.pdf ');
+        mocks.existsSync.mockImplementation(path => path === exactPath || path === exactPath.trim());
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequestFromArgs(['report.pdf '], secondInstanceCwd);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([exactPath]);
+    });
+
     it('keeps an existing trailing-whitespace command-line filename through dispatch', () => {
         const harness = createManagerHarness();
         const exactPath = resolve('/docs/report.pdf ');
