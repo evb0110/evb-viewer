@@ -295,10 +295,9 @@ function resolveOpeningPageFrameStyle(
     }
     return resolveDocumentPageSourceOpeningFrame({
         anchor,
+        continuousScroll: policy.continuousScroll,
         geometry,
-        scrollbar: viewport.scrollbar,
-        viewportWidth: viewport.width,
-        viewportHeight: viewport.height,
+        viewport,
         zoom: policy.zoom,
         zoomMode: policy.zoomMode,
     })?.style ?? null;
