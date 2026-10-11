@@ -1076,7 +1076,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             // A transient canvas between two resize invalidations is not recovery.
             await session.page.waitForFunction(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-                if (!viewer || viewer.querySelector('.pdfViewer--resize-transition')) return false;
+                if (!viewer) return false;
                 const bounds = viewer.getBoundingClientRect();
                 const visible = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'))
                     .filter((page) => {
@@ -1084,7 +1084,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                         return rect.bottom > bounds.top && rect.top < bounds.bottom;
                     });
                 return visible.length > 0 && visible.every(page => page.dataset.pageVisual === 'ready'
-                    && page.querySelector('canvas'));
+                    && page.dataset.pageRaster === 'current' && page.querySelector('canvas'));
             }, { timeout: 10_000 });
             const observation = await session.page.evaluate(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
@@ -2964,7 +2964,6 @@ interface ISidebarNavigationFrame {
     overflowPx: number;
     visiblePages: number[];
     toolbarText: string;
-    resizeTransition: boolean;
 }
 
 interface ISidebarNavigationProbeWindow extends Window {
@@ -3042,8 +3041,6 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                         overflowPx: viewer.scrollWidth - viewer.clientWidth,
                         visiblePages: pages.map(container => Number(container.dataset.page)),
                         toolbarText: document.querySelector('.page-controls-display')?.textContent?.replace(/\s+/gu, '') ?? '',
-                        resizeTransition: document.querySelector('[data-pdf-page-track]')
-                            ?.classList.contains('pdfViewer--resize-transition') === true,
                     });
                 }
                 if (probe.__sidebarNavigationSampling) {
@@ -3229,8 +3226,8 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
             .some(element => element.getBoundingClientRect().width > 10));
         const clickSidebarToggle = () => clickVisibleToolbarButton(page, 'Toggle Sidebar');
         const waitForLayoutAtRest = async () => {
-            await page.waitForFunction(() => !document.querySelector('[data-pdf-page-track]')
-                ?.classList.contains('pdfViewer--resize-transition'), {timeout: 15_000});
+            await page.waitForFunction(() => !document.querySelector('.sidebar-wrapper')
+                ?.getAnimations().some(animation => animation.playState === 'running'), {timeout: 15_000});
             await waitForAnimationFrames(page, 20);
         };
         // The document point under the viewport centre, in pixels from its page top.
