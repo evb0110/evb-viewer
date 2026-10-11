@@ -60,9 +60,9 @@ function getAgentTabPdfPath(tab: IAgentTabSnapshot) {
     return path;
 }
 
-async function resolveAgentDocument(window: BrowserWindow, tab: IAgentTabSnapshot) {
+async function resolveAgentDocument(window: BrowserWindow, tab: IAgentTabSnapshot, signal?: AbortSignal) {
     const requestedPath = getAgentTabPdfPath(tab);
-    const resolvedPdfPath = await resolveSearchablePdfPath(requestedPath, window.webContents.id);
+    const resolvedPdfPath = await resolveSearchablePdfPath(requestedPath, window.webContents.id, signal);
     if (!resolvedPdfPath) {
         throw new Error('The PDF is not available to the EVB search index yet.');
     }
@@ -118,7 +118,7 @@ export async function inspectAgentDocumentText(
         requestedPath,
         resolvedPdfPath,
         document,
-    } = await resolveAgentDocument(window, input.tab);
+    } = await resolveAgentDocument(window, input.tab, signal);
     const textStatus = buildTextStatus(await ensureSearchIndex(document, signal === undefined ? {} : {signal}));
     return {
         tabId: input.tab.tabId,
@@ -156,7 +156,7 @@ export async function searchAgentDocument(
         requestedPath,
         resolvedPdfPath,
         document,
-    } = await resolveAgentDocument(window, input.tab);
+    } = await resolveAgentDocument(window, input.tab, signal);
     const response = await searchIndexedDocument(
         document,
         query,
@@ -209,7 +209,7 @@ export async function readAgentDocumentPages(
     const {
         requestedPath,
         resolvedPdfPath,
-    } = await resolveAgentDocument(window, input.tab);
+    } = await resolveAgentDocument(window, input.tab, signal);
     const pageCount = getTabPageCount(input.tab);
     const maxCharsPerPage = normalizePositiveInteger(
         input.options.maxCharsPerPage,
