@@ -3617,3 +3617,193 @@ fn overlay_transforms_fitted_and_partial_destination_coordinates() {
         }
     }
 }
+
+/// A 200 pt page with one legacy point marker (ADR 0003) and its popup. Each
+/// key named in `indirect` is stored as its own object, as qpdf writes it.
+fn save_legacy_marker_source(path: &Path, indirect: &[&str]) {
+    let mut document = save_single_page(path, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let appearance = document.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.into(), 2.into()]},
+        Vec::new(),
+    ));
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id,
+        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+        "Contents" => Object::string_literal("Legacy popup"),
+    });
+    let values = [
+        (
+            "Rect",
+            Object::Array(vec![48.9.into(), 49.into(), 51.1.into(), 51.2.into()]),
+        ),
+        ("CreationDate", Object::string_literal("D:20260830130000Z")),
+        ("M", Object::string_literal("D:20261011000000Z")),
+    ];
+    let mut root = dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+        "Contents" => Object::string_literal("Legacy marker"),
+        "AP" => dictionary! {"N" => appearance},
+        "Popup" => popup,
+    };
+    for (key, value) in values {
+        let value = if indirect.contains(&key) {
+            Object::Reference(document.add_object(value))
+        } else {
+            value
+        };
+        root.set(key, value);
+    }
+    let root = document.add_object(root);
+    document
+        .get_dictionary_mut(popup)
+        .unwrap()
+        .set("Parent", root);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![Object::Reference(root), Object::Reference(popup)],
+    );
+    document.save(path).unwrap();
+}
+
+/// Contents of every note entry in a `parse-annotations` output.
+fn parsed_note_contents(parsed: &Path) -> Vec<String> {
+    fs::read_to_string(parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .filter(|entry| entry["kind"] == "note")
+        .map(|entry| entry["contents"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn overlay_keeps_a_legacy_marker_with_an_indirect_rect_as_a_note() {
+    let source = path("legacy-indirect-rect-source", "pdf");
+    let input = path("legacy-indirect-rect-target", "pdf");
+    let output = path("legacy-indirect-rect-output", "pdf");
+    let instructions = path("legacy-indirect-rect", "json");
+    let parsed = path("legacy-indirect-rect-parsed", "jsonl");
+    save_legacy_marker_source(&source, &["Rect"]);
+    save_single_page(&input, Vec::new(), Dictionary::new());
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    run_text_box_command("parse-annotations", &output, &parsed, None);
+    assert_eq!(parsed_note_contents(&parsed), ["Legacy marker"]);
+    for file in [source, input, output, instructions, parsed] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn overlay_keeps_indirect_creation_and_modified_dates_on_a_converted_marker() {
+    let source = path("legacy-indirect-dates-source", "pdf");
+    let input = path("legacy-indirect-dates-target", "pdf");
+    let output = path("legacy-indirect-dates-output", "pdf");
+    let instructions = path("legacy-indirect-dates", "json");
+    save_legacy_marker_source(&source, &["CreationDate", "M"]);
+    save_single_page(&input, Vec::new(), Dictionary::new());
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let converted = Document::load(&output).unwrap();
+    let note = converted
+        .objects
+        .values()
+        .filter_map(|object| object.as_dict().ok())
+        .find(|dictionary| {
+            dictionary.get(b"Contents").and_then(Object::as_str).ok() == Some(b"Legacy marker")
+                && dictionary.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Text")
+        })
+        .expect("the legacy marker is written as a /Text note");
+    assert_eq!(
+        note.get(b"CreationDate").and_then(Object::as_str).unwrap(),
+        b"D:20260830130000Z"
+    );
+    assert_eq!(
+        note.get(b"M").and_then(Object::as_str).unwrap(),
+        b"D:20261011000000Z"
+    );
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+/// A source note at `rect` and a 10 pt wide output that keeps the note's centre
+/// through a 100 pt source region. The note cannot fit the output, so the
+/// overlay refuses and publishes nothing rather than a foreign note.
+fn assert_overlay_refuses_note_wider_than_output(label: &str, rect: [i64; 4]) {
+    let source = path(&format!("{label}-source"), "pdf");
+    let input = path(&format!("{label}-target"), "pdf");
+    let output = path(&format!("{label}-output"), "pdf");
+    let instructions = path(label, "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let note = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => rect.map(Object::from).to_vec(),
+        "Contents" => Object::string_literal("Wide note"),
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(note)]);
+    document.save(&source).unwrap();
+    let mut target = save_single_page(&input, Vec::new(), Dictionary::new());
+    let target_page = target.get_pages()[&1];
+    target
+        .get_dictionary_mut(target_page)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 10.into(), 120.into()]);
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":100,"height":120}}}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        !result.status.success(),
+        "an 11 pt note on a 10 pt page must be refused"
+    );
+    assert!(!output.exists(), "a refused overlay publishes no output");
+    for file in [source, input, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
+fn overlay_refuses_a_note_wider_than_its_output_page() {
+    assert_overlay_refuses_note_wider_than_output("note-too-wide", [45, 45, 56, 55]);
+}
+
+#[test]
+fn overlay_refuses_an_overwide_note_already_at_the_output_origin() {
+    assert_overlay_refuses_note_wider_than_output("note-too-wide-origin", [0, 45, 11, 55]);
+}

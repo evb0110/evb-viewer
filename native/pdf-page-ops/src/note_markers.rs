@@ -1,4 +1,5 @@
 use super::*;
+use crate::page_geometry::pdf_rect_to_note_marker_rect;
 
 /// The legacy marker test against the page an annotation came from. `dict` may
 /// be a copy in `document` whose references already point into the target.
@@ -31,7 +32,19 @@ pub(crate) fn legacy_note_marker_as_text(
     if !legacy_marker_on_page(document, dict, source, source_page_id)? {
         return Ok(());
     }
-    let pdf_rect = parse_rect(dict.get(b"Rect")?)?;
+    let pdf_rect = parse_rect(document.resolved(dict.get(b"Rect")?)?)?;
+    // The shared conversion reads the dates as direct strings, so resolve them
+    // here, where the object they refer to can still be read.
+    for key in [b"CreationDate".as_slice(), b"M"] {
+        if let Some(value) = dict
+            .get(key)
+            .ok()
+            .and_then(|object| document.resolved(object).ok())
+            .cloned()
+        {
+            dict.set(key.to_vec(), value);
+        }
+    }
     let modified_at = dict
         .get(b"M")
         .ok()
@@ -73,15 +86,20 @@ pub(crate) fn fit_note_to_view(
     let (width, height) = (rect.x2 - rect.x1, rect.y2 - rect.y1);
     let x1 = rect.x1.min(view.x2 - width).max(view.x1);
     let y1 = rect.y1.min(view.y2 - height).max(view.y1);
-    if x1 == rect.x1 && y1 == rect.y1 {
-        return Ok(());
-    }
     let fitted = PdfRect {
         x1,
         y1,
         x2: x1 + width,
         y2: y1 + height,
     };
+    // Only a thread root is a note; a reply is not admitted by the note reader.
+    let is_root = !is_popup && annotation.get(b"IRT").is_err();
+    if is_root && pdf_rect_to_note_marker_rect(fitted, view, page_rotation).is_err() {
+        return Err("overlay-text cannot keep a note on its output page".into());
+    }
+    if x1 == rect.x1 && y1 == rect.y1 {
+        return Ok(());
+    }
     let (centre_x, centre_y) = ((fitted.x1 + fitted.x2) / 2.0, (fitted.y1 + fitted.y2) / 2.0);
     let centred = (view.x1..view.x2).contains(&centre_x) && (view.y1..view.y2).contains(&centre_y);
     if !(is_popup || centred) {
