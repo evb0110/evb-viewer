@@ -1528,7 +1528,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             await utimes(outputPath, stagedNow.atime, stagedNow.mtime);
             return {
                 exitCode: 0,
-                stdout: '',
+                stdout: JSON.stringify({accessibilityTagsRemoved: true}),
                 stderr: '',
             };
         });
@@ -1566,7 +1566,7 @@ describe('scan-cleanup-core conversion coverage', () => {
 
         await writeFile(stagedPdfPath, '%PDF-1.7\n%%EOF\n');
         await writeReport(1_000);
-        await expect(overlay()).resolves.toBe(true);
+        await expect(overlay()).resolves.toEqual({accessibilityTagsRemoved: true});
         const report = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};
         expect(report.outputBytes).toBe(statSync(stagedPdfPath).size);
 
@@ -1575,7 +1575,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         await utimes(stagedPdfPath, 1_700_000_000, 1_700_000_000);
         const staged = statSync(stagedPdfPath);
         await writeReport(1_000);
-        await expect(overlay()).resolves.toBe(true);
+        await expect(overlay()).resolves.toEqual({accessibilityTagsRemoved: true});
         expect(statSync(stagedPdfPath).size).toBe(staged.size);
         expect(statSync(stagedPdfPath).mtimeMs).toBe(staged.mtimeMs);
         const sameSizeReport = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};

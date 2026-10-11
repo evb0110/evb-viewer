@@ -93,7 +93,6 @@ pub(crate) fn build_split_output(
             page.remove(b"BleedBox");
             page.remove(b"TrimBox");
             page.remove(b"ArtBox");
-            page.remove(b"StructParents");
             page.set(
                 "Rotate",
                 normalize_page_rotation(source_rotation + instruction.rotation_quarter_turns * 90),
@@ -140,7 +139,7 @@ pub(crate) fn build_split_output(
         catalog_id,
         pages_id,
         instructions.catalog,
-        &pages,
+        &mut pages,
         &annotations,
     )?;
     for page in pages {

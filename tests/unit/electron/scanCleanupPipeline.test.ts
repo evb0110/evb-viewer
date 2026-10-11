@@ -2395,7 +2395,12 @@ describe('scan cleanup pipeline', () => {
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
             const visibility = await rasterSourceInspectionResult(args);
-            if (visibility) return visibility;
+            if (visibility) return args[0] === 'overlay-text'
+                ? {
+                    ...visibility,
+                    stdout: JSON.stringify({accessibilityTagsRemoved: true}),
+                }
+                : visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2447,6 +2452,7 @@ describe('scan cleanup pipeline', () => {
             outputPages: 2,
         });
         expect(summary.sourceTextOmission).toBeUndefined();
+        expect(summary.accessibilityTagsRemoved).toBe(true);
         expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-1.7');
     });
 

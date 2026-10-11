@@ -220,6 +220,9 @@ fn restore_source_catalog(
 ) -> Result<bool> {
     let mut source = load_incremental_pdf_path(source_path, qpdf_path)?.previous_document;
     let output_pages = output_plan_pages(&output.previous_document, instructions)?;
+    if source.catalog()?.has(b"StructTreeRoot") {
+        println!("{}", serde_json::json!({"accessibilityTagsRemoved": true}));
+    }
     let annotations = rebind_output_threads(
         &source,
         &output.previous_document,
@@ -233,10 +236,7 @@ fn restore_source_catalog(
     let pages = output_pages
         .iter()
         .map(|page| {
-            let source_id = resolver.page_id(
-                &source,
-                overlay_page_number(page.2.source_page_index, "sourcePageIndex")?,
-            )?;
+            let source_id = resolver.page_id(&source, page.0 .0)?;
             let id = navigation.new_object_id();
             identities.insert(id, page.1);
             Ok((source_id, id, page.2, page.3))
@@ -634,10 +634,7 @@ pub(crate) fn rebind_output_threads(
     let mut copies: crate::split_output::SplitAnnotationMap = HashMap::new();
     let mut pending = Vec::new();
     for page in pages {
-        let source_page = resolver.page_id(
-            source,
-            overlay_page_number(page.2.source_page_index, "sourcePageIndex")?,
-        )?;
+        let source_page = resolver.page_id(source, page.0 .0)?;
         let entries = source_annotation_entries(source, source_page);
         for entry in
             page_annotation_array(output, output.get_dictionary(page.1)?).unwrap_or_default()

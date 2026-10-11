@@ -223,14 +223,14 @@ describe('runLosslessScanCleanup', () => {
                 await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
                 return {
                     exitCode: 0,
-                    stdout: '',
+                    stdout: JSON.stringify({accessibilityTagsRemoved: true}),
                     stderr: '',
                 };
             }),
             getAvailableScratchBytes: vi.fn(async () => null),
             hashNativeBinary: vi.fn(async () => 'a'.repeat(64)),
         };
-        await runLosslessScanCleanup(
+        const summary = await runLosslessScanCleanup(
             {
                 sourcePdfPath,
                 outputPdfPath,
@@ -251,6 +251,7 @@ describe('runLosslessScanCleanup', () => {
             dependencies,
         );
 
+        expect(summary.accessibilityTagsRemoved).toBe(true);
         const report = JSON.parse(await readFile(
             join(root, 'scan-cleanup-representation-report.json'),
             'utf8',

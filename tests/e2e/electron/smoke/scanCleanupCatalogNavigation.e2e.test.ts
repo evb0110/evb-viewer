@@ -105,6 +105,7 @@ describe('compact cleanup catalog navigation', () => {
         await openDocumentSidebarTab(page, 'Pages');
         await clickAsUser(page, '[data-thumbnail-page="1"]');
         await openDocumentSidebarTab(page, 'Bookmarks');
+        await page.waitForSelector('.document-bookmark-item__title');
         for (const toggle of await page.$$('.document-bookmark-item__toggle[aria-expanded="false"]')) await clickAsUser(page, toggle);
         const nesting = await page.$$eval('.document-bookmark-item__title', els => els.map(el => ({
             title: el.textContent?.trim(),

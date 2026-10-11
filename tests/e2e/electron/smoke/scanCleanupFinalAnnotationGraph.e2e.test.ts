@@ -20,7 +20,7 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR } from '@contracts/scan-cleanup/toolbarSelectors';
 const fixture = createElectronE2ESessionFixture({ sessionName: () => `e2e-scanlinks6r8-${Date.now()}` });
-const evidence = resolve(process.env.SCANLINKS6_PROOF_DIR ?? `.devkit/tmp/cleanup-final-graph-${Date.now()}`);
+const evidence = resolve(process.env.SCANLINKS6_PROOF_DIR ?? `.devkit/tmp/cleanup-final-graph-${Date.now()}`, 'final-annotation-graph');
 mkdirSync(evidence, { recursive: true });
 describe('public catalog cleanup proof', () => {
     for (const mode of [

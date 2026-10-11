@@ -1,6 +1,7 @@
 //! Catalog and trailer policy of a split output, distinct from combine edits.
 use super::*;
 pub(crate) mod split_forms;
+mod split_tags;
 use crate::catalog::has_valid_oc_properties;
 use crate::split_navigation::{
     remap_split_catalog, remap_split_navigation, split_destination_mapper,
@@ -28,7 +29,7 @@ pub(crate) fn split_catalog(
     catalog_id: ObjectId,
     pages_id: ObjectId,
     kind: SplitCatalog,
-    pages: &[SplitOutputPage],
+    pages: &mut [SplitOutputPage],
     annotations: &SplitAnnotationMap,
 ) -> Result<Dictionary> {
     let source_catalog = source.get_dictionary(catalog_id)?;
@@ -36,12 +37,11 @@ pub(crate) fn split_catalog(
         SplitCatalog::Source => source_catalog.clone(),
         SplitCatalog::Assembly => dictionary! {"Type" => "Catalog"},
     };
+    catalog.remove(b"OCProperties");
     if has_valid_oc_properties(source, catalog_id)? {
         if let Ok(properties) = source_catalog.get(b"OCProperties") {
             catalog.set("OCProperties", properties.clone());
         }
-    } else {
-        catalog.remove(b"OCProperties");
     }
     let geometry = pages
         .iter()
@@ -65,7 +65,7 @@ pub(crate) fn split_catalog(
     remap_split_catalog(source, target, &mut catalog, kind, &navigation)?;
     if matches!(kind, SplitCatalog::Source) {
         let remap = split_destination_mapper(source, &navigation);
-        for page in pages {
+        for page in pages.iter() {
             if let Ok(annots) = page.page.get(b"Annots").and_then(Object::as_array) {
                 for annotation in annots {
                     let Ok(id) = annotation.as_reference() else {
@@ -86,15 +86,7 @@ pub(crate) fn split_catalog(
     if let Some(form) = split_forms::split_form(source, target, annotations)? {
         catalog.set("AcroForm", form);
     }
-    // Crop/split outputs duplicate MCIDs and change page/annotation identity.
-    // Without a rebuilt ParentTree/MCR/OBJR graph, retaining Marked is false.
-    catalog.remove(b"StructTreeRoot");
-    catalog.remove(b"MarkInfo");
-    for copies in annotations.values() {
-        for (_, id) in copies {
-            target.get_dictionary_mut(*id)?.remove(b"StructParent");
-        }
-    }
+    split_tags::split_tags(source, target, &mut catalog, kind, pages, annotations)?;
     catalog.set("Pages", pages_id);
     Ok(catalog)
 }

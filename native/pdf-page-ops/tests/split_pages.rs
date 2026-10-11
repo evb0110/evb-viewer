@@ -2520,7 +2520,7 @@ fn split_pages_form_fields_use_the_widgets_listed_by_retained_pages() {
 fn split_pages_never_publishes_disconnected_tags_as_a_marked_document() {
     let mut source = review_catalog_source();
     assert!(source.catalog().unwrap().has(b"StructTreeRoot"));
-    for order in [&[0, 1, 2][..], &[2, 0][..]] {
+    for order in [&[0, 0, 2][..], &[2, 0][..]] {
         let split = review_split(&mut source, order, false, false);
         assert!(!split.catalog().unwrap().has(b"StructTreeRoot"));
         assert!(!split.catalog().unwrap().has(b"MarkInfo"));
@@ -3327,4 +3327,99 @@ fn r8_indirect_link_targets_an_active_output_page() {
         .unwrap();
     assert!(split.get_pages().values().any(|id| *id == destination));
     assert!(!link.has(b"EVBDestinationPage"));
+}
+
+#[test]
+fn r8_identity_output_retains_accessibility_structure_and_references() {
+    let mut source = review_catalog_source();
+    let root = source
+        .catalog()
+        .unwrap()
+        .get(b"StructTreeRoot")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let element = source.add_object(
+        dictionary! {"Type" => "StructElem", "S" => "P", "P" => root, "Pg" => (3, 0),
+        "K" => vec![Object::Dictionary(dictionary! {"Type" => "OBJR", "Pg" => (3, 0), "Obj" => (20, 0)}),
+            Object::Dictionary(dictionary! {"Type" => "MCR", "Pg" => (3, 0), "Stm" => (6, 0), "MCID" => 0})]},
+    );
+    source.get_dictionary_mut(root).unwrap().set("K", element);
+    let split = review_split(&mut source, &[0, 1, 2], false, false);
+    assert!(split.catalog().unwrap().has(b"MarkInfo"));
+    let root = split
+        .dereference(split.catalog().unwrap().get(b"StructTreeRoot").unwrap())
+        .unwrap()
+        .1
+        .as_dict()
+        .unwrap();
+    let element = split
+        .dereference(root.get(b"K").unwrap())
+        .unwrap()
+        .1
+        .as_dict()
+        .unwrap();
+    assert_eq!(
+        element.get(b"Pg").unwrap().as_reference().unwrap(),
+        split.get_pages()[&1]
+    );
+    let members = element.get(b"K").unwrap().as_array().unwrap();
+    let objr = members[0].as_dict().unwrap();
+    let mcr = members[1].as_dict().unwrap();
+    assert!(
+        split
+            .get_page_contents(split.get_pages()[&1])
+            .contains(&mcr.get(b"Stm").unwrap().as_reference().unwrap()),
+        "marked content references the painted stream, not a detached clone"
+    );
+    assert_eq!(
+        objr.get(b"Obj").unwrap().as_reference().unwrap(),
+        split_page_annotations(&split, 1)[0].0
+    );
+    for page in split.get_pages().values() {
+        assert!(split.get_dictionary(*page).unwrap().has(b"StructParents"));
+    }
+    for (order, removed) in [(&[0, 1, 2][..], false), (&[2, 0][..], true)] {
+        let input = path("r8-tag-result-input", "pdf");
+        let output = path("r8-tag-result-output", "pdf");
+        let instructions = path("r8-tag-result-instructions", "json");
+        source.save(&input).unwrap();
+        write(
+            &instructions,
+            serde_json::json!({"pages": order.iter().map(|index| serde_json::json!({
+            "sourcePageIndex": index, "rotationQuarterTurns": 0,
+            "outputs": [{"cropRect": {"x":0,"y":0,"width":200,"height":120}}]
+        })).collect::<Vec<_>>()} )
+            .to_string(),
+        )
+        .unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["split-pages", "--input"])
+            .arg(&input)
+            .arg("--output")
+            .arg(&output)
+            .arg("--instructions-file")
+            .arg(&instructions)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let result: serde_json::Value = if result.stdout.is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_slice(&result.stdout).unwrap()
+        };
+        assert_eq!(
+            result["accessibilityTagsRemoved"]
+                .as_bool()
+                .unwrap_or(false),
+            removed
+        );
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
 }

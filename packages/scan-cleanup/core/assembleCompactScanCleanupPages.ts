@@ -1,3 +1,4 @@
+import {decodeScanCleanupPageOpsResult} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {createReadStream} from 'node:fs';
 import * as v from 'valibot';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -315,9 +316,7 @@ export async function overlayScanCleanupTextLayer(
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
     // Every output participates in the final catalog map, including non-affine rasters.
-    if (pages.length === 0) {
-        return false;
-    }
+    if (pages.length === 0) return null;
     if (paths.pdfPageOpsBinary === undefined || isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
@@ -327,7 +326,7 @@ export async function overlayScanCleanupTextLayer(
         textLayerInstructionsPath,
         serializeScanCleanupTextLayerInstructions(pages),
     );
-    await dependencies.runCommand(paths.pdfPageOpsBinary, [
+    const pageOps = await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'overlay-text',
         '--input',
         stagedPdfPath,
@@ -351,7 +350,7 @@ export async function overlayScanCleanupTextLayer(
         'debug',
         `Scan cleanup retained source text and annotations on ${String(pages.length)} output page(s)`,
     );
-    return true;
+    return decodeScanCleanupPageOpsResult(pageOps.stdout);
 }
 
 export async function assembleWithCompactSourcePages(

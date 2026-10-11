@@ -285,6 +285,8 @@ export const SCAN_CLEANUP_SUMMARY_SCHEMA = v.object({
     excludedPages: summaryCount,
     blankPagesSkipped: summaryCount,
     sourceTextOmission: v.optional(SCAN_CLEANUP_SOURCE_TEXT_OMISSION_SCHEMA),
+    /** The source structure tree could not safely survive this cleanup. */
+    accessibilityTagsRemoved: v.optional(v.boolean()),
     warnings: v.array(v.string()),
     /**
      * Optional so a summary written before this channel existed still decodes:

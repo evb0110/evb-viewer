@@ -1961,9 +1961,8 @@ export async function runScanCleanupConversion(
             runCommand: dependencies.runCommand,
             log,
         });
-        if (largeStreamingRun || overlaid) {
-            await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
-        }
+        summary.accessibilityTagsRemoved = overlaid.accessibilityTagsRemoved;
+        await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         emitProgress('handoff', 0, pageCount, []);
         await copyFile(stagedPdfPath, publishTempPath);
         if (signal.aborted) throw signal.reason;
