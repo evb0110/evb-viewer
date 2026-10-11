@@ -1409,3 +1409,145 @@ fn split_pages_scales_annotation_coordinates_stored_as_indirect_objects() {
     let _ = remove_file(output);
     let _ = remove_file(instructions);
 }
+
+#[test]
+fn split_pages_moves_a_note_thread_whole_to_the_half_that_holds_its_root() {
+    let input = path("split-thread-input", "pdf");
+    let output = path("split-thread-output", "pdf");
+    let instructions = path("split-thread-instructions", "json");
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let content_id = document.add_object(Stream::new(
+        dictionary! {},
+        b"BT (Content) Tj ET\n".to_vec(),
+    ));
+    let root_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => vec![155.into(), 75.into(), 165.into(), 85.into()],
+        "Contents" => Object::string_literal("root note"),
+    });
+    let popup_id = document.new_object_id();
+    let reply_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => vec![45.into(), 75.into(), 55.into(), 85.into()],
+        "Contents" => Object::string_literal("reply body"),
+        "IRT" => root_id,
+        "Popup" => popup_id,
+    });
+    document.objects.insert(
+        popup_id,
+        dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Popup",
+            "P" => page_id,
+            "Rect" => vec![35.into(), 65.into(), 65.into(), 95.into()],
+            "Parent" => reply_id,
+        }
+        .into(),
+    );
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Contents" => content_id,
+            "Annots" => vec![root_id.into(), reply_id.into(), popup_id.into()],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+    // The root's centre (160) is on the right half; its reply sits on the left.
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let split = Document::load(&output).unwrap();
+    let pages = split.get_pages();
+    let annotations = |page_number: u32| -> Vec<(lopdf::ObjectId, Dictionary)> {
+        let page = split.get_dictionary(pages[&page_number]).unwrap();
+        let Ok(annots) = page.get(b"Annots") else {
+            return Vec::new();
+        };
+        split
+            .dereference(annots)
+            .unwrap()
+            .1
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| {
+                let (id, object) = split.dereference(entry).unwrap();
+                (id.unwrap(), object.as_dict().unwrap().clone())
+            })
+            .collect()
+    };
+    let contents = |dictionary: &Dictionary| {
+        dictionary
+            .get(b"Contents")
+            .map(|value| value.as_str().unwrap().to_vec())
+    };
+    assert!(annotations(1).is_empty());
+
+    let right = annotations(2);
+    assert_eq!(right.len(), 3);
+    let (root, root_dict) = right
+        .iter()
+        .find(|(_, dictionary)| contents(dictionary).unwrap() == b"root note")
+        .unwrap();
+    let (reply, reply_dict) = right
+        .iter()
+        .find(|(_, dictionary)| contents(dictionary).unwrap() == b"reply body")
+        .unwrap();
+    let (popup, _) = right
+        .iter()
+        .find(|(_, dictionary)| dictionary.get(b"Subtype").unwrap().as_name().unwrap() == b"Popup")
+        .unwrap();
+    let page_id = pages[&2];
+    assert_eq!(
+        root_dict.get(b"P").unwrap().as_reference().unwrap(),
+        page_id
+    );
+    assert_eq!(
+        reply_dict.get(b"IRT").unwrap().as_reference().unwrap(),
+        *root
+    );
+    assert_eq!(
+        reply_dict.get(b"Popup").unwrap().as_reference().unwrap(),
+        *popup
+    );
+    assert_eq!(
+        split
+            .get_dictionary(*popup)
+            .unwrap()
+            .get(b"Parent")
+            .unwrap()
+            .as_reference()
+            .unwrap(),
+        *reply
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
+}

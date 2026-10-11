@@ -1,4 +1,5 @@
 use super::*;
+use crate::annotation_threads::transform_page_annotations;
 use evb_native_support::output::AtomicOutput;
 use lopdf::dictionary;
 use std::path::Path;
@@ -128,79 +129,6 @@ fn validate_content_transform(transform: SplitContentTransform) -> Result<SplitC
 /// whose arrays point at each other from recursing without end; lopdf's own
 /// dereference limit stops a chain of references before that.
 const MAX_CONTENTS_NESTING: usize = 4;
-
-/// What one `/Contents` value turned out to be, resolved and detached from the
-/// document so the collector can borrow it mutably again.
-enum ContentsEntry {
-    /// A content stream, by the id it already has in the document.
-    Stream(ObjectId),
-    /// A list of content streams to resolve in turn.
-    List(Vec<Object>),
-}
-
-/// The page's content streams as indirect objects, materializing a directly
-/// embedded stream so the transform can wrap it without rewriting it.
-///
-/// A reference is not a stream id by assumption: qpdf writes the page's list of
-/// streams as one indirect array, and treating that array as a stream would put
-/// it between the transform and its restore, where every reader sees a page
-/// whose contents are not a stream and draws nothing at all.
-fn content_stream_ids(document: &mut Document, page: &Dictionary) -> Result<Vec<ObjectId>> {
-    let contents = match page.get(b"Contents") {
-        Ok(value) => value.clone(),
-        Err(_) => return Ok(Vec::new()),
-    };
-    let mut ids = Vec::new();
-    collect_content_streams(document, contents, &mut ids, 0)?;
-    Ok(ids)
-}
-
-fn collect_content_streams(
-    document: &mut Document,
-    object: Object,
-    ids: &mut Vec<ObjectId>,
-    depth: usize,
-) -> Result<()> {
-    if depth > MAX_CONTENTS_NESTING {
-        return Err("split-pages found a Contents entry nested past any legal shape".into());
-    }
-    let object_id = match object {
-        Object::Stream(stream) => {
-            ids.push(document.add_object(Object::Stream(stream)));
-            return Ok(());
-        }
-        Object::Array(items) => {
-            for item in items {
-                collect_content_streams(document, item, ids, depth + 1)?;
-            }
-            return Ok(());
-        }
-        Object::Reference(object_id) => object_id,
-        _ => return Err("split-pages found an unsupported Contents entry".into()),
-    };
-    let reference = Object::Reference(object_id);
-    let entry = match document.dereference(&reference) {
-        Ok((resolved_id, Object::Stream(_))) => {
-            ContentsEntry::Stream(resolved_id.unwrap_or(object_id))
-        }
-        Ok((_, Object::Array(items))) => ContentsEntry::List(items.clone()),
-        // A reference this document cannot resolve — a missing object, or a
-        // chain of references past lopdf's limit — is carried across exactly as
-        // it was, rather than failing a split over an object the source itself
-        // is missing.
-        Err(_) => ContentsEntry::Stream(object_id),
-        Ok(_) => return Err("split-pages found an unsupported Contents entry".into()),
-    };
-    match entry {
-        ContentsEntry::Stream(stream_id) => ids.push(stream_id),
-        ContentsEntry::List(items) => {
-            for item in items {
-                collect_content_streams(document, item, ids, depth + 1)?;
-            }
-        }
-    }
-    Ok(())
-}
 
 /// The annotation entries that are page coordinates: every one of them is a
 /// flat list of (x, y) pairs in the same user space as the content.
@@ -537,110 +465,13 @@ pub(crate) fn remap_internal_destination(
 /// points at one. qpdf writes the indirect form, and reading only the direct
 /// one leaves every coordinate array on such a page unscaled — the annotations
 /// stay where the untransformed content used to be.
-fn page_annotation_array(document: &Document, page: &Dictionary) -> Option<Vec<Object>> {
+pub(crate) fn page_annotation_array(document: &Document, page: &Dictionary) -> Option<Vec<Object>> {
     let annotations = page.get(b"Annots").ok()?;
     // lopdf's dereference is bounded, so a reference that points at itself
     // answers an error rather than looping; a page whose list cannot be read is
     // left exactly as it is.
     let (_, resolved) = document.dereference(annotations).ok()?;
     resolved.as_array().ok().cloned()
-}
-
-fn page_annotation_dictionaries(
-    source: &Document,
-    page: &Dictionary,
-) -> Option<Vec<(Object, Option<Dictionary>)>> {
-    Some(
-        page_annotation_array(source, page)?
-            .into_iter()
-            .map(|annotation| {
-                let resolved = source
-                    .dereference(&annotation)
-                    .ok()
-                    .and_then(|(_, object)| object.as_dict().ok())
-                    .cloned();
-                (annotation, resolved)
-            })
-            .collect(),
-    )
-}
-
-/// Annotations live in the same user space as the content they mark, so a
-/// content transform that leaves them alone silently moves every note off its
-/// target. The annotation objects can be shared with the source page and with
-/// the other half of a split, so each output gets its own copy.
-///
-/// Writes each annotation's transformed copy into `target`. The dictionaries
-/// come from `page_annotation_dictionaries`, so a source that is the target
-/// itself is read before any copy is added to it.
-fn transform_annotations(
-    target: &mut Document,
-    page: &mut Dictionary,
-    annotations: Option<Vec<(Object, Option<Dictionary>)>>,
-    transform: SplitContentTransform,
-    geometry_base: Option<&Document>,
-) -> Result<()> {
-    let Some(annotations) = annotations else {
-        return Ok(());
-    };
-    let rotation = page
-        .get(b"Rotate")
-        .ok()
-        .and_then(|value| value.as_i64().ok())
-        .unwrap_or(0);
-    let matrix = [
-        transform.scale,
-        0.0,
-        0.0,
-        transform.scale,
-        transform.translate_x,
-        transform.translate_y,
-    ];
-    let mut transformed = Vec::with_capacity(annotations.len());
-    for (annotation, resolved) in annotations {
-        // An entry this tool cannot read as an annotation dictionary — a
-        // reference the source is missing, or an object that is not a
-        // dictionary at all — is carried over exactly as it was. Dropping it
-        // would delete a note the source page still shows, which is a worse
-        // answer than one note left at the coordinates it already had.
-        let Some(mut copy) = resolved else {
-            transformed.push(annotation);
-            continue;
-        };
-        transform_annotation_geometry(target, &mut copy, matrix, geometry_base, rotation)?;
-        transformed.push(Object::Reference(target.add_object(copy)));
-    }
-    page.set("Annots", Object::Array(transformed));
-    Ok(())
-}
-
-/// Wraps the page's own content in the transform, leaving every content stream,
-/// font and image object untouched: the output carries the source bytes at a
-/// different scale rather than a resampled copy of them.
-fn apply_content_transform(
-    document: &mut Document,
-    page: &mut Dictionary,
-    transform: SplitContentTransform,
-) -> Result<()> {
-    let mut streams = vec![document.add_object(Object::Stream(Stream::new(
-        Dictionary::new(),
-        format!(
-            "q {} 0 0 {} {} {} cm\n",
-            transform.scale, transform.scale, transform.translate_x, transform.translate_y
-        )
-        .into_bytes(),
-    )))];
-    streams.extend(content_stream_ids(document, page)?);
-    streams.push(document.add_object(Object::Stream(Stream::new(
-        Dictionary::new(),
-        b"\nQ\n".to_vec(),
-    ))));
-    page.set(
-        "Contents",
-        Object::Array(streams.into_iter().map(Object::Reference).collect()),
-    );
-    let annotations = page_annotation_dictionaries(document, page);
-    transform_annotations(document, page, annotations, transform, None)
 }
 
 /// Collect the existing page content references without copying their stream
@@ -704,8 +535,11 @@ fn collect_content_streams_from_base(
 fn apply_content_transform_incremental(
     base: &Document,
     target: &mut Document,
+    source_page_id: ObjectId,
+    page_id: ObjectId,
     page: &mut Dictionary,
     transform: SplitContentTransform,
+    crop: PdfRect,
 ) -> Result<()> {
     let mut streams = vec![target.add_object(Object::Stream(Stream::new(
         Dictionary::new(),
@@ -724,8 +558,7 @@ fn apply_content_transform_incremental(
         "Contents",
         Object::Array(streams.into_iter().map(Object::Reference).collect()),
     );
-    let annotations = page_annotation_dictionaries(base, page);
-    transform_annotations(target, page, annotations, transform, Some(base))
+    transform_page_annotations(base, target, source_page_id, page_id, page, transform, crop)
 }
 
 const MAX_OC_GRAPH_DEPTH: usize = 64;
@@ -892,13 +725,19 @@ fn split_source_page_number(source_page_index: usize) -> Result<u32> {
 }
 
 pub(crate) fn split_pages(
-    mut document: Document,
+    mut source: Document,
     instructions: &SplitPagesFile,
     output_path: &Path,
 ) -> Result<()> {
-    let source_pages = document.get_pages();
+    let source_pages = source.get_pages();
+    // The output takes only new objects, numbered above the source's, and the
+    // source objects join it at the end. Reads come from `source` throughout,
+    // which is what the shared incremental helpers expect of a base document.
+    let mut document = Document::with_version(source.version.clone());
+    document.max_id = source.max_id;
+    document.trailer = source.trailer.clone();
     let pages_id = document.new_object_id();
-    let mut materialized_pages = Vec::new();
+    let mut output_page_ids = Vec::new();
 
     for instruction in &instructions.pages {
         if !(0..=3).contains(&instruction.rotation_quarter_turns) {
@@ -909,15 +748,20 @@ pub(crate) fn split_pages(
         }
         let page_number = split_source_page_number(instruction.source_page_index)?;
         let source_page_id = resolve_page_id(&source_pages, page_number)?;
-        let source_rotation = resolve_page_rotation(&document, source_page_id)?;
+        let source_rotation = resolve_page_rotation(&source, source_page_id)?;
         for output_instruction in &instruction.outputs {
             let crop = validate_crop_rect(output_instruction.crop_rect)?;
-            let mut page = materialized_page_dictionary(&document, source_page_id)?;
+            let mut page = materialized_page_dictionary(&source, source_page_id)?;
+            let page_id = document.new_object_id();
             if let Some(transform) = output_instruction.content_transform {
-                apply_content_transform(
+                apply_content_transform_incremental(
+                    &source,
                     &mut document,
+                    source_page_id,
+                    page_id,
                     &mut page,
                     validate_content_transform(transform)?,
+                    crop,
                 )?;
             }
             set_page_box(&mut page, "MediaBox", crop);
@@ -930,14 +774,12 @@ pub(crate) fn split_pages(
                 normalize_page_rotation(source_rotation + instruction.rotation_quarter_turns * 90),
             );
             page.set("Parent", pages_id);
-            materialized_pages.push(page);
+            document.objects.insert(page_id, page.into());
+            output_page_ids.push(page_id);
         }
     }
+    document.objects.append(&mut source.objects);
 
-    let output_page_ids = materialized_pages
-        .into_iter()
-        .map(|page| document.add_object(page))
-        .collect::<Vec<_>>();
     let kids = output_page_ids
         .iter()
         .copied()
@@ -1044,12 +886,16 @@ pub(crate) fn split_pages_incremental(
             let crop = validate_crop_rect(output_instruction.crop_rect)?;
             let mut page =
                 materialized_page_dictionary(&incremental.previous_document, source_page_id)?;
+            let page_id = incremental.new_document.new_object_id();
             if let Some(transform) = output_instruction.content_transform {
                 apply_content_transform_incremental(
                     &incremental.previous_document,
                     &mut incremental.new_document,
+                    source_page_id,
+                    page_id,
                     &mut page,
                     validate_content_transform(transform)?,
+                    crop,
                 )?;
             }
             set_page_box(&mut page, "MediaBox", crop);
@@ -1062,7 +908,11 @@ pub(crate) fn split_pages_incremental(
                 normalize_page_rotation(source_rotation + instruction.rotation_quarter_turns * 90),
             );
             page.set("Parent", pages_id);
-            output_page_ids.push(incremental.new_document.add_object(page));
+            incremental
+                .new_document
+                .objects
+                .insert(page_id, page.into());
+            output_page_ids.push(page_id);
         }
     }
 

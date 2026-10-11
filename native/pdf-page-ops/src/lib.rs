@@ -24,6 +24,7 @@ mod annotation_identity;
 mod annotation_index;
 mod annotation_parse;
 mod annotation_recovery;
+mod annotation_threads;
 mod annotations;
 mod catalog;
 mod cli;
