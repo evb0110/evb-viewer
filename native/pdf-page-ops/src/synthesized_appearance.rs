@@ -2,6 +2,13 @@
 //! layout is its only caller; saving and editing shapes lives in `shapes`.
 
 use super::*;
+
+#[path = "synthesized_border.rs"]
+mod border;
+use border::*;
+#[path = "synthesized_line_endings.rs"]
+mod line_endings;
+use line_endings::line_ending_appearance;
 use lopdf::dictionary;
 
 /// The appearance a stock reader synthesizes for an annotation that has no
@@ -172,55 +179,6 @@ fn synthesized_shape_content(
     Some(content)
 }
 
-/// The dash pattern of an annotation's border: `None` for a solid border, and
-/// the outer `None` for a style the synthesis does not draw faithfully (beveled,
-/// inset, underline and cloudy borders, or an invalid pattern). Refusing those
-/// keeps print from showing a mark a stock reader would not draw.
-fn border_dash(
-    document: &impl PdfObjectSource,
-    annotation: &Dictionary,
-) -> Option<Option<Vec<f64>>> {
-    if let Ok(effect) = annotation.get(b"BE") {
-        let effect = document.resolved(effect).ok()?.as_dict().ok()?;
-        if effect
-            .get(b"S")
-            .ok()
-            .and_then(|style| document.resolved(style).ok()?.as_name().ok())
-            == Some(b"C".as_slice())
-        {
-            return None;
-        }
-    }
-    let dash = if let Ok(style) = annotation.get(b"BS") {
-        let style = document.resolved(style).ok()?.as_dict().ok()?;
-        let kind = match style.get(b"S") {
-            Ok(kind) => document.resolved(kind).ok()?.as_name().ok()?,
-            Err(_) => b"S".as_slice(),
-        };
-        match kind {
-            b"S" => return Some(None),
-            b"D" => match style.get(b"D") {
-                Ok(pattern) => annotation_numbers(document, pattern)?,
-                Err(_) => vec![3.0],
-            },
-            _ => return None,
-        }
-    } else {
-        let Ok(border) = annotation.get(b"Border") else {
-            return Some(None);
-        };
-        let border = document.resolved(border).ok()?.as_array().ok()?;
-        match border.get(3) {
-            Some(pattern) => annotation_numbers(document, pattern)?,
-            None => return Some(None),
-        }
-    };
-    let valid = !dash.is_empty()
-        && dash.iter().all(|value| value.is_finite() && *value >= 0.0)
-        && dash.iter().sum::<f64>() > 0.0;
-    valid.then_some(Some(dash))
-}
-
 /// `/C` or `/IC`: `Some(None)` when absent or transparent (an empty array),
 /// `None` when the colour is not one or three or four components in range.
 fn annotation_colour(
@@ -284,64 +242,6 @@ fn annotation_points(
             .map(|pair| (pair[0], pair[1]))
             .collect()
     })
-}
-
-/// Arrowheads from `/LE`: an open arrow is stroked, a closed arrow is filled
-/// with /IC or, failing that, the stroke colour.
-fn line_ending_appearance(
-    document: &impl PdfObjectSource,
-    annotation: &Dictionary,
-    points: &[(f64, f64)],
-    width: f64,
-    stroke: Option<&[f64]>,
-    fill: Option<&[f64]>,
-) -> Option<String> {
-    let endings = annotation
-        .get(b"LE")
-        .ok()
-        .and_then(|value| document.resolved(value).ok())
-        .and_then(|value| value.as_array().ok());
-    let ending = |index: usize| {
-        endings
-            .and_then(|values| values.get(index))
-            .and_then(|value| document.resolved(value).ok())
-            .and_then(|value| value.as_name().ok())
-    };
-    let (first, last) = (*points.first()?, *points.last()?);
-    let mut content = String::new();
-    for (style, tip, other) in [(ending(0), first, last), (ending(1), last, first)] {
-        let Some(arms) = arrow_head_arms(tip, other, width) else {
-            continue;
-        };
-        let [left, right] = arms;
-        match style {
-            Some(b"OpenArrow") => {
-                if stroke.is_some() {
-                    content.push_str(&format!(
-                        "{} {} m {} {} l {} {} l S\n",
-                        left.0, left.1, tip.0, tip.1, right.0, right.1
-                    ));
-                }
-            }
-            Some(b"ClosedArrow") => {
-                let Some(colour) = fill.or(stroke) else {
-                    continue;
-                };
-                content.push_str(&format!(
-                    "{}\n{} {} m {} {} l {} {} l h f\n",
-                    colour_operands(colour, true),
-                    left.0,
-                    left.1,
-                    tip.0,
-                    tip.1,
-                    right.0,
-                    right.1
-                ));
-            }
-            _ => {}
-        }
-    }
-    Some(content)
 }
 
 /// Four Bézier curves approximating the ellipse inscribed in the given radii.

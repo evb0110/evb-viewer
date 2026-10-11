@@ -652,31 +652,14 @@ pub(crate) fn build_ink_shape_appearance_stream(
         number_to_content(color[2]),
         number_to_content(shape.stroke_width),
     ));
-    let mut has_path = false;
-    for points in stroke_points {
-        let Some(first) = points.first() else {
-            continue;
-        };
-        if points.len() < 2 {
-            continue;
-        }
-        content.push_str(&format!(
-            "{} {} m\n",
-            number_to_content(first.0),
-            number_to_content(first.1),
-        ));
-        for point in points.iter().skip(1) {
-            content.push_str(&format!(
-                "{} {} l\n",
-                number_to_content(point.0),
-                number_to_content(point.1),
-            ));
-        }
-        has_path = true;
-    }
-    if !has_path {
+    let paths = stroke_points
+        .iter()
+        .filter_map(|points| pdf_polyline_path(points))
+        .collect::<String>();
+    if paths.is_empty() {
         return Err("Ink appearance has no drawable path".into());
     }
+    content.push_str(&paths);
     content.push_str("S\nQ\n");
 
     let mut graphics_state = Dictionary::new();
@@ -1674,4 +1657,24 @@ pub(crate) fn validate_saved_shape_style(
         return Err("Saved EVB shape is not printable".into());
     }
     Ok(())
+}
+
+/// Shared path painter for saved Ink, foreign Ink and vertex annotations.
+pub(crate) fn pdf_polyline_path(points: &[(f64, f64)]) -> Option<String> {
+    if points.len() < 2 {
+        return None;
+    }
+    let mut path = format!(
+        "{} {} m\n",
+        number_to_content(points[0].0),
+        number_to_content(points[0].1)
+    );
+    for point in &points[1..] {
+        path.push_str(&format!(
+            "{} {} l\n",
+            number_to_content(point.0),
+            number_to_content(point.1)
+        ));
+    }
+    Some(path)
 }
