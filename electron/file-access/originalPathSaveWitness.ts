@@ -50,10 +50,9 @@ function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectat
 }
 
 function isExpectationUsableForCurrentPlatform(expected: IWorkingCopyOriginalFileExpectation) {
-    // Older recovery checkpoints can contain only size and mtime. Those
-    // fields cannot distinguish an unseen same-size interior edit on POSIX.
-    // Windows can use the full baseline where one has been captured.
-    return process.platform === 'win32' || hasImmutablePosixExpectation(expected);
+    return process.platform === 'win32'
+        ? /^sha256-full-v1:[0-9a-f]{64}$/u.test(expected.contentFingerprint ?? '')
+        : hasImmutablePosixExpectation(expected);
 }
 
 
@@ -359,7 +358,7 @@ export async function originalPathSaveBaseMatches(
         return false;
     }
     if (expectationMatchesStat(expected, actual)) {
-        if (process.platform !== 'win32' || !expected.contentFingerprint) return true;
+        if (process.platform !== 'win32') return true;
     }
     if (!actual.isFile() || !expected.contentFingerprint) {
         return false;

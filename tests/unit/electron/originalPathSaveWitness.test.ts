@@ -459,22 +459,29 @@ describe('originalPathSaveBaseMatches', () => {
         }
     });
 
-    it('keeps legacy size and mtime expectations compatible on Windows without reading bytes', async () => {
+    it('refuses a legacy Windows baseline that cannot distinguish an interior edit', async () => {
         const originalPlatform = process.platform;
         Object.defineProperty(process, 'platform', {
             configurable: true,
             value: 'win32',
         });
         const originalPath = join(tempDir, 'original.pdf');
-        await writeFile(originalPath, Buffer.from('base'));
+        const bytes = Buffer.alloc(256 * 1024, 7);
+        await writeFile(originalPath, bytes);
+        await utimes(originalPath, 1700000000, 1700000000);
         const fileStat = await stat(originalPath);
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
             mtimeMs: fileStat.mtimeMs,
             size: fileStat.size,
         });
 
+        bytes[70_000] = 8;
+        await writeFile(originalPath, bytes);
+        await utimes(originalPath, 1700000000, 1700000000);
         try {
-            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+            await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12)).resolves.toBeNull();
+            expect((await readFile(originalPath)).equals(bytes)).toBe(true);
         } finally {
             Object.defineProperty(process, 'platform', {
                 configurable: true,
@@ -508,7 +515,7 @@ describe('originalPathSaveBaseMatches', () => {
         }
     });
 
-    it('accepts sub-millisecond rounding in a legacy mtime witness', async () => {
+    it('refuses a rounded legacy Windows timestamp without historical content proof', async () => {
         const originalPlatform = process.platform;
         Object.defineProperty(process, 'platform', {
             configurable: true,
@@ -523,7 +530,7 @@ describe('originalPathSaveBaseMatches', () => {
         });
 
         try {
-            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
         } finally {
             Object.defineProperty(process, 'platform', {
                 configurable: true,
