@@ -483,7 +483,7 @@ fn parse_font_metrics(document: &Document, font: &Object) -> Result<FontMetrics>
     })
 }
 
-use crate::split_pages::{transform_annotation_geometry, PdfMatrix as TextMatrix};
+use crate::split_pages::PdfMatrix as TextMatrix;
 
 #[derive(Clone)]
 struct TextFilterState {
@@ -1802,12 +1802,17 @@ pub(crate) fn append_source_annotations(
         (_, view) => view.map(|view| (instruction.matrix, view)),
     };
     let rotation = resolve_page_rotation(target, target_page_id)?;
-    let filtered = filter.is_some();
+    let copy = NoteCopy {
+        source,
+        source_page_id,
+        filtered: filter.is_some(),
+        matrix: instruction.matrix,
+        view,
+        rotation,
+    };
     let transform = |target: &mut Document, annotation: &mut Dictionary| {
-        let note = prepare_note_copy(&*target, annotation, source, source_page_id, filtered)?;
-        transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
+        place_note_copy(target, annotation, None, &copy)?;
         clip_text_markup_to_view(target, annotation, output_view);
-        fit_note_to_view(target, annotation, view, rotation, note)?;
         annotation.set("P", target_page_id);
         Ok(())
     };

@@ -1,6 +1,47 @@
 use super::*;
 use crate::note_markers::{legacy_marker_on_page, legacy_note_marker_as_text};
 use crate::page_geometry::pdf_rect_to_note_marker_rect;
+use crate::split_pages::transform_annotation_geometry;
+
+/// Where a copied annotation came from and where it lands.
+pub(crate) struct NoteCopy<'a> {
+    pub(crate) source: &'a Document,
+    pub(crate) source_page_id: ObjectId,
+    /// The copy is filtered to its output page, so a legacy marker becomes a /Text note.
+    pub(crate) filtered: bool,
+    pub(crate) matrix: [f64; 6],
+    /// The output page's view and rotation.
+    pub(crate) view: PdfRect,
+    pub(crate) rotation: i64,
+}
+
+/// Places one copied annotation on its output page: prepares it, moves it by
+/// `copy.matrix` and fits a note onto the output view. The copy's references
+/// resolve in `base`, or in `target` when there is no base. Every copy path
+/// places notes through here, so a note the source admits is kept or refused the
+/// same way wherever it is copied.
+pub(crate) fn place_note_copy(
+    target: &mut Document,
+    annotation: &mut Dictionary,
+    base: Option<&Document>,
+    copy: &NoteCopy,
+) -> Result<()> {
+    let note = prepare_note_copy(
+        base.unwrap_or(&*target),
+        annotation,
+        copy.source,
+        copy.source_page_id,
+        copy.filtered,
+    )?;
+    transform_annotation_geometry(target, annotation, copy.matrix, base, copy.rotation)?;
+    fit_note_to_view(
+        base.unwrap_or(&*target),
+        annotation,
+        copy.view,
+        copy.rotation,
+        note,
+    )
+}
 
 /// Readies an overlay copy of a source annotation and says whether it is a
 /// note root the reader admits on its source page. Only such a note must stay
