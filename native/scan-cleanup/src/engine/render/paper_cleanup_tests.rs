@@ -183,6 +183,34 @@ fn keeps_every_pixel_of_a_filled_faint_rule() {
 }
 
 #[test]
+fn whitens_a_full_height_scanner_strip_on_the_raster_edge() {
+    let mut page = GrayImage::new(1000, 1000, 250);
+    // A scanner strip many strokes wide down the right edge, whose shading the
+    // picture owner also covers, and a glyph block inside the leaf that must stay.
+    fill(&mut page, 986..1000, 5..995, 120);
+    fill(&mut page, 300..310, 300..340, 30);
+    let mut picture = BinaryImage::new(1000, 1000);
+    for y in 5..995 {
+        for x in 986..1000 {
+            picture.set(x, y, true);
+        }
+    }
+
+    whiten_unmarked_paper(&mut page, Some(&picture), calibration(), 150.0);
+
+    for y in 0..1000 {
+        for x in 986..1000 {
+            assert_eq!(page.get(x, y), 255, "scanner strip stayed at ({x}, {y})");
+        }
+    }
+    for y in 300..340 {
+        for x in 300..310 {
+            assert_eq!(page.get(x, y), 30, "glyph lost its tone at ({x}, {y})");
+        }
+    }
+}
+
+#[test]
 fn whitens_paper_away_from_marks_and_keeps_every_mark_pixel() {
     let mut page = GrayImage::new(400, 400, 238);
     // A soft paper cloud far from any mark.

@@ -1,7 +1,8 @@
 //! Grayscale cleanup whitens unmarked paper and isolated dust, keeping marks'
-//! tone and halo. The picture owner is never touched.
+//! tone and halo. The picture owner is never touched, but a scanner strip under it is.
 
 use super::*;
+use crate::engine::edge_band::{scanner_strip, whiten_unkept};
 use scan_primitives::{morphology::reconstruct_binary, Component};
 
 /// Ink contrast against nearby paper, excluding slow paper gradients.
@@ -85,16 +86,11 @@ pub(crate) fn whiten_unmarked_paper(
     let cores = BinaryImage::from_fn_parallel(width, height, |x, y| {
         kept.get(x, y) || page_paper.saturating_sub(gray.get(x, y)) >= MARK_CONTRAST
     });
-    let kept = reconstruct_binary(&kept, &cores);
+    let strip = scanner_strip(&marks, stroke);
+    let kept = reconstruct_binary(&kept, &cores).subtract(&strip);
     let halo = ((x_height / 2.0).round() as usize).max(2);
     let keep = dilate(&kept, halo, halo);
-    for y in 0..height {
-        for x in 0..width {
-            if !keep.get(x, y) && !picture.is_some_and(|mask| mask.get(x, y)) {
-                gray.set(x, y, 255);
-            }
-        }
-    }
+    whiten_unkept(gray, &keep, picture, &strip);
 }
 
 #[cfg(test)]
