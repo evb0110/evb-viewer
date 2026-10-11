@@ -32,6 +32,8 @@ import {
     startEmbeddedMcpServer,
     startLocalMcpServer,
 } from '@electron/features/agent/mcpServer';
+import type * as TWorkingCopyMaterialization from '@electron/file-access/workingCopyMaterialization';
+import type * as TWorkingCopyStore from '@electron/file-access/workingCopyStore';
 import type {
     IAgentDocumentPageReadOptions,
     IAgentDocumentSearchOptions,
@@ -69,6 +71,23 @@ const mocks = vi.hoisted(() => ({logger: {
 }}));
 
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
+
+const lazyCopy = vi.hoisted(() => ({entered: () => {}}));
+
+vi.mock('@electron/file-access/workingCopyStore', async importOriginal => ({
+    ...(await importOriginal<typeof TWorkingCopyStore>()),
+    findWorkingCopyPathByOriginalPath: () => '/tmp/lazy.pdf',
+    getWorkingCopyBackingEntry: () => ({backingState: 'materializing'}),
+}));
+
+vi.mock('@electron/file-access/workingCopyMaterialization', async importOriginal => ({
+    ...(await importOriginal<typeof TWorkingCopyMaterialization>()),
+    // Materialization completes only when the caller aborts, so a lost signal stalls the test.
+    ensureWorkingCopyMaterialized: (_path: string, {signal}: {signal?: AbortSignal}) => new Promise((_resolve, reject) => {
+        lazyCopy.entered();
+        signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
+    }),
+}));
 
 interface IListToolsResult { tools?: IListToolsResultTool[]; }
 interface IListToolsResultTool {
@@ -824,6 +843,42 @@ describe('processMcpRequest', () => {
             query: 'stem',
             results: [{pageNumber: 12}],
         }});
+    });
+
+    it('agent Cancel releases a wait for a lazily backed copy before it materializes', async () => {
+        const { searchAgentDocument } = await import('@electron/features/agent/documentText');
+        const entered = Promise.withResolvers<undefined>();
+        lazyCopy.entered = () => entered.resolve(undefined);
+        const controller = new AbortController();
+        const window = {webContents: {id: 7}} as never;
+        const input = {
+            tab: {
+                kind: 'pdf',
+                tabId: 'tab-1',
+                fileName: 'lazy.pdf',
+                originalPath: '/tmp/lazy.pdf',
+                totalPages: 1,
+            },
+            options: {query: 'needle'},
+        } as never;
+        let settled = false;
+        let rejected = false;
+        const search = searchAgentDocument(window, input, controller.signal).then(
+            () => {
+                settled = true;
+            },
+            () => {
+                settled = true;
+                rejected = true;
+            },
+        );
+
+        await entered.promise;
+        controller.abort(new DOMException('Cancel', 'AbortError'));
+        await new Promise<void>(resolve => setImmediate(resolve));
+        expect(settled).toBe(true);
+        expect(rejected).toBe(true);
+        await search;
     });
 
     it('clamps document page reads to the target tab page count before expansion', async () => {
