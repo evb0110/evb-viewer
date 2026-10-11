@@ -3397,6 +3397,13 @@ describe('Electron E2E - Viewer Smoke', () => {
                 await openNewPane(session.page, direction);
                 expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', userAnchor), userAnchor);
                 if (direction === 'down') {
+                    // A resize keeps the window's top edge, and the OS shortens a
+                    // window whose bottom would leave the work area. Start from the
+                    // work area's top, where the full height fits.
+                    await session.page.evaluate(() => window.moveTo(
+                        window.screenX,
+                        (screen as Screen & {availTop: number}).availTop,
+                    ));
                     const height = await session.page.evaluate(() => Math.min(
                         1000,
                         screen.availHeight - (window.outerHeight - window.innerHeight),
