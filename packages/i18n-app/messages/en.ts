@@ -1724,6 +1724,7 @@ export default {
             'noPages': 'The PDF contains no pages',
             'folderEmpty': 'No supported documents were found in the selected folder',
             'save': 'Failed to save file',
+            'originalSavedOtherKept': 'EVB saved your edits. The other version was kept at {path}.',
             'browserStorageTitle': 'Browser storage is unavailable',
             'browserStorageDescription': '“{name}” is open in memory, but it will not reappear after reload.',
         },

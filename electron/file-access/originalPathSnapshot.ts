@@ -23,8 +23,10 @@ export interface IOriginalPathSaveSnapshot {
 }
 
 export class OriginalPathSaveConflictError extends Error {
-    constructor() {
-        super('Original file changed on disk; save skipped to avoid overwriting external edits');
+    constructor(readonly keptFilePath?: string) {
+        super(keptFilePath
+            ? `EVB saved your edits. The other version was kept at ${keptFilePath}`
+            : 'Original file changed on disk; save skipped to avoid overwriting external edits');
         this.name = 'OriginalPathSaveConflictError';
     }
 }
@@ -106,11 +108,7 @@ async function hashFilePath(
 }
 
 export async function hashContentFingerprintFilePath(originalPath: string, size: bigint, signal?: AbortSignal) {
-    const numericSize = Number(size);
-    if (!Number.isSafeInteger(numericSize) || numericSize < 0) {
-        throw new OriginalPathSaveConflictError();
-    }
-    const hash = createOriginalFileContentFingerprintHash(numericSize);
+    const hash = createOriginalFileContentFingerprintHash(Number(size));
     return `sha256-full-v1:${await hashFilePath(originalPath, size, hash, signal)}`;
 }
 

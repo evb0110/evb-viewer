@@ -1735,6 +1735,7 @@ export default {
             'noPages': 'Le PDF ne contient aucune page',
             'folderEmpty': 'Aucun document pris en charge n’a été trouvé dans le dossier sélectionné',
             'save': 'Échec de l’enregistrement du fichier',
+            'originalSavedOtherKept': 'EVB a enregistré vos modifications. L’autre version a été conservée à l’emplacement {path}.',
             'browserStorageTitle': 'Le stockage du navegador est indisponible',
             'browserStorageDescription': '« {name} » est ouvert en mémoire, mais ne réapparaîtra pas après rechargement.',
         },

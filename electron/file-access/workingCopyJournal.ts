@@ -2,7 +2,6 @@ import {randomUUID} from 'node:crypto';
 import {
     open as openFileHandle,
     readFile,
-    readdir,
     rm,
     stat,
 } from 'node:fs/promises';
@@ -269,28 +268,4 @@ function getOriginalBackupNamePrefix(originalPath: string, workingCopyPath: stri
 
 export function createOriginalTransitionBackupPath(originalPath: string, workingCopyPath: string) {
     return join(dirname(originalPath), `${getOriginalBackupNamePrefix(originalPath, workingCopyPath)}${randomUUID()}.bak`);
-}
-
-/** Removes original backups this working copy's crash left before its journal named them. */
-export async function sweepOrphanedOriginalBackups(originalPath: string, workingCopyPath: string) {
-    // Recovery runs immediately before this sweep. Recheck the journal so a
-    // transition that starts between those steps keeps its backup.
-    if (await readJournal(workingCopyPath) !== null) {
-        return;
-    }
-    const originalDirectory = dirname(originalPath);
-    const backupPrefix = getOriginalBackupNamePrefix(originalPath, workingCopyPath);
-    let entries;
-    try {
-        entries = await readdir(originalDirectory, {withFileTypes: true});
-    } catch {
-        return;
-    }
-    await Promise.all(entries
-        .filter(entry => (
-            entry.name.startsWith(backupPrefix)
-            && entry.name.endsWith('.bak')
-            && (entry.isFile() || entry.isSymbolicLink())
-        ))
-        .map(entry => rm(join(originalDirectory, entry.name), {force: true}).catch(() => undefined)));
 }

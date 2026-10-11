@@ -1,3 +1,4 @@
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
@@ -138,28 +139,27 @@ async function materializeNativeBinarySidecars(
         return payload;
     }
     const mutationPayload = payload as IPdfNativeMutationSet & {placedImages: NonNullable<IPdfNativeMutationSet['placedImages']>};
-    const placedImages = await Promise.all(mutationPayload.placedImages.map(async (image) => {
-        if (image.bytesBase64 !== undefined) {
-            return image;
-        }
-        if (!image.source) {
-            throw new Error('Placed image source is missing');
-        }
-        const source = await resolveManagedTempFileHandle(context, image.source);
-        const {
-            source: _source,
-            ...metadata
-        } = image;
-        return {
-            ...metadata,
-            bytesPath: source.path,
-            byteLength: source.size,
-            sha256: source.sha256,
-        };
-    }));
     return {
         ...payload,
-        placedImages,
+        placedImages: await Promise.all(mutationPayload.placedImages.map(async (image) => {
+            if (image.bytesBase64 !== undefined) {
+                return image;
+            }
+            if (!image.source) {
+                throw new Error('Placed image source is missing');
+            }
+            const source = await resolveManagedTempFileHandle(context, image.source);
+            const {
+                source: _source,
+                ...metadata
+            } = image;
+            return {
+                ...metadata,
+                bytesPath: source.path,
+                byteLength: source.size,
+                sha256: source.sha256,
+            };
+        })),
     };
 }
 
@@ -482,6 +482,7 @@ export async function handleCommitStagedPdfNativeMutations(
     const phaseTimings: INativeNotePhaseTiming[] = [];
     const operationStart = performance.now();
     const operationStartedAtEpochMs = Date.now();
+    const refreshWorkingCopy = () => syncNativeOutputToRequestingWorkingCopy(normalizedWorkingPath, senderId);
     let result: IPdfNativeNoteTextSaveResult | null = null;
     let stagedArtifactCleaned = false as boolean;
     try {
@@ -491,8 +492,6 @@ export async function handleCommitStagedPdfNativeMutations(
                 expectedDocumentRevisionToken,
             );
             const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
-            // Typed PDF receipts validate the artifact extension as part of the
-            // main-process trust boundary.
             const transition = await transitionOriginalAndWorkingCopyRevision({
                 workingCopyPath: normalizedWorkingPath,
                 originalPath,
@@ -513,14 +512,8 @@ export async function handleCommitStagedPdfNativeMutations(
                         ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
                     });
                 },
-                afterWorkingCopySync: () => syncNativeOutputToRequestingWorkingCopy(
-                    normalizedWorkingPath,
-                    senderId,
-                ),
-                afterOriginalRestore: () => syncNativeOutputToRequestingWorkingCopy(
-                    normalizedWorkingPath,
-                    senderId,
-                ),
+                afterWorkingCopySync: refreshWorkingCopy,
+                afterOriginalRestore: refreshWorkingCopy,
                 onPhase: (phase, durationMs) => phaseTimings.push({
                     phase,
                     durationMs,
@@ -546,14 +539,11 @@ export async function handleCommitStagedPdfNativeMutations(
 
             if (queuedResult.applied) {
                 try {
-                    const refreshed = await measureNativeNotePhase(
+                    await measureNativeNotePhase(
                         phaseTimings,
                         'refresh-original-expectation-after-release',
-                        () => refreshWorkingCopyOriginalFileExpectation(normalizedWorkingPath, senderId),
+                        refreshWorkingCopy,
                     );
-                    if (!refreshed) {
-                        throw new Error('Working copy registration changed after native mutation commit');
-                    }
                 } catch (error) {
                     queuedResult = {
                         ...queuedResult,
@@ -566,6 +556,13 @@ export async function handleCommitStagedPdfNativeMutations(
             kind: 'native-pdf-mutation-staged-commit',
             ownerWebContentsId: senderId,
         });
+    } catch (error) {
+        if (!(error instanceof OriginalPathSaveConflictError)) throw error;
+        result = {
+            ...createNotAppliedResult(error),
+            reason: 'original-changed',
+            ...(error.keptFilePath === undefined ? {} : {keptFilePath: error.keptFilePath}),
+        };
     } finally {
         if (!stagedArtifactCleaned) {
             releaseManagedTempFileHandle(context, stagedOutput.leaseId);

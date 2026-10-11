@@ -50,7 +50,6 @@ import {
     prepareWorkingCopyTransition,
     recoverWorkingCopyTransition,
     rollbackWorkingCopyTransition,
-    sweepOrphanedOriginalBackups,
     type IWorkingCopyJournal,
     type TWorkingCopyContentBackupMode,
 } from '@electron/file-access/workingCopyJournal';
@@ -74,9 +73,6 @@ function repairEndedTransition(workingCopyPath: string, originalPath: string | u
     const key = getRevisionQueueKey(workingCopyPath);
     const repair = () => runContentTransitionSerially(key, async () => {
         await recoverWorkingCopyTransition(workingCopyPath);
-        if (originalPath) {
-            await sweepOrphanedOriginalBackups(originalPath, workingCopyPath);
-        }
     });
     if (!runContentTransitionSerially.isIdle(key)) {
         return Promise.resolve();

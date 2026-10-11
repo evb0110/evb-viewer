@@ -1735,6 +1735,7 @@ export default {
             'noPages': 'O PDF não contém páginas',
             'folderEmpty': 'Não foram encontrados documentos compatíveis na pasta selecionada',
             'save': 'Falha ao guardar ficheiro',
+            'originalSavedOtherKept': 'O EVB guardou as suas alterações. A outra versão foi conservada em {path}.',
             'browserStorageTitle': 'O armazenamento do navegador não está disponível',
             'browserStorageDescription': '“{name}” está aberto na memória, mas não reaparecerá após recarregar.',
         },

@@ -305,9 +305,9 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                     ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
                     ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
                 }),
-            });
+            }).catch((error: unknown) => error);
             expect(edited).toBe(true);
-            expect(result).toBeNull();
+            expect(result).toMatchObject({keptFilePath: expect.any(String)});
             expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
             expect(await readFile(originalPath, 'utf8')).toBe('new-committed-pdf');
             const retained = (await readdir(tempRoot)).filter(name => name.includes('.evb-transition-') && name.endsWith('.bak'));
@@ -315,6 +315,9 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             expect((await readFile(join(tempRoot, retained[0]!))).equals(external)).toBe(true);
             const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
             await recoverWorkingCopyTransition(fixture.workingCopyPath);
+            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            await getWorkingCopyRevision(fixture.workingCopyPath, 7);
+            expect(result).toMatchObject({keptFilePath: join(tempRoot, retained[0]!)});
             expect((await readFile(join(tempRoot, retained[0]!))).equals(external)).toBe(true);
         } finally {
             vi.doUnmock('fs/promises');

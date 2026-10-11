@@ -36,6 +36,7 @@ import {
 } from '@electron/file-access/workingCopyMutationQueue';
 import {assertQueuedWorkingCopyMutationPreconditions} from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {transitionOriginalAndWorkingCopyRevision} from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import { rewritePdfWithQpdf } from '@electron/pdf/pdfAppendBase';
@@ -96,6 +97,7 @@ function createSaveFailureResult(
     error?: unknown,
     options: {
         externalWriteCommitted?: boolean;
+        keptFilePath?: string;
         validation?: IPdfValidationResult | null;
     } = {},
 ): TDocumentSaveResult {
@@ -105,6 +107,7 @@ function createSaveFailureResult(
         reason,
         ...(message === undefined ? {} : {message}),
         ...(options.externalWriteCommitted === undefined ? {} : {externalWriteCommitted: options.externalWriteCommitted}),
+        ...(options.keptFilePath === undefined ? {} : {keptFilePath: options.keptFilePath}),
         ...(reason === 'working-copy-sync-required' ? {workingCopySyncRequired: true} : {}),
         ...(options.validation === undefined ? {} : {validation: options.validation}),
     };
@@ -284,7 +287,7 @@ export async function handleFileSaveStructured(
             });
             const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
 
-            const queuedSave = await replaceOriginalWithValidatedTemp(
+            return replaceOriginalWithValidatedTemp(
                 originalPath,
                 normalizedWorkingPath,
                 senderId,
@@ -294,17 +297,6 @@ export async function handleFileSaveStructured(
                     signal: operation.signal,
                 },
             );
-            if (queuedSave.validation.isValid) {
-                return {
-                    validation: queuedSave.validation,
-                    workingCopyRefreshed: true,
-                };
-            }
-
-            return {
-                validation: queuedSave.validation,
-                workingCopyRefreshed: false,
-            };
         });
 
         if (!saveResult.validation.isValid) {
@@ -333,6 +325,12 @@ export async function handleFileSaveStructured(
             validation: saveResult.validation,
         };
     } catch (err) {
+        if (err instanceof OriginalPathSaveConflictError) {
+            return createSaveFailureResult('original-changed', err, {
+                externalWriteCommitted: err.keptFilePath !== undefined,
+                ...(err.keptFilePath === undefined ? {} : {keptFilePath: err.keptFilePath}),
+            });
+        }
         if (
             typeof context.senderId === 'number'
             && areWorkingCopyAndOriginalMissing(workingPath.trim(), context.senderId)

@@ -47,14 +47,12 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             return null;
         }
         const originalBackupPath = createOriginalTransitionBackupPath(input.originalPath, input.workingCopyPath);
-        let backupCreated = false as boolean;
         let committed = false as boolean;
         let journal = null as IWorkingCopyJournal | null;
         try {
             input.signal?.throwIfAborted();
             await measurePhase('transition-backup-original', () =>
                 linkOriginalBackup(witness, input.originalPath, originalBackupPath));
-            backupCreated = true;
             await measurePhase('transition-rebase-original-witness', async () =>
                 witness?.rebaseOnUnchangedContent(undefined, input.signal));
             input.signal?.throwIfAborted();
@@ -117,7 +115,8 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             return event;
         } catch (error) {
             if (error instanceof OriginalPathSaveConflictError) {
-                if (journal?.original && journal.original.state !== 'conflicted') {
+                if (journal?.original) {
+                    if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(journal.original.backupPath);
                     await recordWorkingCopyJournalOriginal(journal, {
                         ...journal.original,
                         state: 'restored',
@@ -128,7 +127,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             throw error;
         } finally {
             try {
-                if (!committed && backupCreated && journal?.original
+                if (!committed && journal?.original
                     && (journal.original.state === 'prepared' || journal.original.state === 'published')) {
                     const restoreOptions = witness === null
                         ? {}

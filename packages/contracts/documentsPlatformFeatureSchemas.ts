@@ -413,6 +413,7 @@ const documentSaveResultSchema = v.variant('ok', [
     v.object({
         ok: v.literal(false),
         reason: v.picklist(documentSaveFailureReasons),
+        keptFilePath: v.exactOptional(v.string()),
         message: v.exactOptional(v.string()),
         externalWriteCommitted: v.exactOptional(v.nullable(v.boolean())),
         workingCopySyncRequired: v.exactOptional(v.boolean()),
@@ -443,6 +444,7 @@ const nativeSaveResultSchema = v.object({
     applied: v.boolean(),
     validation: v.nullable(PDF_VALIDATION_RESULT_SCHEMA),
     reason: v.exactOptional(v.literal('original-changed')),
+    keptFilePath: v.exactOptional(v.string()),
     nativeMutationPostconditionsVerified: v.exactOptional(v.literal(true, 'invalid native PDF save result')),
     identityBindings: v.exactOptional(v.pipe(
         v.unknown(),

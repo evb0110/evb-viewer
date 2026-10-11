@@ -183,7 +183,7 @@ describe('documentRevisionStore', () => {
         await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.not.toBeNull();
     });
 
-    it('removes orphaned transition backups of its own working copy when opening it', async () => {
+    it('keeps unjournaled original backups that may be retained external versions', async () => {
         const originalPath = join(tempRoot, 'orphaned-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-orphaned', 'orphaned-original.pdf');
         const orphanedBackupPath = `${originalPath}.evb-transition-pdf-work-orphaned-stale.bak`;
@@ -202,12 +202,12 @@ describe('documentRevisionStore', () => {
 
         await ensureWorkingCopyRevision(workingPath, 7);
 
-        expect(existsSync(orphanedBackupPath)).toBe(false);
+        expect(existsSync(orphanedBackupPath)).toBe(true);
         expect(existsSync(legacyBackupPath)).toBe(true);
         expect(existsSync(unrelatedPath)).toBe(true);
     });
 
-    it('removes an orphaned backup of a near-limit original name from its own working copy', async () => {
+    it('keeps a retained backup of a near-limit original name', async () => {
         const originalPath = join(tempRoot, `${'é'.repeat(80)}${'source'.repeat(13)}.pdf`);
         const workingPath = join(tempRoot, 'pdf-work-orphaned-long', 'working.pdf');
         mkdirSync(dirname(workingPath), {recursive: true});
@@ -223,7 +223,7 @@ describe('documentRevisionStore', () => {
 
         await ensureWorkingCopyRevision(workingPath, 7);
 
-        expect(existsSync(orphanedBackupPath)).toBe(false);
+        expect(existsSync(orphanedBackupPath)).toBe(true);
         expect(existsSync(originalPath)).toBe(true);
     });
 
