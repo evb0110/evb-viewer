@@ -246,6 +246,30 @@ describe('useSettings', () => {
         expect(settings.value.defaultZoomPreset).toBe('150');
     });
 
+    it('adopts a later commit after a pre-hydration edit was saved during load', async () => {
+        vi.stubGlobal('window', {addEventListener: vi.fn()});
+        mockGet.mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            authorName: 'Stored author',
+        });
+        mockSave.mockImplementation(async patch => {
+            emitSettingsChange({
+                ...DEFAULT_SETTINGS,
+                ...patch,
+            });
+        });
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        instance.updateSetting('authorName', 'Before hydration');
+        await instance.load();
+        await vi.waitFor(() => expect(mockSave).toHaveBeenCalledOnce());
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved in another window',
+        });
+        expect(instance.settings.value.authorName).toBe('Saved in another window');
+    });
+
     it('reports a failed settings save and saves the latest payload on the next change', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         mockSave
@@ -396,6 +420,80 @@ describe('useSettings', () => {
 
         expect(mockSave).toHaveBeenCalledTimes(2);
         expect(mockSave).toHaveBeenLastCalledWith({theme: 'dark'});
+    });
+
+    it('releases an edit that returned to the committed value before any save started', async () => {
+        mockGet.mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            theme: 'light',
+        });
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+        instance.updateSetting('theme', 'dark');
+        instance.updateSetting('theme', 'light');
+        await instance.save();
+        emitSettingsChange({
+            ...DEFAULT_SETTINGS,
+            theme: 'dark',
+        });
+        expect(instance.settings.value.theme).toBe('dark');
+    });
+
+    it.each([
+        [
+            'authorName',
+            'Saved author',
+            'First edit',
+        ],
+        [
+            'theme',
+            'light',
+            'dark',
+        ],
+        [
+            'clientDiagnosticsPreference',
+            'denied',
+            'granted',
+        ],
+    ] as const)('preserves a later %s edit returning to its saved value', async (key, savedValue, firstValue) => {
+        const baseline = {
+            ...DEFAULT_SETTINGS,
+            [key]: savedValue,
+        };
+        mockGet.mockResolvedValue(baseline);
+        const pending = createDeferred();
+        mockSave.mockReturnValueOnce(pending.promise).mockImplementationOnce(async (patch) => {
+            emitSettingsChange({
+                ...baseline,
+                ...patch,
+            });
+        });
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+
+        instance.updateSetting(key, firstValue);
+        const saving = instance.save();
+        instance.updateSetting(key, savedValue);
+        emitSettingsChange({
+            ...baseline,
+            [key]: firstValue,
+        });
+        pending.resolve();
+        await saving;
+
+        expect(instance.settings.value[key]).toBe(savedValue);
+        expect(mockSave).toHaveBeenLastCalledWith({[key]: savedValue});
+        if (key === 'clientDiagnosticsPreference') {
+            const {getRendererDiagnosticsPreference} = await import('@app/utils/failureReporter');
+            expect(getRendererDiagnosticsPreference()).toBe('denied');
+        }
+        emitSettingsChange({
+            ...baseline,
+            [key]: firstValue,
+        });
+        expect(instance.settings.value[key]).toBe(firstValue);
     });
 
     it('keeps the committed value of a key another window saved while this save was in flight', async () => {

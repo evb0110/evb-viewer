@@ -84,11 +84,14 @@ export function selectAdoptedSettings(
     current: ISettingsData,
     lastSaved: ISettingsData | null,
     committed: ISettingsData,
+    pendingIntent?: ReadonlyMap<keyof ISettingsData, unknown>,
 ): Partial<ISettingsData> {
     const adopted: Partial<ISettingsData> = {};
     for (const key of Object.keys(committed) as Array<keyof ISettingsData>) {
         const withdrawal = key === 'clientDiagnosticsPreference' && committed[key] === 'denied';
-        if (withdrawal || current[key] === lastSaved?.[key]) {
+        if (withdrawal || (pendingIntent?.has(key)
+            ? pendingIntent.get(key) === committed[key]
+            : current[key] === lastSaved?.[key])) {
             Object.assign(adopted, {[key]: committed[key]});
         }
     }
@@ -161,16 +164,12 @@ export const useSettings = () => {
         onLoaded(nextSettings) {
             refreshSettingsBootstrapCookieSnapshot();
             rememberSavedSettings(nextSettings);
-            const pendingEntries = [...pendingSettingsIntent.entries()];
-            if (pendingEntries.length > 0) {
-                const mergedSettings = sanitizeSettings({
+            if (pendingSettingsIntent.size > 0) {
+                settings.value = sanitizeSettings({
                     ...nextSettings,
-                    ...Object.fromEntries(
-                        pendingEntries,
-                    ),
+                    ...Object.fromEntries(pendingSettingsIntent),
                 });
-                settings.value = mergedSettings;
-                setRendererDiagnosticsPreference(mergedSettings.clientDiagnosticsPreference);
+                setRendererDiagnosticsPreference(settings.value.clientDiagnosticsPreference);
                 settingsLoadFailure.value = null;
                 cancelDebouncedSettingsSave();
                 void getSettingsPersistenceQueue().save();
@@ -190,9 +189,9 @@ export const useSettings = () => {
 
     if (typeof window !== 'undefined' && unsubscribeSettingsChanges === null) {
         unsubscribeSettingsChanges = getSettingsCapability().onChanged((committed) => {
-            const adopted = selectAdoptedSettings(settings.value, lastSavedSettings.value, committed);
+            const adopted = selectAdoptedSettings(settings.value, lastSavedSettings.value, committed, pendingSettingsIntent);
+            for (const key of Object.keys(adopted) as Array<keyof ISettingsData>) pendingSettingsIntent.delete(key);
             if (Object.hasOwn(adopted, 'clientDiagnosticsPreference')) {
-                pendingSettingsIntent.delete('clientDiagnosticsPreference');
                 setRendererDiagnosticsPreference(adopted.clientDiagnosticsPreference);
             }
             Object.assign(settings.value, adopted);
@@ -208,12 +207,8 @@ export const useSettings = () => {
         });
     }
 
-    async function load() {
-        const loadedSettings = await loadSettingsState();
-        if (loadedSettings !== null) {
-            rememberSavedSettings(loadedSettings);
-        }
-        return loadedSettings;
+    function load() {
+        return loadSettingsState();
     }
 
     async function loadOrThrow() {
@@ -236,10 +231,9 @@ export const useSettings = () => {
             // The owner's committed values reached lastSavedSettings before the save resolved.
             onSaved() {
                 refreshSettingsBootstrapCookieSnapshot();
+                // A no-op save acknowledges intents already equal to the owner's baseline.
                 for (const key of pendingSettingsIntent.keys()) {
-                    if (settings.value[key] === lastSavedSettings.value?.[key]) {
-                        pendingSettingsIntent.delete(key);
-                    }
+                    if (pendingSettingsIntent.get(key) === lastSavedSettings.value?.[key]) pendingSettingsIntent.delete(key);
                 }
                 settingsSaveFailure.value = null;
             },
@@ -298,9 +292,7 @@ export const useSettings = () => {
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
         settingsIntentRevision += 1;
-        if (!isLoaded.value) {
-            pendingSettingsIntent.set(key, value);
-        }
+        pendingSettingsIntent.set(key, value);
         Object.assign(settings.value, {[key]: value});
         if (key === 'clientDiagnosticsPreference') {
             setRendererDiagnosticsPreference(value);
