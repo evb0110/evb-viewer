@@ -5,6 +5,7 @@ import {
     link,
     mkdtemp,
     open,
+    readFile,
     rm,
     stat,
     symlink,
@@ -32,6 +33,8 @@ const mocks = vi.hoisted(() => ({
     identityStats: 0,
     mutateDuringWitnessPath: '',
     mutateDuringWitnessReplacementPath: '',
+    mutateDuringWitnessByte: -1,
+    mutateDuringWitnessCtime: null as bigint | null,
     mutatePostHashStatPath: '',
     postHashStatCalls: 0,
     witnessReads: 0,
@@ -75,6 +78,10 @@ vi.mock('node:fs/promises', async importOriginal => {
                     mtimeNs: bigintStat.mtimeNs + 1n,
                 };
             }
+            if (String(args[0]) === mocks.mutateDuringWitnessPath && mocks.mutateDuringWitnessCtime !== null) {
+                const bigintStat = fileStat as BigIntStats;
+                return Object.assign(Object.create(Object.getPrototypeOf(bigintStat)), bigintStat, {ctimeNs: mocks.mutateDuringWitnessCtime});
+            }
             return fileStat;
         },
     };
@@ -86,7 +93,11 @@ vi.mock('@electron/file-access/readFileChunk', async importOriginal => {
     return {readFileChunk: async (...args: Parameters<typeof original.readFileChunk>) => {
         const bytesRead = await original.readFileChunk(...args);
         if (args[0] === mocks.mutateDuringWitnessPath && ++mocks.witnessReads === 2) {
-            await fs.writeFile(mocks.mutateDuringWitnessReplacementPath, Buffer.from('base'));
+            const fileStat = await fs.stat(args[0]);
+            const bytes = await fs.readFile(args[0]);
+            if (mocks.mutateDuringWitnessByte >= 0) bytes[mocks.mutateDuringWitnessByte] = 8;
+            await fs.writeFile(mocks.mutateDuringWitnessReplacementPath, bytes);
+            await fs.utimes(mocks.mutateDuringWitnessReplacementPath, fileStat.atime, fileStat.mtime);
             await fs.rename(mocks.mutateDuringWitnessReplacementPath, mocks.mutateDuringWitnessPath);
         }
         return bytesRead;
@@ -128,6 +139,8 @@ describe('originalPathSaveBaseMatches', () => {
         mocks.identityChurnPath = '';
         mocks.identityStats = 0;
         mocks.mutateDuringWitnessPath = '';
+        mocks.mutateDuringWitnessByte = -1;
+        mocks.mutateDuringWitnessCtime = null;
         mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
         mocks.postHashStatCalls = 0;
@@ -247,22 +260,34 @@ describe('originalPathSaveBaseMatches', () => {
             .resolves.toBeNull();
     });
 
-    it('rejects an identical replacement when it changes during the save comparison', async () => {
+    it.each([
+        false,
+        true,
+    ])('proves full replacement content during comparison, edited=%s', async edited => {
         const originalPath = join(tempDir, 'original.pdf');
-        const bytes = Buffer.from('base');
+        const bytes = Buffer.alloc(256 * 1024, 7);
         await writeFile(originalPath, bytes);
+        await utimes(originalPath, 1700000000, 1700000000);
         const expected = await captureExpectation(originalPath);
-        const hash = createOriginalFileContentFingerprintHash(bytes.byteLength);
-        hash.update(bytes);
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
             ...expected,
-            contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+            // Force the full read deterministically, independent of the clock tick.
+            ctimeNs: (BigInt(expected.ctimeNs) - 1n).toString(),
+            contentFingerprint: await hashContentFingerprintFilePath(originalPath, BigInt(bytes.length)),
         });
         mocks.mutateDuringWitnessPath = originalPath;
         mocks.mutateDuringWitnessReplacementPath = join(tempDir, 'during-comparison.pdf');
+        mocks.mutateDuringWitnessByte = edited ? 70_000 : -1;
+        mocks.mutateDuringWitnessCtime = BigInt(expected.ctimeNs);
 
-        await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
-            .resolves.toBeNull();
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect((await stat(originalPath, {bigint: true})).ino).not.toBe(BigInt(expected.inode));
+        if (edited) expect(witness).toBeNull();
+        else {
+            expect(witness).not.toBeNull();
+            await expect(witness!.assertCurrent()).resolves.toBeUndefined();
+            expect((await readFile(originalPath)).equals(bytes)).toBe(true);
+        }
     });
 
     it('rejects an identical replacement when the full baseline is not available', async () => {
@@ -628,6 +653,8 @@ describe('captureOpenSourceWitness', () => {
         mocks.identityChurnPath = '';
         mocks.identityStats = 0;
         mocks.mutateDuringWitnessPath = '';
+        mocks.mutateDuringWitnessByte = -1;
+        mocks.mutateDuringWitnessCtime = null;
         mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
         mocks.postHashStatCalls = 0;
