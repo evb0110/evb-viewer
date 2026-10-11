@@ -18,7 +18,6 @@ import {
     getBrowserDocumentFileName,
 } from '@app/platform/browserDocumentStore';
 import { EXPORT_RENDER_SCALE } from '@app/platform/browser-api/browserImageExportConfig';
-import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { toUint8Array } from '@app/platform/browser-api/browserBytes';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import {
@@ -55,7 +54,12 @@ import {
 } from '@contracts/shared';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 
-type TBrowserImageExportFormat = 'jpeg' | 'png' | 'tiff';
+import {
+    IMAGE_EXPORT_FORMATS,
+    normalizeImageExportFileName,
+    resolveImageExportFormat,
+    type TImageExportFormat as TBrowserImageExportFormat,
+} from '@pdf-core/imageExportFileName';
 type TBrowserImageExportProgressPayload = Omit<IImageExportProgress, 'format' | 'requestId'>;
 type TUtifModule = typeof UTIFModule;
 
@@ -149,50 +153,8 @@ function releaseCanvas(canvas: HTMLCanvasElement) {
     canvas.height = 0;
 }
 
-function resolveBrowserImageExportExtension(format: TBrowserImageExportFormat) {
-    if (format === 'jpeg') {
-        return '.jpg';
-    }
-    if (format === 'tiff') {
-        return '.tif';
-    }
-    return '.png';
-}
-
-function resolveBrowserImageMimeType(format: TBrowserImageExportFormat) {
-    if (format === 'jpeg') {
-        return 'image/jpeg';
-    }
-    if (format === 'tiff') {
-        return 'image/tiff';
-    }
-    return 'image/png';
-}
-
-function resolveBrowserImageExportFormat(fileName: string): TBrowserImageExportFormat {
-    const trimmedFileName = fileName.trim();
-    if (/\.png$/iu.test(trimmedFileName)) {
-        return 'png';
-    }
-    if (/\.(?:tif|tiff)$/iu.test(trimmedFileName)) {
-        return 'tiff';
-    }
-    return 'jpeg';
-}
-
-function normalizeBrowserImageExportFileName(
-    fileName: string,
-    fallbackFormat: TBrowserImageExportFormat,
-) {
-    const trimmedFileName = fileName.trim();
-    if (/\.(?:jpg|jpeg|png|tif|tiff)$/iu.test(trimmedFileName)) {
-        return trimmedFileName;
-    }
-    return `${trimmedFileName}${resolveBrowserImageExportExtension(fallbackFormat)}`;
-}
-
 function buildBrowserImageExportFileName(pageNumber: number) {
-    return `page-${String(pageNumber).padStart(3, '0')}${resolveBrowserImageExportExtension('jpeg')}`;
+    return `page-${String(pageNumber).padStart(3, '0')}.jpg`;
 }
 
 async function withRenderedPdfPageCanvas<T>(
@@ -290,19 +252,19 @@ async function renderPdfPageToImageBytes(
                 width: rendered.width,
                 height: rendered.height,
             }], encoder),
-            mimeType: resolveBrowserImageMimeType(format),
+            mimeType: IMAGE_EXPORT_FORMATS[format].mimeType,
         };
     }
 
     return withRenderedPdfPageCanvas(pdfDocument, pageNumber, async ({ canvas }) => {
         const imageBlob = await canvasToBlob(
             canvas,
-            resolveBrowserImageMimeType(format),
+            IMAGE_EXPORT_FORMATS[format].mimeType,
             format === 'jpeg' ? 0.92 : undefined,
         );
         return {
             bytes: new Uint8Array(await imageBlob.arrayBuffer()),
-            mimeType: resolveBrowserImageMimeType(format),
+            mimeType: IMAGE_EXPORT_FORMATS[format].mimeType,
         };
     });
 }
@@ -489,12 +451,11 @@ async function encodeRenderedTiffToBytes(
 }
 
 async function storeTiffAtHandle(
-    fileName: string,
     handle: FileSystemFileHandle,
     fileSize: number,
 ) {
     const outputRef = await browserDocumentStore.createStoredDocument(
-        fileName,
+        handle.name,
         new Uint8Array(),
         {
             mimeType: 'image/tiff',
@@ -508,7 +469,7 @@ async function storeTiffAtHandle(
     await browserDocumentStore.replaceWithHandleBackedDocument(outputRef, {
         fileSize,
         saveHandle: handle,
-        saveName: fileName,
+        saveName: handle.name,
     });
     await browserDocumentStore.touchRecentFile(outputRef);
     return outputRef;
@@ -572,8 +533,8 @@ async function exportBrowserDjvuPagesAsImages(
                 };
             }
             // The decoder only produces PNG. The chosen name decides the encoding and the stored name.
-            const format = resolveBrowserImageExportFormat(saveTarget.fileName);
-            const mimeType = resolveBrowserImageMimeType(format);
+            const format = resolveImageExportFormat(saveTarget.fileName, 'jpeg');
+            const mimeType = IMAGE_EXPORT_FORMATS[format].mimeType;
             const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
             try {
                 const response = await fetch(rendered.url);
@@ -582,15 +543,15 @@ async function exportBrowserDjvuPagesAsImages(
                 const bytes = format === 'png'
                     ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
                     : await encodeDecodedPngAs(pngBytes, format, pageSize.dpi);
-                let saveName = normalizeBrowserImageExportFileName(saveTarget.fileName, format);
+                let saveName = saveTarget.fileName;
                 let saveHandle = saveTarget.handle ?? null;
                 if (saveTarget.handle) {
                     await writeBytesToHandle(saveTarget.handle, bytes);
                 } else {
                     const downloadResult = await saveBytesToPickerOrDownload(bytes, {
-                        suggestedName: saveName,
+                        suggestedName: normalizeImageExportFileName(saveName, format),
                         mimeType,
-                        pickerTypes: buildImageExportPickerTypes(),
+                        pickerTypes: buildImageExportPickerTypes(format),
                     });
                     if (downloadResult.canceled) {
                         return {
@@ -598,7 +559,7 @@ async function exportBrowserDjvuPagesAsImages(
                             canceled: true as const,
                         };
                     }
-                    saveName = normalizeBrowserImageExportFileName(downloadResult.fileName, format);
+                    saveName = downloadResult.fileName;
                     saveHandle = downloadResult.handle ?? null;
                 }
                 const outputRef = await browserDocumentStore.createStoredDocument(saveName, saveHandle ? new Uint8Array() : bytes, {
@@ -677,7 +638,7 @@ async function encodeDecodedPngAs(
         const context = canvas.getContext('2d');
         if (!context) throw new Error('Canvas 2D context is unavailable for DjVu JPEG export');
         context.putImageData(new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height), 0, 0);
-        const jpegBlob = await canvasToBlob(canvas, resolveBrowserImageMimeType(format), 0.92);
+        const jpegBlob = await canvasToBlob(canvas, IMAGE_EXPORT_FORMATS[format].mimeType, 0.92);
         return addJpegJfifDensity(new Uint8Array(await jpegBlob.arrayBuffer()), dpi);
     } finally {
         releaseCanvas(canvas);
@@ -740,7 +701,7 @@ async function exportBrowserDjvuAsTiff(
         }
 
         const saveTarget = await pickSaveTarget({
-            suggestedName: 'document.tiff',
+            suggestedName: normalizeImageExportFileName('document.tiff', 'tiff'),
             pickerTypes: buildTiffSaveTypes(),
         });
         if (saveTarget.canceled) {
@@ -749,7 +710,6 @@ async function exportBrowserDjvuAsTiff(
                 canceled: true as const,
             };
         }
-        const saveName = normalizeBrowserImageExportFileName(saveTarget.fileName, 'tiff');
 
         const pageDescriptors = buildDjvuTiffPageDescriptors(sizes, targetPages);
         const estimatedRgbaBytes = sumBy(pageDescriptors, descriptor => descriptor.dataLength);
@@ -781,7 +741,7 @@ async function exportBrowserDjvuAsTiff(
                 total: 1,
                 percent: 100,
             });
-            const outputRef = await storeTiffAtHandle(saveName, saveTarget.handle, fileSize);
+            const outputRef = await storeTiffAtHandle(saveTarget.handle, fileSize);
             return {
                 success: true as const,
                 outputPath: outputRef,
@@ -796,7 +756,7 @@ async function exportBrowserDjvuAsTiff(
             emitPageProgress,
         );
         const saveResult = await saveBytesToPickerOrDownload(bytes, {
-            suggestedName: saveName,
+            suggestedName: saveTarget.fileName,
             mimeType: 'image/tiff',
             pickerTypes: buildTiffSaveTypes(),
         });
@@ -900,22 +860,22 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                         };
                     }
 
-                    const format = resolveBrowserImageExportFormat(saveTarget.fileName);
+                    const format = resolveImageExportFormat(saveTarget.fileName, 'jpeg');
                     const renderedPage = await renderPdfPageToImageBytes(
                         pdfDocument.pdfDocument,
                         pageNumber,
                         format,
                     );
-                    let saveName = normalizeBrowserImageExportFileName(saveTarget.fileName, format);
+                    let saveName = saveTarget.fileName;
                     let saveHandle = saveTarget.handle ?? null;
 
                     if (saveTarget.handle) {
                         await writeBytesToHandle(saveTarget.handle, renderedPage.bytes);
                     } else {
                         const downloadResult = await saveBytesToPickerOrDownload(renderedPage.bytes, {
-                            suggestedName: saveName,
+                            suggestedName: normalizeImageExportFileName(saveName, format),
                             mimeType: renderedPage.mimeType,
-                            pickerTypes: buildImageExportPickerTypes(),
+                            pickerTypes: buildImageExportPickerTypes(format),
                         });
                         if (downloadResult.canceled) {
                             await Promise.allSettled(
@@ -928,7 +888,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                                 canceled: true,
                             };
                         }
-                        saveName = normalizeBrowserImageExportFileName(downloadResult.fileName, format);
+                        saveName = downloadResult.fileName;
                         saveHandle = downloadResult.handle ?? null;
                     }
 
@@ -985,9 +945,9 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             if (sourceKind === 'djvu') {
                 return exportBrowserDjvuAsTiff(workingCopyPath, pageNumbers, requestId);
             }
-            const outputFileName = ensurePdfExtension(
-                getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''),
-            ).replace(/\.pdf$/iu, '.tiff');
+            const outputFileName = normalizeImageExportFileName(
+                getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''), 'tiff',
+            );
             const firstSaveTarget = await pickSaveTarget({
                 suggestedName: outputFileName,
                 pickerTypes: buildTiffSaveTypes(),
@@ -998,7 +958,6 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                     canceled: true,
                 };
             }
-            const saveName = normalizeBrowserImageExportFileName(firstSaveTarget.fileName, 'tiff');
             const pdfDocument = await loadPdfDocument(workingCopyPath);
             try {
                 const targetPages = getTargetPages(pdfDocument.pdfDocument, pageNumbers);
@@ -1036,7 +995,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                         total: 1,
                         percent: 100,
                     });
-                    const outputRef = await storeTiffAtHandle(saveName, firstSaveTarget.handle, fileSize);
+                    const outputRef = await storeTiffAtHandle(firstSaveTarget.handle, fileSize);
                     return {
                         success: true,
                         outputPath: outputRef,
@@ -1065,7 +1024,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 });
 
                 const saveResult = await saveBytesToPickerOrDownload(tiffBytes, {
-                    suggestedName: saveName,
+                    suggestedName: firstSaveTarget.fileName,
                     mimeType: 'image/tiff',
                     pickerTypes: buildTiffSaveTypes(),
                 });

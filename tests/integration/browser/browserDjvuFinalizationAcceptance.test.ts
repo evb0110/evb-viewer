@@ -30,6 +30,7 @@ interface IBrowserImageExportAcceptance {
     head: number[];
     decodable: boolean;
     storedName: string;
+    savedName: string;
     bytesBase64: string;
 }
 
@@ -349,8 +350,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             const pngResult = await runExport('page-001.png');
             const jpegResult = await runExport('page-001.jpg');
             const tiffResult = await runExport('page-001.tif');
-            const pngWithSpaceResult = await runExport('page-001.png ');
-            const tiffWithSpaceResult = await runExport('page-001.tif ');
+
             expect(pngResult).toMatchObject({
                 head: PNG_SIGNATURE,
                 decodable: true,
@@ -363,16 +363,6 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             });
             // Chromium cannot decode TIFF; the big-endian header is the saved format.
             expect(tiffResult).toMatchObject({
-                head: TIFF_SIGNATURE,
-                storedName: 'page-001.tif',
-            });
-            // The trailing space of the chosen name neither changes the format nor reaches the stored name.
-            expect(pngWithSpaceResult).toMatchObject({
-                head: PNG_SIGNATURE,
-                decodable: true,
-                storedName: 'page-001.png',
-            });
-            expect(tiffWithSpaceResult).toMatchObject({
                 head: TIFF_SIGNATURE,
                 storedName: 'page-001.tif',
             });
@@ -398,16 +388,16 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 name => Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance')(name),
                 chosenName,
             );
-            const pngWithSpaceResult = await runExport('page-001.png ');
-            const tiffWithSpaceResult = await runExport('page-001.tif ');
+
+            const pngResult = await runExport('page-001.png');
+            const tiffResult = await runExport('page-001.tif');
             const jpegResult = await runExport('page-001.jpg');
-            // A trailing space neither changes the format nor reaches the stored name.
-            expect(pngWithSpaceResult).toMatchObject({
+            expect(pngResult).toMatchObject({
                 head: PNG_SIGNATURE,
                 decodable: true,
                 storedName: 'page-001.png',
             });
-            expect(tiffWithSpaceResult).toMatchObject({
+            expect(tiffResult).toMatchObject({
                 head: TIFF_SIGNATURE,
                 storedName: 'page-001.tif',
             });
@@ -421,7 +411,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         }
     });
 
-    it('writes a multi-page DjVu TIFF under its trimmed name with each page at its own density', async () => {
+    it('writes a multi-page DjVu TIFF under the chosen handle name with each page density', async () => {
         const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
@@ -433,17 +423,18 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance') === 'function');
             for (const chosenName of [
                 'document.tiff',
-                'document.tiff ',
+                'doc.TIF',
             ]) {
                 const result = await page.evaluate<{
                     bytesBase64: string;
                     storedName: string;
+                    savedName: string;
                 }, string>(
                     name => Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance')(name),
                     chosenName,
                 );
-                // The trailing space of the picked name neither reaches the stored name nor changes the pages' density.
-                expect(result.storedName).toBe('document.tiff');
+                expect(result.storedName).toBe(chosenName);
+                expect(result.savedName).toBe(chosenName);
                 const frames = UTIF.decode(Buffer.from(result.bytesBase64, 'base64'));
                 expect(frames.map(frame => ({
                     width: firstNumber(frame.t256),
@@ -470,7 +461,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         }
     });
 
-    it('writes a multi-page PDF TIFF under its trimmed name with both pages', async () => {
+    it('writes a multi-page PDF TIFF under the chosen handle name with both pages', async () => {
         const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
@@ -482,21 +473,68 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance') === 'function');
             for (const chosenName of [
                 'document.tiff',
-                'document.tiff ',
+                'doc.TIF',
             ]) {
                 const result = await page.evaluate<{
                     bytesBase64: string;
                     storedName: string;
+                    savedName: string;
                 }, string>(
                     name => Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance')(name),
                     chosenName,
                 );
-                // The trailing space of the picked name neither reaches the stored name nor drops a page.
-                expect(result.storedName).toBe('document.tiff');
+                expect(result.storedName).toBe(chosenName);
+                expect(result.savedName).toBe(chosenName);
                 expect(UTIF.decode(Buffer.from(result.bytesBase64, 'base64'))).toHaveLength(2);
             }
         } finally {
             await browser.close();
         }
     });
+    it('refuses a non-TIFF handle before writing and restricts the save picker', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance') === 'function');
+            for (const runner of [
+                '__evbRunBrowserDjvuMultiPageTiffExportAcceptance',
+                '__evbRunBrowserPdfMultiPageTiffExportAcceptance',
+            ]) {
+                for (const chosenName of [
+                    'doc.png',
+                    'page.',
+                    'x.tif.png',
+                    'document',
+                    'document.tiff ',
+                ]) {
+                    const result = await page.evaluate(([
+                        name,
+                        entry,
+                    ]) => Reflect.get(globalThis, entry)(name), [
+                        chosenName,
+                        runner,
+                    ] as const);
+                    expect(result, `${runner}: ${chosenName}`).toMatchObject({
+                        refused: true,
+                        savedName: chosenName,
+                        bytesBase64: '',
+                    });
+                    expect(result.error).toContain('.tif');
+                    expect(result.pickerOptions).toMatchObject({excludeAcceptAllOption: true});
+                    expect(result.pickerOptions.types.flatMap((type: {accept: Record<string, string[]>}) => Object.values(type.accept).flat())).toEqual([
+                        '.tif',
+                        '.tiff',
+                    ]);
+                }
+            }
+        } finally {
+            await browser.close();
+        }
+    });
+
 });

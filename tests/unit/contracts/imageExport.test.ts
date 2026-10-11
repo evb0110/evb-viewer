@@ -6,6 +6,7 @@ import {
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { requireRequestId } from '@contracts/shared';
 import * as v from 'valibot';
+import {normalizeImageExportFileName} from '@pdf-core/imageExportFileName';
 
 describe('image export platform feature schemas', () => {
     const channels = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
@@ -116,5 +117,40 @@ describe('image export platform feature schemas', () => {
             processed: '1',
         }, {abortEarly: true}))
             .toThrow('invalid image export progress');
+    });
+});
+
+describe('image export filename suggestions', () => {
+    it.each([
+        [
+            'doc.png',
+            'doc.tif',
+        ],
+        [
+            'page.',
+            'page.tif',
+        ],
+        [
+            'x.tif.png',
+            'x.tif.tif',
+        ],
+        [
+            'document',
+            'document.tif',
+        ],
+        [
+            'doc.TIF',
+            'doc.TIF',
+        ],
+        [
+            'doc.TiFf',
+            'doc.TiFf',
+        ],
+        [
+            'document.tiff ',
+            'document.tiff',
+        ],
+    ])('suggests %s as %s before choosing a TIFF destination', (name, expected) => {
+        expect(normalizeImageExportFileName(name, 'tiff')).toBe(expected);
     });
 });

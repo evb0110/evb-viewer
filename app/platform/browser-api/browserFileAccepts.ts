@@ -1,3 +1,6 @@
+import {
+    IMAGE_EXPORT_FORMATS, type TImageExportFormat,
+} from '@pdf-core/imageExportFileName';
 import type { IFilePickerAcceptType } from '@app/platform/browser/browserCapabilityTier';
 
 const SUPPORTED_IMAGE_EXTENSIONS = [
@@ -109,8 +112,8 @@ function buildDocxSaveTypes(): IFilePickerAcceptType[] {
     }];
 }
 
-function buildImageExportPickerTypes(): IFilePickerAcceptType[] {
-    return [
+function buildImageExportPickerTypes(format?: TImageExportFormat): IFilePickerAcceptType[] {
+    const types: IFilePickerAcceptType[] = [
         {
             description: getFilePickerDescription('jpegImages'),
             accept: { 'image/jpeg': [
@@ -124,6 +127,7 @@ function buildImageExportPickerTypes(): IFilePickerAcceptType[] {
         },
         ...buildTiffSaveTypes(),
     ];
+    return format ? types.filter(type => IMAGE_EXPORT_FORMATS[format].mimeType in type.accept) : types;
 }
 
 function buildTiffSaveTypes(): IFilePickerAcceptType[] {

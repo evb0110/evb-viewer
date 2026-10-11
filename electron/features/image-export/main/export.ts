@@ -94,7 +94,13 @@ import {
     createPdfInfoPageSizeStreamScanner,
     parsePdfInfoPageSizeLine,
 } from '@electron/features/image-export/main/parsePdfInfoPageSizes';
-export type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
+import {
+    IMAGE_EXPORT_FORMATS,
+    normalizeImageExportFileName,
+    resolveImageExportFormat,
+    type TImageExportFormat,
+} from '@pdf-core/imageExportFileName';
+export type {TImageExportFormat} from '@pdf-core/imageExportFileName';
 type TPageRenderFormat = TImageExportFormat | 'ppm';
 interface IRenderedPageFile {
     page: number;
@@ -144,47 +150,10 @@ const TIFF_COMBINE_WORKER_RESOURCE_LIMITS: ResourceLimits = {
 };
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES = 2;
 const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
-function resolveFormatExtension(format: TImageExportFormat) {
-    if (format === 'jpeg') {
-        return '.jpg';
-    }
-    if (format === 'tiff') {
-        return '.tif';
-    }
-    return '.png';
-}
-
-function parseImageExportFormat(filePath: string): TImageExportFormat {
-    const extension = extname(filePath).toLowerCase();
-
-    if (extension === '.jpg' || extension === '.jpeg') {
-        return 'jpeg';
-    }
-    if (extension === '.tif' || extension === '.tiff') {
-        return 'tiff';
-    }
-
-    return 'png';
-}
-
-export function normalizeImageExportPath(filePath: string, fallbackFormat: TImageExportFormat = 'png'): {
-    normalizedPath: string;
-    format: TImageExportFormat;
-} {
-    const extension = extname(filePath).toLowerCase();
-
-    if (extension === '.png' || extension === '.jpg' || extension === '.jpeg' || extension === '.tif' || extension === '.tiff') {
-        const format = parseImageExportFormat(filePath);
-        return {
-            normalizedPath: buildOutputPathWithSuffix(filePath, ''),
-            format,
-        };
-    }
-
-    const format = fallbackFormat;
-    const pathWithExtension = `${filePath}${resolveFormatExtension(format)}`;
+export function normalizeImageExportPath(filePath: string, fallbackFormat: TImageExportFormat = 'png') {
+    const format = resolveImageExportFormat(filePath, fallbackFormat);
     return {
-        normalizedPath: buildOutputPathWithSuffix(pathWithExtension, ''),
+        normalizedPath: buildOutputPathWithSuffix(normalizeImageExportFileName(filePath, format), ''),
         format,
     };
 }
@@ -1092,7 +1061,7 @@ export async function exportPdfPagesAsImages(
 
     const outputDirectory = dirname(normalizedPath);
     const outputStem = basename(normalizedPath, extname(normalizedPath));
-    const outputExtension = resolveFormatExtension(format);
+    const outputExtension = IMAGE_EXPORT_FORMATS[format].extension;
 
     await mkdir(outputDirectory, { recursive: true });
 
@@ -1316,9 +1285,7 @@ export async function exportPdfAsMultiPageTiff(
     outputPath: string,
     options: IExportPdfOptions = {},
 ) {
-    const targetPath = outputPath.toLowerCase().endsWith('.tif') || outputPath.toLowerCase().endsWith('.tiff')
-        ? outputPath
-        : `${outputPath}.tiff`;
+    const targetPath = normalizeImageExportFileName(outputPath, 'tiff');
 
     const outputDirectory = dirname(targetPath);
     await mkdir(outputDirectory, { recursive: true });

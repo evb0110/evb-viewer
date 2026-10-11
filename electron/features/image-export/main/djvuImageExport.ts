@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import {normalizeImageExportFileName} from '@pdf-core/imageExportFileName';
 import {
     copyFile,
     mkdir,
@@ -6,9 +7,7 @@ import {
     stat,
 } from 'node:fs/promises';
 import {
-    basename,
     dirname,
-    extname,
     join,
 } from 'node:path';
 import type { IImageExportProgress } from '@contracts/imageExportPlatformFeature';
@@ -146,11 +145,8 @@ async function assertDjvuExportPageRasterBudget(
 }
 
 function buildImageOutputPath(templatePath: string, page: number, outputCount: number, format: TImageExportFormat) {
-    const outputExtension = format === 'jpeg' ? '.jpg' : format === 'tiff' ? '.tif' : '.png';
-    const outputStem = basename(templatePath, extname(templatePath));
-    const pngTemplatePath = join(dirname(templatePath), `${outputStem}${outputExtension}`);
     return buildOutputPathWithSuffix(
-        pngTemplatePath,
+        normalizeImageExportFileName(templatePath, format),
         outputCount === 1 ? '' : `-page-${String(page).padStart(3, '0')}`,
     );
 }
@@ -354,7 +350,7 @@ export async function exportDjvuAsMultiPageTiff(
         const totalPages = exportPages.length;
         const hasMixedPageDpi = new Set(exportPages.map(page => pageDpiByNumber.get(page) ?? null)).size > 1;
         const splitOutput = totalPages > DJVU_TIFF_BATCH_MAX_PAGES || hasMixedPageDpi;
-        const targetPath = /\.tiff?$/iu.test(outputPath) ? outputPath : `${outputPath}.tiff`;
+        const targetPath = normalizeImageExportFileName(outputPath, 'tiff');
         const stagedGroups: Array<{stagedPath: string}> = [];
         const combineBatch = async () => {
             if (pagePaths.length === 0) {

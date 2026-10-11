@@ -1685,6 +1685,37 @@ describe('image export', () => {
         expect(existsSync(outputPath)).toBe(false);
     });
 
+    it.each([
+        [
+            'doc.png',
+            'doc.tif',
+        ],
+        [
+            'page.',
+            'page.tif',
+        ],
+        [
+            'x.tif.png',
+            'x.tif.tif',
+        ],
+        [
+            'document',
+            'document.tif',
+        ],
+        [
+            'doc.TIF',
+            'doc.TIF',
+        ],
+        [
+            'doc.TiFf',
+            'doc.TiFf',
+        ],
+    ])('saves a multipage TIFF picked as %s at %s', async (picked, expected) => {
+        const paths = await exportPdfAsMultiPageTiff('/tmp/input.pdf', join(tempDir, picked));
+        expect(paths).toEqual([join(tempDir, expected)]);
+        expect(UTIF.decode(await readFile(paths[0]!))).toHaveLength(2);
+    });
+
     it('falls back to JavaScript PNG encoding after a native encoder failure that was proven dead', async () => {
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;

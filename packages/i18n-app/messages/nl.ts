@@ -1742,6 +1742,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',
             'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.',
+            'imageExtensionMismatch': 'De export is niet opgeslagen. Kies een bestandsnaam die eindigt op {extensions}.',
             'useNativeApp': 'Gebruik de native app voor bestanden van deze omvang.',
         },
         'search': {

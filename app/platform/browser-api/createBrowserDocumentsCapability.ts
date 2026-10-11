@@ -124,6 +124,7 @@ export function createBrowserDocumentsCapability(
     const errorMessageProvider = {
         largeSaveHandleHint: () => translateBrowserMessage('errors.browser.largeSaveHandleHint'),
         useNativeApp: () => translateBrowserMessage('errors.browser.useNativeApp'),
+        imageExtensionMismatch: (extensions: string) => translateBrowserMessage('errors.browser.imageExtensionMismatch', {extensions}),
     };
     configureBrowserFilePickerMessages(errorMessageProvider);
     configureBrowserFilePickerDescriptions((key) =>

@@ -1753,6 +1753,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'O acesso do navegador aos ficheiros foi negado. Escolha Abrir novamente para usar o seletor compatível.',
             'largeSaveHandleHint': 'Use um navegador com acesso ao sistema de ficheiros local ativado para guardar documentos grandes.',
+            'imageExtensionMismatch': 'A exportação não foi guardada. Escolha um nome de ficheiro que termine em {extensions}.',
             'useNativeApp': 'Utilize a aplicação nativa para ficheiros deste tamanho.',
         },
         'search': {

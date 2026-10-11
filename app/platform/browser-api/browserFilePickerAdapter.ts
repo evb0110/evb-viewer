@@ -36,16 +36,32 @@ type TPermissionCapableFileHandle = FileSystemFileHandle & {
     queryPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
     requestPermission?: (descriptor?: { mode?: TFileSystemPermissionMode }) => Promise<TFileSystemPermissionState>;
 };
-let browserLargeSaveHandleHintProvider = () => (
-    'Use a browser with local file system access enabled to save large documents.'
-);
+let browserFilePickerMessages = {
+    largeSaveHandleHint: () => 'Use a browser with local file system access enabled to save large documents.',
+    imageExtensionMismatch: (extensions: string) => `Export was not saved. Choose a file name ending in ${extensions}.`,
+};
 
 function throwIfAborted(signal?: AbortSignal) {
     signal?.throwIfAborted();
 }
 
-export function configureBrowserFilePickerMessages(options: { largeSaveHandleHint?: () => string; }) {
-    browserLargeSaveHandleHintProvider = options.largeSaveHandleHint ?? browserLargeSaveHandleHintProvider;
+export function configureBrowserFilePickerMessages(options: Partial<typeof browserFilePickerMessages>) {
+    browserFilePickerMessages = {
+        ...browserFilePickerMessages,
+        ...options,
+    };
+}
+
+function getImageExportPickerExtensions(pickerTypes: IFilePickerAcceptType[]) {
+    if (!pickerTypes.length || !pickerTypes.every(type => Object.keys(type.accept).every(mimeType => /^(?:image\/(?:png|jpeg|tiff))$/u.test(mimeType)))) return [];
+    return pickerTypes.flatMap(type => Object.values(type.accept).flat());
+}
+
+function assertImageExportHandleName(handle: FileSystemFileHandle, pickerTypes: IFilePickerAcceptType[]) {
+    const extensions = getImageExportPickerExtensions(pickerTypes);
+    if (extensions.length && !extensions.some(extension => handle.name.toLowerCase().endsWith(extension.toLowerCase()))) {
+        throw new Error(browserFilePickerMessages.imageExtensionMismatch(extensions.join(', ')));
+    }
 }
 
 export function isFileSystemAccessDeniedError(error: unknown) {
@@ -251,7 +267,7 @@ function buildBrowserLargeDownloadFallbackError(
     label: string,
     maxBytes: number,
 ) {
-    return buildBrowserLargeJobError(label, maxBytes, browserLargeSaveHandleHintProvider());
+    return buildBrowserLargeJobError(label, maxBytes, browserFilePickerMessages.largeSaveHandleHint());
 }
 
 export async function pickFiles(options: {
@@ -425,8 +441,10 @@ async function saveBlobToPickerOrDownload(
             const handle = await saveFilePicker({
                 suggestedName,
                 types: pickerTypes,
+                excludeAcceptAllOption: getImageExportPickerExtensions(pickerTypes).length > 0,
             });
 
+            assertImageExportHandleName(handle, pickerTypes);
             throwIfAborted(options.signal);
             await ensureFileHandleWritePermission(handle);
             throwIfAborted(options.signal);
@@ -450,7 +468,7 @@ async function saveBlobToPickerOrDownload(
             throwIfAborted(options.signal);
             return {
                 canceled: false,
-                fileName: handle.name || suggestedName,
+                fileName: handle.name,
                 handle,
             };
         } catch (error) {
@@ -527,11 +545,13 @@ export async function pickSaveTarget(options: {
         const handle = await saveFilePicker({
             suggestedName: options.suggestedName,
             types: options.pickerTypes,
+            excludeAcceptAllOption: getImageExportPickerExtensions(options.pickerTypes).length > 0,
         });
 
+        assertImageExportHandleName(handle, options.pickerTypes);
         return {
             canceled: false,
-            fileName: handle.name || options.suggestedName,
+            fileName: handle.name,
             handle,
         };
     } catch (error) {

@@ -1742,6 +1742,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'Se denegó el acceso del navegador a los archivos. Vuelve a elegir Abrir para usar el selector compatible.',
             'largeSaveHandleHint': 'Usa un navegador con acceso al sistema de archivos local activado para guardar documentos grandes.',
+            'imageExtensionMismatch': 'La exportación no se ha guardado. Elija un nombre de archivo que termine en {extensions}.',
             'useNativeApp': 'Usa la aplicación nativa para archivos de este tamaño.',
         },
         'search': {

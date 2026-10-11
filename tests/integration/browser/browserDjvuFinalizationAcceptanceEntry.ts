@@ -215,49 +215,32 @@ async function installBrowserCompactDjvuAcceptance() {
 
 Reflect.set(globalThis, '__evbInstallBrowserCompactDjvuAcceptance', installBrowserCompactDjvuAcceptance);
 
-let capturedImageExportChunks: Uint8Array[] = [];
+let imageExportHandle: FileSystemFileHandle;
+let imageExportPickerOptions: {
+    suggestedName?: string;
+    excludeAcceptAllOption?: boolean;
+    types?: Array<{accept: Record<string, string[]>}>;
+};
 
-// The methods sit on the prototype: the stored output keeps this handle, and
-// IndexedDB cannot clone function-valued properties.
-class ImageExportSaveHandle {
-    readonly kind = 'file';
-
-    readonly name: string;
-
-    constructor(name: string) {
-        this.name = name;
-    }
-
-    async queryPermission() {
-        return 'granted';
-    }
-
-    async requestPermission() {
-        return 'granted';
-    }
-
-    async createWritable() {
-        return {
-            write: async (data: BodyInit) => {
-                capturedImageExportChunks.push(new Uint8Array(await new Response(data).arrayBuffer()));
-            },
-            close: async () => {},
-            abort: async () => {},
-        };
-    }
+async function installImageExportDestination(chosenName: string) {
+    const directory = await navigator.storage.getDirectory();
+    imageExportHandle = await directory.getFileHandle(chosenName, {create: true});
+    const writable = await imageExportHandle.createWritable();
+    await writable.write(new Uint8Array());
+    await writable.close();
+    Reflect.set(window, 'showSaveFilePicker', async (options: typeof imageExportPickerOptions) => {
+        imageExportPickerOptions = options;
+        return imageExportHandle;
+    });
 }
 
-// A multi-page TIFF arrives in several writes; the capture keeps them in order.
-function takeCapturedImageExportBytes() {
-    const chunks = capturedImageExportChunks;
-    capturedImageExportChunks = [];
-    const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
-    let offset = 0;
-    for (const chunk of chunks) {
-        bytes.set(chunk, offset);
-        offset += chunk.byteLength;
-    }
-    return bytes;
+async function readImageExportDestination() {
+    const file = await imageExportHandle.getFile();
+    return {
+        savedName: file.name,
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        pickerOptions: imageExportPickerOptions,
+    };
 }
 
 // Chunked so a multi-megabyte TIFF stays under the argument limit of fromCharCode.
@@ -290,8 +273,8 @@ async function stagePdfFixture(pageCount = 1) {
     const document = await PDFDocument.create();
     for (let page = 0; page < pageCount; page += 1) {
         document.addPage([
-            240,
-            240,
+            72,
+            144,
         ]);
     }
     return browserDocumentStore.createStoredDocument(
@@ -308,15 +291,16 @@ async function stagePdfFixture(pageCount = 1) {
 
 // Exports page 1 under the chosen name and reads back the saved bytes and stored name.
 async function exportFirstPageAs(sourcePath: TDocumentRef, sourceKind: 'djvu' | 'pdf', chosenName: string) {
-    capturedImageExportChunks = [];
-    Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle(chosenName));
+    await installImageExportDestination(chosenName);
     const result = await createBrowserImageExportCapability().exportPdfToImages(
         sourcePath,
         [requirePageNumber(1)],
         requireRequestId(`browser-${sourceKind}-image-export-${chosenName}`),
         sourceKind,
     );
-    const bytes = takeCapturedImageExportBytes();
+    const {
+        bytes, savedName, pickerOptions,
+    } = await readImageExportDestination();
     if (!result.success || bytes.byteLength === 0) {
         throw new Error(`Browser ${sourceKind} image export did not write ${chosenName}`);
     }
@@ -330,6 +314,8 @@ async function exportFirstPageAs(sourcePath: TDocumentRef, sourceKind: 'djvu' | 
         decodable,
         storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
         bytesBase64: encodeBase64(bytes),
+        savedName,
+        pickerOptions,
     };
 }
 
@@ -357,23 +343,40 @@ Reflect.set(globalThis, '__evbRunBrowserPdfImageExportAcceptance', runBrowserPdf
 
 // Exports pages 1 and 2 as one TIFF under the chosen name and reads back the saved bytes and stored name.
 async function exportMultiPageTiffAs(sourcePath: TDocumentRef, sourceKind: 'djvu' | 'pdf', chosenName: string) {
-    capturedImageExportChunks = [];
-    Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle(chosenName));
-    const result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
-        sourcePath,
-        [
-            requirePageNumber(1),
-            requirePageNumber(2),
-        ],
-        requireRequestId(`browser-${sourceKind}-multi-page-tiff-export`),
-        sourceKind,
-    );
-    const bytes = takeCapturedImageExportBytes();
+    await installImageExportDestination(chosenName);
+    let result;
+    try {
+        result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            sourcePath,
+            [
+                requirePageNumber(1),
+                requirePageNumber(2),
+            ],
+            requireRequestId(`browser-${sourceKind}-multi-page-tiff-export`),
+            sourceKind,
+        );
+    } catch (error) {
+        const {
+            bytes, savedName, pickerOptions,
+        } = await readImageExportDestination();
+        return {
+            refused: true,
+            error: error instanceof Error ? error.message : String(error),
+            bytesBase64: encodeBase64(bytes),
+            savedName,
+            pickerOptions,
+        };
+    }
+    const {
+        bytes, savedName, pickerOptions,
+    } = await readImageExportDestination();
     if (!result.success || bytes.byteLength === 0) {
         throw new Error(`Browser ${sourceKind} multi-page TIFF export did not write ${chosenName}`);
     }
     return {
         bytesBase64: encodeBase64(bytes),
+        savedName,
+        pickerOptions,
         storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
     };
 }
