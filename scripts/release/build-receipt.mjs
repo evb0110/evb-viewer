@@ -30,7 +30,7 @@ export const RELEASE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_BUILD_RECEIPT';
 /** @typedef {{env?: NodeJS.ProcessEnv | undefined, inputFiles?: string[] | undefined, outputPaths?: string[] | undefined, projectRoot?: string | undefined, runCommand?: TCommandRunner | undefined}} IComputeReleaseBuildStateOptions */
 
 /** @param {NodeJS.ProcessEnv} env @param {string} projectRoot */
-function getBuildOutputs(env, projectRoot) {
+function getNativeBuildOutputs(env, projectRoot) {
     const {platformArch} = getRequestedNativeRustTarget(env);
     const nativeManifest = `.tmp/native-build-manifest/${platformArch}.json`;
     const manifest = /** @type {IBuildManifest} */ (JSON.parse(readFileSync(path.resolve(projectRoot, nativeManifest), 'utf8')));
@@ -48,13 +48,7 @@ function getBuildOutputs(env, projectRoot) {
     ) {
         throw new Error(`Invalid native build manifest: ${nativeManifest}`);
     }
-    return [
-        'dist-electron',
-        nuxtOutputDirectory(readBuildEnvironment(env)),
-        '.tmp/generated-electron-builder-resources.yml',
-        nativeManifest,
-        ...manifest.stagingRoots,
-    ];
+    return manifest.stagingRoots.concat(nativeManifest);
 }
 // Nuxt and Vite read these by prefix, for their own overrides. The named values
 // the build reads come from readBuildEnvironment.
@@ -240,7 +234,12 @@ export function computeReleaseBuildState({
             .digest('hex'),
         outputFingerprint: fingerprintPaths(
             projectRoot,
-            outputPaths ?? getBuildOutputs(effectiveNuxtEnv, projectRoot),
+            outputPaths ?? [
+                'dist-electron',
+                nuxtOutputDirectory(readBuildEnvironment(effectiveNuxtEnv)),
+                '.tmp/generated-electron-builder-resources.yml',
+                ...getNativeBuildOutputs(env, projectRoot),
+            ],
             {requireExisting: true},
         ),
     };

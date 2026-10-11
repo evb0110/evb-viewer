@@ -449,6 +449,58 @@ describe('release strict-build receipts', () => {
     });
 
     it.each([
+        'without alternate outputs',
+        'with stale alternate outputs',
+    ])('checks native outputs from the parent environment %s', mode => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-native-target-context-'));
+        const receiptPath = path.join(projectRoot, 'receipt.json');
+        const {platformArch} = getRequestedNativeRustTarget({});
+        const alternateArch = process.arch === 'arm64' ? 'x64' : 'arm64';
+        const alternateTarget = `${process.platform}-${alternateArch}`;
+        const put = (name: string, content: string) => {
+            const file = path.join(projectRoot, name);
+            mkdirSync(path.dirname(file), {recursive: true});
+            writeFileSync(file, content);
+        };
+        const putNativeOutputs = (target: string) => {
+            put(`.tmp/stage-${target}/bin/tool`, `native bytes for ${target}`);
+            put(`.tmp/native-build-manifest/${target}.json`, JSON.stringify({
+                schemaVersion: 1,
+                platformArch: target,
+                stagingRoots: [`.tmp/stage-${target}`],
+            }));
+        };
+        const options = {
+            env: {},
+            inputFiles: ['source.ts'],
+            projectRoot,
+            runCommand: fakeToolchain,
+        };
+        try {
+            put('source.ts', 'same source');
+            put('dist-electron/main.js', 'same Electron output');
+            put('nuxt-output/main.js', 'same Nuxt output');
+            put('.tmp/generated-electron-builder-resources.yml', 'resources: []');
+            put('.env', `EVB_NATIVE_TARGET_ARCH=${alternateArch}\n`);
+            putNativeOutputs(platformArch);
+            if (mode === 'with stale alternate outputs') putNativeOutputs(alternateTarget);
+
+            writeReleaseBuildReceipt(receiptPath, options);
+            expect(validateReleaseBuildReceipt(receiptPath, options)).toMatchObject({valid: true});
+            rmSync(path.join(projectRoot, `.tmp/stage-${platformArch}`), {recursive: true});
+            expect(validateReleaseBuildReceipt(receiptPath, options)).toEqual({
+                valid: false,
+                reason: 'missing',
+            });
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it.each([
         'process',
         'dotenv',
         'dotenv-expanded',
