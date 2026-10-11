@@ -11,6 +11,7 @@ import {
     recoverWorkingCopyTransition,
     type IWorkingCopyJournal,
 } from '@electron/file-access/workingCopyJournal';
+import {captureIntendedContentFingerprint} from '@electron/file-access/workingCopyJournalOriginal';
 import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
@@ -35,6 +36,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     signal?: AbortSignal;
     captureOriginalWitness?: () => Promise<IOriginalPathSaveWitness | null>;
     publishOriginal: (assertDestinationCurrent?: () => Promise<void>) => Promise<void>;
+    publishedSourcePath: string;
     afterWorkingCopySync?: () => Promise<void>;
     afterOriginalRestore?: () => Promise<void>;
     onPhase?: (phase: string, durationMs: number) => void;
@@ -84,6 +86,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         backupPath: originalBackupPath,
                         state: 'prepared',
                         ...(witness === null ? {} : {preparedSnapshot: witness.getSnapshotForJournal()}),
+                        ...(witness === null ? {} : {intendedFingerprint: await captureIntendedContentFingerprint(input.publishedSourcePath)}),
                     } as const;
                     await measureTransitionPhase('transition-journal-prepared', input.onPhase, () =>
                         recordWorkingCopyJournalOriginal(transitionJournal, original));
@@ -133,7 +136,6 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 'hard-link',
             );
             committed = true;
-            shouldRestoreOriginal = false;
             return event;
         } catch (error) {
             if (error instanceof OriginalPathSaveConflictError) {
@@ -142,14 +144,12 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             }
             throw error;
         } finally {
-            let originalRestored = !shouldRestoreOriginal;
             try {
                 if (!committed && shouldRestoreOriginal && backupCreated) {
                     const restoreOptions = witness === null
                         ? {}
                         : {assertDestinationCurrent: () => witness.assertCurrent({allowBackupMetadataChange: true})};
                     await copyFileAtomic(originalBackupPath, input.originalPath, restoreOptions);
-                    originalRestored = true;
                     originalRestoredByRollback = true;
                     if (journal?.original) {
                         await recordWorkingCopyJournalOriginal(journal, {
@@ -164,7 +164,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         await input.afterOriginalRestore?.();
                     }
                 } finally {
-                    if (!committed && originalRestored) {
+                    if (!committed && (!shouldRestoreOriginal || originalRestoredByRollback)) {
                         // Recovery finishes a clean rollback now; if the working copy
                         // cannot be restored, the journal stays for the next attempt.
                         await (journal

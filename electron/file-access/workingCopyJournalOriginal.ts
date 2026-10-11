@@ -1,8 +1,12 @@
-import {link} from 'node:fs/promises';
+import {
+    link,
+    stat,
+} from 'node:fs/promises';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {
     assertPathMatchesSaveWitnessSnapshot,
     capturePathSaveWitness,
+    hashContentFingerprintFilePath,
     OriginalPathSaveConflictError,
 } from '@electron/file-access/originalPathSaveWitness';
 import {originalSaveSnapshotSchema} from '@electron/file-access/workingCopyManifest';
@@ -19,9 +23,31 @@ export const originalSchema = v.object({
     ]),
     preparedSnapshot: v.optional(originalSaveSnapshotSchema),
     publishedSnapshot: v.optional(originalSaveSnapshotSchema),
+    /** Fingerprint of the bytes the publication installs, recorded before it runs. */
+    intendedFingerprint: v.optional(v.pipe(v.string(), v.regex(/^sha256-full-v1:[0-9a-f]{64}$/u))),
 });
 
 export type IWorkingCopyJournalOriginal = v.InferOutput<typeof originalSchema>;
+
+export async function captureIntendedContentFingerprint(sourcePath: string) {
+    return hashContentFingerprintFilePath(sourcePath, (await stat(sourcePath, {bigint: true})).size);
+}
+
+/**
+ * A crash can publish the original and die before the journal records it. An
+ * original holding exactly the intended bytes is EVB's own publication, so
+ * recovery rolls it back like a recorded one instead of reporting a conflict.
+ */
+async function holdsIntendedContent(original: IWorkingCopyJournalOriginal) {
+    if (original.intendedFingerprint === undefined) {
+        return false;
+    }
+    try {
+        return await captureIntendedContentFingerprint(original.path) === original.intendedFingerprint;
+    } catch {
+        return false;
+    }
+}
 
 /**
  * Puts back the original of an interrupted transition. A crash can leave the
@@ -41,7 +67,7 @@ export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
             // The original still contains the published bytes.
         }
     }
-    const expectedSnapshot = original.state === 'prepared'
+    const expectedSnapshot = original.state === 'prepared' && !await holdsIntendedContent(original)
         ? original.preparedSnapshot
         : original.publishedSnapshot;
     if (expectedSnapshot !== undefined) {
