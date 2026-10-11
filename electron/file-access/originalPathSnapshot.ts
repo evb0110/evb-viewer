@@ -212,6 +212,7 @@ export async function rebaseUnchangedSnapshot(
     originalPath: string,
     admitted: IOriginalPathSaveSnapshot,
     proof: TOriginalRebaseProof,
+    signal?: AbortSignal,
 ): Promise<IOriginalPathSaveSnapshot> {
     const options = {ignoreIdentity: admitted.contentFingerprint !== undefined
         || proof.kind === 'open-copy' && proof.source !== null};
@@ -225,28 +226,20 @@ export async function rebaseUnchangedSnapshot(
     const ctimeMoved = admitted.ctimeNs !== snapshot.ctimeNs;
     const identityMoved = admitted.deviceId !== snapshot.deviceId || admitted.inode !== snapshot.inode;
     const linkCountMoved = admitted.linkCount !== snapshot.linkCount;
-    if (proof.kind === 'own-backup-link') {
-        if ((ctimeMoved || linkCountMoved) && snapshot.linkCount !== admitted.linkCount + 1n) {
-            throw new OriginalPathSaveConflictError();
-        }
-    } else if (linkCountMoved) {
+    const ownBackup = proof.kind === 'own-backup-link';
+    if (linkCountMoved && (!ownBackup || snapshot.linkCount !== admitted.linkCount + 1n)
+        || ownBackup && ctimeMoved && snapshot.linkCount !== admitted.linkCount + 1n) {
         throw new OriginalPathSaveConflictError();
     }
-    const baselineFingerprint = admitted.contentFingerprint
-        ?? (proof.kind === 'open-copy' && proof.source && 'contentFingerprint' in proof.source
-            ? proof.source.contentFingerprint : undefined);
-    if (baselineFingerprint !== undefined) snapshot.contentFingerprint = baselineFingerprint;
+    const source = ownBackup ? {contentFingerprint: admitted.contentFingerprint} : proof.source;
+    const fingerprint = admitted.contentFingerprint
+        ?? (source && 'contentFingerprint' in source ? source.contentFingerprint : undefined);
+    if (fingerprint !== undefined) snapshot.contentFingerprint = fingerprint;
     if (ctimeMoved || identityMoved) {
-        const source = proof.kind === 'own-backup-link'
-            ? {contentFingerprint: admitted.contentFingerprint}
-            : proof.source;
-        const sourceFingerprint = source === null
-            ? undefined
-            : 'contentFingerprint' in source
-                ? source.contentFingerprint
-                : await hashContentFingerprintFilePath(source.path, snapshot.size);
-        if (sourceFingerprint === undefined
-            || sourceFingerprint !== await hashContentFingerprintFilePath(originalPath, snapshot.size)
+        const sourceFingerprint = source && ('contentFingerprint' in source
+            ? source.contentFingerprint : await hashContentFingerprintFilePath(source.path, snapshot.size, signal));
+        if (sourceFingerprint == null
+            || sourceFingerprint !== await hashContentFingerprintFilePath(originalPath, snapshot.size, signal)
             || !snapshotsMatch(snapshot, await capturePathSnapshot(originalPath, options), options)) {
             throw new OriginalPathSaveConflictError();
         }

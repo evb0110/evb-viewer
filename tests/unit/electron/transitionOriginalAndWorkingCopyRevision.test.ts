@@ -253,6 +253,50 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
     });
 
+    it('stops proof reads promptly when save is cancelled and retains both revisions', async () => {
+        const fixture = await prepare('old-original', 'accepted-unsaved-work');
+        const bytes = Buffer.alloc(4 * 1024 * 1024, 65);
+        await writeFile(fixture.originalPath, bytes);
+        const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+        await refreshWorkingCopyOriginalFileExpectation(fixture.workingCopyPath, 7);
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
+        const chunks = await import('@electron/file-access/readFileChunk');
+        const realRead = chunks.readFileChunk;
+        const controller = new AbortController();
+        let proof = false;
+        let bytesAfterAbort = 0;
+        const read = vi.spyOn(chunks, 'readFileChunk').mockImplementation(async (...args) => {
+            const length = await realRead(...args);
+            if (proof && args[0] === fixture.originalPath && args[1].length === 1024 * 1024) {
+                if (controller.signal.aborted) bytesAfterAbort += length;
+                else controller.abort(new DOMException('Save cancelled', 'AbortError'));
+            }
+            return length;
+        });
+        try {
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                ...fixture,
+                publishedSourcePath: fixture.stagedPath,
+                senderId: 7,
+                signal: controller.signal,
+                reason: 'save-sync',
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7, controller.signal),
+                publishOriginal: assertDestinationCurrent => atomicReplace(fixture.stagedPath, fixture.originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                onPhase: phase => { if (phase === 'transition-backup-original') proof = true; },
+            })).rejects.toMatchObject({name: 'AbortError'});
+            expect(controller.signal.aborted).toBe(true);
+            expect(bytesAfterAbort).toBe(0);
+            expect((await readFile(fixture.originalPath)).equals(bytes)).toBe(true);
+            expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
+            expect((await readdir(tempRoot)).some(name => name.includes('.evb-transition-'))).toBe(false);
+            expect((await readdir(tempRoot)).includes('journal.json')).toBe(false);
+        } finally {
+            read.mockRestore();
+        }
+    });
+
     it('restores distinct original and working-copy inodes when post-sync work fails', async () => {
         const {
             originalPath,

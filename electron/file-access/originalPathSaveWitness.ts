@@ -34,15 +34,13 @@ import {createLogger} from '@electron/utils/createLogger';
 
 const log = createLogger('original-path-save-witness');
 
-
 export interface IOriginalPathSaveWitness {
     assertCurrent: (options?: {allowBackupMetadataChange?: boolean}) => Promise<void>;
     getOriginalFileExpectation: () => IWorkingCopyOriginalFileExpectation;
     getSnapshotForJournal: () => IOriginalPathSaveJournalSnapshot;
-    rebaseOnUnchangedContent: (proof?: Parameters<typeof rebaseUnchangedSnapshot>[2]) => Promise<void>;
+    rebaseOnUnchangedContent: (proof?: Parameters<typeof rebaseUnchangedSnapshot>[2], signal?: AbortSignal) => Promise<void>;
     rebaseAfterPublish: () => Promise<void>;
 }
-
 
 function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectation) {
     return expected.deviceId !== undefined
@@ -57,8 +55,6 @@ function isExpectationUsableForCurrentPlatform(expected: IWorkingCopyOriginalFil
     // Windows can use the full baseline where one has been captured.
     return process.platform === 'win32' || hasImmutablePosixExpectation(expected);
 }
-
-
 
 
 
@@ -124,9 +120,9 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         }
     }
 
-    async rebaseOnUnchangedContent(proof: Parameters<typeof rebaseUnchangedSnapshot>[2] = {kind: 'own-backup-link'}) {
+    async rebaseOnUnchangedContent(proof: Parameters<typeof rebaseUnchangedSnapshot>[2] = {kind: 'own-backup-link'}, signal?: AbortSignal) {
         try {
-            this.snapshot = await rebaseUnchangedSnapshot(this.originalPath, this.snapshot, proof);
+            this.snapshot = await rebaseUnchangedSnapshot(this.originalPath, this.snapshot, proof, signal);
         } catch (error) {
             rethrowWitnessSnapshotError(error);
         }
