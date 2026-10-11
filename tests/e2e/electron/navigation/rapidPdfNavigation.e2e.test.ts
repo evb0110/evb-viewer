@@ -3015,8 +3015,9 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             await clickVisibleToolbarButton(page, 'Toggle Sidebar');
             await page.waitForFunction(() => ![...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
                 .some(element => element.getBoundingClientRect().width > 10), {timeout: 10_000});
-            await page.waitForFunction(() => !document.querySelector('[data-pdf-page-track]')
-                ?.classList.contains('pdfViewer--resize-transition'), {timeout: 15_000});
+            // The slide is the wrapper's width transition: wait for it to end.
+            await page.waitForFunction(() => !document.querySelector<HTMLElement>('.sidebar-wrapper')
+                ?.getAnimations().some(animation => animation.playState === 'running'), {timeout: 15_000});
             await waitForVisibleMountedPdfCanvases(page, 30_000);
         }
 

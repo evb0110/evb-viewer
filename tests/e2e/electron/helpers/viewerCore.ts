@@ -649,12 +649,7 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
         const viewportPresented = viewportStyle.display !== 'none'
             && viewportStyle.visibility !== 'hidden'
             && Number(viewportStyle.opacity || '1') > 0;
-        if (
-            !surfacePresented
-            || !viewportPresented
-            || interactiveSurface.classList.contains('pdfViewer--resize-transition')
-            || interactiveSurface.classList.contains('pdfViewer--hidden')
-        ) {
+        if (!surfacePresented || !viewportPresented) {
             return false;
         }
 

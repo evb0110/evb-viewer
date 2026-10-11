@@ -16,7 +16,6 @@ function createSnapshot(
         hasPageTrack: true,
         openSurfacePhase: 'ready',
         openSurfacePresentation: 'committed',
-        pageTrackClasses: ['pdf-viewer-page-track'],
         pageTrackDisplay: 'block',
         pageTrackOpacity: 1,
         pageTrackVisibility: 'visible',
@@ -35,10 +34,7 @@ describe('viewer interaction readiness', () => {
     it.each([
         {openSurfacePhase: 'viewport-committed'},
         {openSurfacePresentation: 'opening'},
-        {pageTrackClasses: [
-            'pdf-viewer-page-track',
-            'pdfViewer--resize-transition',
-        ]},
+        {pageTrackDisplay: 'none'},
         {pageTrackOpacity: 0},
         {viewportVisibility: 'hidden'},
     ])('rejects a chassis that is not yet safely interactive: %o', (overrides) => {
@@ -50,7 +46,6 @@ describe('viewer interaction readiness', () => {
             mode: 'legacy',
             openSurfacePhase: null,
             openSurfacePresentation: null,
-            pageTrackClasses: ['pdfViewer'],
         }))).toBe(true);
     });
 });
