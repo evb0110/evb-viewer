@@ -67,3 +67,74 @@ pub(super) fn border_is_underlined(
         .and_then(|s| document.resolved(s.get(b"S").ok()?).ok()?.as_name().ok())
         == Some(b"U".as_slice())
 }
+
+/// RD is applied to the underlying shape before the stroke-width inset.
+pub(crate) fn annotation_inner_rect(
+    document: &impl PdfObjectSource,
+    annotation: &Dictionary,
+) -> Option<PdfRect> {
+    let rect = read_shape_annotation_rect(document, annotation)?;
+    let outer = PdfRect {
+        x1: rect.x1.min(rect.x2),
+        y1: rect.y1.min(rect.y2),
+        x2: rect.x1.max(rect.x2),
+        y2: rect.y1.max(rect.y2),
+    };
+    let rd = annotation
+        .get(b"RD")
+        .ok()
+        .and_then(|v| annotation_numbers(document, v))
+        .filter(|v| v.len() == 4 && v.iter().all(|n| n.is_finite() && *n >= 0.0));
+    let Some(rd) = rd else {
+        return Some(outer);
+    };
+    let inner = PdfRect {
+        x1: outer.x1 + rd[0],
+        y1: outer.y1 + rd[1],
+        x2: outer.x2 - rd[2],
+        y2: outer.y2 - rd[3],
+    };
+    Some(if inner.width() > 0.0 && inner.height() > 0.0 {
+        inner
+    } else {
+        outer
+    })
+}
+
+pub(super) fn rectangle_appearance(
+    document: &impl PdfObjectSource,
+    annotation: &Dictionary,
+    subtype: &[u8],
+    width: f64,
+    stroke: bool,
+    fill: bool,
+) -> Option<String> {
+    let mut content = String::new();
+    let rect = annotation_inner_rect(document, annotation)?;
+    let inset = width / 2.0;
+    let x1 = rect.x1.min(rect.x2) + inset;
+    let y1 = rect.y1.min(rect.y2) + inset;
+    let x2 = rect.x1.max(rect.x2) - inset;
+    let y2 = rect.y1.max(rect.y2) - inset;
+    let paint = match (stroke, fill) {
+        (true, true) => "B",
+        (true, false) => "S",
+        (false, true) => "f",
+        (false, false) => "n",
+    };
+    if border_is_underlined(document, annotation) {
+        if fill {
+            content.push_str(&format!("{x1} {y1} {} {} re f\n", x2 - x1, y2 - y1));
+        }
+        if stroke {
+            content.push_str(&format!("{x1} {y1} m {x2} {y1} l S\n"));
+        }
+    } else if subtype == b"Square" {
+        content.push_str(&format!("{x1} {y1} {} {} re {paint}\n", x2 - x1, y2 - y1));
+    } else {
+        let center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0);
+        content.push_str(&ellipse_path(center, ((x2 - x1) / 2.0, (y2 - y1) / 2.0)));
+        content.push_str(&format!("{paint}\n"));
+    }
+    Some(content)
+}

@@ -5,7 +5,8 @@ use super::*;
 
 #[path = "synthesized_border.rs"]
 mod border;
-use border::*;
+pub(crate) use border::annotation_inner_rect;
+use border::{border_dash, border_is_underlined, rectangle_appearance};
 #[path = "synthesized_line_endings.rs"]
 mod line_endings;
 use line_endings::{annotation_points, line_body_path, line_ending_appearance, line_print_rect};
@@ -96,7 +97,7 @@ fn synthesized_note_icon(document: &mut Document, annotation: &Dictionary) -> Op
 /// follows /C (black when absent), the fill /IC, and the width /BS or /Border.
 /// Rectangles and ellipses are inset by half the width so the stroke stays
 /// inside /Rect; the line-based shapes already pad /Rect by the stroke.
-fn synthesized_shape_content(
+pub(crate) fn synthesized_shape_content(
     document: &impl PdfObjectSource,
     annotation: &Dictionary,
     subtype: &[u8],
@@ -131,34 +132,16 @@ fn synthesized_shape_content(
     if let Some(fill) = &fill {
         content.push_str(&format!("{}\n", colour_operands(fill, true)));
     }
-    let inset = width / 2.0;
     match subtype {
         b"Square" | b"Circle" => {
-            let rect = read_shape_annotation_rect(document, annotation)?;
-            let x1 = rect.x1.min(rect.x2) + inset;
-            let y1 = rect.y1.min(rect.y2) + inset;
-            let x2 = rect.x1.max(rect.x2) - inset;
-            let y2 = rect.y1.max(rect.y2) - inset;
-            let paint = match (stroke.is_some(), fill.is_some()) {
-                (true, true) => "B",
-                (true, false) => "S",
-                (false, true) => "f",
-                (false, false) => "n",
-            };
-            if border_is_underlined(document, annotation) {
-                if fill.is_some() {
-                    content.push_str(&format!("{x1} {y1} {} {} re f\n", x2 - x1, y2 - y1));
-                }
-                if stroke.is_some() {
-                    content.push_str(&format!("{x1} {y1} m {x2} {y1} l S\n"));
-                }
-            } else if subtype == b"Square" {
-                content.push_str(&format!("{x1} {y1} {} {} re {paint}\n", x2 - x1, y2 - y1));
-            } else {
-                let center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0);
-                content.push_str(&ellipse_path(center, ((x2 - x1) / 2.0, (y2 - y1) / 2.0)));
-                content.push_str(&format!("{paint}\n"));
-            }
+            content.push_str(&rectangle_appearance(
+                document,
+                annotation,
+                subtype,
+                width,
+                stroke.is_some(),
+                fill.is_some(),
+            )?);
         }
         _ => {
             let points = annotation_points(document, annotation, subtype)?;

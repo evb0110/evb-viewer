@@ -1679,3 +1679,12 @@ fn print_closed_endings_stroke_red_independently_of_the_interior() {
         );
     }
 }
+
+#[test]
+fn print_applies_rectangle_differences_before_stroking() {
+    let temp = TempPaths::new("print-rd");
+    write_single_square_pdf(&temp.pdf, "/BS << /W 4 >> /RD [30 30 30 30]");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(poppler_ink_pixels(&printed), 2176);
+}
