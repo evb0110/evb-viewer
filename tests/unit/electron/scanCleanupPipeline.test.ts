@@ -77,7 +77,7 @@ import {
 } from '@evb/scan-cleanup/core/policy/effectiveOptions';
 import {createPagePlanResolver} from '@evb/scan-cleanup/core/createPagePlanResolver';
 import {
-    assembleWithCompactSourcePages, resolveCompactSourcePreservation,
+    assembleWithCompactSourcePages, overlayScanCleanupTextLayer, resolveCompactSourcePreservation,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
     createArrayBackedPdfPageSizeStore,
@@ -811,6 +811,36 @@ describe('scan cleanup pipeline', () => {
         )).rejects.toThrow('Cannot preserve annotations on source page 1 without affine cleanup geometry');
         await expect(stat(staged)).rejects.toMatchObject({code: 'ENOENT'});
         expect(await readFile(raster, 'utf8')).toBe('unpublished raster');
+    });
+
+    it('saves the overlay output for an all-preserved plan so its retained links are rebound', async () => {
+        const fixture = await setup();
+        const staged = join(fixture.dir, 'staged.pdf');
+        await writeFile(staged, 'assembled without overlay');
+        const deps = dependencies(vi.fn());
+        deps.runCommand = async (_binary, args) => {
+            await writeFile(args[args.indexOf('--output') + 1]!, 'overlaid');
+            return {
+                exitCode: 0,
+                stderr: '',
+                stdout: '',
+            };
+        };
+        await overlayScanCleanupTextLayer([{
+            sourcePageIndex: 0,
+            outputPageIndex: 0,
+            matrix: [
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+            ],
+            linkOnly: true,
+        }], pipelinePaths(fixture.dir), fixture.sourcePdfPath, staged, fixture.dir,
+        new AbortController().signal, vi.fn(), deps);
+        expect(await readFile(staged, 'utf8')).toBe('overlaid');
     });
 
     it('observes analysis-release failures after the sidecar has failed', async () => {
@@ -1890,8 +1920,13 @@ describe('scan cleanup pipeline', () => {
             if (command === '/combine') {
                 await writeFile(args[outputIndex + 1]!, '%PDF-1.7\nRASTER\n%%EOF\n');
             } else if (command === '/page-ops') {
-                pageOpsInstructions = JSON.parse(await readFile(args[args.indexOf('--instructions-file') + 1]!, 'utf8'));
-                await writeFile(args[outputIndex + 1]!, '%PDF-1.7\nPRESERVED\n%%EOF\n');
+                if (args[0] === 'split-pages') {
+                    pageOpsInstructions = JSON.parse(await readFile(args[args.indexOf('--instructions-file') + 1]!, 'utf8'));
+                    await writeFile(args[outputIndex + 1]!, '%PDF-1.7\nPRESERVED\n%%EOF\n');
+                } else {
+                    // The text overlay is not under test here: it passes the staged PDF through.
+                    await writeFile(args[outputIndex + 1]!, await readFile(args[args.indexOf('--input') + 1]!));
+                }
             } else if (command === '/qpdf') {
                 qpdfArgs = args;
                 await writeFile(args.at(-1)!, '%PDF-1.7\nHYBRID\n%%EOF\n');

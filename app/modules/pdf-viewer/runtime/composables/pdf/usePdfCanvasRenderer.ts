@@ -18,6 +18,8 @@ interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
     viewport: ReturnType<IPdfPage['getViewport']>;
     annotationCanvasMap: Map<string, HTMLCanvasElement> | null;
+    // False when the raster was prepared before the annotation projection was ready.
+    paintsAnnotations: boolean;
     scaleX: number;
     scaleY: number;
     rawDims: {
@@ -352,6 +354,7 @@ export const usePdfCanvasRenderer = (deps: {
             canvas,
             viewport,
             annotationCanvasMap: annotationOptions.annotationCanvasMap,
+            paintsAnnotations: annotationOptions.annotationMode !== (AnnotationMode?.DISABLE ?? 0),
             scaleX: canvasScale.scaleX,
             scaleY: canvasScale.scaleY,
             rawDims,

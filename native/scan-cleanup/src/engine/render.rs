@@ -1,4 +1,5 @@
 pub use crate::domain::geometry::{AppliedMargins, PageHalf};
+use crate::engine::edge_band::{owned_ink_pixels, LEAF_EDGE_BAND_FRACTION};
 use crate::engine::prepare::{build_analysis_level, AnalysisLevel};
 use crate::engine::render_plan::{
     content_result_for_dimensions, output_regions, ComposedRenderPlan,
@@ -1194,6 +1195,7 @@ struct PreparedPage<'a> {
     rotated_color: Option<RgbImage>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
+    faint_core: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
     halftone_zone_mask: Option<Arc<BinaryImage>>,
     spatial_tone_mask: Option<Arc<BinaryImage>>,
@@ -1227,6 +1229,7 @@ struct PreparedAnalysis {
     text_axis: Option<TextAxisHint>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
+    faint_core: Option<Arc<BinaryImage>>,
     picture_mask: Option<Arc<BinaryImage>>,
     halftone_zone_mask: Option<Arc<BinaryImage>>,
     spatial_tone_mask: Option<Arc<BinaryImage>>,
@@ -1268,6 +1271,7 @@ struct AnalysisArtifact {
     text_vicinity_mask: Option<Arc<BinaryImage>>,
     content_picture_mask: Option<Arc<BinaryImage>>,
     faint_stroke_masks: [Option<Arc<BinaryImage>>; 2],
+    faint_core: Option<Arc<BinaryImage>>,
     source_effectively_blank: bool,
     output_mode_recommendation: Option<OutputModeRecommendation>,
     preserve_confirmed_photo_tones: bool,
@@ -1331,10 +1335,6 @@ fn page_ink_ownership_mask(
     }
 }
 
-fn owned_ink_pixels(binary: &BinaryImage, ownership: &BinaryImage) -> usize {
-    binary.and(ownership).count_black()
-}
-
 fn owned_ink_minimum(width: usize, height: usize) -> usize {
     ((width.saturating_mul(height) as f64 * OWNED_INK_RETENTION_MINIMUM_FRACTION) as usize)
         .max(OWNED_INK_RETENTION_MINIMUM_PIXELS)
@@ -1364,8 +1364,7 @@ fn conserve_page_ink(
     let Some(ownership) = ownership else {
         return (cleaned, false);
     };
-    let supported = owned_ink_pixels(&conservative, ownership);
-    let surviving = owned_ink_pixels(&cleaned, ownership);
+    let (supported, surviving) = owned_ink_pixels(&conservative, &cleaned, ownership);
     let minimum = owned_ink_minimum(conservative.width(), conservative.height());
     if supported < minimum {
         return (cleaned, false);
@@ -1382,11 +1381,6 @@ fn conserve_page_ink(
     ));
     (conservative, true)
 }
-
-/// Width of the leaf edge band that carries the fold shadow and the scanner
-/// rail rather than page content. Page margins are wider than this at any scan
-/// resolution, so no printed matter falls inside the band.
-const LEAF_EDGE_BAND_FRACTION: f64 = 0.04;
 
 fn leaf_interior_is_blank(gray: &GrayImage, dpi: f64) -> bool {
     let inset_x = (gray.width() as f64 * LEAF_EDGE_BAND_FRACTION) as usize;
@@ -2345,6 +2339,7 @@ fn prepare_page<'a>(
         canonical_routing_dpi,
         content_picture_mask: analysis_content_picture_mask,
         faint_stroke_masks,
+        faint_core,
         picture_mask: analysis_picture_mask,
         halftone_zone_mask: analysis_halftone_zone_mask,
         spatial_tone_mask: analysis_spatial_tone_mask,
@@ -2428,6 +2423,7 @@ fn prepare_page<'a>(
         rotated_color,
         content_picture_mask: analysis_content_picture_mask,
         faint_stroke_masks,
+        faint_core,
         picture_mask: picture_mask.take(),
         halftone_zone_mask: analysis_halftone_zone_mask,
         spatial_tone_mask: analysis_spatial_tone_mask,
@@ -2474,6 +2470,7 @@ fn analysis_artifact_bytes(artifact: &AnalysisArtifact) -> usize {
         &artifact.content_picture_mask,
         &artifact.faint_stroke_masks[0],
         &artifact.faint_stroke_masks[1],
+        &artifact.faint_core,
     ]
     .into_iter()
     .flatten()

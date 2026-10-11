@@ -1076,7 +1076,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             // A transient canvas between two resize invalidations is not recovery.
             await session.page.waitForFunction(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-                if (!viewer || viewer.querySelector('.pdfViewer--resize-transition')) return false;
+                if (!viewer) return false;
                 const bounds = viewer.getBoundingClientRect();
                 const visible = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'))
                     .filter((page) => {
@@ -1084,7 +1084,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                         return rect.bottom > bounds.top && rect.top < bounds.bottom;
                     });
                 return visible.length > 0 && visible.every(page => page.dataset.pageVisual === 'ready'
-                    && page.querySelector('canvas'));
+                    && page.dataset.pageRaster === 'current' && page.querySelector('canvas'));
             }, { timeout: 10_000 });
             const observation = await session.page.evaluate(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
@@ -2970,7 +2970,6 @@ interface ISidebarNavigationFrame {
     overflowPx: number;
     visiblePages: number[];
     toolbarText: string;
-    resizeTransition: boolean;
 }
 
 interface ISidebarNavigationProbeWindow extends Window {
@@ -3021,8 +3020,9 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             await clickVisibleToolbarButton(page, 'Toggle Sidebar');
             await page.waitForFunction(() => ![...document.querySelectorAll<HTMLElement>('[data-testid="document-sidebar"]')]
                 .some(element => element.getBoundingClientRect().width > 10), {timeout: 10_000});
-            await page.waitForFunction(() => !document.querySelector('[data-pdf-page-track]')
-                ?.classList.contains('pdfViewer--resize-transition'), {timeout: 15_000});
+            // The slide is the wrapper's width transition: wait for it to end.
+            await page.waitForFunction(() => !document.querySelector<HTMLElement>('.sidebar-wrapper')
+                ?.getAnimations().some(animation => animation.playState === 'running'), {timeout: 15_000});
             await waitForVisibleMountedPdfCanvases(page, 30_000);
         }
 
@@ -3047,8 +3047,6 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                         overflowPx: viewer.scrollWidth - viewer.clientWidth,
                         visiblePages: pages.map(container => Number(container.dataset.page)),
                         toolbarText: document.querySelector('.page-controls-display')?.textContent?.replace(/\s+/gu, '') ?? '',
-                        resizeTransition: document.querySelector('[data-pdf-page-track]')
-                            ?.classList.contains('pdfViewer--resize-transition') === true,
                     });
                 }
                 if (probe.__sidebarNavigationSampling) {
@@ -3071,14 +3069,14 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
                 lastHit: null as string | null,
             };
             probe.__sidebarThumbnailHunt = huntState;
-            let lastPaneWidth: number | undefined;
             const hunt = () => {
-                const viewer = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
-                const paneWidth = viewer?.clientWidth ?? 0;
-                // Well before the easing tail, so the pane keeps narrowing
-                // after the navigation lands.
-                const paneMoving = lastPaneWidth !== undefined && lastPaneWidth - paneWidth >= 12;
-                lastPaneWidth = paneWidth;
+                // The slide is the wrapper's width transition, and a running
+                // transition is the slide's own clock. A per-frame width step
+                // would tie the check to the frame rate: at 60 fps the slide
+                // moves the pane less than a step threshold in each frame.
+                const paneMoving = document.querySelector<HTMLElement>('.sidebar-wrapper')
+                    ?.getAnimations()
+                    .some(animation => animation.playState === 'running') === true;
                 const item = document.querySelector<HTMLElement>(`[data-thumbnail-page="${target}"]`);
                 // The rail reveals the current page while its rows are still
                 // being measured, which resets an earlier scroll. Keep
@@ -3125,6 +3123,14 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             };
             window.requestAnimationFrame(hunt);
         }, SIDEBAR_TARGET_PAGE);
+        // The product slide is 0.2 s. A renderer that paints slowly, as hosted
+        // runners do, finishes it between two frames, so the hunt never sees the
+        // thumbnail under the moving pane. A 1 s slide spans several frames. The
+        // slide's fallback timer reads the same token, so the viewer still
+        // settles when the slide ends.
+        await page.evaluate(() => {
+            document.documentElement.style.setProperty('--app-transition-reorder-duration', '1s');
+        });
 
         await clickVisibleToolbarButton(page, 'Toggle Sidebar');
         const thumbnailHandle = await page.waitForFunction(() => (
@@ -3153,8 +3159,9 @@ describe('Electron E2E - thumbnail navigation while the sidebar opens', () => {
             }
             const viewerRect = viewer.getBoundingClientRect();
             const rect = container.getBoundingClientRect();
+            // The slide itself, not a class: the viewer no longer marks a resize.
             return rect.bottom > viewerRect.top && rect.top < viewerRect.bottom
-                && !document.querySelector('[data-pdf-page-track]')?.classList.contains('pdfViewer--resize-transition');
+                && !document.querySelector('.sidebar-wrapper')?.getAnimations().some(animation => animation.playState === 'running');
         }, {
             timeout: 10_000,
             polling: 'raf',
@@ -3225,8 +3232,8 @@ describe('Electron E2E - reading point across a sidebar open and a window resize
             .some(element => element.getBoundingClientRect().width > 10));
         const clickSidebarToggle = () => clickVisibleToolbarButton(page, 'Toggle Sidebar');
         const waitForLayoutAtRest = async () => {
-            await page.waitForFunction(() => !document.querySelector('[data-pdf-page-track]')
-                ?.classList.contains('pdfViewer--resize-transition'), {timeout: 15_000});
+            await page.waitForFunction(() => !document.querySelector('.sidebar-wrapper')
+                ?.getAnimations().some(animation => animation.playState === 'running'), {timeout: 15_000});
             await waitForAnimationFrames(page, 20);
         };
         // The document point under the viewport centre, in pixels from its page top.

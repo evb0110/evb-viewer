@@ -3,7 +3,6 @@ export interface IViewerInteractionReadinessSnapshot {
     hasPageTrack: boolean;
     openSurfacePhase: string | null;
     openSurfacePresentation: string | null;
-    pageTrackClasses: string[];
     pageTrackDisplay: string;
     pageTrackOpacity: number;
     pageTrackVisibility: string;
@@ -26,8 +25,6 @@ function isPresented(display: string, visibility: string, opacity: number) {
 export function isViewerInteractionReady(snapshot: IViewerInteractionReadinessSnapshot) {
     if (
         !snapshot.hasPageTrack
-        || snapshot.pageTrackClasses.includes('pdfViewer--resize-transition')
-        || snapshot.pageTrackClasses.includes('pdfViewer--hidden')
         || !isPresented(
             snapshot.pageTrackDisplay,
             snapshot.pageTrackVisibility,

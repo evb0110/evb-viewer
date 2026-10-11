@@ -113,6 +113,14 @@ export interface IScanCleanupTextLayerInstruction {
      * clipping consistently and would otherwise expose both source halves.
      */
     filterToOutputPage?: boolean;
+    /**
+     * The output page copies no text or annotations: its source page is copied
+     * as is, or was cleaned without geometry. It exists so that a link naming
+     * this page still resolves to it.
+     */
+    linkOnly?: boolean;
+    /** The output has no affine geometry, so only page-level destinations resolve. */
+    unmappedGeometry?: boolean;
 }
 
 export interface IScanCleanupTextLayerInstructionEnvelope {pages: IScanCleanupTextLayerInstruction[];}

@@ -23,6 +23,15 @@ import {
 import type * as FsPromises from 'node:fs/promises';
 import {createTestEventSender} from '@tests/helpers/electronEventEmitterHarness';
 
+// The first import transforms each module graph, which takes seconds on a loaded
+// machine. Collection pays that once, outside every test and hook budget; tests
+// re-import these after resetModules from the transform cache.
+await import('@electron/recentFiles');
+await import('@electron/recentReadingViews');
+await import('@electron/file-access/workingCopyStore');
+await import('@electron/features/djvu/main/viewing');
+await import('@electron/features/djvu/main/djvuPageSourceInfoCache');
+
 const mocks = vi.hoisted(() => {
     const app = { getPath: vi.fn() };
     const logger = {

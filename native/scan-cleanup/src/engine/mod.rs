@@ -8,6 +8,7 @@ pub(crate) fn cancellation_error() -> NativeError {
 
 pub mod analyze;
 pub mod batch_reconciliation;
+pub mod edge_band;
 pub mod lossless_placement;
 pub mod output_geometry;
 pub mod page_statistics;
@@ -16,5 +17,6 @@ pub mod prepare;
 pub mod render;
 pub mod render_plan;
 pub mod resource_planning;
+pub mod scanner_strip;
 pub mod staged_input;
 pub mod text_axis;

@@ -15,12 +15,14 @@ export interface IPdfCommittedRasterQuality {
     readonly pixelScaleFactor: number;
     readonly wasClamped: boolean;
     readonly intent: 'buffer-preview' | 'settled';
+    readonly paintsAnnotations?: boolean;
 }
 
 export function resolvePdfCommittedRasterQuality(
     renderResult: {
         canvas: Pick<HTMLCanvasElement, 'height' | 'width'>;
         grantedPixels?: number;
+        paintsAnnotations?: boolean;
         pixelScaleFactor?: number;
         requestedPixels?: number;
         wasClamped?: boolean;
@@ -47,6 +49,7 @@ export function resolvePdfCommittedRasterQuality(
             pixelScaleFactor: 1,
             wasClamped: false,
             intent,
+            paintsAnnotations: renderResult.paintsAnnotations !== false,
         };
     }
     return {
@@ -55,6 +58,7 @@ export function resolvePdfCommittedRasterQuality(
         pixelScaleFactor,
         wasClamped,
         intent,
+        paintsAnnotations: renderResult.paintsAnnotations !== false,
     };
 }
 
@@ -424,6 +428,7 @@ export function createPdfPageRenderState() {
                 pixelScaleFactor: 1,
                 wasClamped: false,
                 intent: 'settled',
+                paintsAnnotations: true,
             },
         ) {
             const current = getSlot(pageNumber);
@@ -448,6 +453,9 @@ export function createPdfPageRenderState() {
                 intent: committedRasterQuality.intent,
             });
             return true;
+        },
+        isPaintedWithoutAnnotations(pageNumber: TPageNumber) {
+            return getSlot(pageNumber).committedRasterQuality?.paintsAnnotations === false;
         },
         markCanvasOnly(pageNumber: TPageNumber, version: number, requestId: number) {
             const current = getSlot(pageNumber);

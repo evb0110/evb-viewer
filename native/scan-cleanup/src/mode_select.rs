@@ -1,5 +1,6 @@
+use crate::coherent_edges::has_coherent_edge_structure;
 use crate::protocol::manifest_v3::ContentBlockEvidence;
-use crate::{calibration::PageCalibration, io::png::RgbImage, OutputMode};
+use crate::{calibration::PageCalibration, faint_core, io::png::RgbImage, OutputMode};
 use scan_primitives::{threshold::otsu_threshold, BinaryImage, Component, ComponentMap, GrayImage};
 use serde::{Deserialize, Serialize};
 
@@ -31,7 +32,7 @@ const PICTURE_NOISE_FLOOR: f64 = 0.012;
 const CORROBORATED_PICTURE_NOISE_FLOOR: f64 = 0.005;
 const PICTURE_HYSTERESIS: f64 = 0.003;
 const PICTURE_BALANCE_FRACTION: f64 = 0.14;
-const BLANK_EDGE_DIFFERENCE: u8 = 12;
+pub(crate) const BLANK_EDGE_DIFFERENCE: u8 = 12;
 const BLANK_MAX_EDGE_FRACTION: f64 = 0.0015;
 const BLANK_MAX_ROBUST_LUMINANCE_RANGE: f64 = 48.0;
 /// Width of the leaf edge band that carries scanner rails and fold shadow
@@ -209,7 +210,7 @@ struct ChromaEvidence {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct LuminanceEvidence {
+pub(crate) struct LuminanceEvidence {
     otsu_threshold: u8,
     dark_mean: f64,
     light_mean: f64,
@@ -634,7 +635,10 @@ pub(crate) fn qualifies_independent_outside_tone(
 }
 
 /// Partition shallow components by the existing continuity proof, on one census.
-fn faint_stroke_masks(image: &GrayImage, luminance: LuminanceEvidence) -> [Option<BinaryImage>; 2] {
+pub(crate) fn faint_stroke_masks(
+    image: &GrayImage,
+    luminance: LuminanceEvidence,
+) -> [Option<BinaryImage>; 2] {
     let paper = grayscale_percentile(image, 0.7);
     let maximum_depth = luminance.mode_distance * 0.5;
     let marks = BinaryImage::from_fn_parallel(image.width(), image.height(), |x, y| {
@@ -681,10 +685,7 @@ fn faint_stroke_masks(image: &GrayImage, luminance: LuminanceEvidence) -> [Optio
                 curved.saturating_mul(2) >= width.saturating_add(height)
             }
     });
-    let rejected = map
-        .retain(|component| shallow[component.label as usize - 1])
-        .subtract(&preserved);
-    [preserved, rejected].map(|mask| (mask.count_black() > 0).then_some(mask))
+    faint_core::split(&map, &shallow, preserved)
 }
 
 /// Auto's mode and preserved/rejected shallow masks share a census and tonal hysteresis.
@@ -1327,100 +1328,6 @@ fn has_pale_tonal_structure_in_region(
     false
 }
 
-/// Global coverage is intentionally not sufficient to erase a page: a short
-/// word or page number can occupy less than the blank-coverage hysteresis. This
-/// retains compact, connected dark-side edge structures while ignoring
-/// isolated sensor noise. It is relative to neighbouring pixels, so changing
-/// the paper from light gray to dark gray does not change the verdict.
-fn has_coherent_edge_structure(image: &GrayImage) -> bool {
-    let mut edges = BinaryImage::new(image.width(), image.height());
-    for y in 0..image.height() {
-        for x in 0..image.width() {
-            let value = image.get(x, y);
-            if x > 0 {
-                let neighbor = image.get(x - 1, y);
-                if value.abs_diff(neighbor) >= BLANK_EDGE_DIFFERENCE {
-                    if value <= neighbor {
-                        edges.set(x, y, true);
-                    } else {
-                        edges.set(x - 1, y, true);
-                    }
-                }
-            }
-            if y > 0 {
-                let neighbor = image.get(x, y - 1);
-                if value.abs_diff(neighbor) >= BLANK_EDGE_DIFFERENCE {
-                    if value <= neighbor {
-                        edges.set(x, y, true);
-                    } else {
-                        edges.set(x, y - 1, true);
-                    }
-                }
-            }
-        }
-    }
-
-    let minimum_height = ((image.height() as f64 * 0.003).round() as usize).clamp(2, 6);
-    let minimum_area = minimum_height.saturating_mul(3);
-    let maximum_width = (image.width() / 5).max(1);
-    let maximum_height = (image.height() / 5).max(1);
-    let (rails, _) = crate::edge_artifacts::side_edge_rails(&edges, None);
-    let components = ComponentMap::from_binary(&edges.subtract(&rails));
-    let candidates = components
-        .components()
-        .iter()
-        .filter(|component| {
-            let width = component.right - component.left + 1;
-            let height = component.bottom - component.top + 1;
-            let border_attached = component.left == 0
-                || component.top == 0
-                || component.right + 1 == image.width()
-                || component.bottom + 1 == image.height();
-            !border_attached
-                && width >= 2
-                && height >= minimum_height
-                && width <= maximum_width
-                && height <= maximum_height
-                && component.area >= minimum_area
-        })
-        .collect::<Vec<_>>();
-
-    // Preserve larger standalone marks and short aligned text. Isolated
-    // sensor noise still lacks their scale or neighbouring baseline.
-    if candidates.iter().any(|component| {
-        let width = component.right - component.left + 1;
-        let height = component.bottom - component.top + 1;
-        height >= minimum_height.saturating_mul(3)
-            && component.area >= minimum_area.saturating_mul(2)
-            && width.saturating_mul(8) >= height
-            && height.saturating_mul(8) >= width
-    }) {
-        return true;
-    }
-
-    candidates.iter().enumerate().any(|(index, left)| {
-        candidates.iter().skip(index + 1).any(|right| {
-            let left_height = left.bottom - left.top + 1;
-            let right_height = right.bottom - right.top + 1;
-            let maximum_glyph_height = left_height.max(right_height);
-            let minimum_glyph_height = left_height.min(right_height);
-            let left_center = left.top + left_height / 2;
-            let right_center = right.top + right_height / 2;
-            let vertical_offset = left_center.abs_diff(right_center);
-            let horizontal_gap = if left.right < right.left {
-                right.left - left.right - 1
-            } else if right.right < left.left {
-                left.left - right.right - 1
-            } else {
-                return false;
-            };
-            maximum_glyph_height <= minimum_glyph_height.saturating_mul(2)
-                && vertical_offset <= maximum_glyph_height / 2
-                && horizontal_gap <= maximum_glyph_height.saturating_mul(4)
-        })
-    })
-}
-
 fn chroma_vector(pixel: [f64; 3]) -> [f64; 3] {
     let mean = pixel.iter().sum::<f64>() / 3.0;
     [pixel[0] - mean, pixel[1] - mean, pixel[2] - mean]
@@ -1714,7 +1621,7 @@ fn is_leaf_edge_strip(component: &Component, width: usize, height: usize) -> boo
     along_side || along_top_or_bottom
 }
 
-fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
+pub(crate) fn luminance_evidence(image: &GrayImage) -> LuminanceEvidence {
     luminance_evidence_region(image, (0, 0, image.width(), image.height()))
 }
 
@@ -1884,7 +1791,7 @@ fn luminance_histogram_percentile(histogram: &[u64; 256], total: u64, percentile
     255.0
 }
 
-fn grayscale_percentile(image: &GrayImage, percentile: f64) -> u8 {
+pub(crate) fn grayscale_percentile(image: &GrayImage, percentile: f64) -> u8 {
     let mut histogram = [0usize; 256];
     for y in 0..image.height() {
         for &value in image.row(y) {

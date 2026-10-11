@@ -249,6 +249,7 @@ describe('workspace checkpoint store', () => {
     });
 
     afterEach(async () => {
+        vi.useRealTimers();
         await rm(state.userDataPath, {
             force: true,
             recursive: true,
@@ -414,14 +415,21 @@ describe('workspace checkpoint store', () => {
                 tab.sourceRef,
             ]);
 
+        // Saves inside the debounce window wait for its real timer. The test
+        // clock moves past the window instead, so each save commits directly.
+        vi.useFakeTimers({toFake: ['Date']});
+        const saveSettled = async () => {
+            vi.setSystemTime(Date.now() + 1_000);
+            await saveWorkspaceCheckpoint(twoTabs, 11, window);
+            await flushPendingWorkspaceCheckpointSave();
+        };
+
         // A crash in ordinary use, after the restore was acknowledged, closes nothing.
-        await saveWorkspaceCheckpoint(twoTabs, 11, window);
-        await flushPendingWorkspaceCheckpointSave();
+        await saveSettled();
         reloadRenderer(window);
         await claimWorkspaceCheckpoint(11, window);
         await acknowledgeWorkspaceCheckpoint(11, window);
-        await saveWorkspaceCheckpoint(twoTabs, 11, window);
-        await flushPendingWorkspaceCheckpointSave();
+        await saveSettled();
         window.emit('render-process-gone', {}, {reason: 'crashed'});
         reloadRenderer(window);
         await expect(restoredSources()).resolves.toEqual([
@@ -440,8 +448,7 @@ describe('workspace checkpoint store', () => {
         // A restore whose renderer saved again has settled, even when it never
         // acknowledged (an incomplete restore keeps its evidence): a later
         // crash closes nothing.
-        await saveWorkspaceCheckpoint(twoTabs, 11, window);
-        await flushPendingWorkspaceCheckpointSave();
+        await saveSettled();
         window.emit('render-process-gone', {}, {reason: 'crashed'});
         reloadRenderer(window);
         await expect(restoredSources()).resolves.toEqual([

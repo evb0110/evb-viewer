@@ -40,7 +40,11 @@ import {
 
 const DJVU_PAGE_SIZE_TIMEOUT_MS = 30_000;
 const DJVU_PAGE_SIZE_MAX_STDOUT_BYTES = 1_048_576;
-const DJVU_PAGE_SIZE_WINDOW_PAGES = 256;
+// Each window is one djvused launch, which costs about 2 s on the Windows 11
+// guest whatever its size. 1024 `select; size` pairs are about 18 KB of
+// command line, under Windows' 32,767-character limit. At 2048 pairs (about
+// 38 KB) the measured launch returned 1024 lines with exit 0.
+const DJVU_PAGE_SIZE_WINDOW_PAGES = 1024;
 const DJVU_PREVIEW_SUBSAMPLE_MAX = 12;
 const DJVU_PREVIEW_MAX_PIXELS = 45_000_000;
 const DJVU_PREVIEW_MAX_NETPBM_BYTES = 192 * 1024 * 1024;

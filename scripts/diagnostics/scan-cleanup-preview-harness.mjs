@@ -24,7 +24,10 @@ import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     mkdir,
+    mkdtemp,
     readFile,
+    rm,
+    stat,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -98,6 +101,7 @@ const [
         createScanCleanupPlacementAnchorCalibrationSignature,
     },
     {createFileBackedScanCleanupDetectionResultStore},
+    {usesScanCleanupInkAlignment},
 ] = await Promise.all([
     importTs('../../packages/scan-cleanup/core/detection.ts'),
     importTs('../../packages/scan-cleanup/core/policy/documentCanvas.ts'),
@@ -114,6 +118,7 @@ const [
     importTs('../../packages/scan-cleanup/core/placementAnchors.ts'),
     importTs('../../packages/contracts/scan-cleanup/createScanCleanupDetectionSignature.ts'),
     importTs('../../packages/scan-cleanup/core/fileBackedResultStore.ts'),
+    importTs('../../packages/scan-cleanup/core/policy/scanCleanupPagePolicy.ts'),
 ]);
 
 const WEIGHT_DEVIATION_LIMIT = 0.15;
@@ -1000,7 +1005,6 @@ async function loadDetection(args, tools) {
         cacheKey: cacheKey.key,
         path,
         results: cache.results,
-        sourceSha256: cacheKey.sourceSha256,
     };
 }
 
@@ -1009,8 +1013,11 @@ async function loadDetection(args, tools) {
  * preview replays each page with the placement the export writes.
  */
 async function buildPlacementAnchorSummary(args, detection) {
-    const rootDir = join(args.out, 'placement-anchor-store');
-    await mkdir(rootDir, {recursive: true});
+    // Same document revision as the CLI's anchor identity (scan-cleanup-convert.ts).
+    const sourceStats = await stat(args.source);
+    const documentRevision = `${String(sourceStats.mtimeMs)}:${String(sourceStats.size)}`;
+    await mkdir(args.out, {recursive: true});
+    const rootDir = await mkdtemp(join(args.out, 'placement-anchor-store-'));
     const store = await createFileBackedScanCleanupDetectionResultStore({
         rootDir,
         pageCount: detection.results.length,
@@ -1022,13 +1029,17 @@ async function buildPlacementAnchorSummary(args, detection) {
             resultStore: store,
             signal: new AbortController().signal,
             identity: {
-                documentRevision: detection.sourceSha256,
+                documentRevision,
                 detectionSignature: createScanCleanupDetectionSignature(defaultOptions),
                 calibrationSignature: createScanCleanupPlacementAnchorCalibrationSignature(defaultOptions),
             },
         });
     } finally {
         await store.close();
+        await rm(rootDir, {
+            recursive: true,
+            force: true,
+        });
     }
 }
 
@@ -1047,7 +1058,10 @@ async function main() {
     const suppliedFinal = process.argv.includes('--final-pdf');
     if (!suppliedFinal) await runFinalConversion(args);
     const detection = await loadDetection(args, tools);
-    const placementAnchorSummary = await buildPlacementAnchorSummary(args, detection);
+    // Anchors exist only where the CLI applies ink alignment; elsewhere it passes none.
+    const placementAnchorSummary = usesScanCleanupInkAlignment(defaultOptions)
+        ? await buildPlacementAnchorSummary(args, detection)
+        : undefined;
     const pageSizes = detection.results.map(result => result.sourcePageMetadata).filter(Boolean);
     if (pageSizes.length !== detection.results.length) {
         throw new Error('Detection cache does not carry source geometry for every page');
@@ -1202,11 +1216,11 @@ async function main() {
                     : {preferSoftAlphaForeground: detectionResult.softAlphaForegroundRecommendation}),
                 observedLayout: detectionResult.classification,
                 ...reusablePagePlan,
-                placementAnchors: resolveScanCleanupPlacementAnchorsFromResult(
+                ...(placementAnchorSummary === undefined ? {} : {placementAnchors: resolveScanCleanupPlacementAnchorsFromResult(
                     placementAnchorSummary,
                     defaultOptions,
                     detectionResult,
-                ),
+                )}),
                 pageMetadataPath,
                 outputs: nativeOutputs,
                 ...(detectionResult.documentPrior === null

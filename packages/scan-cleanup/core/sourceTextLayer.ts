@@ -296,6 +296,32 @@ export function resolveScanCleanupTextLayerInstruction(
     };
 }
 
+/**
+ * Every output page from a source page is a link target. A preserved page is
+ * its source placed by its content transform; other pages name no coordinates.
+ */
+function linkOnlyTextLayerInstruction(
+    output: IRenderedCleanupOutputPage,
+    outputPageIndex: number,
+    unmappedGeometry: boolean,
+): IScanCleanupTextLayerInstruction {
+    const transform = output.preservedSource?.contentTransform;
+    return {
+        sourcePageIndex: output.sourcePageNumber - 1,
+        outputPageIndex,
+        matrix: [
+            transform?.scale ?? 1,
+            0,
+            0,
+            transform?.scale ?? 1,
+            transform?.translateX ?? 0,
+            transform?.translateY ?? 0,
+        ],
+        linkOnly: true,
+        ...(unmappedGeometry ? {unmappedGeometry: true} : {}),
+    };
+}
+
 function buildScanCleanupTextLayerPlanFromPageSizeResolver(
     outputs: readonly IRenderedCleanupOutputPage[],
     resolvePageSize: (pageNumber: number) => IPdfPageSize | undefined,
@@ -306,6 +332,7 @@ function buildScanCleanupTextLayerPlanFromPageSizeResolver(
     outputs.forEach((output, outputPageIndex) => {
         if (output.preservedSource !== undefined) {
             alreadyPreserved.add(output.sourcePageNumber);
+            pages.push(linkOnlyTextLayerInstruction(output, outputPageIndex, false));
             return;
         }
         const instruction = resolveScanCleanupTextLayerInstruction(
@@ -315,6 +342,7 @@ function buildScanCleanupTextLayerPlanFromPageSizeResolver(
         );
         if (instruction === null) {
             skippedNonAffine.add(output.sourcePageNumber);
+            pages.push(linkOnlyTextLayerInstruction(output, outputPageIndex, true));
         } else {
             pages.push(instruction);
         }

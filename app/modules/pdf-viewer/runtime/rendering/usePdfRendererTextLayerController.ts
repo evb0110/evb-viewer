@@ -216,21 +216,11 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
             }
         }
 
-        if (getRenderVersion() !== version || !shouldContinue()) {
-            if (!preserveCanvasOnStale) {
-                cleanupPageIfCurrentRender(pageNumber, version, requestId);
-            }
-            return false;
-        }
-
-        if (!isTextLayerRendered) {
-            // The page canvas is already committed, so optional text failure
-            // must leave the page usable without claiming text readiness. The
-            // caller uses false to keep promotion and an explicit retry alive.
-            return false;
-        }
-
-        if (didRebuildTextLayer) {
+        // A rebuilt layer gets its interaction even when a newer raster has
+        // superseded this render. Later renders only update the spans, so
+        // skipping this here would leave the layer without its selection
+        // sentinel for good.
+        if (isTextLayerRendered && didRebuildTextLayer) {
             try {
                 const cleanup =
                     textLayerRenderer.setupTextLayerInteraction(textLayerDiv);
@@ -246,6 +236,20 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 textLayerRenderer.cleanupTextLayerDom(textLayerDiv);
                 return false;
             }
+        }
+
+        if (getRenderVersion() !== version || !shouldContinue()) {
+            if (!preserveCanvasOnStale) {
+                cleanupPageIfCurrentRender(pageNumber, version, requestId);
+            }
+            return false;
+        }
+
+        if (!isTextLayerRendered) {
+            // The page canvas is already committed, so optional text failure
+            // must leave the page usable without claiming text readiness. The
+            // caller uses false to keep promotion and an explicit retry alive.
+            return false;
         }
 
         try {

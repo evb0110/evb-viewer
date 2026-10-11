@@ -11,6 +11,10 @@ import {
 } from '@electron/bootstrap/shutdown';
 import type { IShutdownContext } from '@electron/bootstrap/shutdown';
 import { EventEmitter } from 'node:events';
+import {
+    existsSync, mkdtempSync, rmSync, writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
     drainCriticalMainOperations,
@@ -607,14 +611,21 @@ describe('shutdown coordinator', () => {
 });
 
 describe('main process termination signals', () => {
-    it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
-        'SIGTERM',
-        'SIGHUP',
-    ] as const)('%s cancels pending and late restarts after preservation', async signal => {
-        const preservation = createDeferred();
-        const restart = vi.fn();
-        const fixture = createCoordinator({runPreservationSteps: () => preservation.promise});
-        const app = Object.assign(new EventEmitter(), fixture.app, {
+    interface IMainProcessStubs {
+        createCoordinator: typeof createShutdownCoordinator;
+        fixtureApp: {
+            exit: () => void;
+            quit: () => void
+        };
+        flushRendererSave: () => Promise<{
+            dirtyWorkingCopyPaths: string[];
+            flushedWorkingCopyPaths: string[]
+        }>;
+        preserveAssistant: () => Promise<void>;
+    }
+
+    async function importMainProcessWithStubs(stubs: IMainProcessStubs) {
+        const app = Object.assign(new EventEmitter(), stubs.fixtureApp, {
             name: 'EVB Viewer Dev',
             getPath: () => tmpdir(),
             setPath: vi.fn(),
@@ -626,6 +637,11 @@ describe('main process termination signals', () => {
             setActivationPolicy: vi.fn(),
             whenReady: async () => {},
         });
+        const processEvents: EventEmitter = process;
+        const listenersBefore = new Map(processEvents.eventNames().map(name => [
+            name,
+            processEvents.listeners(name),
+        ]));
         vi.resetModules();
         vi.doMock('electron', () => ({
             app,
@@ -635,7 +651,7 @@ describe('main process termination signals', () => {
             protocol: {registerSchemesAsPrivileged: vi.fn()},
         }));
         vi.doMock('@electron/bootstrap/shutdown', () => ({
-            createShutdownCoordinator: () => fixture.coordinator,
+            createShutdownCoordinator: stubs.createCoordinator,
             createShutdownPhaseRunners,
         }));
         vi.doMock('@electron/bootstrap/runInitSequence', () => ({runInitSequence: () => new Promise<void>(() => undefined)}));
@@ -662,8 +678,13 @@ describe('main process termination signals', () => {
             shutdownUpdates: vi.fn(),
         }));
         vi.doMock('@electron/platform-ipc/registerIpcHandlers', () => ({registerIpcHandlers: vi.fn()}));
+        vi.doMock('@electron/bootstrap/requestShutdownSaveFlush', () => ({
+            requestShutdownSaveFlush: stubs.flushRendererSave,
+            shutdownSaveFlushRequiresRecoveryPreservation: () => false,
+            shutdownSaveFlushRequiresRetryableQuit: () => false,
+        }));
         vi.doMock('@electron/features/agent/public', () => ({
-            preserveAssistantStateForShutdownIfLoaded: vi.fn(),
+            preserveAssistantStateForShutdownIfLoaded: stubs.preserveAssistant,
             shutdownAgentAssistantIfLoaded: vi.fn(),
             shutdownLocalMcpServer: vi.fn(),
             syncAgentMcpServerWithSettings: vi.fn(),
@@ -687,14 +708,56 @@ describe('main process termination signals', () => {
             sweepStaleOcrTempArtifacts: vi.fn(),
             shutdownSerializedPdfPersistence: vi.fn(),
         }));
-        const processEvents: EventEmitter = process;
-        const listenersBefore = new Map(processEvents.eventNames().map(name => [
-            name,
-            processEvents.listeners(name),
-        ]));
+        await import('@electron/bootstrap/mainProcess');
+        return () => {
+            for (const name of processEvents.eventNames()) {
+                for (const listener of processEvents.listeners(name)) {
+                    if (!listenersBefore.get(name)?.includes(listener)) {
+                        processEvents.removeListener(name, listener as (...args: unknown[]) => void);
+                    }
+                }
+            }
+            for (const module of [
+                'electron',
+                '@electron/bootstrap/shutdown',
+                '@electron/bootstrap/runInitSequence',
+                '@electron/utils/createLogger',
+                '@electron/features/diagnostics/public',
+                '@electron/utils/appTempDir',
+                '@electron/updates',
+                '@electron/platform-ipc/registerIpcHandlers',
+                '@electron/bootstrap/requestShutdownSaveFlush',
+                '@electron/features/agent/public',
+                '@electron/features/ocr/public',
+                '@electron/features/search/public',
+                '@electron/features/djvu/public',
+                '@electron/features/documents/public',
+            ]) {
+                vi.doUnmock(module);
+            }
+            vi.resetModules();
+        };
+    }
+
+    it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
+        'SIGTERM',
+        'SIGHUP',
+    ] as const)('%s cancels pending and late restarts after preservation', async signal => {
+        const preservation = createDeferred();
+        const restart = vi.fn();
+        const fixture = createCoordinator({runPreservationSteps: () => preservation.promise});
+        const restore = await importMainProcessWithStubs({
+            createCoordinator: () => fixture.coordinator,
+            fixtureApp: fixture.app,
+            flushRendererSave: async () => ({
+                dirtyWorkingCopyPaths: [],
+                flushedWorkingCopyPaths: [],
+            }),
+            preserveAssistant: async () => {},
+        });
         try {
-            await import('@electron/bootstrap/mainProcess');
             fixture.coordinator.requestGracefulQuit({afterCleanup: restart});
+            const processEvents: EventEmitter = process;
             processEvents.emit(signal, signal, signal === 'SIGTERM' ? 15 : 1);
             fixture.coordinator.requestGracefulQuit({afterCleanup: restart});
             preservation.resolve();
@@ -704,28 +767,46 @@ describe('main process termination signals', () => {
             expect(restart).not.toHaveBeenCalled();
             expect(fixture.app.quit).toHaveBeenCalledOnce();
         } finally {
-            for (const name of processEvents.eventNames()) {
-                for (const listener of processEvents.listeners(name)) {
-                    if (!listenersBefore.get(name)?.includes(listener)) {
-                        processEvents.removeListener(name, listener as (...args: unknown[]) => void);
-                    }
-                }
-            }
             preservation.resolve();
-            vi.doUnmock('electron');
-            vi.doUnmock('@electron/bootstrap/shutdown');
-            vi.doUnmock('@electron/bootstrap/runInitSequence');
-            vi.doUnmock('@electron/utils/createLogger');
-            vi.doUnmock('@electron/features/diagnostics/public');
-            vi.doUnmock('@electron/utils/appTempDir');
-            vi.doUnmock('@electron/updates');
-            vi.doUnmock('@electron/platform-ipc/registerIpcHandlers');
-            vi.doUnmock('@electron/features/agent/public');
-            vi.doUnmock('@electron/features/ocr/public');
-            vi.doUnmock('@electron/features/search/public');
-            vi.doUnmock('@electron/features/djvu/public');
-            vi.doUnmock('@electron/features/documents/public');
-            vi.resetModules();
+            restore();
+        }
+    });
+
+    it.runIf(process.platform === 'linux' || process.platform === 'darwin')('writes the renderer checkpoint on SIGTERM while assistant preservation stalls', async () => {
+        vi.useFakeTimers();
+        const checkpointDir = mkdtempSync(join(tmpdir(), 'evb-shutdown-'));
+        const checkpoint = join(checkpointDir, 'checkpoint.json');
+        const assistant = createDeferred();
+        const restore = await importMainProcessWithStubs({
+            createCoordinator: createShutdownCoordinator,
+            fixtureApp: {
+                exit: vi.fn(),
+                quit: vi.fn(),
+            },
+            flushRendererSave: async () => {
+                writeFileSync(checkpoint, 'latest accepted renderer edit');
+                return {
+                    dirtyWorkingCopyPaths: [],
+                    flushedWorkingCopyPaths: [],
+                };
+            },
+            preserveAssistant: () => assistant.promise,
+        });
+        try {
+            const processEvents: EventEmitter = process;
+            processEvents.emit('SIGTERM', 'SIGTERM', 15);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(existsSync(checkpoint)).toBe(true);
+        } finally {
+            assistant.resolve();
+            await vi.advanceTimersByTimeAsync(0);
+            restore();
+            vi.clearAllTimers();
+            vi.useRealTimers();
+            rmSync(checkpointDir, {
+                recursive: true,
+                force: true,
+            });
         }
     });
 });

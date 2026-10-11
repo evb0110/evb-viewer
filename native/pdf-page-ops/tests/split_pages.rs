@@ -1409,3 +1409,630 @@ fn split_pages_scales_annotation_coordinates_stored_as_indirect_objects() {
     let _ = remove_file(output);
     let _ = remove_file(instructions);
 }
+
+#[test]
+fn split_pages_moves_a_note_thread_whole_to_the_half_that_holds_its_root() {
+    let input = path("split-thread-input", "pdf");
+    let output = path("split-thread-output", "pdf");
+    let instructions = path("split-thread-instructions", "json");
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let content_id = document.add_object(Stream::new(
+        dictionary! {},
+        b"BT (Content) Tj ET\n".to_vec(),
+    ));
+    let root_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => vec![155.into(), 75.into(), 165.into(), 85.into()],
+        "Contents" => Object::string_literal("root note"),
+    });
+    let popup_id = document.new_object_id();
+    let reply_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => vec![45.into(), 75.into(), 55.into(), 85.into()],
+        "Contents" => Object::string_literal("reply body"),
+        "IRT" => root_id,
+        "Popup" => popup_id,
+    });
+    document.objects.insert(
+        popup_id,
+        dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Popup",
+            "P" => page_id,
+            "Rect" => vec![35.into(), 65.into(), 65.into(), 95.into()],
+            "Parent" => reply_id,
+        }
+        .into(),
+    );
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Contents" => content_id,
+            "Annots" => vec![root_id.into(), reply_id.into(), popup_id.into()],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+    // The root's centre (160) is on the right half; its reply sits on the left.
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let split = Document::load(&output).unwrap();
+    let pages = split.get_pages();
+    let annotations = |page_number: u32| -> Vec<(lopdf::ObjectId, Dictionary)> {
+        let page = split.get_dictionary(pages[&page_number]).unwrap();
+        let Ok(annots) = page.get(b"Annots") else {
+            return Vec::new();
+        };
+        split
+            .dereference(annots)
+            .unwrap()
+            .1
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| {
+                let (id, object) = split.dereference(entry).unwrap();
+                (id.unwrap(), object.as_dict().unwrap().clone())
+            })
+            .collect()
+    };
+    let contents = |dictionary: &Dictionary| {
+        dictionary
+            .get(b"Contents")
+            .map(|value| value.as_str().unwrap().to_vec())
+    };
+    assert!(annotations(1).is_empty());
+
+    let right = annotations(2);
+    assert_eq!(right.len(), 3);
+    let (root, root_dict) = right
+        .iter()
+        .find(|(_, dictionary)| contents(dictionary).unwrap() == b"root note")
+        .unwrap();
+    let (reply, reply_dict) = right
+        .iter()
+        .find(|(_, dictionary)| contents(dictionary).unwrap() == b"reply body")
+        .unwrap();
+    let (popup, _) = right
+        .iter()
+        .find(|(_, dictionary)| dictionary.get(b"Subtype").unwrap().as_name().unwrap() == b"Popup")
+        .unwrap();
+    let page_id = pages[&2];
+    assert_eq!(
+        root_dict.get(b"P").unwrap().as_reference().unwrap(),
+        page_id
+    );
+    assert_eq!(
+        reply_dict.get(b"IRT").unwrap().as_reference().unwrap(),
+        *root
+    );
+    assert_eq!(
+        reply_dict.get(b"Popup").unwrap().as_reference().unwrap(),
+        *popup
+    );
+    assert_eq!(
+        split
+            .get_dictionary(*popup)
+            .unwrap()
+            .get(b"Parent")
+            .unwrap()
+            .as_reference()
+            .unwrap(),
+        *reply
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
+}
+
+/// A 200 pt page holding a note whose centre lies in the right half and its
+/// reply in the left half. With `indirect_subtype`, the note's /Subtype is an
+/// indirect name object, as some writers emit it.
+fn save_thread_pdf(path: &Path, indirect_subtype: bool) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let subtype = Object::Name(b"Text".to_vec());
+    let subtype = if indirect_subtype {
+        Object::Reference(document.add_object(subtype))
+    } else {
+        subtype
+    };
+    let root_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => subtype,
+        "P" => page_id,
+        "Rect" => vec![145.into(), 45.into(), 156.into(), 55.into()],
+        "Contents" => Object::string_literal("root note"),
+    });
+    let reply_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => vec![40.into(), 45.into(), 50.into(), 55.into()],
+        "Contents" => Object::string_literal("reply body"),
+        "IRT" => root_id,
+    });
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Annots" => vec![Object::Reference(root_id), Object::Reference(reply_id)],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+/// Annotation dictionaries of one output page, each with its own object id.
+fn split_page_annotations(
+    split: &Document,
+    page_number: u32,
+) -> Vec<(lopdf::ObjectId, Dictionary)> {
+    let page = split
+        .get_dictionary(split.get_pages()[&page_number])
+        .unwrap();
+    let Ok(annots) = page.get(b"Annots") else {
+        return Vec::new();
+    };
+    split
+        .dereference(annots)
+        .unwrap()
+        .1
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            let (id, object) = split.dereference(entry).unwrap();
+            (id.unwrap(), object.as_dict().unwrap().clone())
+        })
+        .collect()
+}
+
+/// Assert that each output page of a thread split holds its whole thread on
+/// the half that holds the root's centre, with `/P` naming that half.
+fn assert_thread_on_right_half_only(split: &Document) {
+    let pages = split.get_pages();
+    assert!(split_page_annotations(split, 1).is_empty());
+    let right = split_page_annotations(split, 2);
+    assert_eq!(right.len(), 2);
+    for (_, dictionary) in &right {
+        assert_eq!(
+            dictionary.get(b"P").and_then(Object::as_reference).unwrap(),
+            pages[&2]
+        );
+    }
+}
+
+#[test]
+fn split_pages_keeps_a_legacy_point_marker_a_note_on_its_half() {
+    let input = path("split-legacy-input", "pdf");
+    let output = path("split-legacy-output", "pdf");
+    let instructions = path("split-legacy-instructions", "json");
+    let parsed = path("split-legacy-parsed", "jsonl");
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let appearance = document.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.into(), 2.into()]},
+        Vec::new(),
+    ));
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id,
+        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+        "Contents" => Object::string_literal("Legacy popup"),
+    });
+    let root_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+        "Rect" => vec![48.9.into(), 49.into(), 51.1.into(), 51.2.into()],
+        "Contents" => Object::string_literal("Legacy marker"),
+        "AP" => dictionary! {"N" => appearance},
+        "Popup" => popup_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", root_id);
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Annots" => vec![Object::Reference(root_id), Object::Reference(popup_id)],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+    // The marker is 2.2 pt on a 200 pt page but 4.4% of a 100 pt half, the
+    // size a split must still read as a note.
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let parse_annotations = |input: &Path, output: &Path| {
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["parse-annotations", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(output)
+            .args(["--modified-at", "D:20261011000000Z"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    parse_annotations(&output, &parsed);
+    let notes = std::fs::read_to_string(&parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .filter(|entry| entry["contents"] == "Legacy marker")
+        .map(|entry| {
+            (
+                entry["kind"].as_str().map(str::to_string),
+                entry["pageIndex"].as_u64(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Only the left half holds the marker, and the reader admits it as a note.
+    assert_eq!(notes, [(Some("note".to_string()), Some(0))]);
+}
+
+#[test]
+fn split_pages_places_a_crop_only_thread_on_the_half_that_holds_its_root() {
+    let input = path("split-crop-only-thread-input", "pdf");
+    let output = path("split-crop-only-thread-output", "pdf");
+    let instructions = path("split-crop-only-thread-instructions", "json");
+    save_thread_pdf(&input, false);
+    // Crop-only outputs keep the content, so no content transform is given.
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120}},{"cropRect":{"x":100,"y":0,"width":100,"height":120}}]}]}"#,
+    )
+    .unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    assert_thread_on_right_half_only(&Document::load(&output).unwrap());
+}
+
+#[test]
+fn split_pages_places_a_thread_whose_note_has_an_indirect_subtype() {
+    let input = path("split-indirect-subtype-thread-input", "pdf");
+    let output = path("split-indirect-subtype-thread-output", "pdf");
+    let instructions = path("split-indirect-subtype-thread-instructions", "json");
+    save_thread_pdf(&input, true);
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    assert_thread_on_right_half_only(&Document::load(&output).unwrap());
+}
+
+/// A 200 x 120 page holding one /Text note with `rect`, as a split reads it.
+fn save_note_pdf(path: &Path, rect: [i64; 4]) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let note_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => rect.map(Object::Integer).to_vec(),
+        "Contents" => Object::string_literal("split note"),
+    });
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Annots" => vec![Object::Reference(note_id)],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+#[test]
+fn split_pages_refuses_a_supported_note_wider_than_its_output_page() {
+    for incremental in [false, true] {
+        let input = path("split-wide-note-input", "pdf");
+        let output = path("split-wide-note-output", "pdf");
+        let instructions = path("split-wide-note-instructions", "json");
+        // The 11 pt note is supported on its 200 pt page; a 10 pt crop cannot keep it a note.
+        save_note_pdf(&input, [0, 45, 11, 55]);
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":10,"height":120}}]}]}"#,
+        )
+        .unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
+        command
+            .args(["split-pages", "--input"])
+            .arg(&input)
+            .arg("--output")
+            .arg(&output)
+            .arg("--instructions-file")
+            .arg(&instructions);
+        if incremental {
+            command.arg("--qpdf").arg(qpdf_path());
+        }
+
+        let result = command.output().unwrap();
+
+        assert!(
+            !result.status.success(),
+            "incremental {incremental}: a supported note was split onto a page it cannot fit"
+        );
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+/// A preserved page keeps a remote GoToR link as a remote link, even when the
+/// source defines a local destination with the same name. The link's `/D` names
+/// a page of the other file, so it is not rebound to this document's catalog.
+#[test]
+fn split_pages_keeps_a_remote_link_remote_when_a_local_destination_shares_its_name() {
+    for defines_local_destination in [false, true] {
+        let input = path("split-remote-link-input", "pdf");
+        let output = path("split-remote-link-output", "pdf");
+        let instructions = path("split-remote-link-instructions", "json");
+        let (mut document, catalog_id, page_id) =
+            save_single_page_pdf(&input, Stream::new(dictionary! {}, b"".to_vec()));
+        if defines_local_destination {
+            document.get_dictionary_mut(catalog_id).unwrap().set(
+                "Dests",
+                dictionary! {
+                    "target" => vec![
+                        Object::Reference(page_id),
+                        "XYZ".into(),
+                        100.into(),
+                        60.into(),
+                        0.into(),
+                    ],
+                },
+            );
+        }
+        let link_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Link",
+            "P" => page_id,
+            "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
+            "A" => dictionary! {
+                "S" => "GoToR",
+                "F" => Object::string_literal("other.pdf"),
+                "D" => Object::string_literal("target"),
+            },
+        });
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link_id)]);
+        document.save(&input).unwrap();
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":0.5,"translateX":10,"translateY":20}}]}]}"#,
+        )
+        .unwrap();
+
+        run_split_pages(&input, &output, &instructions);
+
+        let split = Document::load(&output).unwrap();
+        let annotations = split_page_annotations(&split, 1);
+        assert_eq!(annotations.len(), 1);
+        let link = &annotations[0].1;
+        assert!(
+            !link.has(b"Dest"),
+            "a remote link gained a local destination"
+        );
+        let action = link.get(b"A").unwrap().as_dict().unwrap();
+        assert_eq!(action.get(b"S").unwrap().as_name().unwrap(), b"GoToR");
+        assert_eq!(action.get(b"F").unwrap().as_str().unwrap(), b"other.pdf");
+        assert_eq!(action.get(b"D").unwrap().as_str().unwrap(), b"target");
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+/// A legacy marker that navigates still reads as a note on its half after a
+/// split. Its named or GoTo destination must not gain a page reference, which
+/// the note recovery would follow into the page tree and read as foreign.
+#[test]
+fn split_pages_keeps_a_legacy_marker_with_navigation_a_note() {
+    for named_by_action in [false, true] {
+        let input = path("split-legacy-navigation-input", "pdf");
+        let output = path("split-legacy-navigation-output", "pdf");
+        let instructions = path("split-legacy-navigation-instructions", "json");
+        let parsed = path("split-legacy-navigation-parsed", "jsonl");
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.new_object_id();
+        let appearance = document.add_object(Stream::new(
+            dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.into(), 2.into()]},
+            Vec::new(),
+        ));
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id,
+            "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+        });
+        let target = Object::string_literal("target");
+        let navigation = if named_by_action {
+            ("A", dictionary! {"S" => "GoTo", "D" => target}.into())
+        } else {
+            ("Dest", target)
+        };
+        let root_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+            "Rect" => vec![48.9.into(), 49.into(), 51.1.into(), 51.2.into()],
+            "Contents" => Object::string_literal("Legacy marker"),
+            "AP" => dictionary! {"N" => appearance},
+            "Popup" => popup_id,
+            navigation.0 => navigation.1,
+        });
+        document
+            .get_dictionary_mut(popup_id)
+            .unwrap()
+            .set("Parent", root_id);
+        document.objects.insert(
+            page_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+                "Annots" => vec![Object::Reference(root_id), Object::Reference(popup_id)],
+            }
+            .into(),
+        );
+        document.objects.insert(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => 1,
+            }
+            .into(),
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "Dests" => dictionary! {
+                "target" => vec![
+                    Object::Reference(page_id),
+                    "XYZ".into(),
+                    100.into(),
+                    60.into(),
+                    0.into(),
+                ],
+            },
+        });
+        document.trailer.set("Root", catalog_id);
+        document.save(&input).unwrap();
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+        )
+        .unwrap();
+
+        run_split_pages(&input, &output, &instructions);
+
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["parse-annotations", "--input"])
+            .arg(&output)
+            .arg("--output")
+            .arg(&parsed)
+            .args(["--modified-at", "D:20261011000000Z"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let notes = std::fs::read_to_string(&parsed)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .flat_map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                    .as_array()
+                    .unwrap()
+                    .clone()
+            })
+            .filter(|entry| entry["contents"] == "Legacy marker")
+            .map(|entry| {
+                (
+                    entry["kind"].as_str().map(str::to_string),
+                    entry["pageIndex"].as_u64(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(notes, [(Some("note".to_string()), Some(0))]);
+        for file in [input, output, instructions, parsed] {
+            let _ = remove_file(file);
+        }
+    }
+}

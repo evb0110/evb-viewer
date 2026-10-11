@@ -18,8 +18,10 @@ describe('resolveDocumentPageSourceOpeningFrame', () => {
     it('derives the exact fit-width shell from the live chassis viewport', () => {
         const frame = resolveDocumentPageSourceOpeningFrame({
             geometry,
-            viewportWidth: 900,
-            viewportHeight: 537,
+            viewport: {
+                width: 900,
+                height: 537,
+            },
             zoom: 1,
             zoomMode: 'fit-width',
         });
@@ -32,15 +34,19 @@ describe('resolveDocumentPageSourceOpeningFrame', () => {
     it('uses the live viewport height for fit-height and the zoom policy for custom scale', () => {
         expect(resolveDocumentPageSourceOpeningFrame({
             geometry,
-            viewportWidth: 900,
-            viewportHeight: 832,
+            viewport: {
+                width: 900,
+                height: 832,
+            },
             zoom: 1,
             zoomMode: 'fit-height',
         })?.height).toBe(792);
         expect(resolveDocumentPageSourceOpeningFrame({
             geometry,
-            viewportWidth: 900,
-            viewportHeight: 832,
+            viewport: {
+                width: 900,
+                height: 832,
+            },
             zoom: 1.25,
             zoomMode: 'custom',
         })?.width).toBe(1500);
@@ -49,8 +55,10 @@ describe('resolveDocumentPageSourceOpeningFrame', () => {
     it('refuses to claim a frame without a usable live viewport', () => {
         expect(resolveDocumentPageSourceOpeningFrame({
             geometry,
-            viewportWidth: 0,
-            viewportHeight: 537,
+            viewport: {
+                width: 0,
+                height: 537,
+            },
             zoom: 1,
             zoomMode: 'fit-width',
         })).toBeNull();

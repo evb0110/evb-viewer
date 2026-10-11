@@ -378,6 +378,7 @@ pub(crate) fn render_page(
         rotated_color,
         content_picture_mask,
         faint_stroke_masks,
+        faint_core,
         picture_mask,
         halftone_zone_mask,
         spatial_tone_mask,
@@ -467,6 +468,7 @@ pub(crate) fn render_page(
     } else {
         canonical_regions.iter().map(|_| None).collect::<Vec<_>>()
     };
+    let analysis_gray = analysis_normalized.as_deref().unwrap_or(&normalized);
     let spread_plans = if split.classification == LayoutClassification::TwoPageSpread
         && regions.len() == 2
         && matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed)
@@ -475,14 +477,13 @@ pub(crate) fn render_page(
         // now on the fixed canonical plane. Leaf routes remain raw-canonical;
         // full canonical leaves own intensity anchors, while established
         // working-leaf units remain authoritative for radius/faint-ink drift.
-        let canonical_normalized = analysis_normalized.as_deref().unwrap_or(&normalized);
         let joint_routing_input = crop_canonical_routing_input(
-            canonical_normalized,
+            analysis_gray,
             Rect::new(
                 0.0,
                 0.0,
-                canonical_normalized.width() as f64,
-                canonical_normalized.height() as f64,
+                analysis_gray.width() as f64,
+                analysis_gray.height() as f64,
             ),
             picture_mask.as_deref(),
             canonical_routing_dpi,
@@ -505,11 +506,11 @@ pub(crate) fn render_page(
         None
     };
     let mut outputs = Vec::with_capacity(regions.len());
-    let [preserved, rejected] = faint_stroke_masks.each_ref().map(|mask| {
-        mask.as_ref()
-            .map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
-            .transpose()
-    });
+    let [preserved, rejected] =
+        [faint_core.as_deref(), faint_stroke_masks[1].as_deref()].map(|mask| {
+            mask.map(|mask| crate::io::png::encode_gray(&binary_to_gray(mask)))
+                .transpose()
+        });
     let encoded_faint_strokes = [preserved?, rejected?];
     for (((region, half), canonical_routing_input), canonical_leaf_source) in regions
         .into_iter()
@@ -531,6 +532,7 @@ pub(crate) fn render_page(
             color_source: rotated_color.as_ref(),
             analysis_picture_mask: content_picture_mask.as_deref(),
             faint_stroke_masks: faint_stroke_masks.each_ref().map(|mask| mask.as_deref()),
+            faint_core: faint_core.as_deref(),
             source_picture_mask: picture_mask.as_deref(),
             halftone_zone_mask: halftone_zone_mask.as_deref(),
             spatial_tone_mask: spatial_tone_mask.as_deref(),
@@ -1718,6 +1720,8 @@ pub(crate) struct Input<'a, 'p> {
     pub color_source: Option<&'a RgbImage>,
     pub analysis_picture_mask: Option<&'a BinaryImage>,
     pub faint_stroke_masks: [Option<&'a BinaryImage>; 2],
+    /// The page's printed faint-mark core, computed once per page.
+    pub faint_core: Option<&'a BinaryImage>,
     pub source_picture_mask: Option<&'a BinaryImage>,
     pub halftone_zone_mask: Option<&'a BinaryImage>,
     pub spatial_tone_mask: Option<&'a BinaryImage>,
@@ -3398,6 +3402,7 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
         color_source,
         analysis_picture_mask,
         faint_stroke_masks,
+        faint_core,
         source_picture_mask,
         halftone_zone_mask,
         spatial_tone_mask,
@@ -3424,7 +3429,6 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
         render_policy,
         timings,
     } = input;
-    let source_faint_strokes = faint_stroke_masks[0];
     render_policy.check_canceled()?;
     let working_width = region.width.round().max(1.0) as usize;
     let working_height = region.height.round().max(1.0) as usize;
@@ -3592,7 +3596,7 @@ pub(crate) fn run(input: Input<'_, '_>) -> Result<RegionSemanticOutput, super::A
     render_policy.check_canceled()?;
     let output = process_region_output(OutputProcessingInput {
         content_present: content.content.is_some(),
-        faint_strokes: source_faint_strokes.map(|mask| {
+        faint_strokes: faint_core.map(|mask| {
             render_auxiliary_mask(
                 mask,
                 normalized,

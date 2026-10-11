@@ -343,8 +343,10 @@ export async function openDocumentPageSource(
         const frameGeometry = snapshot.openingPageGeometry;
         const frame = frameGeometry && resolveDocumentPageSourceOpeningFrame({
             geometry: frameGeometry,
-            viewportWidth: viewport.clientWidth,
-            viewportHeight: viewport.clientHeight,
+            viewport: {
+                width: viewport.clientWidth,
+                height: viewport.clientHeight,
+            },
             zoom: policy.zoom,
             zoomMode: policy.zoomMode,
         });

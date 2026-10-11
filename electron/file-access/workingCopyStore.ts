@@ -35,6 +35,8 @@ export type TWorkingCopyBackingErrorCode =
     | 'WORKING_COPY_REGISTRATION_CHANGED';
 
 export interface IWorkingCopyAdmissionSnapshot {
+    deviceId?: bigint;
+    inode?: bigint;
     mtimeNs: bigint;
     size: bigint;
 }
@@ -399,12 +401,7 @@ function copyOriginalFileExpectation(
 function copyAdmissionSnapshot(
     snapshot: IWorkingCopyAdmissionSnapshot | undefined,
 ): IWorkingCopyAdmissionSnapshot | undefined {
-    return snapshot
-        ? {
-            mtimeNs: snapshot.mtimeNs,
-            size: snapshot.size,
-        }
-        : undefined;
+    return snapshot ? {...snapshot} : undefined;
 }
 
 export async function captureWorkingCopyAdmissionSnapshot(
@@ -415,16 +412,23 @@ export async function captureWorkingCopyAdmissionSnapshot(
         throw new Error('Working-copy source is not a regular file');
     }
     return {
+        deviceId: sourceStat.dev,
+        inode: sourceStat.ino,
         mtimeNs: sourceStat.mtimeNs,
         size: sourceStat.size,
     };
 }
 
+// A file renamed over the original can keep its size and modification time;
+// only its identity tells it apart. A snapshot restored from a workspace
+// checkpoint carries no identity, so size and time decide for it.
 export function workingCopyAdmissionSnapshotsMatch(
     left: IWorkingCopyAdmissionSnapshot,
     right: IWorkingCopyAdmissionSnapshot,
 ) {
-    return left.size === right.size && left.mtimeNs === right.mtimeNs;
+    return left.size === right.size && left.mtimeNs === right.mtimeNs
+        && (left.inode === undefined || right.inode === undefined
+            || left.inode === right.inode && left.deviceId === right.deviceId);
 }
 
 function isSameOwner(left: number | undefined, right: number | undefined) {

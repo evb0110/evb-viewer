@@ -16,3 +16,9 @@ export async function withOriginalPathMutationLock<T>(
     originalPathQueues.set(key, tail);
     return result;
 }
+
+/** Runs `operation` under the lock only when no transition holds or awaits it. */
+export function withIdleOriginalPathMutationLock(originalPath: string, operation: () => Promise<void>) {
+    const key = normalizePathForLookup(originalPath) || originalPath;
+    return originalPathQueues.has(key) ? Promise.resolve() : withOriginalPathMutationLock(originalPath, operation);
+}
