@@ -424,3 +424,24 @@ fn visibility_refuses_encrypted_bytes() {
     let _ = remove_file(input);
     let _ = remove_file(pages);
 }
+
+#[test]
+fn decrypt_rejects_direct_xref_length_overrun_in_every_key_order() {
+    use std::io::{Seek, SeekFrom};
+    for tail in ["", " /Root 1 0 R", " /Custom 123", " /Custom true"] {
+        let input = path("length-order-input", "pdf");
+        let output = path("length-order-output", "pdf");
+        let offset = 513 * 1024 * 1024;
+        let mut file = std::fs::File::create(&input).unwrap();
+        file.write_all(b"%PDF-1.7\n").unwrap();
+        file.seek(SeekFrom::Start(offset)).unwrap();
+        file.write_all(format!("1 0 obj << /Type /XRef /Size 1 /W [1 1 1] /Length 999999999{tail} >>\nstream\nx\nstartxref\n{offset}\n%%EOF\n").as_bytes()).unwrap();
+        drop(file);
+        let result = run_decrypt(&input, &output, None);
+        assert!(!result.status.success(), "overrun with {tail} admitted");
+        assert!(String::from_utf8_lossy(&result.stderr).contains("corrupt-xref"));
+        let _ = remove_file(input);
+        let _ = remove_file(&output);
+        let _ = remove_file(format!("{}.decrypt.json", output.display()));
+    }
+}

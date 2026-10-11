@@ -442,20 +442,17 @@ fn parse_xref_dictionary(
                     match dictionary.pending_key.take() {
                         Some(AdmissionKey::Length) => {
                             dictionary.length = Some(value);
-                            dictionary.length_is_direct = true;
+                            dictionary.length_is_direct = !lexer.next_is_reference();
                         }
                         Some(AdmissionKey::Prev) => dictionary.prev = Some(value),
                         Some(AdmissionKey::Size) => dictionary.size = Some(value),
                         Some(AdmissionKey::XrefStm) => dictionary.xref_stm = Some(value),
-                        // A number that is not a value takes the length as the
-                        // first half of `N G R`, so the length is not direct.
-                        _ => dictionary.length_is_direct = false,
+                        _ => {}
                     }
                 }
             }
             AdmissionToken::Keyword(_) if dictionary_depth == 1 && array_depth == 0 => {
                 dictionary.pending_key = None;
-                dictionary.length_is_direct = false;
             }
             AdmissionToken::Name(name) if dictionary_depth == 2 && array_depth == 0 => {
                 if let Some((_, key)) = decode_parms.as_mut() {
@@ -494,4 +491,18 @@ pub(crate) fn path_has_encryption_entry(path: &Path) -> Result<bool> {
 
 fn xref_error(message: impl Into<String>) -> Box<dyn Error> {
     domain_error(NativeErrorCode::CorruptXref, message)
+}
+
+impl AdmissionLexer<'_> {
+    /// The remaining tokens of this integer value, not later dictionary entries.
+    pub(super) fn next_is_reference(&self) -> bool {
+        let mut value = AdmissionLexer::new(&self.bytes[self.cursor..]);
+        matches!(
+            (value.next_token(), value.next_token()),
+            (
+                Some(AdmissionToken::Integer(_)),
+                Some(AdmissionToken::Keyword(b"R"))
+            )
+        )
+    }
 }

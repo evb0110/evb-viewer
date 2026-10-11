@@ -898,7 +898,7 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                             AdmissionKey::First => dictionary.first = Some(value),
                             AdmissionKey::Length => {
                                 dictionary.length = Some(value);
-                                dictionary.length_is_direct = true;
+                                dictionary.length_is_direct = !lexer.next_is_reference();
                             }
                             AdmissionKey::N => dictionary.n = Some(value),
                             AdmissionKey::Prev => dictionary.prev = Some(value),
@@ -916,8 +916,6 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                             }
                             _ => {}
                         }
-                    } else if dictionary.length_is_direct {
-                        dictionary.length_is_direct = false;
                     }
                 }
                 previous_integers = [previous_integers[1], Some(value)];
@@ -952,9 +950,6 @@ fn preflight_pdf_structure(bytes: &[u8], policy: PdfLoadPolicy) -> Result<()> {
                     }
                 }
                 if let Some(dictionary) = dictionaries.last_mut() {
-                    if dictionary.length_is_direct {
-                        dictionary.length_is_direct = false;
-                    }
                     dictionary.pending_key = None;
                 }
                 previous_integers = [None, None];
