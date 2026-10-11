@@ -19,6 +19,7 @@ import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browser
 import {
     DB_NAME,
     DOCUMENTS_STORE,
+    DOCUMENT_CHUNKS_STORE,
     WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import {
@@ -29,6 +30,8 @@ import {
     type IBrowserTransferAuthorityRecord,
 } from '@app/platform/browser/browserDocumentIdb';
 import {toPersistedDocumentRecord} from '@app/platform/browser/browserDocumentRecords';
+import {createChunkKey} from '@app/platform/browser/browserDocumentChunks';
+import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {saveBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
@@ -943,6 +946,64 @@ describe('BrowserDocumentStore', () => {
         const second = new BrowserDocumentStore();
         await expect(second.exists(sourceRef)).resolves.toBe(true);
         await expect(second.read(workingRef)).resolves.toEqual(Uint8Array.of(8));
+    });
+
+    it.each([
+        'new generation',
+        'same generation',
+    ])(
+        'keeps repaired chunks committed after the sweep inventory: %s', async repair => {
+            const store = new BrowserDocumentStore();
+            const bytes = Uint8Array.of(10, 11, 12);
+            const ref = await createStoredPdf(store, 'repaired.pdf', bytes, {storageMode: 'chunked'});
+            await store.touchRecentFile(ref);
+            const record = toPersistedDocumentRecord((await loadRecordAvailability(ref)).value)!;
+            await runObjectStoresTransaction([DOCUMENT_CHUNKS_STORE], 'readwrite', (tx, set) => {
+                tx.objectStore(DOCUMENT_CHUNKS_STORE).delete(createChunkKey(ref, 0, record.chunkGeneration));
+                set(true);
+            });
+            await sweepBrowserDocumentMaintenance(new Map(), {beforeDestructiveTransaction: async () => {
+                const generation = repair === 'new generation' ? 'old-repair-generation' : record.chunkGeneration;
+                await runObjectStoresTransaction([
+                    DOCUMENTS_STORE,
+                    DOCUMENT_CHUNKS_STORE,
+                ], 'readwrite', (tx, set) => {
+                    tx.objectStore(DOCUMENTS_STORE).put({
+                        ...record,
+                        chunkGeneration: generation,
+                    });
+                    tx.objectStore(DOCUMENT_CHUNKS_STORE).put({
+                        key: createChunkKey(ref, 0, generation),
+                        ref,
+                        index: 0,
+                        generation,
+                        data: bytes,
+                    });
+                    set(true);
+                });
+            }});
+            store.unload(ref);
+            await expect(store.read(ref)).resolves.toEqual(bytes);
+        },
+    );
+
+    it('keeps a broken record while its pending generation is being written', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await createStoredPdf(store, 'pending-repair.pdf', Uint8Array.of(10), {storageMode: 'chunked'});
+        await store.touchRecentFile(ref);
+        const record = toPersistedDocumentRecord((await loadRecordAvailability(ref)).value)!;
+        await runObjectStoresTransaction([DOCUMENT_CHUNKS_STORE], 'readwrite', (tx, set) => {
+            tx.objectStore(DOCUMENT_CHUNKS_STORE).delete(createChunkKey(ref, 0, record.chunkGeneration));
+            set(true);
+        });
+        await sweepBrowserDocumentMaintenance(new Map(), {beforeDestructiveTransaction: async () => {
+            await persistRecord({
+                ...record,
+                pendingChunkGeneration: 'repairing',
+                pendingChunkUpdatedAt: Date.now(),
+            });
+        }});
+        expect((await loadRecordAvailability(ref)).value).toMatchObject({pendingChunkGeneration: 'repairing'});
     });
 
     it('keeps a source whose pending chunk generation is still being written during detached cleanup', async () => {

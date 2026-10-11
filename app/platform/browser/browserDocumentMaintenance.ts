@@ -159,26 +159,11 @@ export async function sweepBrowserDocumentMaintenance(
         : buildRecentFilesFromPersistedRecords(records);
     const recentRefs = new Set<string>(currentRecentFiles.map((file) => file.originalPath));
     const sourceDependentCounts = countSourceDependents(records);
-    const refsToRemove = records
-        .filter((record) => shouldRemovePersistedRecord(
-            record,
-            recentRefs,
-            sourceDependentCounts,
-        ))
-        .filter((record) => !pendingRefs.has(record.ref))
-        .filter(record => !hasActivePendingChunkGeneration(record))
-        .map(record => record.ref);
     const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
-    const brokenChunkRefs = records
-        .filter((record) => isBrokenChunkedRecord(record, chunkIndicesByRef))
-        .filter((record) => !pendingRefs.has(record.ref))
-        .filter(record => !hasActivePendingChunkGeneration(record))
-        .map((record) => record.ref);
-    const refsToRemoveSet = new Set([
-        ...refsToRemove,
-        ...brokenChunkRefs,
-    ]);
-    if (refsToRemoveSet.size === 0 && chunkKeys.length === 0) {
+    if (chunkKeys.length === 0 && !records.some(record => (
+        shouldRemovePersistedRecord(record, recentRefs, sourceDependentCounts)
+        || isBrokenChunkedRecord(record, chunkIndicesByRef)
+    ))) {
         return;
     }
 
@@ -234,14 +219,6 @@ export async function sweepBrowserDocumentMaintenance(
                     ] as const]
                     : []),
         );
-        const transactionBrokenChunkRefs = new Set(
-            authorities.documents
-                .filter(record => (
-                    brokenChunkRefs.includes(record.ref)
-                    && isBrokenChunkedRecord(record, chunkIndicesByRef)
-                ))
-                .map(record => record.ref),
-        );
         const isUnprotected = (record: IBrowserPersistedDocumentRecord) => !authorities.recoveryLeasedRefs.has(record.ref) && !authorities.liveLeases.leasedRefs.has(record.ref)
             && !authorities.transfers.leasedRefs.has(record.ref) && !transactionPendingChunkGenerationsByRef.has(record.ref) && !pendingRefs.has(record.ref);
         const allSourceDependentCounts = countSourceDependents(authorities.documents);
@@ -250,45 +227,47 @@ export async function sweepBrowserDocumentMaintenance(
             .filter(record => record.kind === 'working' && isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, allSourceDependentCounts))
             .map(record => record.ref));
         const transactionSourceDependentCounts = countSourceDependents(authorities.documents.filter(record => !sweptWorkingRefs.has(record.ref)));
-        const transactionRefsToRemove = authorities.documents
-            .filter(record => isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, transactionSourceDependentCounts))
-            .map(record => record.ref);
-        const finalRefs = new Set([
-            ...transactionRefsToRemove,
-            ...Array.from(transactionBrokenChunkRefs)
-                .filter(ref => !authorities.recoveryLeasedRefs.has(ref))
-                .filter(ref => !authorities.liveLeases.leasedRefs.has(ref))
-                .filter(ref => !authorities.transfers.leasedRefs.has(ref)),
-        ]);
-        authorities.transfers.settledIds.forEach(id => transaction.objectStore(BROWSER_TRANSFER_AUTHORITY_STORE).delete(id));
-        finalRefs.forEach(ref => transaction.objectStore(DOCUMENTS_STORE).delete(ref));
-        const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
-        for (const chunkKey of chunkKeys) {
-            if (pendingRefs.has(chunkKey.ref)) continue;
-            if (liveLeaseProtectsChunk(
-                authorities.liveLeases,
-                chunkKey.ref,
-                chunkKey.generation,
-            )) continue;
-            if (liveLeaseProtectsChunk(authorities.transfers, chunkKey.ref, chunkKey.generation)) continue;
-            const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref)
-                ?? pendingChunkGenerationsByRef.get(chunkKey.ref);
-            if (pendingGeneration === chunkKey.generation) continue;
-            const record = transactionRecordsByRef.get(chunkKey.ref)
-                ?? recordsByRef.get(chunkKey.ref);
-            const shouldDelete = !record
-                || finalRefs.has(chunkKey.ref)
-                || record.storageMode !== 'chunked'
-                || chunkKey.generation !== (record.chunkGeneration ?? undefined)
-                || chunkKey.index >= (record.chunkCount ?? 0);
-            if (shouldDelete && !isRecentlyCreatedChunkGeneration(chunkKey.generation)) {
-                chunksStore.delete(createChunkKey(
+        const finalRefs = new Set<string>();
+        const chunkKeysRead = transaction.objectStore(DOCUMENT_CHUNKS_STORE).getAllKeys();
+        chunkKeysRead.onsuccess = () => {
+            const currentChunkIndices = collectChunkIndicesByRef(chunkKeysRead.result.flatMap(key => {
+                const parsed = typeof key === 'string' ? parseChunkKey(key) : null;
+                return parsed ? [parsed] : [];
+            }));
+            authorities.documents
+                .filter(record => isUnprotected(record) && (shouldRemovePersistedRecord(record, transactionRecentRefs, transactionSourceDependentCounts)
+                    || isBrokenChunkedRecord(record, currentChunkIndices)))
+                .forEach(record => finalRefs.add(record.ref));
+            authorities.transfers.settledIds.forEach(id => transaction.objectStore(BROWSER_TRANSFER_AUTHORITY_STORE).delete(id));
+            finalRefs.forEach(ref => transaction.objectStore(DOCUMENTS_STORE).delete(ref));
+            const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
+            for (const chunkKey of chunkKeys) {
+                if (pendingRefs.has(chunkKey.ref)) continue;
+                if (liveLeaseProtectsChunk(
+                    authorities.liveLeases,
                     chunkKey.ref,
-                    chunkKey.index,
                     chunkKey.generation,
-                ));
+                )) continue;
+                if (liveLeaseProtectsChunk(authorities.transfers, chunkKey.ref, chunkKey.generation)) continue;
+                const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref)
+                    ?? pendingChunkGenerationsByRef.get(chunkKey.ref);
+                if (pendingGeneration === chunkKey.generation) continue;
+                const record = transactionRecordsByRef.get(chunkKey.ref)
+                    ?? recordsByRef.get(chunkKey.ref);
+                const shouldDelete = !record
+                    || finalRefs.has(chunkKey.ref)
+                    || record.storageMode !== 'chunked'
+                    || chunkKey.generation !== (record.chunkGeneration ?? undefined)
+                    || chunkKey.index >= (record.chunkCount ?? 0);
+                if (shouldDelete && !isRecentlyCreatedChunkGeneration(chunkKey.generation)) {
+                    chunksStore.delete(createChunkKey(
+                        chunkKey.ref,
+                        chunkKey.index,
+                        chunkKey.generation,
+                    ));
+                }
             }
-        }
+        };
         return finalRefs;
     });
     if (!deletedRefs) {

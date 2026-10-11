@@ -59,6 +59,10 @@ const documentIdbMocks = vi.hoisted(() => ({
             result: unknown;
             onsuccess?: () => void;
         };
+        const chunkKeysRequest = {result: (await chunkMocks.loadAllChunkKeysAvailability()).value} as {
+            result: unknown;
+            onsuccess?: () => void;
+        };
         const transaction = {objectStore: (name: string) => ({
             getAll: () => name.includes('document')
                 ? documentsRequest
@@ -68,6 +72,7 @@ const documentIdbMocks = vi.hoisted(() => ({
                         ? transferAuthoritiesRequest
                         : recoveryRequest,
             get: () => recentFilesLockRequest,
+            getAllKeys: () => chunkKeysRequest,
             delete: name.includes('chunk')
                 ? chunkMocks.deleteChunkRecord
                 : documentIdbMocks.transactionDeleteRecord,
@@ -78,6 +83,7 @@ const documentIdbMocks = vi.hoisted(() => ({
         liveLeasesRequest.onsuccess?.();
         transferAuthoritiesRequest.onsuccess?.();
         recentFilesLockRequest.onsuccess?.();
+        chunkKeysRequest.onsuccess?.();
         return result;
     }),
 }));
