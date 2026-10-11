@@ -905,6 +905,16 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(dependentRef)).resolves.toEqual(Uint8Array.of(6));
     });
 
+    it('sweeps a non-recent source in the same pass as its unprotected source-proxy working copy', async () => {
+        const first = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(first, 'same-pass-proxy.pdf', Uint8Array.of(13), {retention: 'transient'});
+        const workingRef = await first.cloneAsWorkingCopy(sourceRef);
+
+        const second = new BrowserDocumentStore();
+        await expect(second.exists(sourceRef)).resolves.toBe(false);
+        await expect(second.exists(workingRef)).resolves.toBe(false);
+    });
+
     it('keeps a source that a leased source-proxy working copy reads through the sweep', async () => {
         const first = await createFreshBrowserDocumentStore();
         const sourceRef = await createStoredPdf(first, 'swept-proxy.pdf', Uint8Array.of(7), {retention: 'transient'});

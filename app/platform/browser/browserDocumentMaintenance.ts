@@ -234,7 +234,6 @@ export async function sweepBrowserDocumentMaintenance(
                     ] as const]
                     : []),
         );
-        const transactionSourceBytesDependentCounts = countSourceBytesDependents(authorities.documents);
         const transactionBrokenChunkRefs = new Set(
             authorities.documents
                 .filter(record => (
@@ -243,17 +242,16 @@ export async function sweepBrowserDocumentMaintenance(
                 ))
                 .map(record => record.ref),
         );
+        const isUnprotected = (record: IBrowserPersistedDocumentRecord) => !authorities.recoveryLeasedRefs.has(record.ref) && !authorities.liveLeases.leasedRefs.has(record.ref)
+            && !authorities.transfers.leasedRefs.has(record.ref) && !transactionPendingChunkGenerationsByRef.has(record.ref) && !pendingRefs.has(record.ref);
+        const allSourceBytesDependentCounts = countSourceBytesDependents(authorities.documents);
+        // A working copy this sweep deletes keeps nothing, so its source may go in the same pass.
+        const sweptWorkingRefs = new Set(authorities.documents
+            .filter(record => record.kind === 'working' && isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, allSourceBytesDependentCounts))
+            .map(record => record.ref));
+        const transactionSourceBytesDependentCounts = countSourceBytesDependents(authorities.documents.filter(record => !sweptWorkingRefs.has(record.ref)));
         const transactionRefsToRemove = authorities.documents
-            .filter(record => shouldRemovePersistedRecord(
-                record,
-                transactionRecentRefs,
-                transactionSourceBytesDependentCounts,
-            ))
-            .filter(record => !authorities.recoveryLeasedRefs.has(record.ref))
-            .filter(record => !authorities.liveLeases.leasedRefs.has(record.ref))
-            .filter(record => !authorities.transfers.leasedRefs.has(record.ref))
-            .filter(record => !transactionPendingChunkGenerationsByRef.has(record.ref))
-            .filter(record => !pendingRefs.has(record.ref))
+            .filter(record => isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, transactionSourceBytesDependentCounts))
             .map(record => record.ref);
         const finalRefs = new Set([
             ...transactionRefsToRemove,
