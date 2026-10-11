@@ -1,3 +1,6 @@
+#[path = "../../test-support/external_tool.rs"]
+mod external_tool;
+
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1464,4 +1467,83 @@ fn canonical_annotation_comparator_has_independent_negative_oracles() {
         canonical_entry(&opacity_base),
         "a 0.01 opacity change must fail the comparator"
     );
+}
+
+fn write_single_square_pdf(path: &Path, border: &str) {
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << >> /Annots [4 0 R] >>".to_string(),
+        format!("<< /Type /Annot /Subtype /Square /Rect [100 500 300 700] /C [1 0 0] {border} /F 4 >>"),
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (index, object) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend(format!("{} 0 obj\n{object}\nendobj\n", index + 1).as_bytes());
+    }
+    let xref = bytes.len();
+    bytes.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+    for offset in offsets {
+        bytes.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend(
+        format!(
+            "trailer\n<< /Root 1 0 R /Size {} >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    fs::write(path, bytes).unwrap();
+}
+
+/// Ink pixels (any channel below 220) of the first page, rendered by Poppler.
+fn poppler_ink_pixels(pdf: &Path) -> usize {
+    let rendered = Command::new(external_tool::tool_path(
+        "PDFTOPPM_PATH",
+        "poppler",
+        "pdftoppm",
+    ))
+    .args(["-r", "72", "-singlefile"])
+    .arg(pdf)
+    .output()
+    .unwrap();
+    assert!(rendered.status.success());
+    let mut header = rendered.stdout.splitn(4, |byte| *byte == b'\n');
+    assert_eq!(header.next().unwrap(), b"P6");
+    header.next().unwrap();
+    assert_eq!(header.next().unwrap(), b"255");
+    header
+        .next()
+        .unwrap()
+        .chunks_exact(3)
+        .filter(|rgb| rgb.iter().any(|channel| *channel < 220))
+        .count()
+}
+
+#[test]
+fn print_draws_square_borders_with_the_width_and_dash_poppler_draws() {
+    let temp = TempPaths::new("print-square-border");
+    let cases = [
+        ("width-four", "/BS << /W 4 >>", 3136),
+        ("zero-width", "/BS << /W 0 >>", 0),
+        ("dashed", "/BS << /W 4 /S /D /D [8 8] >>", 1568),
+    ];
+    for (label, border, expected_ink) in cases {
+        let source = temp.root.join(format!("{label}.pdf"));
+        let printed = temp.root.join(format!("{label}-print.pdf"));
+        write_single_square_pdf(&source, border);
+        let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["print-layout", "--input"])
+            .arg(&source)
+            .arg("--output")
+            .arg(&printed)
+            .args(["--view-mode", "single", "--orientation", "portrait"])
+            .output()
+            .unwrap();
+        assert_success(output, "print-layout");
+        let poppler = poppler_ink_pixels(&source);
+        assert_eq!(poppler, expected_ink, "{label} as Poppler draws it");
+        assert_eq!(poppler_ink_pixels(&printed), poppler, "{label} as printed");
+    }
 }

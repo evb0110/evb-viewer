@@ -2,6 +2,7 @@
 //! layout is its only caller; saving and editing shapes lives in `shapes`.
 
 use super::*;
+use lopdf::dictionary;
 
 /// The appearance a stock reader synthesizes for an annotation that has no
 /// /AP, for the subtypes EVB can draw itself. `None` leaves the annotation
@@ -88,7 +89,11 @@ fn synthesized_shape_content(
     if !(width.is_finite() && width >= 0.0) {
         return None;
     }
-    let stroke = if annotation.has(b"C") {
+    let dash = border_dash(document, annotation)?;
+    // A zero width draws no border; PDF `0 w` would be a one-pixel hairline.
+    let stroke = if width == 0.0 {
+        None
+    } else if annotation.has(b"C") {
         annotation_colour(document, annotation, b"C")?
     } else {
         Some(vec![0.0])
@@ -96,11 +101,17 @@ fn synthesized_shape_content(
     let fill = annotation_colour(document, annotation, b"IC")?;
     let mut content = String::from("q\n");
     if let Some(stroke) = &stroke {
+        // A dash needs butt caps: round caps would add half a width to each end
+        // of every dash and fill the gaps.
+        let cap = if dash.is_some() { 0 } else { 1 };
         content.push_str(&format!(
-            "{} {} w 1 J 1 j\n",
+            "{} {} w {cap} J 1 j\n",
             colour_operands(stroke, false),
             format_operands(&[width])
         ));
+        if let Some(dash) = &dash {
+            content.push_str(&format!("[{}] 0 d\n", format_operands(dash)));
+        }
     }
     if let Some(fill) = &fill {
         content.push_str(&format!("{}\n", colour_operands(fill, true)));
@@ -159,6 +170,55 @@ fn synthesized_shape_content(
     }
     content.push_str("Q\n");
     Some(content)
+}
+
+/// The dash pattern of an annotation's border: `None` for a solid border, and
+/// the outer `None` for a style the synthesis does not draw faithfully (beveled,
+/// inset, underline and cloudy borders, or an invalid pattern). Refusing those
+/// keeps print from showing a mark a stock reader would not draw.
+fn border_dash(
+    document: &impl PdfObjectSource,
+    annotation: &Dictionary,
+) -> Option<Option<Vec<f64>>> {
+    if let Ok(effect) = annotation.get(b"BE") {
+        let effect = document.resolved(effect).ok()?.as_dict().ok()?;
+        if effect
+            .get(b"S")
+            .ok()
+            .and_then(|style| document.resolved(style).ok()?.as_name().ok())
+            == Some(b"C".as_slice())
+        {
+            return None;
+        }
+    }
+    let dash = if let Ok(style) = annotation.get(b"BS") {
+        let style = document.resolved(style).ok()?.as_dict().ok()?;
+        let kind = match style.get(b"S") {
+            Ok(kind) => document.resolved(kind).ok()?.as_name().ok()?,
+            Err(_) => b"S".as_slice(),
+        };
+        match kind {
+            b"S" => return Some(None),
+            b"D" => match style.get(b"D") {
+                Ok(pattern) => annotation_numbers(document, pattern)?,
+                Err(_) => vec![3.0],
+            },
+            _ => return None,
+        }
+    } else {
+        let Ok(border) = annotation.get(b"Border") else {
+            return Some(None);
+        };
+        let border = document.resolved(border).ok()?.as_array().ok()?;
+        match border.get(3) {
+            Some(pattern) => annotation_numbers(document, pattern)?,
+            None => return Some(None),
+        }
+    };
+    let valid = !dash.is_empty()
+        && dash.iter().all(|value| value.is_finite() && *value >= 0.0)
+        && dash.iter().sum::<f64>() > 0.0;
+    valid.then_some(Some(dash))
 }
 
 /// `/C` or `/IC`: `Some(None)` when absent or transparent (an empty array),
