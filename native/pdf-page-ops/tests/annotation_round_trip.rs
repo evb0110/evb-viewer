@@ -1598,3 +1598,56 @@ fn poppler_ink_pixels(pdf: &Path) -> usize {
         .filter(|rgb| rgb.iter().any(|c| *c < 220))
         .count()
 }
+
+#[test]
+fn print_draws_all_standard_endings_and_adjacent_polyline_directions() {
+    let temp = TempPaths::new("print-endings");
+    let printed = temp.root.join("printed.pdf");
+    for ending in [
+        "Square",
+        "Circle",
+        "Diamond",
+        "Butt",
+        "ROpenArrow",
+        "RClosedArrow",
+        "Slash",
+    ] {
+        write_single_annotation_pdf(&temp.pdf, &format!("/Subtype /Line /Rect [80 470 420 550] /C [0 0 0] /BS << /W 4 /S /D /D [8 8] >> /L [100 510 400 510] /LE [/{ending} /{ending}]"));
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert!(poppler_ink_pixels(&printed) > 608, "missing {ending}");
+    }
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /PolyLine /Rect [80 480 420 720] /C [0 0 0] /BS << /W 4 >> /Vertices [100 500 100 700 400 700] /LE [/OpenArrow /OpenArrow]");
+    print_annotation_pdf(&temp.pdf, &printed);
+    let pixels = poppler_pixels(&printed);
+    let ink = |x1: usize, x2: usize, y1: usize, y2: usize| {
+        (y1..y2)
+            .flat_map(|y| (x1..x2).map(move |x| (y * 596 + x) * 3))
+            .filter(|i| pixels[*i..*i + 3].iter().any(|c| *c < 220))
+            .count()
+    };
+    // Start arrow has an arm to its right and above; end arrow points right.
+    assert!(
+        ink(106, 125, 308, 329) > 0,
+        "start must point down along first segment"
+    );
+    assert!(
+        ink(380, 390, 128, 137) > 0,
+        "end must point right along last segment"
+    );
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /Polygon /Rect [90 490 310 710] /C [1 0 0] /BS << /W 4 >> /Vertices [100 500 200 700 300 500]");
+    print_annotation_pdf(&temp.pdf, &printed);
+    let polygon = poppler_pixels(&printed);
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /Polygon /Rect [90 490 310 710] /C [1 0 0] /BS << /W 4 >> /Vertices [100 500 200 700 300 500] /LE [/Square /Square]");
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(
+        poppler_pixels(&printed),
+        polygon,
+        "LE is not a Polygon field"
+    );
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /Line /Rect [190 590 210 610] /C [1 0 0] /BS << /W 4 >> /L [200 600 200 600] /LE [/OpenArrow /OpenArrow]");
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert!(
+        poppler_ink_pixels(&printed) > 0,
+        "keep the zero-length round stroke"
+    );
+}

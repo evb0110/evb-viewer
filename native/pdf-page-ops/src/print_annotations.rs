@@ -173,7 +173,7 @@ pub(super) fn flatten_printable_annotations(
         else {
             continue;
         };
-        let annotation = annotation.clone();
+        let mut annotation = annotation.clone();
         let flags = annotation_print_flags(document, &annotation);
         let printable = flags & ANNOTATION_FLAG_PRINT != 0
             && flags & (ANNOTATION_FLAG_INVISIBLE | ANNOTATION_FLAG_HIDDEN) == 0;
@@ -193,7 +193,7 @@ pub(super) fn flatten_printable_annotations(
                     None
                 }
             })
-            .or_else(|| synthesized_appearance(document, &annotation));
+            .or_else(|| synthesized_appearance(document, &mut annotation));
         // An annotation with no drawable geometry cannot be placed. It does
         // not invalidate the page's content or another annotation's print.
         let Some(appearance_id) = appearance else {

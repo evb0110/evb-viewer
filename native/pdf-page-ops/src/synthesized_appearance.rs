@@ -8,20 +8,30 @@ mod border;
 use border::*;
 #[path = "synthesized_line_endings.rs"]
 mod line_endings;
-use line_endings::line_ending_appearance;
+use line_endings::{annotation_points, line_body_path, line_ending_appearance, line_print_rect};
 use lopdf::dictionary;
 
 /// The appearance a stock reader synthesizes for an annotation that has no
 /// /AP. Unrecognized subtypes use a plain rectangle as a last resort.
 pub(crate) fn synthesized_appearance(
     document: &mut Document,
-    annotation: &Dictionary,
+    annotation: &mut Dictionary,
 ) -> Option<ObjectId> {
-    let subtype = annotation.get(b"Subtype").and_then(Object::as_name).ok()?;
-    let content = match subtype {
+    let subtype = annotation
+        .get(b"Subtype")
+        .and_then(Object::as_name)
+        .ok()?
+        .to_vec();
+    if matches!(subtype.as_slice(), b"Line" | b"PolyLine") {
+        annotation.set(
+            "Rect",
+            rect_object(line_print_rect(document, annotation, &subtype)?),
+        );
+    }
+    let content = match subtype.as_slice() {
         b"Text" => return synthesized_note_icon(document, annotation),
         b"Square" | b"Circle" | b"Line" | b"PolyLine" | b"Polygon" => {
-            synthesized_shape_content(document, annotation, subtype)?
+            synthesized_shape_content(document, annotation, &subtype)?
         }
         _ => synthesized_shape_content(document, annotation, b"Square")?,
     };
@@ -152,11 +162,12 @@ fn synthesized_shape_content(
         }
         _ => {
             let points = annotation_points(document, annotation, subtype)?;
-            let (start, rest) = points.split_first()?;
-            content.push_str(&format!("{} {} m\n", start.0, start.1));
-            for point in rest {
-                content.push_str(&format!("{} {} l\n", point.0, point.1));
-            }
+            let path = if subtype == b"Polygon" {
+                pdf_polyline_path(&points)
+            } else {
+                line_body_path(document, annotation, &points, width)
+            }?;
+            content.push_str(&path);
             let paint = match (subtype, stroke.is_some(), fill.is_some()) {
                 (b"Polygon", true, true) => "b",
                 (b"Polygon", true, false) => "s",
@@ -226,29 +237,6 @@ fn annotation_numbers(document: &impl PdfObjectSource, object: &Object) -> Optio
         .map(|value| object_to_f64(document.resolved(value).ok()?).ok())
         .collect()
 }
-
-/// `/L` for a Line (exactly two points) or `/Vertices` for a PolyLine or Polygon.
-fn annotation_points(
-    document: &impl PdfObjectSource,
-    annotation: &Dictionary,
-    subtype: &[u8],
-) -> Option<Vec<(f64, f64)>> {
-    let key: &[u8] = if subtype == b"Line" {
-        b"L"
-    } else {
-        b"Vertices"
-    };
-    let values = annotation_numbers(document, annotation.get(key).ok()?)?;
-    let valid =
-        values.len() % 2 == 0 && values.len() >= 4 && (subtype != b"Line" || values.len() == 4);
-    valid.then(|| {
-        values
-            .chunks_exact(2)
-            .map(|pair| (pair[0], pair[1]))
-            .collect()
-    })
-}
-
 /// Four Bézier curves approximating the ellipse inscribed in the given radii.
 fn ellipse_path((cx, cy): (f64, f64), (rx, ry): (f64, f64)) -> String {
     const KAPPA: f64 = 0.552_284_75;
@@ -262,3 +250,4 @@ fn ellipse_path((cx, cy): (f64, f64), (rx, ry): (f64, f64)) -> String {
         cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy,
     )
 }
+
