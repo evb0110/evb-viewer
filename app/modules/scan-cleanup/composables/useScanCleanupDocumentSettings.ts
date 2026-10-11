@@ -17,7 +17,6 @@ import {DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE} from '@app/modules/scan-clean
 import {
     cloneScanCleanupPreferenceValue,
     isScanCleanupSourceSha256,
-    type IScanCleanupGlobalPreferences,
     type IScanCleanupDocumentPreferencePatch,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
@@ -57,22 +56,6 @@ interface IPreviousDocumentContext {
     sourceSha256: string | null;
     legacyDocumentKey: string | null;
 }
-
-const GLOBAL_DOCUMENT_SESSION_KEYS = [
-    'preserveOriginalQuality',
-    'layoutMode',
-    'binarization',
-    'normalizeIllumination',
-    'readingOrder',
-    'thickness',
-    'crop',
-    'matchPageSize',
-    'pageAlignment',
-    'despeckleLevel',
-    'autoDewarp',
-    'autoDewarpDepth',
-    'skipBlankPages',
-] as const satisfies ReadonlyArray<keyof IScanCleanupGlobalPreferences>;
 
 function recordEditedFields<T extends object>(intent: Partial<T>, current: T, previous: T) {
     const keys = new Set([
@@ -180,22 +163,24 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     });
     const firstRunGuidanceDismissed = toRef(preferences, 'firstRunGuidanceDismissed');
     const marginsLinked = ref(true);
+    // Global controls are views of the shared preference owner. An edit made
+    // while document settings are still loading therefore reaches that owner.
     const values: IScanCleanupOptions = reactive({
-        preserveOriginalQuality: cloneScanCleanupPreferenceValue(preferences.preserveOriginalQuality),
-        layoutMode: cloneScanCleanupPreferenceValue(preferences.layoutMode),
+        preserveOriginalQuality: toRef(preferences, 'preserveOriginalQuality'),
+        layoutMode: toRef(preferences, 'layoutMode'),
         outputMode: DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE,
-        binarization: cloneScanCleanupPreferenceValue(preferences.binarization),
-        normalizeIllumination: cloneScanCleanupPreferenceValue(preferences.normalizeIllumination),
-        readingOrder: cloneScanCleanupPreferenceValue(preferences.readingOrder),
-        thickness: cloneScanCleanupPreferenceValue(preferences.thickness),
-        crop: cloneScanCleanupPreferenceValue(preferences.crop),
-        matchPageSize: cloneScanCleanupPreferenceValue(preferences.matchPageSize),
-        pageAlignment: cloneScanCleanupPreferenceValue(preferences.pageAlignment),
+        binarization: toRef(preferences, 'binarization'),
+        normalizeIllumination: toRef(preferences, 'normalizeIllumination'),
+        readingOrder: toRef(preferences, 'readingOrder'),
+        thickness: toRef(preferences, 'thickness'),
+        crop: toRef(preferences, 'crop'),
+        matchPageSize: toRef(preferences, 'matchPageSize'),
+        pageAlignment: toRef(preferences, 'pageAlignment'),
         marginsMm: {...preferences.marginsMm},
-        despeckleLevel: cloneScanCleanupPreferenceValue(preferences.despeckleLevel),
-        autoDewarp: cloneScanCleanupPreferenceValue(preferences.autoDewarp),
-        autoDewarpDepth: cloneScanCleanupPreferenceValue(preferences.autoDewarpDepth),
-        skipBlankPages: cloneScanCleanupPreferenceValue(preferences.skipBlankPages),
+        despeckleLevel: toRef(preferences, 'despeckleLevel'),
+        autoDewarp: toRef(preferences, 'autoDewarp'),
+        autoDewarpDepth: toRef(preferences, 'autoDewarpDepth'),
+        skipBlankPages: toRef(preferences, 'skipBlankPages'),
         pageOverrides: {},
         pageOverrideDefaults: createScanCleanupPageOverride(),
     });
@@ -579,30 +564,6 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         documentIntents.add('marginsMm');
         recordEditedFields(marginIntent, marginsMm, previous);
         scheduleDocumentPersistence(sourceSha256.value, legacyDocumentKey.value, {marginsMm});
-    });
-    watch(() => ({
-        preserveOriginalQuality: values.preserveOriginalQuality,
-        layoutMode: values.layoutMode,
-        binarization: values.binarization,
-        normalizeIllumination: values.normalizeIllumination,
-        readingOrder: values.readingOrder,
-        thickness: values.thickness,
-        crop: values.crop,
-        matchPageSize: values.matchPageSize,
-        pageAlignment: values.pageAlignment,
-        despeckleLevel: values.despeckleLevel,
-        autoDewarp: values.autoDewarp,
-        autoDewarpDepth: values.autoDewarpDepth,
-        skipBlankPages: values.skipBlankPages,
-    }), (next, previous) => {
-        if (applyingDocumentSettings || !documentSettingsReady.value) {
-            return;
-        }
-        for (const key of GLOBAL_DOCUMENT_SESSION_KEYS) {
-            if (!Object.is(next[key], previous[key])) {
-                Object.assign(preferences, {[key]: cloneScanCleanupPreferenceValue(next[key])});
-            }
-        }
     });
     watch(() => values.outputMode, outputMode => {
         if (applyingDocumentSettings) {

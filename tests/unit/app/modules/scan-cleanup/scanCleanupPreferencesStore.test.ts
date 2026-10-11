@@ -317,6 +317,73 @@ describe('scan cleanup renderer preference store', () => {
         host.remove();
     });
 
+    it('shows saved global preferences in a session that opened before hydration finished', async () => {
+        const {store} = await createDurableSettingsStore();
+        await store.update({settingsPatch: {
+            readingOrder: 'rtl',
+            thickness: 1,
+        }});
+        capability.value.updateSettings.mockImplementation(store.update);
+        let resolveSettings!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
+        capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
+            resolveSettings = resolve;
+        }));
+        let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => 'cold-hydration'),
+                sourceSha256: computed(() => 'c'.repeat(64)),
+                legacyDocumentKey: computed(() => '/documents/cold-hydration.pdf'),
+            });
+            return () => h('div');
+        }}));
+        app.mount(host);
+        resolveSettings(await store.get());
+        await whenScanCleanupPreferencesReady();
+        await vi.waitFor(() => expect(settings!.documentSettingsReady.value).toBe(true));
+
+        expect(settings!.values.readingOrder).toBe('rtl');
+        expect(settings!.values.thickness).toBe(1);
+        app.unmount();
+        host.remove();
+    });
+
+    it('persists a global control edited while document settings are still loading', async () => {
+        const {
+            filePath, store,
+        } = await createDurableSettingsStore();
+        capability.value.updateSettings.mockImplementation(store.update);
+        let resolveSettings!: (value: ReturnType<typeof createDefaultScanCleanupSettingsFile>) => void;
+        capability.value.getSettings.mockImplementationOnce(() => new Promise(resolve => {
+            resolveSettings = resolve;
+        }));
+        let settings: ReturnType<typeof useScanCleanupDocumentSettings> | null = null;
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(defineComponent({setup() {
+            settings = useScanCleanupDocumentSettings({
+                documentLifecycleKey: computed(() => 'pending-global-edit'),
+                sourceSha256: computed(() => 'd'.repeat(64)),
+                legacyDocumentKey: computed(() => '/documents/pending-global-edit.pdf'),
+            });
+            return () => h('div');
+        }}));
+        app.mount(host);
+        settings!.values.thickness = 2;
+        await nextTick();
+        resolveSettings(await store.get());
+        await whenScanCleanupPreferencesReady();
+        await vi.waitFor(() => expect(settings!.documentSettingsReady.value).toBe(true));
+        await flushScanCleanupPreferencesStore();
+
+        expect(settings!.values.thickness).toBe(2);
+        expect((await createScanCleanupSettingsStore({filePath}).get()).settings.thickness).toBe(2);
+        app.unmount();
+        host.remove();
+    });
+
     it('promotes edits made before source hashing to the same document record', async () => {
         const legacyDocumentKey = '/documents/source-promotion.pdf';
         const sourceSha256 = 'd'.repeat(64);
