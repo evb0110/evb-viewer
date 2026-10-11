@@ -1250,15 +1250,15 @@ fn clone_object_graph(
                 *value =
                     clone_object_graph(source, target, value, copied, pages, transform, depth + 1)?;
             }
+            // A destination no output shows is dropped; the annotation stays.
             if let Some(destination) = destination {
-                dictionary.set(
-                    key,
-                    crate::internal_destinations::remap_internal_destination(
-                        source,
-                        &destination,
-                        pages,
-                    )?,
-                );
+                if let Some(remapped) = crate::internal_destinations::remap_internal_destination(
+                    source,
+                    &destination,
+                    pages,
+                )? {
+                    dictionary.set(key, remapped);
+                }
             }
             Ok(cloned)
         }

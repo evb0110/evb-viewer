@@ -1753,37 +1753,159 @@ fn overlay_links_target_output_pages_without_copying_source_page_trees() {
     }
 }
 
-#[test]
-fn overlay_refuses_links_to_pages_outside_the_output_and_keeps_existing_bytes() {
-    let source = path("unmapped-link-source", "pdf");
-    let input = path("unmapped-link-input", "pdf");
-    let output = path("unmapped-link-output", "pdf");
-    let instructions = path("unmapped-link-instructions", "json");
-    let mut document = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+/// Which navigation a test link carries, and where the source catalog keeps
+/// the destination it names.
+#[derive(Clone, Copy)]
+enum LinkTarget {
+    /// An explicit destination array on the link.
+    Explicit,
+    /// A name, resolved through the legacy catalog /Dests dictionary.
+    LegacyNamed,
+    /// A name, resolved through the /Names /Dests name tree.
+    TreeNamed,
+    /// A GoTo action whose destination is an explicit array.
+    Action,
+}
+
+fn add_catalog_entry(document: &mut Document, key: &str, value: Object) {
+    let root = document
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    document.get_dictionary_mut(root).unwrap().set(key, value);
+}
+
+/// Saves two source pages, where page 0 links to page 1 by `target`. A
+/// `target` name is defined in the catalog unless the test leaves it dangling.
+fn save_link_source(path: &Path, target: LinkTarget, defined: bool) {
+    let mut document = save_two_pages(path, [Vec::new(), Vec::new()], Dictionary::new());
     let pages = document.get_pages().into_values().collect::<Vec<_>>();
-    let link_id = document.add_object(dictionary! {
+    let explicit = vec![pages[1].into(), "Fit".into()];
+    let mut link = dictionary! {
         "Type" => "Annot", "Subtype" => "Link", "P" => pages[0],
         "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
-        "Dest" => vec![pages[1].into(), "Fit".into()],
-    });
+    };
+    let name = Object::String(b"target".to_vec(), lopdf::StringFormat::Literal);
+    match target {
+        LinkTarget::Explicit => link.set("Dest", explicit.clone()),
+        LinkTarget::Action => link.set("A", dictionary! {"S" => "GoTo", "D" => explicit.clone()}),
+        LinkTarget::LegacyNamed | LinkTarget::TreeNamed => link.set("Dest", name.clone()),
+    }
+    if defined {
+        match target {
+            LinkTarget::LegacyNamed => {
+                add_catalog_entry(
+                    &mut document,
+                    "Dests",
+                    dictionary! {"target" => explicit}.into(),
+                );
+            }
+            LinkTarget::TreeNamed => {
+                let tree = dictionary! {"Names" => vec![name, explicit.into()]};
+                add_catalog_entry(
+                    &mut document,
+                    "Names",
+                    dictionary! {"Dests" => dictionary! {"Kids" => vec![Object::Dictionary(tree)]}}
+                        .into(),
+                );
+            }
+            _ => {}
+        }
+    }
+    let link_id = document.add_object(link);
     document
         .get_dictionary_mut(pages[0])
         .unwrap()
         .set("Annots", vec![Object::Reference(link_id)]);
-    document.save(&source).unwrap();
-    save_empty_pages(&input, 1);
-    write(&output, b"existing output").unwrap();
-    write(
-        &instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
-    )
-    .unwrap();
-    let result = run_overlay_text(&input, &source, &output, &instructions);
-    assert!(!result.status.success());
-    assert!(String::from_utf8_lossy(&result.stderr).contains("unmapped source page"));
-    assert_eq!(fs::read(&output).unwrap(), b"existing output");
-    for file in [source, input, output, instructions] {
-        let _ = remove_file(file);
+    document.save(path).unwrap();
+}
+
+#[test]
+fn overlay_resolves_named_destinations_to_the_output_page_they_name() {
+    for target in [LinkTarget::LegacyNamed, LinkTarget::TreeNamed] {
+        let source = path("named-link-source", "pdf");
+        let input = path("named-link-input", "pdf");
+        let output = path("named-link-output", "pdf");
+        let instructions = path("named-link-instructions", "json");
+        save_link_source(&source, target, true);
+        save_empty_pages(&input, 2);
+        write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]},{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}]}"#).unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+        let annots = saved
+            .get_dictionary(pages[0])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let link = saved
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        let destination = link.get(b"Dest").unwrap().as_array().unwrap();
+        assert_eq!(destination[0].as_reference().unwrap(), pages[1]);
+        assert_eq!(destination[1].as_name().unwrap(), b"Fit");
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
+fn overlay_keeps_a_link_whose_destination_no_output_shows_and_drops_only_the_destination() {
+    for (target, defined) in [
+        (LinkTarget::Explicit, true),
+        (LinkTarget::Action, true),
+        (LinkTarget::LegacyNamed, true),
+        (LinkTarget::TreeNamed, true),
+        (LinkTarget::LegacyNamed, false),
+    ] {
+        let source = path("outside-link-source", "pdf");
+        let input = path("outside-link-input", "pdf");
+        let output = path("outside-link-output", "pdf");
+        let instructions = path("outside-link-instructions", "json");
+        save_link_source(&source, target, defined);
+        save_empty_pages(&input, 1);
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+        )
+        .unwrap();
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let page = saved.get_pages().into_values().next().unwrap();
+        let annots = saved
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(annots.len(), 1);
+        let link = saved
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(link.get(b"Subtype").unwrap().as_name().unwrap(), b"Link");
+        assert!(link.get(b"Dest").is_err());
+        if let Ok(action) = link.get(b"A") {
+            assert!(action.as_dict().unwrap().get(b"D").is_err());
+        }
+        for file in [source, input, output, instructions] {
+            let _ = remove_file(file);
+        }
     }
 }
 

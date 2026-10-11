@@ -1,14 +1,23 @@
 use super::*;
 use crate::split_pages::{validate_crop_rect, PdfMatrix};
 
+const MAX_NAME_TREE_DEPTH: usize = 32;
+
 /// Resolve navigation through the destination page's geometry, independently
-/// of the page which owns the annotation. A split must identify one output.
+/// of the page which owns the annotation. A destination on a page outside the
+/// output, an undefined name, or a transform the output cannot express yields
+/// `None`, and the caller drops that navigation while keeping the annotation.
+/// A point on a page that is in the output but outside every cropped region,
+/// or shown by several outputs, is still refused: the existing overlay tests
+/// pin that refusal. A split must identify one output.
 pub(crate) fn remap_internal_destination(
     source: &Document,
     destination: &Object,
     pages: &[crate::text_layer::OverlayPage<'_>],
-) -> Result<Object> {
-    let mut destination = source.dereference(destination)?.1.as_array()?.clone();
+) -> Result<Option<Object>> {
+    let Some(mut destination) = resolve_destination(source, destination)? else {
+        return Ok(None);
+    };
     let source_page = destination
         .first()
         .ok_or("Missing internal destination page")?
@@ -78,9 +87,9 @@ pub(crate) fn remap_internal_destination(
         vec![point]
     };
     let mut outputs = pages.iter().filter(|page| page.0 == source_page);
-    let first = outputs
-        .next()
-        .ok_or("overlay-text references an unmapped source page or tree")?;
+    let Some(first) = outputs.next() else {
+        return Ok(None);
+    };
     let selected = if outputs.next().is_none() {
         first
     } else {
@@ -121,9 +130,7 @@ pub(crate) fn remap_internal_destination(
     let mut values = match mode {
         b"XYZ" => {
             if point.iter().any(Option::is_some) && x.is_none() && y.is_none() {
-                return Err(
-                    "overlay-text cannot represent the transformed partial destination".into(),
-                );
+                return Ok(None);
             }
             vec![
                 "XYZ".into(),
@@ -145,9 +152,7 @@ pub(crate) fn remap_internal_destination(
                     nullable(x)?,
                 ]
             } else {
-                return Err(
-                    "overlay-text cannot represent the transformed horizontal destination".into(),
-                );
+                return Ok(None);
             }
         }
         b"FitV" | b"FitBV" => {
@@ -163,9 +168,7 @@ pub(crate) fn remap_internal_destination(
                     nullable(y)?,
                 ]
             } else {
-                return Err(
-                    "overlay-text cannot represent the transformed vertical destination".into(),
-                );
+                return Ok(None);
             }
         }
         b"FitR" => {
@@ -189,5 +192,83 @@ pub(crate) fn remap_internal_destination(
     destination.clear();
     destination.push(Object::Reference(selected.1));
     destination.append(&mut values);
-    Ok(Object::Array(destination))
+    Ok(Some(Object::Array(destination)))
+}
+
+/// The explicit destination array behind a navigation entry. A name or string
+/// is a named destination: it resolves through the catalog, and a name that
+/// the catalog does not define yields `None`, like any other destination the
+/// document no longer shows.
+fn resolve_destination(source: &Document, destination: &Object) -> Result<Option<Vec<Object>>> {
+    let mut object = source.dereference(destination)?.1.clone();
+    if let Object::Name(name) | Object::String(name, _) = &object {
+        let name = name.clone();
+        let Some(named) = named_destination(source, &name)? else {
+            return Ok(None);
+        };
+        object = named;
+    }
+    let object = source.dereference(&object)?.1;
+    let object = match object {
+        Object::Dictionary(dictionary) => source.dereference(dictionary.get(b"D")?)?.1,
+        other => other,
+    };
+    Ok(Some(object.as_array()?.clone()))
+}
+
+/// The catalog's legacy /Dests dictionary first, then the /Names /Dests tree.
+fn named_destination(source: &Document, name: &[u8]) -> Result<Option<Object>> {
+    let catalog = source.catalog()?;
+    if let Ok((_, dests)) = catalog
+        .get(b"Dests")
+        .and_then(|dests| source.dereference(dests))
+    {
+        if let Ok(value) = dests.as_dict().and_then(|dests| dests.get(name)) {
+            return Ok(Some(value.clone()));
+        }
+    }
+    let Ok((_, names)) = catalog
+        .get(b"Names")
+        .and_then(|names| source.dereference(names))
+    else {
+        return Ok(None);
+    };
+    let Ok(tree) = names.as_dict().and_then(|names| names.get(b"Dests")) else {
+        return Ok(None);
+    };
+    name_tree_value(source, tree, name, 0)
+}
+
+/// Depth-bounded search of a name tree, so a cyclic or hostile tree answers
+/// "not found" instead of recursing without end.
+fn name_tree_value(
+    source: &Document,
+    node: &Object,
+    name: &[u8],
+    depth: usize,
+) -> Result<Option<Object>> {
+    if depth > MAX_NAME_TREE_DEPTH {
+        return Ok(None);
+    }
+    let node = source.dereference(node)?.1.as_dict()?;
+    if let Ok(names) = node.get(b"Names") {
+        for pair in source.dereference(names)?.1.as_array()?.chunks_exact(2) {
+            if source
+                .dereference(&pair[0])?
+                .1
+                .as_str()
+                .is_ok_and(|key| key == name)
+            {
+                return Ok(Some(pair[1].clone()));
+            }
+        }
+    }
+    if let Ok(kids) = node.get(b"Kids") {
+        for kid in source.dereference(kids)?.1.as_array()? {
+            if let Some(value) = name_tree_value(source, kid, name, depth + 1)? {
+                return Ok(Some(value));
+            }
+        }
+    }
+    Ok(None)
 }
