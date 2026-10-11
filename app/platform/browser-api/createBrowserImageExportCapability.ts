@@ -68,6 +68,7 @@ interface IRenderedPdfPage {
     rgba: Uint8Array;
     width: number;
     height: number;
+    dpi: number;
 }
 
 interface IBrowserTiffPageDescriptor extends ITiffImageDescriptor {pageNumber: number;}
@@ -143,7 +144,6 @@ function emitBrowserImageExportProgress(
 }
 
 interface IRenderedPdfPageCanvas {
-    pageNumber: number;
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
 }
@@ -182,7 +182,6 @@ async function withRenderedPdfPageCanvas<T>(
         }).promise;
 
         return await callback({
-            pageNumber,
             canvas,
             context,
         });
@@ -209,13 +208,13 @@ async function renderPdfPage(
             canvas,
             context,
         }) => {
-            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
+            const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
             return {
                 pageNumber,
                 rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
                 width: canvas.width,
                 height: canvas.height,
+                dpi: 72 * EXPORT_RENDER_SCALE,
             };
         },
     );
@@ -247,11 +246,7 @@ async function renderPdfPageToImageBytes(
         const rendered = await renderPdfPage(pdfDocument, pageNumber);
         const encoder = await loadUtifEncoder();
         return {
-            bytes: encodeMultiPageTiff([{
-                rgba: rendered.rgba,
-                width: rendered.width,
-                height: rendered.height,
-            }], encoder),
+            bytes: encodeMultiPageTiff([rendered], encoder),
             mimeType: IMAGE_EXPORT_FORMATS[format].mimeType,
         };
     }
@@ -262,8 +257,11 @@ async function renderPdfPageToImageBytes(
             IMAGE_EXPORT_FORMATS[format].mimeType,
             format === 'jpeg' ? 0.92 : undefined,
         );
+        const bytes = new Uint8Array(await imageBlob.arrayBuffer());
         return {
-            bytes: new Uint8Array(await imageBlob.arrayBuffer()),
+            bytes: format === 'png'
+                ? addPngPhysicalResolution(bytes, 72 * EXPORT_RENDER_SCALE)
+                : addJpegJfifDensity(bytes, 72 * EXPORT_RENDER_SCALE),
             mimeType: IMAGE_EXPORT_FORMATS[format].mimeType,
         };
     });
@@ -283,6 +281,8 @@ async function collectTiffPageDescriptors(
             width: Math.ceil(viewport.width),
             height: Math.ceil(viewport.height),
             dataLength: Math.ceil(viewport.width) * Math.ceil(viewport.height) * 4,
+            dpiX: 72 * viewport.scale,
+            dpiY: 72 * viewport.scale,
         });
 
         try {
@@ -1072,7 +1072,7 @@ function encodeMultiPageTiff(
         rgba: Uint8Array;
         width: number;
         height: number;
-        dpi?: number;
+        dpi: number;
     }>,
     encoder: ITiffEncoderModule,
 ) {
@@ -1085,11 +1085,8 @@ function encodeMultiPageTiff(
         width: page.width,
         height: page.height,
         dataLength: page.rgba.byteLength,
-        // Without a source density the encoder's 72 DPI default applies.
-        ...(page.dpi === undefined ? {} : {
-            dpiX: page.dpi,
-            dpiY: page.dpi,
-        }),
+        dpiX: page.dpi,
+        dpiY: page.dpi,
     }));
     const {
         firstDataOffset,

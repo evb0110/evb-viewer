@@ -515,6 +515,47 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         }
     });
 
+    it('preserves the physical 1 by 2 inch PDF page in every raster format', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance') === 'function');
+            for (const extension of [
+                'png',
+                'jpg',
+                'tif',
+            ]) {
+                const result = await page.evaluate(ext => Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance')(`density.${ext}`), extension);
+                const bytes = bytesOf(result);
+                const dpi = extension === 'png' ? readPngDpi(bytes) : extension === 'jpg' ? readJpegDpi(bytes) : readTiffFrameDpi(UTIF.decode(bytes)[0]!);
+                expect(dpi, extension).toEqual({
+                    x: 144,
+                    y: 144,
+                });
+            }
+            const result = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance')('density.tif'));
+            expect(UTIF.decode(bytesOf(result)).map(frame => ({
+                width: firstNumber(frame.t256),
+                height: firstNumber(frame.t257),
+                dpi: readTiffFrameDpi(frame),
+            }))).toEqual(Array.from({length: 2}, () => ({
+                width: 144,
+                height: 288,
+                dpi: {
+                    x: 144,
+                    y: 144,
+                },
+            })));
+        } finally {
+            await browser.close();
+        }
+    });
+
     it('refuses a non-TIFF handle before writing and restricts the save picker', async () => {
         const browser = await chromium.launch({headless: true});
         try {
