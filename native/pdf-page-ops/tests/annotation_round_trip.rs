@@ -1470,11 +1470,18 @@ fn canonical_annotation_comparator_has_independent_negative_oracles() {
 }
 
 fn write_single_square_pdf(path: &Path, border: &str) {
+    write_single_annotation_pdf(
+        path,
+        &format!("/Subtype /Square /Rect [100 500 300 700] /C [1 0 0] {border}"),
+    );
+}
+
+fn write_single_annotation_pdf(path: &Path, annotation: &str) {
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << >> /Annots [4 0 R] >>".to_string(),
-        format!("<< /Type /Annot /Subtype /Square /Rect [100 500 300 700] /C [1 0 0] {border} /F 4 >>"),
+        format!("<< /Type /Annot {annotation} /F 4 >>"),
     ];
     let mut bytes = b"%PDF-1.7\n".to_vec();
     let mut offsets = Vec::new();
@@ -1498,7 +1505,7 @@ fn write_single_square_pdf(path: &Path, border: &str) {
 }
 
 /// Ink pixels (any channel below 220) of the first page, rendered by Poppler.
-fn poppler_ink_pixels(pdf: &Path) -> usize {
+fn poppler_pixels(pdf: &Path) -> Vec<u8> {
     let rendered = Command::new(external_tool::tool_path(
         "PDFTOPPM_PATH",
         "poppler",
@@ -1513,12 +1520,7 @@ fn poppler_ink_pixels(pdf: &Path) -> usize {
     assert_eq!(header.next().unwrap(), b"P6");
     header.next().unwrap();
     assert_eq!(header.next().unwrap(), b"255");
-    header
-        .next()
-        .unwrap()
-        .chunks_exact(3)
-        .filter(|rgb| rgb.iter().any(|channel| *channel < 220))
-        .count()
+    header.next().unwrap().to_vec()
 }
 
 #[test]
@@ -1528,6 +1530,12 @@ fn print_draws_square_borders_with_the_width_and_dash_poppler_draws() {
         ("width-four", "/BS << /W 4 >>", 3136),
         ("zero-width", "/BS << /W 0 >>", 0),
         ("dashed", "/BS << /W 4 /S /D /D [8 8] >>", 1568),
+        ("empty-bs-dash", "/BS << /W 4 /S /D /D [] >>", 3136),
+        ("empty-border-dash", "/Border [0 0 4 []]", 3136),
+        ("unknown", "/BS << /W 4 /S /Mystery >>", 3136),
+        ("beveled", "/BS << /W 4 /S /B >>", 3136),
+        ("inset", "/BS << /W 4 /S /I >>", 3136),
+        ("cloud-zero", "/BS << /W 4 >> /BE << /S /C /I 0 >>", 3136),
     ];
     for (label, border, expected_ink) in cases {
         let source = temp.root.join(format!("{label}.pdf"));
@@ -1546,4 +1554,47 @@ fn print_draws_square_borders_with_the_width_and_dash_poppler_draws() {
         assert_eq!(poppler, expected_ink, "{label} as Poppler draws it");
         assert_eq!(poppler_ink_pixels(&printed), poppler, "{label} as printed");
     }
+}
+
+#[test]
+fn print_falls_back_to_solid_for_invalid_dashes_and_cloud_borders() {
+    let temp = TempPaths::new("print-border-fallback");
+    for border in [
+        "/BS << /W 4 /S /D /D [-1 2] >>",
+        "/BS << /W 4 /S /D /D [0 0] >>",
+        "/BS << /W 4 >> /BE << /S /C /I 2 >>",
+    ] {
+        write_single_square_pdf(&temp.pdf, border);
+        print_annotation_pdf(&temp.pdf, &temp.root.join("printed.pdf"));
+        assert_eq!(poppler_ink_pixels(&temp.root.join("printed.pdf")), 3136);
+    }
+}
+
+fn print_annotation_pdf(source: &Path, printed: &Path) {
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["print-layout", "--input"])
+        .arg(source)
+        .arg("--output")
+        .arg(printed)
+        .args(["--view-mode", "single", "--orientation", "portrait"])
+        .output()
+        .unwrap();
+    assert_success(output, "print-layout");
+}
+
+#[test]
+fn print_underlines_only_the_bottom_edge() {
+    let temp = TempPaths::new("print-underline");
+    write_single_square_pdf(&temp.pdf, "/BS << /W 4 /S /U >>");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&temp.pdf, &printed);
+    let ink = poppler_ink_pixels(&printed);
+    assert!((780..=800).contains(&ink), "one bottom edge, got {ink}");
+}
+
+fn poppler_ink_pixels(pdf: &Path) -> usize {
+    poppler_pixels(pdf)
+        .chunks_exact(3)
+        .filter(|rgb| rgb.iter().any(|c| *c < 220))
+        .count()
 }

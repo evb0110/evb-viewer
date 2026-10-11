@@ -2,12 +2,8 @@
 
 use super::*;
 
-/// Resolve an explicit normal appearance. An annotation without /AP has the
-/// appearance a stock reader synthesizes for it, if EVB can draw that too.
+/// Resolve a usable normal appearance; synthesis handles missing or damaged AP.
 fn normal_appearance(document: &mut Document, annotation: &Dictionary) -> Option<ObjectId> {
-    if !annotation.has(b"AP") {
-        return synthesized_appearance(document, annotation);
-    }
     let appearances = document
         .dereference(annotation.get(b"AP").ok()?)
         .ok()?
@@ -15,14 +11,35 @@ fn normal_appearance(document: &mut Document, annotation: &Dictionary) -> Option
         .as_dict()
         .ok()?;
     let normal = appearances.get(b"N").ok()?;
-    let (normal_id, resolved) = document.dereference(normal).ok()?;
-    if resolved.as_stream().is_ok() {
-        return normal_id;
+    let (id, resolved) = document.dereference(normal).ok()?;
+    let (id, stream) = if let Ok(stream) = resolved.as_stream() {
+        (id, stream)
+    } else {
+        let state = document
+            .dereference(annotation.get(b"AS").ok()?)
+            .ok()?
+            .1
+            .as_name()
+            .ok()?;
+        let (id, value) = document
+            .dereference(resolved.as_dict().ok()?.get(state).ok()?)
+            .ok()?;
+        (id, value.as_stream().ok()?)
+    };
+    if !stream.content.is_empty() {
+        let bbox = numbers(document, stream.dict.get(b"BBox").ok()?, 4)?;
+        if !bbox.iter().all(|v| v.is_finite()) || bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
+            return None;
+        }
+        if let Ok(matrix) = stream.dict.get(b"Matrix") {
+            let m = numbers(document, matrix, 6)?;
+            if !m.iter().all(|v| v.is_finite()) || m[0] * m[3] - m[1] * m[2] == 0.0 {
+                return None;
+            }
+        }
     }
-    let state = annotation.get(b"AS").ok()?.as_name().ok()?;
-    let state_object = resolved.as_dict().ok()?.get(state).ok()?;
-    let (state_id, state_resolved) = document.dereference(state_object).ok()?;
-    state_resolved.as_stream().ok().and(state_id)
+    let stream = stream.clone();
+    Some(id.unwrap_or_else(|| document.add_object(stream)))
 }
 
 /// Foreign FreeText without /AP uses the same parser, font admission and
@@ -150,7 +167,13 @@ pub(super) fn flatten_printable_annotations(
     let mut text_font = None;
     let mut drew = false;
     for item in &annotations {
-        let annotation = document.dereference(item)?.1.as_dict()?.clone();
+        let Ok(annotation) = document
+            .dereference(item)
+            .and_then(|(_, value)| value.as_dict())
+        else {
+            continue;
+        };
+        let annotation = annotation.clone();
         let flags = annotation_print_flags(document, &annotation);
         let printable = flags & ANNOTATION_FLAG_PRINT != 0
             && flags & (ANNOTATION_FLAG_INVISIBLE | ANNOTATION_FLAG_HIDDEN) == 0;
@@ -161,52 +184,49 @@ pub(super) fn flatten_printable_annotations(
         if !printable || is_popup {
             continue;
         }
-        let appearance = if !annotation.has(b"AP")
-            && annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText")
-        {
-            Some(missing_free_text_appearance(
-                document,
-                &annotation,
-                page_id,
-                &mut text_font,
-            )?)
-        } else {
-            normal_appearance(document, &annotation)
+        let appearance = normal_appearance(document, &annotation)
+            .or_else(|| {
+                if annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText") {
+                    missing_free_text_appearance(document, &annotation, page_id, &mut text_font)
+                        .ok()
+                } else {
+                    None
+                }
+            })
+            .or_else(|| synthesized_appearance(document, &annotation));
+        // An annotation with no drawable geometry cannot be placed. It does
+        // not invalidate the page's content or another annotation's print.
+        let Some(appearance_id) = appearance else {
+            continue;
         };
-        let appearance_id = appearance.ok_or_else(|| {
-            format!("Printable annotation on page {page_number} has no normal appearance")
-        })?;
         let appearance = document.get_object(appearance_id)?.as_stream()?;
         if appearance.content.is_empty() {
             continue;
         }
-        let invalid_bbox =
-            || format!("Printable annotation on page {page_number} has an invalid appearance BBox");
-        let bbox = appearance
+        let Some(bbox) = appearance
             .dict
             .get(b"BBox")
             .ok()
             .and_then(|bbox| numbers(document, bbox, 4))
-            .ok_or_else(invalid_bbox)?;
-        if bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
-            return Err(invalid_bbox().into());
-        }
-        let matrix = match appearance.dict.get(b"Matrix") {
-            Ok(matrix) => numbers(document, matrix, 6).ok_or_else(|| {
-                format!(
-                    "Printable annotation on page {page_number} has an invalid appearance Matrix"
-                )
-            })?,
-            Err(_) => vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        else {
+            continue;
         };
-        let rect = annotation
+        let matrix = appearance
+            .dict
+            .get(b"Matrix")
+            .ok()
+            .and_then(|m| numbers(document, m, 6))
+            .unwrap_or_else(|| vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+        let Some(rect) = annotation
             .get(b"Rect")
             .ok()
             .and_then(|rect| numbers(document, rect, 4))
-            .filter(|rect| rect[2] > rect[0] && rect[3] > rect[1])
-            .ok_or_else(|| {
-                format!("Printable annotation on page {page_number} has an invalid Rect")
-            })?;
+            .filter(|rect| {
+                rect.iter().all(|v| v.is_finite()) && rect[2] > rect[0] && rect[3] > rect[1]
+            })
+        else {
+            continue;
+        };
         let corners = [
             (bbox[0], bbox[1]),
             (bbox[0], bbox[3]),
@@ -237,10 +257,7 @@ pub(super) fn flatten_printable_annotations(
             .fold(f64::MIN, f64::max);
         let (width, height) = (right - left, top - bottom);
         if width.is_nan() || height.is_nan() || width <= 0.0 || height <= 0.0 {
-            return Err(format!(
-                "Printable annotation on page {page_number} has a degenerate appearance BBox"
-            )
-            .into());
+            continue;
         }
         let rect_width = rect[2] - rect[0];
         let rect_height = rect[3] - rect[1];
@@ -249,14 +266,15 @@ pub(super) fn flatten_printable_annotations(
 
         let appearance_name = unused_resource_name(&xobjects, "PrintAnnot");
         xobjects.set(appearance_name.clone(), Object::Reference(appearance_id));
-        let graphics_state = match annotation_graphics_state(document, &annotation, page_number)? {
-            Some(state) => {
-                let name = unused_resource_name(&graphics_states, "PrintAnnot");
-                graphics_states.set(name.clone(), document.add_object(state));
-                format!("/{name} gs ")
-            }
-            None => String::new(),
-        };
+        let graphics_state =
+            match annotation_graphics_state(document, &annotation, page_number).unwrap_or(None) {
+                Some(state) => {
+                    let name = unused_resource_name(&graphics_states, "PrintAnnot");
+                    graphics_states.set(name.clone(), document.add_object(state));
+                    format!("/{name} gs ")
+                }
+                None => String::new(),
+            };
         content.extend(
             format!(
                 "q {graphics_state}{} re W n {} cm /{appearance_name} Do Q\n",

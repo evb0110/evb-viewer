@@ -12,8 +12,7 @@ use line_endings::line_ending_appearance;
 use lopdf::dictionary;
 
 /// The appearance a stock reader synthesizes for an annotation that has no
-/// /AP, for the subtypes EVB can draw itself. `None` leaves the annotation
-/// without a printable appearance, so print layout fails closed.
+/// /AP. Unrecognized subtypes use a plain rectangle as a last resort.
 pub(crate) fn synthesized_appearance(
     document: &mut Document,
     annotation: &Dictionary,
@@ -24,7 +23,7 @@ pub(crate) fn synthesized_appearance(
         b"Square" | b"Circle" | b"Line" | b"PolyLine" | b"Polygon" => {
             synthesized_shape_content(document, annotation, subtype)?
         }
-        _ => return None,
+        _ => synthesized_shape_content(document, annotation, b"Square")?,
     };
     // The BBox is the annotation's own /Rect, so flattening maps the drawing 1:1.
     let rect = read_shape_annotation_rect(document, annotation)?;
@@ -92,20 +91,19 @@ fn synthesized_shape_content(
     annotation: &Dictionary,
     subtype: &[u8],
 ) -> Option<String> {
-    let width = shape_stroke_width(document, annotation).unwrap_or(1.0);
-    if !(width.is_finite() && width >= 0.0) {
-        return None;
-    }
-    let dash = border_dash(document, annotation)?;
+    let width = shape_stroke_width(document, annotation)
+        .filter(|w| w.is_finite() && *w >= 0.0)
+        .unwrap_or(1.0);
+    let dash = border_dash(document, annotation);
     // A zero width draws no border; PDF `0 w` would be a one-pixel hairline.
     let stroke = if width == 0.0 {
         None
     } else if annotation.has(b"C") {
-        annotation_colour(document, annotation, b"C")?
+        annotation_colour(document, annotation, b"C").unwrap_or_else(|| Some(vec![0.0]))
     } else {
         Some(vec![0.0])
     };
-    let fill = annotation_colour(document, annotation, b"IC")?;
+    let fill = annotation_colour(document, annotation, b"IC").flatten();
     let mut content = String::from("q\n");
     if let Some(stroke) = &stroke {
         // A dash needs butt caps: round caps would add half a width to each end
@@ -137,7 +135,14 @@ fn synthesized_shape_content(
                 (false, true) => "f",
                 (false, false) => "n",
             };
-            if subtype == b"Square" {
+            if border_is_underlined(document, annotation) {
+                if fill.is_some() {
+                    content.push_str(&format!("{x1} {y1} {} {} re f\n", x2 - x1, y2 - y1));
+                }
+                if stroke.is_some() {
+                    content.push_str(&format!("{x1} {y1} m {x2} {y1} l S\n"));
+                }
+            } else if subtype == b"Square" {
                 content.push_str(&format!("{x1} {y1} {} {} re {paint}\n", x2 - x1, y2 - y1));
             } else {
                 let center = ((x1 + x2) / 2.0, (y1 + y2) / 2.0);
