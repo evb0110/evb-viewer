@@ -39,6 +39,7 @@ import type * as WorkingCopyMaterialization from '@electron/file-access/workingC
 import type * as FsPromises from 'fs/promises';
 import type * as CreateOriginalFileContentFingerprintHash from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import type * as PdfAppendBase from '@electron/pdf/pdfAppendBase';
+import {waitUntilDone} from '@tests/unit/electron/waitForCondition';
 
 let tempRoot = '';
 const originalPlatform = process.platform;
@@ -597,6 +598,7 @@ describe('workingCopy', () => {
     it('captures a full content fingerprint above 64 MiB', async () => {
         setPlatform('win32');
         const {
+            getWorkingCopyBackingEntry,
             getWorkingCopyOriginalFileExpectation,
             setWorkingCopyOriginalPath,
         } = await import('@electron/file-access/workingCopyStore');
@@ -612,11 +614,10 @@ describe('workingCopy', () => {
         try {
             await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
 
-            await vi.waitFor(() => {
-                expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({
-                    contentFingerprint: expect.stringMatching(/^sha256-full-v1:[0-9a-f]{64}$/u),
-                    size: largeSize,
-                });
+            await waitUntilDone(() => getWorkingCopyBackingEntry(workingPath, 7)?.originalFileExpectationAbortController === undefined);
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({
+                contentFingerprint: expect.stringMatching(/^sha256-full-v1:[0-9a-f]{64}$/u),
+                size: largeSize,
             });
         } finally {
             await clearAllWorkingCopies();
@@ -929,17 +930,19 @@ describe('workingCopy', () => {
         try {
             const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
             const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-            const {getWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+            const {
+                getWorkingCopyBackingEntry,
+                getWorkingCopyOriginalFileExpectation,
+            } = await import('@electron/file-access/workingCopyStore');
             const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
 
             const workingPath = await createWorkingCopy(allowOpenPath(originalPath)!, 7);
 
             expect(changed).toBe(true);
-            await vi.waitFor(() => {
-                expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(
-                    `sha256-full-v1:${createOriginalFileContentFingerprintHash(changedBytes.byteLength).update(changedBytes).digest('hex')}`,
-                );
-            });
+            await waitUntilDone(() => getWorkingCopyBackingEntry(workingPath, 7)?.originalFileExpectationAbortController === undefined);
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(
+                `sha256-full-v1:${createOriginalFileContentFingerprintHash(changedBytes.byteLength).update(changedBytes).digest('hex')}`,
+            );
         } finally {
             vi.doUnmock('fs/promises');
             vi.doUnmock('@electron/file-access/workingCopyDecryption');

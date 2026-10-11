@@ -11,3 +11,14 @@ export async function waitForCondition(assertion: () => void) {
     }
     throw lastError;
 }
+
+/**
+ * Resolves when the product's own completion state reports done. It has no
+ * deadline of its own, so a slow host cannot fail it early; a stuck job is
+ * still bounded by the test timeout.
+ */
+export async function waitUntilDone(isDone: () => boolean) {
+    while (!isDone()) {
+        await new Promise<void>(resolve => setTimeout(resolve, 1));
+    }
+}
