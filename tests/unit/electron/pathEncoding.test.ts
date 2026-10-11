@@ -14,7 +14,9 @@ import {
     it,
 } from 'vitest';
 import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
-import { isSupportedOpenPath } from '@electron/image/pdfConversion';
+import {
+    isDjvuPath, isPdfPath, isSupportedOpenPath,
+} from '@electron/image/pdfConversion';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 
 let tempRoot = '';
@@ -58,5 +60,33 @@ describe('native path identity', () => {
         expect(isSupportedOpenPath('/tmp/report.pdf ')).toBe(true);
         expect(isSupportedOpenPath('/tmp/report.pdf\t')).toBe(true);
         expect(isAllowedOriginalSavePath('/tmp/report.pdf ')).toBe(true);
+    });
+
+    it('classifies literal quote suffixes consistently without resolving a different filename', () => {
+        expect(isPdfPath('/tmp/"quoted.PDF"')).toBe(true);
+        expect(isDjvuPath('/tmp/\'quoted.djvu\'\u00a0')).toBe(true);
+        for (const suffix of [
+            'pdf',
+            'djvu',
+            'djv',
+            'png',
+            'jpg',
+            'jpeg',
+            'jp2',
+            'tif',
+            'tiff',
+            'bmp',
+            'webp',
+            'gif',
+        ]) {
+            expect(isSupportedOpenPath(`/tmp/"quoted.${suffix}"`)).toBe(true);
+            expect(isSupportedOpenPath(`/tmp/file.${suffix}.exe`)).toBe(false);
+        }
+        if (process.platform !== 'win32') {
+            const requested = join(tempRoot, '"quoted.pdf"');
+            writeFileSync(requested, 'exact quoted file');
+            writeFileSync(join(tempRoot, 'quoted.pdf'), 'sibling');
+            expect(normalizeExistingPath(requested)).toBe(realpathSync.native(requested));
+        }
     });
 });

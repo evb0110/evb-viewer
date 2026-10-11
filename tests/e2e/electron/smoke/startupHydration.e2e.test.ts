@@ -7,6 +7,17 @@ import { delay } from 'es-toolkit/promise';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import {
+    mkdtempSync, copyFileSync,
+} from 'node:fs';
+import {rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {
+    join, resolve,
+} from 'node:path';
+import {startElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {waitForPdfLoaded} from '@tests/e2e/electron/helpers/viewerCore';
+import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const HYDRATION_CONSOLE_QUIET_WINDOW_MS = 1_500;
 const HYDRATION_CONSOLE_POLL_INTERVAL_MS = 100;
@@ -15,6 +26,31 @@ const STARTUP_READY_MAX_WAIT_MS = 60_000;
 const TOOLBAR_STARTUP_SAMPLE_WINDOW_MS = 1_800;
 const TOOLBAR_MIN_VISIBLE_HEIGHT_PX = 40;
 const TOOLBAR_MAX_STARTUP_SHIFT_PX = 2;
+
+describe.skipIf(process.platform === 'win32')('Electron E2E - literal POSIX quoted filename', () => {
+    it('opens and renders a literal quoted PDF filename on a cold CLI launch', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-quoted-startup-'));
+        const requested = join(directory, '"quoted.pdf"');
+        copyFileSync(resolve('tests/fixtures/electron/generated-text.pdf'), requested);
+        let session: IElectronE2ESession | null = null;
+        try {
+            session = await startElectronE2ESession(`e2e-quoted-startup-${Date.now()}`, {initialOpenPaths: [requested]});
+            await waitForPdfLoaded(session.page, 30_000);
+            expect((await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath).toBe(requested);
+            const text = await session.page.$eval('.workspace-host[data-workspace-active="true"] .textLayer', element => element.textContent);
+            expect(text).toContain('Hello Arabic world');
+        } catch (error) {
+            await session?.captureFailureArtifacts('quoted-cold-launch');
+            throw error;
+        } finally {
+            await session?.stop({preserveArtifacts: true});
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 120_000);
+});
 
 interface IConsoleCommandResult { messages: Array<{
     type: string;

@@ -1,7 +1,7 @@
+import {isSupportedOpenPath} from '@electron/utils/documentFileTypes';
 import type { ILogger } from '@electron/utils/createLogger';
 import { existsSync } from 'fs';
 import {
-    extname,
     isAbsolute,
     resolve,
 } from 'path';
@@ -9,21 +9,6 @@ import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
 import { getErrorMessage } from '@electron/utils/error';
 import { focusWindowForUser } from '@electron/window/focusWindowForUser';
-
-const SUPPORTED_EXTENSIONS = new Set([
-    '.pdf',
-    '.djvu',
-    '.djv',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.jp2',
-    '.tif',
-    '.tiff',
-    '.bmp',
-    '.webp',
-    '.gif',
-]);
 
 const EXTERNAL_OPEN_SINGLETON_BATCH_WINDOW_MS = 100;
 const EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS = 800;
@@ -78,11 +63,6 @@ type TExternalOpenBatchPhase =
         deadline: number;
     };
 
-function isSupportedExternalOpenPath(filePath: string) {
-    // Classify suffix punctuation without changing the native filename we open.
-    return SUPPORTED_EXTENSIONS.has(extname(filePath.replace(/[\s"']+$/u, '')).toLowerCase());
-}
-
 function doesExternalOpenPathExist(filePath: string) {
     try {
         return existsSync(filePath);
@@ -112,7 +92,7 @@ export function createMacOpenFileRouter(options: { logger: ILogger; }) {
             return;
         }
 
-        if (!isSupportedExternalOpenPath(normalizedPath)) {
+        if (!isSupportedOpenPath(normalizedPath)) {
             options.logger.warn(`Ignoring unsupported macOS open-file path: ${normalizedPath}`);
             return;
         }
@@ -173,7 +153,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
                     return [];
                 }
             }
-            return isSupportedExternalOpenPath(arg) ? [arg] : [];
+            return isSupportedOpenPath(arg) ? [arg] : [];
         });
     }
 
@@ -204,7 +184,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
         const validPaths: string[] = [];
         for (const normalizedPath of normalizedPaths) {
-            if (!isSupportedExternalOpenPath(normalizedPath)) {
+            if (!isSupportedOpenPath(normalizedPath)) {
                 options.logger.warn(`Ignoring unsupported ${source} external open path: ${normalizedPath}`);
                 continue;
             }
@@ -586,7 +566,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
     return {
         clearTimers,
-        isSupportedFile: isSupportedExternalOpenPath,
+        isSupportedFile: isSupportedOpenPath,
         markBootstrapReady() {
             externalOpenBootstrapReady = true;
             if (pendingFlushRequested || pendingExternalOpenPaths.length > 0) {
