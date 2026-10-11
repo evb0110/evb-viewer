@@ -314,10 +314,10 @@ export async function overlayScanCleanupTextLayer(
     dependencies: IRunScanCleanupPipelineDependencies,
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
-    // Link-only pages name destinations; the overlay runs only for copied text.
-    const copiedPages = pages.filter(page => page.linkOnly !== true);
+    // Preserved pages keep links that only the overlay rebinds; skipped pages have no annotations.
+    const overlayPages = pages.filter(page => page.linkOnly !== true || page.unmappedGeometry !== true);
     if (
-        copiedPages.length > 0
+        overlayPages.length > 0
         && paths.pdfPageOpsBinary !== undefined
         && !isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
     ) {
@@ -349,9 +349,9 @@ export async function overlayScanCleanupTextLayer(
         await rename(textLayerPdfPath, stagedPdfPath);
         log(
             'debug',
-            `Scan cleanup retained source text and annotations on ${String(copiedPages.length)} output page(s)`,
+            `Scan cleanup retained source text and annotations on ${String(overlayPages.length)} output page(s)`,
         );
-    } else if (copiedPages.length > 0) {
+    } else if (overlayPages.length > 0) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
 }
