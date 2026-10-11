@@ -41,10 +41,6 @@ const WINDOWS_FALLBACK_CODES = new Set([
     'ENOTEMPTY',
 ]);
 
-function isPdfDestination(destinationPath: string) {
-    return /\.pdf$/iu.test(destinationPath);
-}
-
 interface IWindowsAtomicReplaceJournal {
     version: typeof ATOMIC_REPLACE_JOURNAL_VERSION;
     sourcePath: string;
@@ -374,12 +370,14 @@ export async function atomicReplace(
          */
         durable?: boolean;
         assertDestinationCurrent?: () => Promise<void>;
+        /** Save-owned path that retains the exact revision displaced at publication. */
+        destinationBackupPath?: string;
         markMutationCommitStarted?: boolean;
     } = {},
 ) {
     assertNoSymlinkPathSegments(srcTemp);
     assertNoSymlinkPathSegments(dst);
-    if (process.platform === 'win32' && isPdfDestination(dst)) {
+    if (process.platform === 'win32') {
         await recoverWindowsAtomicReplace(dst);
     }
     const durable = options.durable !== false;
@@ -391,6 +389,24 @@ export async function atomicReplace(
     }
     if (shouldMarkMutationCommitStarted && !shouldDeferMutationCommitStarted) {
         markActiveWorkingCopyMutationCommitStarted();
+    }
+
+    if (options.destinationBackupPath !== undefined) {
+        const backupPath = options.destinationBackupPath;
+        assertNoSymlinkPathSegments(backupPath);
+        await options.assertDestinationCurrent?.();
+        if (shouldDeferMutationCommitStarted) markActiveWorkingCopyMutationCommitStarted();
+        // The prepared backup may share this inode. Remove that name before
+        // moving the actual destination into the journal's owned backup slot.
+        await unlink(backupPath);
+        await rename(dst, backupPath);
+        await fsyncPath(backupPath);
+        // Publish into the vacated name exclusively. A concurrent replacement
+        // wins instead of being overwritten; the journal retains displaced bytes.
+        await link(srcTemp, dst);
+        await unlink(srcTemp);
+        await fsyncParentDirectory(dst);
+        return;
     }
 
     if (process.platform !== 'win32') {
@@ -419,26 +435,6 @@ export async function atomicReplace(
         const code = isErrnoException(error) ? error.code : undefined;
         if (!WINDOWS_FALLBACK_CODES.has(typeof code === 'string' ? code : '') || !(await fileExists(dst))) {
             throw error;
-        }
-
-        if (!isPdfDestination(dst)) {
-            const backupPath = `${dst}.bak-${randomSuffix()}`;
-            let hasBackup = false;
-            try {
-                await options.assertDestinationCurrent?.();
-                await rename(dst, backupPath);
-                hasBackup = true;
-                await rename(srcTemp, dst);
-            } catch (promotionError) {
-                if (hasBackup) {
-                    await rename(backupPath, dst).catch(() => undefined);
-                }
-                throw promotionError;
-            }
-            await assertFileExists(dst, 'Atomic replace completed');
-            await fsyncParentDirectory(dst);
-            await unlink(backupPath).catch(() => undefined);
-            return;
         }
 
         // A reader that denies delete sharing can reject the one-call

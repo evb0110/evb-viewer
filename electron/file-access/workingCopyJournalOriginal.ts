@@ -22,6 +22,7 @@ export const originalSchema = v.object({
         'prepared',
         'published',
         'restored',
+        'conflicted',
     ]),
     preparedSnapshot: v.optional(originalSaveSnapshotSchema),
     publishedSnapshot: v.optional(originalSaveSnapshotSchema),
@@ -43,11 +44,8 @@ export async function captureIntendedContentFingerprint(sourcePath: string, sign
  * guard the rollback: a replacement made while hashing is never overwritten.
  */
 async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
-    if (original.intendedFingerprint === undefined) {
-        return null;
-    }
     try {
-        const witness = await capturePathSaveWitness(original.path);
+        const witness = original.intendedFingerprint !== undefined && await capturePathSaveWitness(original.path);
         if (!witness || await captureIntendedContentFingerprint(original.path) !== original.intendedFingerprint) {
             return null;
         }
@@ -65,7 +63,7 @@ async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
  * snapshot is overwritten, so a third-party replacement always wins.
  */
 export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
-    if (original.state === 'restored') {
+    if (original.state === 'restored' || original.state === 'conflicted') {
         return;
     }
     if (original.preparedSnapshot !== undefined) {

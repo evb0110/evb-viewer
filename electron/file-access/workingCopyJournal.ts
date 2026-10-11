@@ -204,7 +204,7 @@ export async function completeWorkingCopyTransition(journal: IWorkingCopyJournal
     await rm(getWorkingCopyJournalPath(journal.workingCopyPath), {force: true});
     await Promise.all([
         rm(journal.backupPath, {force: true}),
-        ...(journal.original ? [rm(journal.original.backupPath, {force: true})] : []),
+        ...(journal.original && journal.original.state !== 'conflicted' ? [rm(journal.original.backupPath, {force: true})] : []),
     ]);
 }
 
@@ -220,10 +220,7 @@ export async function rollbackWorkingCopyTransition(journal: IWorkingCopyJournal
     }
 }
 
-/**
- * Finishes the journal a crash left behind: kept when its revision is in the
- * manifest, rolled back otherwise. Unreadable journals fail closed.
- */
+/** Completes committed journals and rolls back others; unreadable journals fail closed. */
 export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     const journal = await readJournal(workingCopyPath);
     if (!journal) {
@@ -231,7 +228,7 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     }
     const manifest = await readWorkingCopyManifest(workingCopyPath);
     if (manifest?.revision.token !== journal.nextRevisionToken) {
-        if (journal.original && journal.original.state !== 'restored') {
+        if (journal.original) {
             await restoreOriginal(journal.original);
         }
         await restoreWorkingCopyContent(journal);

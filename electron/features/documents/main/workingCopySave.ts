@@ -182,7 +182,10 @@ async function replaceOriginalWithValidatedTemp(
                 options.signal,
             ),
             ...(options.signal === undefined ? {} : {signal: options.signal}),
-            publishOriginal: assertDestinationCurrent => atomicReplace(tempPath, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(tempPath, originalPath, {
+                ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+            }),
             publishedSourcePath: tempPath,
             afterWorkingCopySync: () => refreshWorkingCopyOriginalFileExpectationForSave(
                 workingPath,

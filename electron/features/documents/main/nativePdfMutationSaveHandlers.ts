@@ -490,10 +490,6 @@ export async function handleCommitStagedPdfNativeMutations(
                 normalizedWorkingPath,
                 expectedDocumentRevisionToken,
             );
-            await ensureWorkingCopyMaterialized(normalizedWorkingPath, {
-                ownerWebContentsId: senderId,
-                reason: 'native-mutation',
-            });
             const originalPath = getValidatedOriginalPath(normalizedWorkingPath, senderId);
             // Typed PDF receipts validate the artifact extension as part of the
             // main-process trust boundary.
@@ -510,9 +506,12 @@ export async function handleCommitStagedPdfNativeMutations(
                     senderId,
                     operation.signal,
                 ),
-                publishOriginal: async assertDestinationCurrent => {
+                publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
                     const currentArtifact = await resolveTypedStagedArtifact(context, stagedOutput);
-                    await publishImmutableFileAtomic(currentArtifact.path, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})});
+                    await publishImmutableFileAtomic(currentArtifact.path, originalPath, {
+                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                        ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                    });
                 },
                 afterWorkingCopySync: () => syncNativeOutputToRequestingWorkingCopy(
                     normalizedWorkingPath,

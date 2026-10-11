@@ -253,6 +253,73 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
     });
 
+    it.each([
+        'in-place',
+        'replacement',
+    ])('retains the bytes displaced by a last-instant %s edit', async mutation => {
+        const fs = await import('node:fs/promises');
+        let originalPath = '';
+        let edited = false;
+        const original = Buffer.alloc(2 * 1024 * 1024, 65);
+        const external = Buffer.from(original);
+        external.write('EXTERNAL-EDIT', 262144);
+        const renameWithEdit: typeof fs.rename = async (source, destination) => {
+            if (!edited && (String(destination) === originalPath
+                || String(source) === originalPath && String(destination).includes('.evb-transition-'))) {
+                edited = true;
+                if (mutation === 'in-place') {
+                    const handle = await fs.open(originalPath, 'r+');
+                    await handle.write('EXTERNAL-EDIT', 262144);
+                    await handle.close();
+                } else {
+                    const replacement = `${originalPath}.external`;
+                    await fs.writeFile(replacement, external);
+                    await fs.rename(replacement, originalPath);
+                }
+                await fs.utimes(originalPath, 1700000000, 1700000000);
+            }
+            await fs.rename(source, destination);
+        };
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            rename: renameWithEdit,
+        }));
+        try {
+            const fixture = await prepare('old-original', 'accepted-unsaved-work');
+            originalPath = fixture.originalPath;
+            await writeFile(originalPath, original);
+            await fs.utimes(originalPath, 1700000000, 1700000000);
+            const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+            await refreshWorkingCopyOriginalFileExpectation(fixture.workingCopyPath, 7);
+            const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+            const result = await transitionOriginalAndWorkingCopyRevision({
+                ...fixture,
+                publishedSourcePath: fixture.stagedPath,
+                senderId: 7,
+                reason: 'save-sync',
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, originalPath, 7),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, originalPath, {
+                    ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                    ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                }),
+            });
+            expect(edited).toBe(true);
+            expect(result).toBeNull();
+            expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
+            expect(await readFile(originalPath, 'utf8')).toBe('new-committed-pdf');
+            const retained = (await readdir(tempRoot)).filter(name => name.endsWith('.bak.conflict'));
+            expect(retained).toHaveLength(1);
+            expect((await readFile(join(tempRoot, retained[0]!))).equals(external)).toBe(true);
+            const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
+            await recoverWorkingCopyTransition(fixture.workingCopyPath);
+            expect((await readFile(join(tempRoot, retained[0]!))).equals(external)).toBe(true);
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+    });
+
     it('stops proof reads promptly when save is cancelled and retains both revisions', async () => {
         const fixture = await prepare('old-original', 'accepted-unsaved-work');
         const bytes = Buffer.alloc(4 * 1024 * 1024, 65);

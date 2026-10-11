@@ -1,4 +1,6 @@
-import {rm} from 'node:fs/promises';
+import {
+    rename, rm,
+} from 'node:fs/promises';
 import type {TDocumentRevisionChangeReason} from '@contracts/documentRevision';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {linkOriginalBackup} from '@electron/file-access/linkOriginalBackup';
@@ -13,16 +15,10 @@ import {captureIntendedContentFingerprint} from '@electron/file-access/workingCo
 import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
-import type {IOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
+import {
+    assertPathMatchesSaveWitnessSnapshot, type IOriginalPathSaveWitness,
+} from '@electron/file-access/originalPathSaveWitness';
 import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
-
-async function measureTransitionPhase<T>(
-    phase: string,
-    onPhase: ((phase: string, durationMs: number) => void) | undefined,
-    operation: () => Promise<T>,
-): Promise<T> {
-    return measureOperationPhase(operation, durationMs => onPhase?.(phase, durationMs));
-}
 
 export async function transitionOriginalAndWorkingCopyRevision(input: {
     workingCopyPath: string;
@@ -31,24 +27,22 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     senderId?: number;
     signal?: AbortSignal;
     captureOriginalWitness?: () => Promise<IOriginalPathSaveWitness | null>;
-    publishOriginal: (assertDestinationCurrent?: () => Promise<void>) => Promise<void>;
+    publishOriginal: (assertDestinationCurrent?: () => Promise<void>, destinationBackupPath?: string) => Promise<void>;
     publishedSourcePath: string;
     afterWorkingCopySync?: () => Promise<void>;
     afterOriginalRestore?: () => Promise<void>;
     onPhase?: (phase: string, durationMs: number) => void;
 }) {
-    await measureTransitionPhase('transition-materialize', input.onPhase, () =>
+    const measurePhase = <T>(phase: string, operation: () => Promise<T>) =>
+        measureOperationPhase(operation, durationMs => input.onPhase?.(phase, durationMs));
+    await measurePhase('transition-materialize', () =>
         ensureWorkingCopyMaterialized(input.workingCopyPath, {
             ...(input.senderId === undefined ? {} : {ownerWebContentsId: input.senderId}),
             reason: 'first-mutation',
         }));
     return withOriginalPathMutationLock(input.originalPath, async () => {
         const witness = input.captureOriginalWitness
-            ? await measureTransitionPhase(
-                'transition-admit-original',
-                input.onPhase,
-                input.captureOriginalWitness,
-            )
+            ? await measurePhase('transition-admit-original', input.captureOriginalWitness)
             : null;
         input.signal?.throwIfAborted();
         if (input.captureOriginalWitness && !witness) {
@@ -57,15 +51,13 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         const originalBackupPath = createOriginalTransitionBackupPath(input.originalPath, input.workingCopyPath);
         let backupCreated = false as boolean;
         let committed = false as boolean;
-        let shouldRestoreOriginal = false as boolean;
-        let originalRestoredByRollback = false as boolean;
         let journal = null as IWorkingCopyJournal | null;
         try {
             input.signal?.throwIfAborted();
-            await measureTransitionPhase('transition-backup-original', input.onPhase, () =>
+            await measurePhase('transition-backup-original', () =>
                 linkOriginalBackup(witness, input.originalPath, originalBackupPath));
             backupCreated = true;
-            await measureTransitionPhase('transition-rebase-original-witness', input.onPhase, async () =>
+            await measurePhase('transition-rebase-original-witness', async () =>
                 witness?.rebaseOnUnchangedContent(undefined, input.signal));
             input.signal?.throwIfAborted();
             const event = await transitionWorkingCopyContentRevision(
@@ -80,47 +72,46 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         ...(witness === null ? {} : {preparedSnapshot: witness.getSnapshotForJournal()}),
                         ...(witness === null ? {} : {intendedFingerprint: await captureIntendedContentFingerprint(input.publishedSourcePath, input.signal)}),
                     } as const;
-                    await measureTransitionPhase('transition-journal-prepared', input.onPhase, () =>
+                    await measurePhase('transition-journal-prepared', () =>
                         recordWorkingCopyJournalOriginal(transitionJournal, original));
-                    await measureTransitionPhase(
-                        'transition-rebase-original-witness-after-working-backup',
-                        input.onPhase,
-                        async () => witness?.rebaseOnUnchangedContent(undefined, input.signal),
-                    );
-                    shouldRestoreOriginal = true;
-                    await measureTransitionPhase('transition-publish-original', input.onPhase, () =>
+                    await measurePhase('transition-rebase-original-witness-after-working-backup',
+                        async () => witness?.rebaseOnUnchangedContent(undefined, input.signal));
+                    await measurePhase('transition-publish-original', () =>
                         input.publishOriginal(witness ? async () => {
                             input.signal?.throwIfAborted();
                             await witness.assertCurrent();
                             input.signal?.throwIfAborted();
-                        } : undefined));
-                    await measureTransitionPhase(
-                        'transition-rebase-original-witness-after-publish',
-                        input.onPhase,
-                        async () => witness?.rebaseAfterPublish(),
-                    );
-                    await measureTransitionPhase('transition-journal-original-published', input.onPhase, () =>
+                        } : undefined, witness ? originalBackupPath : undefined));
+                    if (witness) {
+                        try {
+                            await assertPathMatchesSaveWitnessSnapshot(originalBackupPath, original.preparedSnapshot!, {contentOnly: true});
+                        } catch (error) {
+                            const backupPath = `${originalBackupPath}.conflict`;
+                            await rename(originalBackupPath, backupPath);
+                            await recordWorkingCopyJournalOriginal(transitionJournal, {
+                                ...original,
+                                backupPath,
+                                state: 'conflicted',
+                            });
+                            throw error;
+                        }
+                    }
+                    await measurePhase('transition-rebase-original-witness-after-publish', async () => witness?.rebaseAfterPublish());
+                    await measurePhase('transition-journal-original-published', () =>
                         recordWorkingCopyJournalOriginal(transitionJournal, {
                             ...original,
                             state: 'published',
                             ...(witness === null ? {} : {publishedSnapshot: witness.getSnapshotForJournal()}),
                         }));
-                    await measureTransitionPhase('transition-sync-working-copy', input.onPhase, () =>
+                    await measurePhase('transition-sync-working-copy', () =>
                         copyFileAtomic(input.originalPath, input.workingCopyPath, {onPhase: (phase, durationMs) => input.onPhase?.(
                             `transition-sync-working-copy-${phase}`,
                             durationMs,
                         )}));
-                    await measureTransitionPhase(
-                        'transition-rebase-original-witness-after-working-sync',
-                        input.onPhase,
-                        async () => witness?.assertCurrent({allowBackupMetadataChange: true}),
-                    );
+                    await measurePhase('transition-rebase-original-witness-after-working-sync',
+                        async () => witness?.assertCurrent({allowBackupMetadataChange: true}));
                     if (input.afterWorkingCopySync) {
-                        await measureTransitionPhase(
-                            'transition-after-working-copy-sync',
-                            input.onPhase,
-                            input.afterWorkingCopySync,
-                        );
+                        await measurePhase('transition-after-working-copy-sync', input.afterWorkingCopySync);
                     }
                 },
                 input.senderId,
@@ -131,37 +122,37 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             return event;
         } catch (error) {
             if (error instanceof OriginalPathSaveConflictError) {
-                shouldRestoreOriginal = false;
+                if (journal?.original && journal.original.state !== 'conflicted') {
+                    await recordWorkingCopyJournalOriginal(journal, {
+                        ...journal.original,
+                        state: 'restored',
+                    });
+                }
                 return null;
             }
             throw error;
         } finally {
             try {
-                if (!committed && shouldRestoreOriginal && backupCreated) {
+                if (!committed && backupCreated && journal?.original
+                    && (journal.original.state === 'prepared' || journal.original.state === 'published')) {
                     const restoreOptions = witness === null
                         ? {}
                         : {assertDestinationCurrent: () => witness.assertCurrent({allowBackupMetadataChange: true})};
                     await copyFileAtomic(originalBackupPath, input.originalPath, restoreOptions);
-                    originalRestoredByRollback = true;
-                    if (journal?.original) {
+                    try {
                         await recordWorkingCopyJournalOriginal(journal, {
                             ...journal.original,
                             state: 'restored',
                         });
+                    } finally {
+                        await input.afterOriginalRestore?.();
                     }
                 }
             } finally {
-                try {
-                    if (originalRestoredByRollback) {
-                        await input.afterOriginalRestore?.();
-                    }
-                } finally {
-                    if (!committed && (!shouldRestoreOriginal || originalRestoredByRollback)) {
-                        // Recovery finishes a clean rollback now; if the working copy cannot be
-                        // restored, the journal stays. A backup the journal never named is ours alone.
-                        await (journal && recoverWorkingCopyTransition(input.workingCopyPath).catch(() => undefined));
-                        await (journal?.original ? undefined : rm(originalBackupPath, {force: true}));
-                    }
+                if (!committed && (!journal?.original || journal.original.state === 'restored' || journal.original.state === 'conflicted')) {
+                    // Recovery keeps failed rollbacks. An unjournaled backup is ours alone.
+                    await (journal && recoverWorkingCopyTransition(input.workingCopyPath).catch(() => undefined));
+                    await (journal?.original ? undefined : rm(originalBackupPath, {force: true}));
                 }
             }
         }
