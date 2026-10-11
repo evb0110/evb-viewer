@@ -1,7 +1,10 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
 
 import {
+    chmod,
+    link,
     mkdtemp,
+    open,
     rm,
     stat,
     symlink,
@@ -75,7 +78,10 @@ const {
     captureOriginalPathSaveWitness,
     originalPathSaveBaseMatches,
 } = await import('@electron/file-access/originalPathSaveWitness');
-const {OriginalPathSaveConflictError} = await import('@electron/file-access/originalPathSnapshot');
+const {
+    hashContentFingerprintFilePath,
+    OriginalPathSaveConflictError,
+} = await import('@electron/file-access/originalPathSnapshot');
 
 async function captureExpectation(path: string) {
     const fileStat = await stat(path, {bigint: true});
@@ -459,6 +465,67 @@ describe('originalPathSaveBaseMatches', () => {
     });
 });
 
+describe('captureOriginalPathSaveWitness rebase', () => {
+    let tempDir = '';
+
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        tempDir = await mkdtemp(join(tmpdir(), 'save-witness-rebase-test-'));
+    });
+
+    afterEach(async () => {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        });
+    });
+
+    it('refuses an unsampled in-place edit whose mtime was restored when the saved original is rebased', async () => {
+        const originalPath = join(tempDir, 'unsampled-edit.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 65));
+        const wholeSecond = Math.floor(Number((await stat(originalPath, {bigint: true})).mtimeNs) / 1e9);
+        await utimes(originalPath, wholeSecond, wholeSecond);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+
+        // Offset 262144 lies outside the head, middle and tail samples.
+        const handle = await open(originalPath, 'r+');
+        await handle.write('EXTERNAL-EDIT', 262144);
+        await handle.close();
+        await utimes(originalPath, wholeSecond, wholeSecond);
+
+        await expect(witness!.assertCurrent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+        await expect(witness!.rebaseOnUnchangedContent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+
+    it('rebases over the save\'s own backup link when the admitted content still matches', async () => {
+        const originalPath = join(tempDir, 'metadata-only.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 66));
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+
+        await link(originalPath, join(tempDir, 'backup.pdf'));
+        await chmod(originalPath, 0o600);
+
+        await expect(witness!.rebaseOnUnchangedContent()).resolves.toBeUndefined();
+        await expect(witness!.assertCurrent()).resolves.toBeUndefined();
+    });
+
+    it('refuses a metadata-only change that is not the backup link', async () => {
+        const originalPath = join(tempDir, 'metadata-only-no-link.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 67));
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+
+        await chmod(originalPath, 0o600);
+
+        await expect(witness!.rebaseOnUnchangedContent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+});
+
 describe('captureOpenSourceWitness', () => {
     let tempDir = '';
 
@@ -483,6 +550,42 @@ describe('captureOpenSourceWitness', () => {
 
         expect(error).toMatchObject({code: 'ENOENT'});
         expect(error).not.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+
+    it('refuses an unsampled in-place edit whose mtime was restored when an open has no copy proof', async () => {
+        const originalPath = join(tempDir, 'open-unsampled-edit.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 68));
+        const wholeSecond = Math.floor(Number((await stat(originalPath, {bigint: true})).mtimeNs) / 1e9);
+        await utimes(originalPath, wholeSecond, wholeSecond);
+        const witness = await captureOpenSourceWitness(originalPath);
+
+        // Offset 262144 lies outside the head, middle and tail samples.
+        const handle = await open(originalPath, 'r+');
+        await handle.write('EXTERNAL-EDIT', 262144);
+        await handle.close();
+        await utimes(originalPath, wholeSecond, wholeSecond);
+
+        await expect(witness.rebaseOnUnchangedContent({
+            kind: 'open-copy',
+            source: null,
+        }))
+            .rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+    });
+
+    it('accepts a metadata-only move of an open when the copy hashed the same bytes', async () => {
+        const originalPath = join(tempDir, 'open-metadata-only.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 69));
+        const witness = await captureOpenSourceWitness(originalPath);
+        const contentFingerprint = await hashContentFingerprintFilePath(originalPath, BigInt(1024 * 1024));
+
+        await chmod(originalPath, 0o600);
+
+        await expect(witness.rebaseOnUnchangedContent({
+            kind: 'open-copy',
+            source: {contentFingerprint},
+        }))
+            .resolves.toBeUndefined();
+        await expect(witness.rebaseOnUnchangedContent({kind: 'open-rewrite'})).resolves.toBeUndefined();
     });
 
     it('reports a source swapped while witnessing as a conflict', async () => {

@@ -1,9 +1,7 @@
 import {rm} from 'node:fs/promises';
 import type {TDocumentRevisionChangeReason} from '@contracts/documentRevision';
-import {
-    copyFileAtomic,
-    linkOrCopyFileDurably,
-} from '@electron/file-access/documentFileWriteAtomic';
+import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
+import {linkOriginalBackup} from '@electron/file-access/linkOriginalBackup';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
 import {
     createOriginalTransitionBackupPath,
@@ -66,7 +64,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             input.signal?.throwIfAborted();
             try {
                 await measureTransitionPhase('transition-backup-original', input.onPhase, () =>
-                    linkOrCopyFileDurably(input.originalPath, originalBackupPath));
+                    linkOriginalBackup(witness, input.originalPath, originalBackupPath));
             } catch (error) {
                 await witness?.assertCurrent();
                 throw error;

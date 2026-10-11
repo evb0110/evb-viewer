@@ -15,6 +15,7 @@ import {
 } from '@electron/file-access/readWorkingCopyManifest';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {
+    captureAdmittedPathSnapshot,
     capturePathSnapshot,
     hashContentFingerprintFilePath,
     type IOriginalPathSaveJournalSnapshot,
@@ -33,7 +34,7 @@ export interface IOriginalPathSaveWitness {
     assertCurrent: (options?: {allowBackupMetadataChange?: boolean}) => Promise<void>;
     getOriginalFileExpectation: () => IWorkingCopyOriginalFileExpectation;
     getSnapshotForJournal: () => IOriginalPathSaveJournalSnapshot;
-    rebaseOnUnchangedContent: () => Promise<void>;
+    rebaseOnUnchangedContent: (proof?: Parameters<typeof rebaseUnchangedSnapshot>[2]) => Promise<void>;
     rebaseAfterPublish: () => Promise<void>;
 }
 
@@ -175,9 +176,9 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         }
     }
 
-    async rebaseOnUnchangedContent() {
+    async rebaseOnUnchangedContent(proof: Parameters<typeof rebaseUnchangedSnapshot>[2] = {kind: 'own-backup-link'}) {
         try {
-            this.snapshot = await rebaseUnchangedSnapshot(this.originalPath, this.snapshot);
+            this.snapshot = await rebaseUnchangedSnapshot(this.originalPath, this.snapshot, proof);
         } catch (error) {
             rethrowWitnessSnapshotError(error);
         }
@@ -185,8 +186,7 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
 
     async rebaseAfterPublish() {
         try {
-            const snapshot = await capturePathSnapshot(this.originalPath);
-            snapshot.contentFingerprint = await hashContentFingerprintFilePath(this.originalPath, snapshot.size);
+            const snapshot = await captureAdmittedPathSnapshot(this.originalPath);
             if (!snapshotsMatch(snapshot, await capturePathSnapshot(this.originalPath))) {
                 throw new OriginalPathSaveConflictError();
             }
@@ -200,7 +200,6 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         return serializeSnapshot(this.snapshot);
     }
 
-    /** The witnessed revision as the save baseline a working copy registers. */
     getOriginalFileExpectation(): IWorkingCopyOriginalFileExpectation {
         return {
             ctimeNs: this.snapshot.ctimeNs.toString(),
@@ -282,7 +281,7 @@ export async function captureOriginalPathSaveWitness(
     }
 
     try {
-        const snapshot = await capturePathSnapshot(originalPath);
+        const snapshot = await captureAdmittedPathSnapshot(originalPath, expected, signal);
         const originalStat = await lstat(originalPath, {bigint: true});
         const expectationStatMatches = expectationMatchesStat(expected, originalStat);
         let contentFingerprintVerified = false;

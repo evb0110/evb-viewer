@@ -264,7 +264,9 @@ interface ICopyFromStableSourceOptions {fingerprintSource?: boolean;}
  * reject publishing an older handle after the source path was replaced.
  *
  * With `fingerprintSource`, returns the content fingerprint of the bytes read
- * when the source's identity, ctime included, held from open to the end.
+ * when the source's identity held from open to the end, with the stat taken at
+ * open. A ctime move during the copy is reported through that stat, so only a
+ * caller whose baseline still has that ctime may use the fingerprint.
  */
 export async function copyFileFromStableSource(
     sourcePath: string,
@@ -318,11 +320,9 @@ export async function copyFileFromStableSource(
         }
         copied = true;
         return hash
-            && currentHandleStat.ctimeNs === sourceStat.ctimeNs
-            && currentPathStat.ctimeNs === sourceStat.ctimeNs
             ? {
                 contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
-                sourceStat: currentHandleStat,
+                sourceStat,
             }
             : null;
     } finally {

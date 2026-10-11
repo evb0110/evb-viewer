@@ -102,13 +102,6 @@ async function measureWorkingCopyPhase<T>(
     }
 }
 
-function resolveWorkingCopyRoleForPathClone(
-    sourcePath: string,
-    ownerWebContentsId?: number,
-): TWorkingCopyRole {
-    return getWorkingCopyOriginalPath(sourcePath, ownerWebContentsId) ? 'snapshot' : 'current';
-}
-
 async function decryptPdfWorkingCopy(
     workingPath: string,
     password: string | undefined,
@@ -150,7 +143,7 @@ function normalizeWorkingCopyAppendBase(
         normalizePdfAppendBase(sourcePath, workingPath, options));
 }
 
-async function createWorkingCopyWithOutcomeInternal(
+export async function createWorkingCopyWithOutcome(
     originalPath: TOpenPath,
     ownerWebContentsId?: number,
     password?: string,
@@ -232,9 +225,26 @@ async function createWorkingCopyWithOutcomeInternal(
 
         // Only the content has to be the one that was copied. macOS writes
         // extended attributes (macl, lastuseddate, quarantine) as it hands a
-        // file to an app, which moves ctime alone; the baseline takes them.
+        // file to an app, which moves ctime alone; a moved ctime is accepted
+        // only with the copy's bytes as proof, and an unchanged one needs none.
+        const copyProof = copiedSourceFingerprint
+            ? {
+                kind: 'open-copy' as const,
+                source: {contentFingerprint: copiedSourceFingerprint.contentFingerprint},
+            }
+            : backingState === 'cloned'
+                ? {
+                    kind: 'open-copy' as const,
+                    source: {path: workingPath},
+                }
+                : backingState === 'lazy-original'
+                    ? {
+                        kind: 'open-copy' as const,
+                        source: null,
+                    }
+                    : {kind: 'open-rewrite' as const};
         await measureWorkingCopyPhase(phaseTimings, 'source-witness-check', async () =>
-            sourceWitness?.rebaseOnUnchangedContent());
+            sourceWitness?.rebaseOnUnchangedContent(copyProof));
         await measureWorkingCopyPhase(phaseTimings, 'register-source', () => setWorkingCopyOriginalPath(
             workingPath,
             originalPath,
@@ -275,22 +285,6 @@ async function createWorkingCopyWithOutcomeInternal(
             ? new DocumentOpenRefusalError('source-changed', 'The original document changed while it was being opened', {cause: error})
             : error;
     }
-}
-
-export async function createWorkingCopyWithOutcome(
-    originalPath: TOpenPath,
-    ownerWebContentsId?: number,
-    password?: string,
-    signal?: AbortSignal,
-    admitRewrite?: () => Promise<void>,
-) {
-    return createWorkingCopyWithOutcomeInternal(
-        originalPath,
-        ownerWebContentsId,
-        password,
-        signal,
-        admitRewrite,
-    );
 }
 
 export async function createWorkingCopy(
@@ -348,7 +342,7 @@ export async function createWorkingCopyFromPath(
             );
         }
 
-        const role = options.role ?? resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
+        const role = options.role ?? (getWorkingCopyOriginalPath(sourcePath, ownerWebContentsId) ? 'snapshot' : 'current');
         if (mappedOriginalPath) {
             await setWorkingCopyOriginalPath(workingPath, mappedOriginalPath, ownerWebContentsId, {
                 backingState: 'eager',

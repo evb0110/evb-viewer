@@ -894,7 +894,7 @@ describe('workingCopy', () => {
         }
     });
 
-    it('leaves the fingerprint to the registration scan when the source changes under the eager copy', async () => {
+    it('refuses the open when the source changes under the eager copy', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         const originalPath = join(tempRoot, 'eager-changing-original.pdf');
         const originalBytes = Buffer.concat([
@@ -947,19 +947,11 @@ describe('workingCopy', () => {
         try {
             const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
             const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
-            const {
-                getWorkingCopyBackingEntry,
-                getWorkingCopyOriginalFileExpectation,
-            } = await import('@electron/file-access/workingCopyStore');
-            const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
-
-            const workingPath = await createWorkingCopy(allowOpenPath(originalPath)!, 7);
-
+            // The copy holds the bytes it read before the change; the fresh read
+            // of the original no longer matches them, so the open is refused.
+            await expect(createWorkingCopy(allowOpenPath(originalPath)!, 7))
+                .rejects.toMatchObject({code: 'source-changed'});
             expect(changed).toBe(true);
-            await waitUntilDone(() => getWorkingCopyBackingEntry(workingPath, 7)?.originalFileExpectationAbortController === undefined);
-            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(
-                `sha256-full-v1:${createOriginalFileContentFingerprintHash(changedBytes.byteLength).update(changedBytes).digest('hex')}`,
-            );
         } finally {
             vi.doUnmock('fs/promises');
             vi.doUnmock('@electron/file-access/workingCopyDecryption');
