@@ -425,6 +425,7 @@ export async function atomicReplace(
             const backupPath = `${dst}.bak-${randomSuffix()}`;
             let hasBackup = false;
             try {
+                await options.assertDestinationCurrent?.();
                 await rename(dst, backupPath);
                 hasBackup = true;
                 await rename(srcTemp, dst);
@@ -461,6 +462,9 @@ export async function atomicReplace(
 
         let hasBackup = false;
         try {
+            // The witnesses above describe the bytes present now. The admitted
+            // original is checked again right before it is moved aside.
+            await options.assertDestinationCurrent?.();
             await rename(dst, backupPath);
             hasBackup = true;
             await rename(srcTemp, dst);

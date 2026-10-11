@@ -1,3 +1,5 @@
+import type * as TFsPromisesOriginalModule from 'fs/promises';
+import type * as TNodeCryptoOriginalModule from 'node:crypto';
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyMutationCommitSignal';
 
 import {
@@ -32,9 +34,13 @@ const mocks = vi.hoisted(() => ({
 
 const originalPlatform = process.platform;
 
-vi.mock('node:crypto', () => ({ randomBytes: () => Buffer.from('fixed-id') }));
+vi.mock('node:crypto', async (importOriginal) => ({
+    ...(await importOriginal<typeof TNodeCryptoOriginalModule>()),
+    randomBytes: () => Buffer.from('fixed-id'),
+}));
 
-vi.mock('fs/promises', () => ({
+vi.mock('fs/promises', async (importOriginal) => ({
+    ...(await importOriginal<typeof TFsPromisesOriginalModule>()),
     open: (...args: unknown[]) => mocks.open(...args),
     readFile: (...args: unknown[]) => mocks.readFile(...args),
     rename: (...args: unknown[]) => mocks.rename(...args),
@@ -251,5 +257,43 @@ describe('atomicReplace', () => {
         })).resolves.toBeUndefined();
 
         expect(mocks.rename).toHaveBeenCalledWith('C:\\scratch\\page.part.png', 'C:\\scratch\\page-1-150.png');
+    });
+
+    it.each([
+        'extract.pdf',
+        'extract.txt',
+    ])('refuses to move aside a %s that changed after the first replacement was refused', async (name) => {
+        setPlatform('win32');
+        const root = mkdtempSync(join(tmpdir(), 'evb-atomic-replace-fallback-'));
+        try {
+            const destinationPath = join(root, name);
+            const sourcePath = join(root, 'staged.tmp');
+            writeFileSync(destinationPath, 'OPENED-REVISION');
+            writeFileSync(sourcePath, 'EVB-REVISION');
+            const actualFs = await vi.importActual<typeof TFsPromisesOriginalModule>('fs/promises');
+            mocks.open.mockImplementation(actualFs.open);
+            mocks.rename.mockImplementationOnce(async () => {
+                // Another editor writes its revision while the first attempt is refused.
+                writeFileSync(destinationPath, 'OTHER-EDITOR-REVISION');
+                throw Object.assign(new Error('sharing violation'), {code: 'EBUSY'});
+            });
+            mocks.rename.mockImplementation(actualFs.rename);
+            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const witness = await capturePathSaveWitness(destinationPath);
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+
+            const assertDestinationCurrent = () => witness!.assertCurrent();
+
+            await expect(atomicReplace(sourcePath, destinationPath, {assertDestinationCurrent}))
+                .rejects.toThrow('Original file changed on disk');
+
+            expect(readFileSync(destinationPath, 'utf8')).toBe('OTHER-EDITOR-REVISION');
+            expect(readFileSync(sourcePath, 'utf8')).toBe('EVB-REVISION');
+        } finally {
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
     });
 });
