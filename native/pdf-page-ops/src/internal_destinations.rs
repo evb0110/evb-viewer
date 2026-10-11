@@ -13,7 +13,7 @@ const MAX_NAME_TREE_DEPTH: usize = 32;
 pub(crate) fn remap_internal_destination(
     source: &Document,
     destination: &Object,
-    pages: &[crate::text_layer::OverlayPage<'_>],
+    pages: &[crate::overlay_sources::OverlayPage<'_>],
 ) -> Result<Option<Object>> {
     let Some(mut destination) = resolve_destination(source, destination)? else {
         return Ok(None);

@@ -53,6 +53,7 @@ mod shapes;
 mod split_pages;
 mod terminal_xref;
 mod text_box_font;
+mod overlay_sources;
 mod text_layer;
 mod types;
 
@@ -107,6 +108,7 @@ pub(crate) use shape_index::*;
 pub(crate) use shapes::*;
 pub(crate) use split_pages::*;
 pub(crate) use terminal_xref::*;
+pub(crate) use overlay_sources::*;
 pub(crate) use text_layer::*;
 pub(crate) use types::*;
 
