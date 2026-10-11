@@ -626,6 +626,33 @@ describe('captureOriginalPathSaveWitness rebase', () => {
         expect((await readFile(originalPath)).subarray(262144, 262157).toString()).toBe('EXTERNAL-EDIT');
     });
 
+    it('keeps an independent save backup and proves edits made after its capture', async () => {
+        const originalPath = join(tempDir, 'clone-source.pdf');
+        const backupPath = join(tempDir, 'clone-backup.pdf');
+        const bytes = Buffer.alloc(1024 * 1024, 65);
+        await writeFile(originalPath, bytes);
+        await utimes(originalPath, 1700000000, 1700000000);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+        const {linkOriginalBackup} = await import('@electron/file-access/linkOriginalBackup');
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        try {
+            const proof = await linkOriginalBackup(witness, originalPath, backupPath);
+            await witness!.rebaseOnUnchangedContent(proof);
+            expect((await stat(originalPath, {bigint: true})).ino).not.toBe((await stat(backupPath, {bigint: true})).ino);
+            const changed = Buffer.from(bytes);
+            changed.write('EXTERNAL-EDIT', 262144);
+            await writeFile(originalPath, changed);
+            await utimes(originalPath, 1700000000, 1700000000);
+            expect((await readFile(backupPath)).equals(bytes)).toBe(true);
+            await expect(witness!.rebaseOnUnchangedContent(proof)).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+            expect((await readFile(originalPath)).equals(changed)).toBe(true);
+        } finally {
+            delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        }
+    });
+
     it('rebases over the save\'s own backup link when the admitted content still matches', async () => {
         const originalPath = join(tempDir, 'metadata-only.pdf');
         await writeFile(originalPath, Buffer.alloc(1024 * 1024, 66));
