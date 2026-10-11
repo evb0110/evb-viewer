@@ -2,7 +2,7 @@
     <div
         ref="layerRef"
         class="pdf-annotation-editor-layer"
-        :class="{'is-interactive': isInteractive}"
+        :class="{'is-interactive': isInteractive, 'is-text-selecting': pointerGesture.isTextSelecting.value}"
         data-pdf-annotation-editor-surface
         :data-view-rotation="viewRotation"
         :data-pdf-annotation-editor-ready="editorReady ? 'true' : undefined"
@@ -203,7 +203,6 @@ const textBoxRefs = shallowReactive(new Map<AnnotationId, IPdfTextBoxAnnotationE
 let suppressNextClick = false;
 let capturedPointerId: number | null = null;
 let capturedClickAnnotationId: AnnotationId | null = null;
-let textSelectionHitTarget: Element | null = null;
 let unregisterPageInteraction: (() => void) | null = null;
 
 onMounted(() => {
@@ -521,18 +520,11 @@ function capturePointer(event: PointerEvent) {
 }
 
 function caretPositionAtPoint(doc: Document, x: number, y: number) {
-    const target = textSelectionHitTarget;
-    const previousPointerEvents = target instanceof SVGElement ? target.style.pointerEvents : undefined;
-    if (target instanceof SVGElement) target.style.pointerEvents = 'none';
-    try {
-        const caret = doc.caretPositionFromPoint(x, y);
-        return caret ? {
-            node: caret.offsetNode,
-            offset: caret.offset,
-        } : null;
-    } finally {
-        if (target instanceof SVGElement) target.style.pointerEvents = previousPointerEvents ?? '';
-    }
+    const caret = doc.caretPositionFromPoint(x, y);
+    return caret ? {
+        node: caret.offsetNode,
+        offset: caret.offset,
+    } : null;
 }
 
 function selectTextFromPointer(start: {
@@ -837,9 +829,8 @@ function handleSurfacePointerDown(event: PointerEvent) {
             && surface.activeTool.value === 'none'
             && pointerGesture.beginTextSelection(event)
         ) {
-            textSelectionHitTarget = event.target instanceof Element
-                ? event.target.closest('[data-annotation-hit-target]')
-                : null;
+            // This gesture owns selection; a native text drag would cancel it.
+            event.preventDefault();
             capturePointer(event);
             return;
         }
@@ -925,7 +916,6 @@ function handlePointerUp(event: PointerEvent) {
     const textSelection = pointerGesture.finishTextSelection(event);
     if (textSelection) {
         if (textSelection.hasMoved) selectTextFromPointer(textSelection.start, event);
-        textSelectionHitTarget = null;
         releasePointer(event);
         return;
     }
@@ -1050,7 +1040,6 @@ function handleLostPointerCapture(event: PointerEvent) {
 
 function handlePointerCancel(event: PointerEvent) {
     if (pointerGesture.finishTextSelection(event)) {
-        textSelectionHitTarget = null;
         releasePointer(event);
         return;
     }
@@ -1209,7 +1198,6 @@ onBeforeUnmount(() => {
     newTextBoxIds.clear();
     autoSizeTextBoxIds.clear();
     textBoxRefs.clear();
-    textSelectionHitTarget = null;
     pointerGesture.cancel();
 });
 </script>

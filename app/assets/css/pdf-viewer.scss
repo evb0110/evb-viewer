@@ -277,6 +277,7 @@
     inset: 0;
     width: 100%;
     height: 100%;
+    pointer-events: none;
 }
 
 .pdfViewer .pdf-annotation-editor-surface__background {
@@ -301,7 +302,6 @@
 
 .pdfViewer .pdf-annotation-editor-surface__svg {
     overflow: visible;
-    pointer-events: none;
 }
 
 .pdfViewer .pdf-annotation-editor-entity {
@@ -320,7 +320,8 @@
     pointer-events: all;
 }
 
-.pdfViewer.is-selection-markup-tool .pdf-annotation-editor-text-markup [data-annotation-hit-target] {
+.pdfViewer.is-selection-markup-tool .pdf-annotation-editor-text-markup [data-annotation-hit-target],
+.pdfViewer .pdf-annotation-editor-layer.is-text-selecting [data-annotation-hit-target] {
     /* A markup gesture selects document text, including text already marked. */
     pointer-events: none;
 }
@@ -388,10 +389,6 @@
 
 .pdfViewer .pdf-annotation-editor-shape__arrowhead.is-open {
     fill: none;
-}
-
-.pdfViewer .pdf-annotation-editor-surface__html {
-    pointer-events: none;
 }
 
 .pdfViewer .pdf-annotation-editor-text-box,

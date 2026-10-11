@@ -65,6 +65,7 @@ export interface ITextSelectionPointerGesture {
 
 export interface IAnnotationPointerGesture {
     readonly isActive: ComputedRef<boolean>;
+    readonly isTextSelecting: ComputedRef<boolean>;
     readonly mode: ComputedRef<TAnnotationPointerGestureMode | null>;
     readonly resizeHandle: ComputedRef<TAnnotationResizeHandle | null>;
     readonly start: ComputedRef<IAnnotationEditorPoint | null>;
@@ -132,11 +133,12 @@ export const useAnnotationPointerGesture = (
     options: IUseAnnotationPointerGestureOptions,
 ): IAnnotationPointerGesture => {
     const active = shallowRef<IActiveAnnotationPointerGesture | null>(null);
-    let textSelection: {
+    const textSelection = shallowRef<{
         pointerId: number;
         start: IAnnotationPointerEvent;
         hasMoved: boolean
-    } | null = null;
+    } | null>(null);
+    const isTextSelecting = computed(() => textSelection.value !== null);
     const isActive = computed(() => active.value !== null);
     const mode = computed(() => active.value?.mode ?? null);
     const resizeHandle = computed(() => active.value?.handle ?? null);
@@ -263,10 +265,10 @@ export const useAnnotationPointerGesture = (
     }
 
     function beginTextSelection(event: IAnnotationPointerEvent) {
-        if (active.value || textSelection) {
+        if (active.value || textSelection.value) {
             return false;
         }
-        textSelection = {
+        textSelection.value = {
             pointerId: event.pointerId,
             start: {
                 clientX: event.clientX,
@@ -279,19 +281,19 @@ export const useAnnotationPointerGesture = (
     }
 
     function updateTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null {
-        if (textSelection?.pointerId !== event.pointerId) {
+        if (textSelection.value?.pointerId !== event.pointerId) {
             return null;
         }
-        textSelection.hasMoved ||= hasPointerMovedPastThreshold(textSelection.start, event, 6);
+        textSelection.value.hasMoved ||= hasPointerMovedPastThreshold(textSelection.value.start, event, 6);
         return {
-            start: textSelection.start,
-            hasMoved: textSelection.hasMoved,
+            start: textSelection.value.start,
+            hasMoved: textSelection.value.hasMoved,
         };
     }
 
     function finishTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null {
         const gesture = updateTextSelection(event);
-        textSelection = null;
+        textSelection.value = null;
         return gesture;
     }
 
@@ -325,13 +327,14 @@ export const useAnnotationPointerGesture = (
 
     function cancel() {
         active.value = null;
-        textSelection = null;
+        textSelection.value = null;
     }
 
     onScopeDispose(cancel);
 
     return {
         isActive,
+        isTextSelecting,
         mode,
         resizeHandle,
         start,

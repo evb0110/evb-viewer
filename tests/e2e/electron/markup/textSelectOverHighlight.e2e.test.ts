@@ -18,7 +18,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
-    clickAsUser, revealForPointer,
+    activateMenuItemAsUser, clickAsUser, revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
@@ -466,6 +466,71 @@ describe('Electron E2E - Text Select over existing highlight', () => {
                 pressSelected: true,
             })}`);
         }
+    }, 90_000);
+
+    it('copies Hello after a CDP word drag through stacked highlights', async () => {
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, resolve('tests/fixtures/electron/generated-text.pdf'));
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await page.waitForSelector('.page_container[data-page="1"] [data-annotation-hit-target]');
+        const points = await lineDragPoints(page, 'Hello');
+        const stackedTargets = await page.evaluate(({
+            x, y,
+        }) => document.elementsFromPoint(x, y)
+            .filter(element => element.hasAttribute('data-annotation-hit-target')).length, points.start);
+        expect(stackedTargets).toBeGreaterThan(1);
+        await page.evaluate(() => navigator.clipboard.writeText('selection-sentinel'));
+        const cdp = await page.createCDPSession();
+        try {
+            await cdp.send('Input.dispatchMouseEvent', {
+                type: 'mouseMoved',
+                ...points.start,
+                button: 'none',
+                buttons: 0,
+            });
+            await cdp.send('Input.dispatchMouseEvent', {
+                type: 'mousePressed',
+                ...points.start,
+                button: 'left',
+                buttons: 1,
+                clickCount: 1,
+            });
+            for (let step = 1; step <= 12; step += 1) {
+                await cdp.send('Input.dispatchMouseEvent', {
+                    type: 'mouseMoved',
+                    x: points.start.x + (points.end.x - points.start.x) * step / 12,
+                    y: points.start.y,
+                    button: 'left',
+                    buttons: 1,
+                });
+            }
+            await cdp.send('Input.dispatchMouseEvent', {
+                type: 'mouseReleased',
+                ...points.end,
+                button: 'left',
+                buttons: 0,
+                clickCount: 1,
+            });
+        } finally {
+            await cdp.detach();
+        }
+        const selected = await page.evaluate(() => document.getSelection()?.toString() ?? '');
+        if (process.platform === 'darwin') {
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+C'});
+        } else {
+            await page.keyboard.down('Control');
+            await page.keyboard.press('C');
+            await page.keyboard.up('Control');
+        }
+        const copied = await page.evaluate(() => navigator.clipboard.readText());
+        console.log(`STACKED_HIGHLIGHT_SELECTION ${JSON.stringify({
+            stackedTargets,
+            selected,
+            copied,
+        })}`);
+        expect(selected).toBe('Hello');
+        expect(copied).toBe('Hello');
     }, 90_000);
 
 });
