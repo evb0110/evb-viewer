@@ -87,12 +87,14 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
         }
         4 * luminance_sum >= 3 * usize::from(paper) * area
     };
+    let lines = candidates
+        .iter()
+        .filter(|component| is_line(component))
+        .collect::<Vec<_>>();
     let column_line_heights = |component: &Component| {
-        candidates
+        lines
             .iter()
-            .filter(|other| {
-                is_line(other) && other.left <= component.right && component.left <= other.right
-            })
+            .filter(|other| other.left <= component.right && component.left <= other.right)
             .map(|other| other.bottom - other.top + 1)
             .collect::<Vec<_>>()
     };
