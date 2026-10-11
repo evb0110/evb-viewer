@@ -404,8 +404,11 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
             continue;
         }
 
-        while (rangeReadHandles.size >= RANGE_READ_HANDLE_CACHE_LIMIT) {
+        if (rangeReadHandles.size >= RANGE_READ_HANDLE_CACHE_LIMIT) {
+            // Eviction awaits, so another acquisition of this path may have cached or
+            // opened it meanwhile: re-check the cache and pending opens before opening.
             await closeLeastRecentlyUsedRangeReadHandle();
+            continue;
         }
 
         const openPromise = (async () => {
@@ -471,6 +474,7 @@ function acquireRangeReadHandleEntry(
             entry.activeReads -= 1;
             if (!retain) {
                 await requestRangeReadHandleClose(cacheKey, entry);
+                pruneRangeReadPathEpochIfUnused(cacheKey);
             } else if (entry.closeRequested) {
                 await closeRangeReadHandleEntryWhenUnused(entry);
             } else {
@@ -518,6 +522,17 @@ function failOriginalBacking(
 
 function readsThroughOriginal(backingState: string | undefined) {
     return backingState === 'lazy-original' || backingState === 'materializing';
+}
+
+// A read routed before the copy published can finish after it; EVB must not keep
+// a published copy's original open, so only a still-lazy backing retains the handle.
+async function releaseOriginalBackedLease(
+    lease: IRangeReadHandleLease | null,
+    backing: IOriginalBackedRead,
+) {
+    await lease?.release(readsThroughOriginal(
+        getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId)?.backingState,
+    ));
 }
 
 function resolveOriginalBackedRead(
@@ -632,7 +647,7 @@ async function readOriginalBacking(
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     } finally {
-        await lease?.release();
+        await releaseOriginalBackedLease(lease, backing);
     }
     await assertOriginalBackingSnapshot(backing);
     if (totalBytesRead !== size) {
@@ -664,11 +679,7 @@ async function readOriginalBackingRange(
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     } finally {
-        // A read routed before the copy published can finish after it; EVB must
-        // not keep a published copy's original open.
-        await lease?.release(readsThroughOriginal(
-            getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId)?.backingState,
-        ));
+        await releaseOriginalBackedLease(lease, backing);
     }
     await assertOriginalBackingSnapshot(backing);
     return new Uint8Array(buffer.subarray(0, bytesRead));
