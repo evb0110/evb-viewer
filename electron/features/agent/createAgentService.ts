@@ -2,7 +2,9 @@ import {
     BrowserWindow,
     type IpcMainInvokeEvent,
 } from 'electron';
-import type { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
+import {
+    AGENT_PLATFORM_FEATURE, type IAgentEventMap,
+} from '@contracts/agentPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import {
     cancelAgentAssistantLogin,
@@ -23,14 +25,27 @@ import {
     submitAgentWorkspaceSnapshotResponse,
 } from '@electron/features/agent/workspaceBridge';
 
+import {getAllRegisteredAppWindows} from '@electron/window/registry';
+import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
+import {createLogger} from '@electron/utils/createLogger';
+
 export function createAgentService() {
     return {
         getMcpIntegrationStatus: () => getAgentMcpIntegrationStatus(),
-        setMcpIntegrationEnabled: (context, enabled) =>
-            setAgentMcpIntegrationEnabled(
-                enabled,
-                BrowserWindow.fromWebContents(context.sender),
-            ),
+        async setMcpIntegrationEnabled(context, enabled) {
+            const result = await setAgentMcpIntegrationEnabled(enabled, BrowserWindow.fromWebContents(context.sender));
+            // The settings commit precedes server/registration work. Runtime details
+            // become observable only when that operation (including rollback) finishes.
+            for (const window of getAllRegisteredAppWindows()) {
+                sendPlatformEvent<IAgentEventMap, typeof AGENT_PLATFORM_FEATURE.eventChannels.onMcpIntegrationChanged>(
+                    window,
+                    AGENT_PLATFORM_FEATURE.eventChannels.onMcpIntegrationChanged,
+                    result.status,
+                    error => createLogger('agent').warn(`Failed to send MCP runtime status: ${String(error)}`),
+                );
+            }
+            return result;
+        },
         getAssistantState: (_context, request) =>
             getAgentAssistantState(request),
         installAssistantCodex: () => installAgentAssistantCodex(),

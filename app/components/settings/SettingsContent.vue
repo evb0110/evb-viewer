@@ -284,7 +284,11 @@ const {
 
 const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale]);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
-const agentMcpStatus = ref<IAgentMcpIntegrationStatus | null>(null);
+const agentMcpRuntime = ref<Omit<IAgentMcpIntegrationStatus, 'enabled'> | null>(null);
+const agentMcpStatus = computed(() => agentMcpRuntime.value && ({
+    ...agentMcpRuntime.value,
+    enabled: settings.value.agentMcpEnabled,
+}));
 const isAgentMcpBusy = ref(false);
 const assistantState = ref<IAgentAssistantState | null>(null);
 const assistantDeviceCode = ref('');
@@ -780,7 +784,7 @@ async function refreshAgentMcpStatus() {
         if (lifecycle.isDisposed()) {
             return;
         }
-        agentMcpStatus.value = status;
+        agentMcpRuntime.value = status;
     } catch (error) {
         if (lifecycle.isDisposed()) {
             return;
@@ -808,7 +812,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
         if (lifecycle.isDisposed()) {
             return;
         }
-        agentMcpStatus.value = result.status;
+        agentMcpRuntime.value = result.status;
         await load();
         if (lifecycle.isDisposed()) {
             return;
@@ -835,7 +839,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
         try {
             const status = await getAgentCapability().getMcpIntegrationStatus();
             if (!lifecycle.isDisposed()) {
-                agentMcpStatus.value = status;
+                agentMcpRuntime.value = status;
             }
         } catch (statusError) {
             BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', { statusError });
@@ -857,6 +861,13 @@ function openAgentMcpInstall() {
     });
 }
 
+if (isDesktopRuntime.value) {
+    const unsubscribe = getAgentCapability().onMcpIntegrationChanged?.((status) => {
+        agentMcpRuntime.value = status;
+    });
+    onScopeDispose(() => unsubscribe?.());
+}
+
 onMounted(() => {
     if (!isLoaded.value) {
         void retrySettingsLoad();
@@ -869,11 +880,6 @@ onMounted(() => {
             void refreshAssistantState();
         }
     }
-});
-
-// The MCP status comes from main, so a switch saved in another window is read again here.
-watch(() => settings.value.agentMcpEnabled, () => {
-    void refreshAgentMcpStatus();
 });
 
 watch(() => settings.value.assistantPanelEnabled, (enabled) => {

@@ -4,6 +4,7 @@ import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -13,8 +14,13 @@ import {
     createApp,
     defineComponent,
     h,
+    nextTick,
+    ref,
 } from 'vue';
 import { DEFAULT_SETTINGS } from '@contracts/settings';
+import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
+import {createBrowserAgentMcpStatus} from '@app/platform/browser-api/browserAgentCapability';
+import SettingsContent from '@app/components/settings/SettingsContent.vue';
 import SettingsPrivacyPanel from '@app/components/settings/SettingsPrivacyPanel.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -99,5 +105,116 @@ describe('SettingsPrivacyPanel', () => {
         const enabled = mount('granted');
         enabled.host.querySelector('button')?.click();
         expect(enabled.emitted).toEqual(['denied']);
+    });
+});
+
+const synchronizedSettings = ref({
+    ...DEFAULT_SETTINGS,
+    agentMcpEnabled: true,
+});
+const mcpStatusRead = vi.fn<() => Promise<IAgentMcpIntegrationStatus>>();
+const runtimeStatusListeners = new Set<(status: IAgentMcpIntegrationStatus) => void>();
+vi.mock('@app/composables/useSettings', () => ({useSettings: () => ({
+    settings: synchronizedSettings,
+    isLoaded: ref(true),
+    load: async () => undefined,
+    loadOrThrow: async () => undefined,
+    save: async () => true,
+    settingsLoadError: ref(null),
+    settingsLoadFailure: ref(null),
+    settingsSaveError: ref(null),
+    settingsSaveFailure: ref(null),
+    settingsSaveStatus: ref('idle'),
+    updateSetting: vi.fn(),
+})}));
+vi.mock('@app/composables/useRuntimeEnvironment', () => ({useRuntimeEnvironment: () => ({isDesktopRuntime: ref(true)})}));
+vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({
+    discardPendingDiagnostics: vi.fn(),
+    resendPendingDiagnosticOnce: vi.fn(),
+})}));
+vi.mock('@app/composables/useAppUpdates', () => ({useAppUpdates: () => ({
+    checkForUpdates: vi.fn(),
+    ensureInitialized: async () => undefined,
+    isCheckInProgress: ref(false),
+    isUpdateSupported: ref(false),
+})}));
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({presentFailureToast: vi.fn()})}));
+vi.mock('@app/utils/getAgentCapability', () => ({getAgentCapability: () => ({
+    getMcpIntegrationStatus: mcpStatusRead,
+    onAssistantEvent: () => () => undefined,
+    onMcpIntegrationChanged: (listener: (status: IAgentMcpIntegrationStatus) => void) => {
+        runtimeStatusListeners.add(listener);
+        return () => runtimeStatusListeners.delete(listener);
+    },
+})}));
+vi.mock('@app/components/settings/SettingsGeneralPanel.vue', () => ({default: {render: () => h('div')}}));
+vi.mock('@app/components/settings/SettingsPerformancePanel.vue', () => ({default: {render: () => h('div')}}));
+vi.mock('@app/components/settings/SettingsShortcutsPanel.vue', () => ({default: {render: () => h('div')}}));
+vi.mock('@app/components/settings/SettingsUpdatesPanel.vue', () => ({default: {render: () => h('div')}}));
+vi.mock('@app/components/settings/SettingsViewerDefaultsPanel.vue', () => ({default: {render: () => h('div')}}));
+vi.mock('@app/components/settings/SettingsAgentPanel.vue', () => ({default: defineComponent({
+    props: {status: {
+        type: Object,
+        default: null,
+    }},
+    setup: props => () => h('div', [
+        h('span', {'data-mcp-enabled': ''}, String(props.status?.enabled)),
+        h('span', {'data-mcp-running': ''}, String(props.status?.serverRunning)),
+    ]),
+})}));
+
+describe('SettingsContent synchronized MCP status', () => {
+    beforeEach(() => {
+        synchronizedSettings.value = {
+            ...DEFAULT_SETTINGS,
+            agentMcpEnabled: true,
+        };
+        mcpStatusRead.mockReset();
+        runtimeStatusListeners.clear();
+        vi.stubGlobal('useColorMode', () => ({preference: 'light'}));
+        vi.stubGlobal('useToast', () => ({add: vi.fn()}));
+    });
+
+    it('shows a broadcast setting while an earlier MCP status read is pending', async () => {
+        let resolve!: (status: IAgentMcpIntegrationStatus) => void;
+        mcpStatusRead.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(SettingsContent);
+        for (const name of [
+            'UIcon',
+            'UButton',
+            'NuxtLink',
+        ]) {
+            app.component(name, {render: () => h('span')});
+        }
+        app.component('UFormField', FormFieldStub);
+        app.component('USwitch', SwitchStub);
+        app.mount(host);
+        const unmount = () => {
+            app.unmount();
+            host.remove();
+            activeUnmounts.delete(unmount);
+        };
+        activeUnmounts.add(unmount);
+        await nextTick();
+
+        synchronizedSettings.value.agentMcpEnabled = false;
+        await nextTick();
+        resolve({
+            ...createBrowserAgentMcpStatus(),
+            enabled: true,
+        });
+        await vi.waitFor(() => expect(host.querySelector('[data-mcp-enabled]')?.textContent).toBe('false'));
+        for (const listener of runtimeStatusListeners) {
+            listener({
+                ...createBrowserAgentMcpStatus(),
+                enabled: true,
+                serverRunning: true,
+            });
+        }
+        await nextTick();
+        expect(host.querySelector('[data-mcp-enabled]')?.textContent).toBe('false');
+        expect(host.querySelector('[data-mcp-running]')?.textContent).toBe('true');
     });
 });
