@@ -629,28 +629,27 @@ export function createRecoverySnapshotBytes(
     runWithDocumentOperationLease: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>,
 ) {
     async function createRecoverySnapshotBytesUnlocked(recovery?: IWorkspaceCheckpointAnnotationRecovery) {
-        const viewer = deps.pdf.viewer.value;
         const capturedWorkingCopyPath = deps.document.workingCopyPath.value;
         const capturedDocumentRevisionToken = deps.document.revisionToken.value;
         const ownsCapturedDocument = () => (
             deps.document.workingCopyPath.value === capturedWorkingCopyPath
             && deps.document.revisionToken.value === capturedDocumentRevisionToken
         );
-        if (!viewer || !capturedWorkingCopyPath || deps.hasPendingUnsavedChanges?.value !== true) {
-            return null;
-        }
-        if (isNativeDocumentRef(capturedWorkingCopyPath)) {
-            return null;
-        }
+        if (!capturedWorkingCopyPath || capturedDocumentRevisionToken === null
+            || isNativeDocumentRef(capturedWorkingCopyPath)
+            || deps.hasPendingUnsavedChanges?.value !== true) return null;
+        const dirtyState = collectDirtyState(deps);
         // Drafts replay against the unchanged byte base they were captured from.
         // Materializing that base would mint identities the draft does not own.
-        if (recovery) {
-            if (recovery.workingCopyRef !== capturedWorkingCopyPath
-                || recovery.workingByteRevision !== capturedDocumentRevisionToken) return null;
+        // Already committed edits belong to the working copy, not the renderer
+        // being replaced by their reload. Only unapplied edits need a writer.
+        if (recovery || !Object.values(dirtyState).some(Boolean)) {
+            if (recovery && (recovery.workingCopyRef !== capturedWorkingCopyPath
+                || recovery.workingByteRevision !== capturedDocumentRevisionToken)) return null;
             const bytes = await readDocumentBytes(capturedWorkingCopyPath);
             return ownsCapturedDocument() ? bytes : null;
         }
-        const shapeStateDirty = deps.shapes.hasChanges();
+        const shapeStateDirty = dirtyState.shapes;
         const result = await deps.pdf.runSaveTransaction({
             mode: 'snapshot',
             saveMode: 'rewrite',
@@ -663,7 +662,7 @@ export function createRecoverySnapshotBytes(
             ...getNativeSaveTransactionOptions(deps),
             source: {getSourcePdfData: deps.pdf.getSourceData},
         });
-        if (capturedDocumentRevisionToken === null || !ownsCapturedDocument()) return null;
+        if (!ownsCapturedDocument()) return null;
         if (result.verifiedUnchangedWorkingCopy) {
             await result.assertAnnotationSaveCurrent?.();
             const bytes = await readDocumentBytes(capturedWorkingCopyPath);
