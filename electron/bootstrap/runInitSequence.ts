@@ -42,12 +42,11 @@ function normalizeAcknowledgedExternalOpenPaths(paths: string[]) {
     const normalizedPaths: string[] = [];
     const seenPaths = new Set<string>();
     for (const path of paths) {
-        const normalizedPath = path.trim();
-        if (!normalizedPath || seenPaths.has(normalizedPath)) {
+        if (!path || seenPaths.has(path)) {
             continue;
         }
-        seenPaths.add(normalizedPath);
-        normalizedPaths.push(normalizedPath);
+        seenPaths.add(path);
+        normalizedPaths.push(path);
     }
     return normalizedPaths;
 }
@@ -136,7 +135,7 @@ export interface IRunInitSequenceOptions {
     pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
 }
 
-function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
+export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
     const claimsBySender = new Map<WebContents, IStartupExternalOpenClaim>();
 
     function clearClaim(sender: WebContents) {

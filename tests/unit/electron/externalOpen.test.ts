@@ -10,7 +10,11 @@ import {
     createExternalOpenManager,
     createMacOpenFileRouter,
 } from '@electron/bootstrap/externalOpen';
-import { bootSingleInstance } from '@electron/bootstrap/runInitSequence';
+import {
+    bootSingleInstance,
+    createStartupExternalOpenClaimTracker,
+} from '@electron/bootstrap/runInitSequence';
+import { createTestEventSender } from '@tests/helpers/electronEventEmitterHarness';
 
 const mocks = vi.hoisted(() => ({existsSync: vi.fn((_path: string) => true)}));
 
@@ -412,6 +416,28 @@ describe('createExternalOpenManager', () => {
         expect(harness.dispatchOpenPaths).toHaveBeenCalledTimes(1);
         expect(harness.dispatchOpenPaths).toHaveBeenCalledWith(['/docs/startup.pdf']);
         expect(harness.logger.warn).toHaveBeenCalledWith('Requeued 1 failed startup external open path(s)');
+    });
+
+    it('redelivers a failed trailing-space startup path at once, not at the claim timeout', async () => {
+        vi.useFakeTimers();
+        const harness = createManagerHarness({ isRendererReady: false });
+        const startupClaims = createStartupExternalOpenClaimTracker({
+            externalOpenManager: harness.manager,
+            logger: harness.logger,
+        });
+        const sender = createTestEventSender(1) as never;
+        const exactPath = '/docs/report.pdf ';
+
+        harness.manager.markBootstrapReady();
+        harness.manager.queueOpenRequest([exactPath]);
+        startupClaims.track(sender, await harness.manager.claimPendingOpenPaths());
+
+        startupClaims.acknowledge(sender, [exactPath]);
+        harness.setRendererReady(true);
+        harness.manager.scheduleFlushPendingFiles();
+        await vi.advanceTimersByTimeAsync(800);
+
+        expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([exactPath]);
     });
 
     it('does not claim unsupported or missing startup paths for capability grants', async () => {
