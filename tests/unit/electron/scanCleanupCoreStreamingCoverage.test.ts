@@ -6,6 +6,8 @@ import {
     readFile,
     readdir,
     rm,
+    stat,
+    utimes,
     writeFile,
 } from 'node:fs/promises';
 import {
@@ -1515,9 +1517,13 @@ describe('scan-cleanup-core conversion coverage', () => {
             outputMappings: [],
             pages: [],
         }));
-        // The overlay writes the source text into a larger file.
+        // The overlay writes the source text into a larger file, and keeps the staged file's modification time.
+        const overlayText = '%PDF-1.7\n% source text\n%%EOF\n';
         const runCommand = vi.fn(async (_command: string, args: string[]) => {
-            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n% source text\n%%EOF\n');
+            const outputPath = args[args.indexOf('--output') + 1]!;
+            await writeFile(outputPath, overlayText);
+            const stagedNow = await stat(stagedPdfPath);
+            await utimes(outputPath, stagedNow.atime, stagedNow.mtime);
             return {
                 exitCode: 0,
                 stdout: '',
@@ -1561,6 +1567,17 @@ describe('scan-cleanup-core conversion coverage', () => {
         await expect(overlay()).resolves.toBe(true);
         const report = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};
         expect(report.outputBytes).toBe(statSync(stagedPdfPath).size);
+
+        // A rewrite that keeps the size and the modification time is still measured.
+        await writeFile(stagedPdfPath, '%PDF-1.7\n% staged text\n%%EOF\n');
+        await utimes(stagedPdfPath, 1_700_000_000, 1_700_000_000);
+        const staged = statSync(stagedPdfPath);
+        await writeReport(1_000);
+        await expect(overlay()).resolves.toBe(true);
+        expect(statSync(stagedPdfPath).size).toBe(staged.size);
+        expect(statSync(stagedPdfPath).mtimeMs).toBe(staged.mtimeMs);
+        const sameSizeReport = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};
+        expect(sameSizeReport.outputBytes).toBe(staged.size);
 
         // A file the overlay grew past the compact-source budget is refused.
         await writeFile(stagedPdfPath, '%PDF-1.7\n%%EOF\n');

@@ -22,12 +22,11 @@ export async function overlayScanCleanupTextLayerAndMeasure(
 ) {
     const stagedPdfPath = args[3];
     const scratch = args[4];
-    const before = await stat(stagedPdfPath);
-    await overlayScanCleanupTextLayer(...args);
-    const after = await stat(stagedPdfPath);
-    if (after.ino === before.ino && after.size === before.size && after.mtimeMs === before.mtimeMs) {
+    const rewritten = await overlayScanCleanupTextLayer(...args);
+    if (!rewritten) {
         return false;
     }
+    const after = await stat(stagedPdfPath);
     const reportPath = join(scratch, 'scan-cleanup-representation-report.json');
     const report = JSON.parse(await readFile(reportPath, 'utf8')) as IScanCleanupRepresentationReport;
     report.outputBytes = after.size;
