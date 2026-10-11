@@ -71,6 +71,10 @@ pub(crate) fn materialize_annotation_appearance_streams(
             if *stopped {
                 continue;
             }
+            // An earlier appearance loaded this shared stream and charged it.
+            if !incremental.unavailable_base_streams.contains(object_id) {
+                continue;
+            }
             let max_bytes = (*appearance_remaining).min(remaining);
             let Some(bytes) = bytes_by_object
                 .remove(object_id)
@@ -173,8 +177,8 @@ fn managed_stamp_stream_refs(document: &impl PdfObjectSource) -> Result<Vec<(Obj
 /// One group per note-thread appearance: the note's, its popup's and each
 /// reply's normal appearance, following the same `/IRT` and `/Popup` links
 /// that parsing and note recovery follow. A group lists the unread streams
-/// its appearance draws on, with each stream's declared size. A stream shared
-/// by two appearances is read once, in the first group.
+/// its appearance draws on, with each stream's declared size. Every group walks
+/// its complete dependencies, so a stream shared by two appearances is listed in both.
 fn note_appearance_groups(document: &impl PdfObjectSource) -> Result<Vec<Vec<(ObjectId, usize)>>> {
     let mut page_annotations = Vec::new();
     for page_id in document.page_ids().into_values() {
@@ -196,7 +200,6 @@ fn note_appearance_groups(document: &impl PdfObjectSource) -> Result<Vec<Vec<(Ob
         }
     }
 
-    let mut claimed_streams = HashSet::new();
     let mut groups = Vec::new();
     for note_id in &page_annotations {
         let Ok(note) = document.dictionary(*note_id) else {
@@ -216,8 +219,7 @@ fn note_appearance_groups(document: &impl PdfObjectSource) -> Result<Vec<Vec<(Ob
                 continue;
             };
             for appearance_id in note_appearance_stream_refs(document, member) {
-                let group =
-                    unread_appearance_streams(document, appearance_id, &mut claimed_streams);
+                let group = unread_appearance_streams(document, appearance_id);
                 if !group.is_empty() {
                     groups.push(group);
                 }
@@ -239,7 +241,6 @@ fn note_appearance_groups(document: &impl PdfObjectSource) -> Result<Vec<Vec<(Ob
 fn unread_appearance_streams(
     document: &impl PdfObjectSource,
     root: ObjectId,
-    claimed_streams: &mut HashSet<ObjectId>,
 ) -> Vec<(ObjectId, usize)> {
     let mut streams = Vec::new();
     let mut visited = HashSet::new();
@@ -256,11 +257,7 @@ fn unread_appearance_streams(
         };
         let dict = match object {
             Object::Stream(stream) => {
-                if claimed_streams.contains(&object_id) {
-                    continue;
-                }
                 if is_unread_base_stream(document, stream) {
-                    claimed_streams.insert(object_id);
                     streams.push((object_id, declared_stream_bytes(document, stream)));
                 }
                 &stream.dict

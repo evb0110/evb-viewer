@@ -1240,6 +1240,43 @@ fn note_whose_normal_appearance_names_a_state_dictionary_parses_as_a_note_above_
     }
 }
 
+#[test]
+fn note_sharing_a_form_with_a_note_on_an_oversized_form_parses_as_a_note_above_the_structural_ceiling(
+) {
+    let small = temp_path("note-shared-small", "pdf");
+    let large = temp_path("note-shared-large", "pdf");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    // Note A draws on the shared form 9 and on form 10, which is one byte over
+    // the per-stream limit, so A stays foreign. Note B draws on the same shared
+    // form 9 alone, so it must stay editable: A's failure may not withhold 9.
+    let oversized = format!(
+        "<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length {0}>>\nstream\n{1}\nendstream",
+        1024 * 1024 + 1,
+        "X".repeat(1024 * 1024 + 1)
+    )
+    .into_bytes();
+    let objects: [&[u8]; 6] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Oversized)/T(Reader)/NM(note-a)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/AP<</N 6 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Resources<</XObject<</A 9 0 R/Z 10 0 R>>>>/Length 5>>\nstream\n/A Do\nendstream",
+        b"<</Type/Annot/Subtype/Text/Rect[60 60 90 90]/Contents(Healthy)/T(Reader)/NM(note-b)/Name/Comment/M(D:20260102000000Z)/P 3 0 R/AP<</N 8 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Resources<</XObject<</A 9 0 R>>>>/Length 5>>\nstream\n/A Do\nendstream",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+        oversized.as_slice(),
+    ];
+    write_scanned_annotation_pdf(&small, 20 * 1024 * 1024, &objects, &[5, 7]);
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5, 7]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for pdf in [&small, &large] {
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(5, "foreign".to_string()), (7, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn two_hundred_notes_above_the_structural_ceiling_read_their_appearances_in_one_qpdf_run() {
