@@ -7,6 +7,7 @@ import {
 import {
     createServer,
     type Server,
+    type ServerResponse,
 } from 'node:http';
 import {
     join,
@@ -54,6 +55,7 @@ const PAGE_DPI = {
     y: 300,
 };
 const METERS_PER_INCH = 0.0254;
+const PDFJS_ASSET_DIR = resolve(process.cwd(), 'public/pdf');
 
 let server: Server;
 let origin = '';
@@ -114,6 +116,22 @@ function bytesOf(result: IBrowserImageExportAcceptance) {
     return Buffer.from(result.bytesBase64, 'base64');
 }
 
+// pdf.js loads its worker and version stamp from the vendored directory; nothing outside it is served.
+async function respondWithPdfjsAsset(requestUrl: string, response: ServerResponse) {
+    const assetPath = resolve(PDFJS_ASSET_DIR, requestUrl.slice('/pdf/'.length));
+    const bytes = assetPath.startsWith(`${PDFJS_ASSET_DIR}/`)
+        ? await readFile(assetPath).catch(() => null)
+        : null;
+    if (bytes === null) {
+        response.writeHead(404);
+        response.end();
+        return;
+    }
+    // A module worker is refused unless its script is served as JavaScript.
+    response.writeHead(200, {'content-type': assetPath.endsWith('.mjs') ? 'text/javascript' : 'application/octet-stream'});
+    response.end(bytes);
+}
+
 beforeAll(async () => {
     await mkdir(join(process.cwd(), '.devkit'), {recursive: true});
     temporaryDirectory = await mkdtemp(join(process.cwd(), '.devkit/browser-djvu-finalization-'));
@@ -166,6 +184,10 @@ beforeAll(async () => {
         if (_request.url === '/fixtures/mixed-dpi.djvu') {
             response.writeHead(200, {'content-type': 'application/octet-stream'});
             response.end(mixedDpiDjvuBytes);
+            return;
+        }
+        if (_request.url?.startsWith('/pdf/')) {
+            void respondWithPdfjsAsset(_request.url, response);
             return;
         }
         response.writeHead(200, {'content-type': 'text/html'});
@@ -357,6 +379,43 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             expect(readPngDpi(bytesOf(pngResult))).toEqual(PAGE_DPI);
             expect(readJpegDpi(bytesOf(jpegResult))).toEqual(PAGE_DPI);
             expect(UTIF.decode(bytesOf(tiffResult)).map(readTiffFrameDpi)).toEqual([PAGE_DPI]);
+        } finally {
+            await browser.close();
+        }
+    });
+
+    it('writes each PDF page image format that its chosen file name advertises', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance') === 'function');
+            const runExport = (chosenName: string) => page.evaluate<IBrowserImageExportAcceptance, string>(
+                name => Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance')(name),
+                chosenName,
+            );
+            const pngWithSpaceResult = await runExport('page-001.png ');
+            const tiffWithSpaceResult = await runExport('page-001.tif ');
+            const jpegResult = await runExport('page-001.jpg');
+            // A trailing space neither changes the format nor reaches the stored name.
+            expect(pngWithSpaceResult).toMatchObject({
+                head: PNG_SIGNATURE,
+                decodable: true,
+                storedName: 'page-001.png',
+            });
+            expect(tiffWithSpaceResult).toMatchObject({
+                head: TIFF_SIGNATURE,
+                storedName: 'page-001.tif',
+            });
+            expect(jpegResult.head.slice(0, JPEG_SIGNATURE.length)).toEqual(JPEG_SIGNATURE);
+            expect(jpegResult).toMatchObject({
+                decodable: true,
+                storedName: 'page-001.jpg',
+            });
         } finally {
             await browser.close();
         }

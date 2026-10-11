@@ -1,6 +1,7 @@
 // fallow-ignore-file unused-file -- bundled by browserDjvuFinalizationAcceptance.test.ts for Chromium.
 
 import {PDFDocument} from 'pdf-lib';
+import type {TDocumentRef} from '@contracts/documentRef';
 import {browserDjvuCapability} from '@app/platform/browser-api/browserDjvuCapability';
 import {browserDurableDjvuJobs} from '@app/platform/browser-api/browserDurableDjvuJobs';
 import {
@@ -285,38 +286,72 @@ async function stageDjvuFixture(fixturePath: string) {
     );
 }
 
-async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
-    const sourcePath = await stageDjvuFixture('/fixtures/bitonal-faint-pencil.djvu');
+async function stagePdfFixture() {
+    const document = await PDFDocument.create();
+    document.addPage([
+        240,
+        240,
+    ]);
+    return browserDocumentStore.createStoredDocument(
+        'browser-pdf-image-export.pdf',
+        await document.save(),
+        {
+            mimeType: 'application/pdf',
+            kind: 'source',
+            retention: 'transient',
+            saveKind: 'generic',
+        },
+    );
+}
+
+// Exports page 1 under the chosen name and reads back the saved bytes and stored name.
+async function exportFirstPageAs(sourcePath: TDocumentRef, sourceKind: 'djvu' | 'pdf', chosenName: string) {
     capturedImageExportChunks = [];
     Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle(chosenName));
+    const result = await createBrowserImageExportCapability().exportPdfToImages(
+        sourcePath,
+        [requirePageNumber(1)],
+        requireRequestId(`browser-${sourceKind}-image-export-${chosenName}`),
+        sourceKind,
+    );
+    const bytes = takeCapturedImageExportBytes();
+    if (!result.success || bytes.byteLength === 0) {
+        throw new Error(`Browser ${sourceKind} image export did not write ${chosenName}`);
+    }
+    const decodable = await createImageBitmap(new Blob([bytes]))
+        .then((bitmap) => {
+            bitmap.close();
+            return true;
+        }, () => false);
+    return {
+        head: Array.from(bytes.slice(0, 4)),
+        decodable,
+        storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
+        bytesBase64: encodeBase64(bytes),
+    };
+}
+
+async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
+    const sourcePath = await stageDjvuFixture('/fixtures/bitonal-faint-pencil.djvu');
     try {
-        const result = await createBrowserImageExportCapability().exportPdfToImages(
-            sourcePath,
-            [requirePageNumber(1)],
-            requireRequestId(`browser-djvu-image-export-${chosenName}`),
-            'djvu',
-        );
-        const bytes = takeCapturedImageExportBytes();
-        if (!result.success || bytes.byteLength === 0) {
-            throw new Error(`Browser DjVu image export did not write ${chosenName}`);
-        }
-        const decodable = await createImageBitmap(new Blob([bytes]))
-            .then((bitmap) => {
-                bitmap.close();
-                return true;
-            }, () => false);
-        return {
-            head: Array.from(bytes.slice(0, 4)),
-            decodable,
-            storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
-            bytesBase64: encodeBase64(bytes),
-        };
+        return await exportFirstPageAs(sourcePath, 'djvu', chosenName);
     } finally {
         await browserDocumentStore.remove(sourcePath);
     }
 }
 
 Reflect.set(globalThis, '__evbRunBrowserDjvuImageExportAcceptance', runBrowserDjvuImageExportAcceptance);
+
+async function runBrowserPdfImageExportAcceptance(chosenName: string) {
+    const sourcePath = await stagePdfFixture();
+    try {
+        return await exportFirstPageAs(sourcePath, 'pdf', chosenName);
+    } finally {
+        await browserDocumentStore.remove(sourcePath);
+    }
+}
+
+Reflect.set(globalThis, '__evbRunBrowserPdfImageExportAcceptance', runBrowserPdfImageExportAcceptance);
 
 async function runBrowserDjvuMultiPageTiffExportAcceptance() {
     // Pages 1 and 2 of this fixture are 72 and 300 DPI; the TIFF keeps each one.

@@ -170,10 +170,11 @@ function resolveBrowserImageMimeType(format: TBrowserImageExportFormat) {
 }
 
 function resolveBrowserImageExportFormat(fileName: string): TBrowserImageExportFormat {
-    if (/\.png$/iu.test(fileName)) {
+    const trimmedFileName = fileName.trim();
+    if (/\.png$/iu.test(trimmedFileName)) {
         return 'png';
     }
-    if (/\.(?:tif|tiff)$/iu.test(fileName)) {
+    if (/\.(?:tif|tiff)$/iu.test(trimmedFileName)) {
         return 'tiff';
     }
     return 'jpeg';
@@ -603,9 +604,8 @@ async function exportBrowserDjvuPagesAsImages(
                     canceled: true as const,
                 };
             }
-            // The decoder only produces PNG. The chosen name, trimmed once, decides the encoding and the stored name.
-            const chosenName = saveTarget.fileName.trim();
-            const format = resolveBrowserImageExportFormat(chosenName);
+            // The decoder only produces PNG. The chosen name decides the encoding and the stored name.
+            const format = resolveBrowserImageExportFormat(saveTarget.fileName);
             const mimeType = resolveBrowserImageMimeType(format);
             const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
             try {
@@ -615,7 +615,7 @@ async function exportBrowserDjvuPagesAsImages(
                 const bytes = format === 'png'
                     ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
                     : await encodeDecodedPngAs(pngBytes, format, pageSize.dpi);
-                let saveName = normalizeBrowserImageExportFileName(chosenName, format);
+                let saveName = normalizeBrowserImageExportFileName(saveTarget.fileName, format);
                 let saveHandle = saveTarget.handle ?? null;
                 if (saveTarget.handle) {
                     await writeBytesToHandle(saveTarget.handle, bytes);
