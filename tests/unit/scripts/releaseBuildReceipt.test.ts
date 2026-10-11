@@ -124,10 +124,6 @@ describe('release strict-build receipts', () => {
                         value: '1.2.4',
                     },
                     {
-                        name: 'SENTRY_AUTH_TOKEN',
-                        value: 'auth-token-b',
-                    },
-                    {
                         name: 'SENTRY_BROWSER_DSN',
                         value: 'browser-dsn-b',
                     },
@@ -147,6 +143,51 @@ describe('release strict-build receipts', () => {
 
             rmSync(outputPath);
             expect(validateReleaseBuildReceipt(receiptPath, optionsFor(baseEnv))).toMatchObject({valid: false});
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('rebuilds when a root .env or the auth token presence changes, and never on the token value', () => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-dotenv-'));
+        const receiptPath = path.join(projectRoot, '.devkit', 'receipt.json');
+        writeFileSync(path.join(projectRoot, 'source.ts'), 'export const value = 1;\n');
+        mkdirSync(path.join(projectRoot, 'dist-electron'));
+        writeFileSync(path.join(projectRoot, 'dist-electron', 'main.js'), 'built-output\n');
+        const optionsFor = (env: Record<string, string>) => ({
+            env,
+            inputFiles: ['source.ts'],
+            outputPaths: ['dist-electron'],
+            projectRoot,
+            runCommand: fakeToolchain,
+        });
+        try {
+            writeReleaseBuildReceipt(receiptPath, optionsFor({SENTRY_AUTH_TOKEN: ''}));
+            expect(validateReleaseBuildReceipt(receiptPath, optionsFor({SENTRY_AUTH_TOKEN: ''}))).toMatchObject({valid: true});
+            // Nuxt reads a whitespace token as set, so it changes source-map emission.
+            expect(validateReleaseBuildReceipt(receiptPath, optionsFor({SENTRY_AUTH_TOKEN: ' '}))).toEqual({
+                reason: 'inputs-changed',
+                valid: false,
+            });
+            expect(validateReleaseBuildReceipt(receiptPath, optionsFor({SENTRY_AUTH_TOKEN: 'auth-token-b'}))).toEqual({
+                reason: 'inputs-changed',
+                valid: false,
+            });
+
+            writeReleaseBuildReceipt(receiptPath, optionsFor({SENTRY_AUTH_TOKEN: 'auth-token-a'}));
+            expect(validateReleaseBuildReceipt(receiptPath, optionsFor({SENTRY_AUTH_TOKEN: 'auth-token-b'}))).toMatchObject({valid: true});
+
+            writeFileSync(path.join(projectRoot, '.env'), 'NUXT_PUBLIC_LANDING_URL=https://before.invalid\n');
+            writeReleaseBuildReceipt(receiptPath, optionsFor({}));
+            expect(validateReleaseBuildReceipt(receiptPath, optionsFor({}))).toMatchObject({valid: true});
+            writeFileSync(path.join(projectRoot, '.env'), 'NUXT_PUBLIC_LANDING_URL=https://after.invalid\n');
+            expect(validateReleaseBuildReceipt(receiptPath, optionsFor({}))).toEqual({
+                reason: 'inputs-changed',
+                valid: false,
+            });
         } finally {
             rmSync(projectRoot, {
                 force: true,

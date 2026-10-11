@@ -64,13 +64,15 @@ const BUILD_ENVIRONMENT_PREFIXES = [
     'VITE_',
 ];
 // Secrets that change compiled output (the Sentry DSNs are baked into the
-// bundles; the auth token decides whether source maps are emitted). The contract
-// records a SHA-256 of each value: a change rebuilds, and no secret is stored.
+// bundles). The contract records a SHA-256 of each value: a change rebuilds,
+// and no secret is stored.
 const BUILD_SECRET_ENVIRONMENT_KEYS = [
-    'SENTRY_AUTH_TOKEN',
     'SENTRY_BROWSER_DSN',
     'SENTRY_DESKTOP_DSN',
 ];
+// Nuxt loads only the root .env into the build (setupDotenv's default file
+// name), and a value there is compiled in like one set in the environment.
+const BUILD_DOTENV_FILES = ['.env'];
 const SENSITIVE_BUILD_ENVIRONMENT_KEY = /(?:AUTH|CREDENTIAL|DATABASE|DSN|ENDPOINT|KEY|PASSWORD|PRIVATE|SECRET|TOKEN)/iu;
 
 /** @param {string} projectRoot @param {string} filePath */
@@ -154,6 +156,31 @@ export function getReleaseBuildInputFiles({
     return output.split('\0').filter(Boolean);
 }
 
+/** @param {string} projectRoot */
+function dotenvDigests(projectRoot) {
+    return Object.fromEntries(BUILD_DOTENV_FILES.map((file) => {
+        try {
+            const content = readFileSync(path.join(projectRoot, file));
+            return [
+                file,
+                createHash('sha256').update(content).digest('hex'),
+            ];
+        } catch (error) {
+            const isMissing = error
+                && typeof error === 'object'
+                && 'code' in error
+                && error.code === 'ENOENT';
+            if (isMissing) {
+                return [
+                    file,
+                    null,
+                ];
+            }
+            throw error;
+        }
+    }));
+}
+
 /** @param {NodeJS.ProcessEnv} env */
 function buildEnvironment(env) {
     const plain = Object.fromEntries(Object.entries(env)
@@ -169,6 +196,10 @@ function buildEnvironment(env) {
     return {
         ...plain,
         ...digests,
+        // The build tests the raw token for truthiness (nuxt.config.ts and
+        // build-electron.mjs), so the token value is not compiled in and only
+        // this presence bit changes the output.
+        SENTRY_AUTH_TOKEN_SET: Boolean(env.SENTRY_AUTH_TOKEN),
     };
 }
 
@@ -195,6 +226,7 @@ export function computeReleaseBuildState({
         runCommand,
     });
     const contract = {
+        dotenv: dotenvDigests(projectRoot),
         environment: buildEnvironment(env),
         platform: process.platform,
         architecture: process.arch,
