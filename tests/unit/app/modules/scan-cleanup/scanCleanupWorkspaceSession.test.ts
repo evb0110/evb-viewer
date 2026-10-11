@@ -1133,6 +1133,87 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('runs a selected kept half without asking for the discarded half\'s anchor', async () => {
+        // A box drawn on the left while the sheet was a spread stays with the
+        // page after keep-right; only the right half is an output to place.
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: false as const,
+            jobId: requireJobId('run-1'),
+            error: 'test stop',
+            errorCode: 'internal' as const,
+        });
+        const mounted = mountSession(`ink-kept-half-${Date.now()}`, {
+            currentPage: () => 1,
+            totalPages: () => 3,
+        });
+        const settle = async () => {
+            for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        };
+        const box = (yNormalized: number) => ({
+            xNormalized: 0.1,
+            yNormalized,
+            widthNormalized: 0.7,
+            heightNormalized: 0.6,
+            rotationDegrees: 0 as const,
+        });
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const first = detectionState('detect-1', 'completed');
+        harness.emitDetection(first);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        mounted.session.selection.updatePageOverride(1, {
+            rotationDegrees: 0,
+            layoutOverride: 'keep-right',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {left: box(0.118)},
+        });
+        mounted.session.selection.setSettingsScope('page');
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        await settle();
+        const state = detectionState('detect-2', 'completed');
+        state.results = state.results.map(result => ({
+            ...result,
+            recommendedOutputMode: 'bw' as const,
+            ...(result.pageNumber === 1 ? {classification: 'page-with-offcut' as const} : {}),
+            pagePlanEvidence: {
+                ...result.pagePlanEvidence!,
+                ...(result.pageNumber === 1
+                    ? {
+                        layoutClassification: 'page-with-offcut' as const,
+                        outputs: {right: {contentBox: box(0.121)}},
+                    }
+                    : {outputs: {full: {contentBox: box(0.1)}}}),
+            },
+            sourcePageMetadata: {
+                pageNumber: result.pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                sourceDpi: 300,
+            },
+        }));
+        harness.emitDetection(state);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.pagePlanEvidenceByPage.get(1)?.layoutClassification)
+            .toBe('page-with-offcut'));
+        // Ink is chosen after detection, so no summary was built for it.
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await settle();
+        expect(mounted.session.detection.placementAnchorSummary.value).toBe(null);
+
+        await mounted.session.run.run();
+
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        expect(vi.mocked(harness.value.start).mock.calls[0]?.[0].placementAnchorsByPage?.['1'])
+            .toEqual({right: expect.objectContaining({yNormalized: expect.any(Number)})});
+        mounted.unmount();
+    });
+
     it('refuses selected xlarge ink placement instead of using partial early, middle, and late anchors', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

@@ -566,9 +566,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         if (resolved !== undefined) {
             resolvedPlacementAnchorsByPage.delete(pageNumber);
         }
+        // A retained result store places pages from the main-process
+        // calibration, and only such a store leaves it pending. Without one,
+        // the run sends the renderer's map, so the preview shows that map too,
+        // whether or not a summary was built.
         if (
             summary === null
-            && options.resolvePlacementAnchorsForPage !== undefined
+            && options.placementAnchorCalibrationPending?.value === true
             && usesScanCleanupInkAlignment(options.settings)
         ) {
             return undefined;

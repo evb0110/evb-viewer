@@ -7,6 +7,7 @@ import type {
     TScanCleanupLayoutClassification,
     TScanCleanupErrorCode,
     TScanCleanupDetectionJobState,
+    TScanCleanupOutputHalf,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {TDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -18,10 +19,9 @@ import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/po
 import {
     attachScanCleanupPageOverrideDefaults,
     getScanCleanupPageOverride,
-    SCAN_CLEANUP_OUTPUT_HALVES,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
-    resolveScanCleanupOutputPlacement,
+    collectScanCleanupSheetInkTops,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
@@ -274,21 +274,17 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 }
                 continue;
             }
+            // The outputs the anchor map has to cover are the ones the shared
+            // collector places, so a box kept on a discarded half asks for none.
             const anchors = options.placementAnchorsByPage.value.get(pageNumber);
-            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
-                const contentBox = pageOverride.manualContentBoxes?.[half]
-                    ?? evidence.outputs[half]?.contentBox;
-                if (
-                    resolveScanCleanupOutputPlacement(
-                        resolvedOptions.pageAlignment,
-                        pageOverride,
-                        half,
-                    ) === 'ink'
-                    && contentBox !== undefined
-                    && anchors?.[half] === undefined
-                ) {
-                    return pageNumber;
-                }
+            const inkTops = collectScanCleanupSheetInkTops(resolvedOptions, {
+                pageNumber,
+                layoutClassification: evidence.layoutClassification,
+                evidence,
+                metadata: undefined,
+            }, 0);
+            if (Object.keys(inkTops).some(half => anchors?.[half as TScanCleanupOutputHalf] === undefined)) {
+                return pageNumber;
             }
         }
         return null;

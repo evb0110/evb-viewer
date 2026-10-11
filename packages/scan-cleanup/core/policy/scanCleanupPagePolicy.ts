@@ -385,15 +385,17 @@ const POINTS_PER_MM = 72 / 25.4;
 export interface IScanCleanupInkSheet {
     pageNumber: number;
     layoutClassification: TScanCleanupLayoutClassification | undefined;
-    evidence: Pick<IScanCleanupPagePlanEvidence, 'outputs'> | undefined;
+    evidence: Pick<IScanCleanupPagePlanEvidence, 'outputs' | 'automaticSplit'> | undefined;
     metadata: IScanCleanupSourcePageMetadata | undefined;
 }
 
 /**
  * The halves a sheet is printed as. A forced layout decides by itself; an
- * automatic one follows the sheet's classification, and an offcut keeps the
- * half the detector reported. A manual box drawn on a half the layout no longer
- * produces stays with the page for later, but it is not an output to place.
+ * automatic one follows the sheet's classification. An offcut keeps the half
+ * the detector reported, or, when its evidence names none (a blank or dewarped
+ * output carries no box), the wider side of its cutter, as native cuts it. A
+ * manual box drawn on a half the layout no longer produces stays with the page
+ * for later, but it is not an output to place.
  */
 function resolveScanCleanupProducedHalves(
     options: Pick<IScanCleanupOptions, 'layoutMode'>,
@@ -422,18 +424,27 @@ function resolveScanCleanupProducedHalves(
             'right',
         ];
     }
+    if (sheet.layoutClassification !== 'page-with-offcut') {
+        return SCAN_CLEANUP_OUTPUT_HALVES;
+    }
     const reported = SCAN_CLEANUP_OUTPUT_HALVES.filter(half => half !== 'full' && sheet.evidence?.outputs[half] !== undefined);
-    return sheet.layoutClassification === 'page-with-offcut' && reported.length > 0
-        ? reported
-        : SCAN_CLEANUP_OUTPUT_HALVES;
+    if (reported.length > 0) {
+        return reported;
+    }
+    const cutter = sheet.evidence?.automaticSplit?.xNormalized;
+    if (cutter !== undefined) {
+        return [cutter >= 0.5 ? 'left' : 'right'];
+    }
+    return SCAN_CLEANUP_OUTPUT_HALVES;
 }
 
 /**
  * The measured ink tops of a sheet's `ink` outputs, on the reference height.
- * Every path that calibrates or places `ink` reads a sheet through this one
- * rule, so they agree on which halves take part: only produced, included
+ * Every path that calibrates, places or checks `ink` reads a sheet through this
+ * one rule, so they agree on which halves take part: only produced, included
  * outputs whose placement is `ink`, each by its manual box before its
- * detected one.
+ * detected one. A manual box needs no detection evidence: the page it was
+ * drawn on is placed by it either way.
  */
 export function collectScanCleanupSheetInkTops(
     options: IScanCleanupOptions,
@@ -447,7 +458,7 @@ export function collectScanCleanupSheetInkTops(
         options.pageOverrideDefaults,
         options.marginsMm,
     );
-    if (sheet.evidence === undefined || pageOverride.excluded) {
+    if (pageOverride.excluded) {
         return inkTops;
     }
     const sheetHeightPoints = resolveScanCleanupSheetRect(sheet.metadata)?.heightPoints ?? 0;
@@ -458,7 +469,7 @@ export function collectScanCleanupSheetInkTops(
         if (resolveScanCleanupOutputPlacement(options.pageAlignment, pageOverride, half) !== 'ink') {
             continue;
         }
-        const box = pageOverride.manualContentBoxes?.[half] ?? sheet.evidence.outputs[half]?.contentBox;
+        const box = pageOverride.manualContentBoxes?.[half] ?? sheet.evidence?.outputs[half]?.contentBox;
         if (box !== undefined) {
             inkTops[half] = box.yNormalized * scale;
         }
@@ -489,7 +500,7 @@ export function addScanCleanupInkReferenceSheet(
     options: IScanCleanupOptions,
     sheet: IScanCleanupInkSheet,
 ) {
-    if (sheet.evidence === undefined || getScanCleanupPageOverride(
+    if (getScanCleanupPageOverride(
         options.pageOverrides,
         requirePageNumber(sheet.pageNumber),
         options.pageOverrideDefaults,

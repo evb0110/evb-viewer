@@ -7,6 +7,10 @@ import {
 
 const finite = v.pipe(v.number(), v.finite());
 const normalized = v.pipe(finite, v.minValue(0), v.maxValue(1));
+// Ink tops are fractions of the reference sheet height. A sheet taller than the
+// reference measures past 1; only the anchors placed from them are canvas
+// fractions bounded by 1.
+const referenceFraction = v.pipe(finite, v.minValue(0));
 const boundedIdentity = v.pipe(
     v.string(),
     v.minLength(1),
@@ -21,9 +25,9 @@ const identitySchema = v.strictObject({
     calibrationSignature: boundedIdentity,
 });
 const clusterSchema = v.pipe(v.strictObject({
-    startNormalized: normalized,
-    endNormalized: normalized,
-    valueNormalized: normalized,
+    startNormalized: referenceFraction,
+    endNormalized: referenceFraction,
+    valueNormalized: referenceFraction,
     size: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
 }), v.check(cluster => cluster.endNormalized >= cluster.startNormalized
     && cluster.valueNormalized >= cluster.startNormalized
@@ -33,7 +37,7 @@ export const SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SCHEMA = v.message(v.object({
     sampleCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
     referenceHeightPoints: v.pipe(finite, v.minValue(0)),
     toleranceNormalized: normalized,
-    topEdgeNormalized: normalized,
+    topEdgeNormalized: referenceFraction,
     identity: identitySchema,
     clusters: v.pipe(v.array(clusterSchema), v.maxLength(SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS), v.readonly()),
 }), 'invalid scan-cleanup placement anchor summary');

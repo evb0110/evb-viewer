@@ -546,6 +546,42 @@ describe('scan cleanup ink sheets', () => {
         expect(anchors.get(1)).toEqual({right: {yNormalized: expect.closeTo(0.05, 10)}});
     });
 
+    it('keeps the wider side of an offcut whose evidence names no output', () => {
+        // A blank or dewarped output carries no box, so the detector reports
+        // none; native keeps the side of the cutter that is wider.
+        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({manualContentBoxes: {
+            left: box(0.11),
+            right: box(0.15),
+        }})}), [
+            {
+                ...sheet(1, 'page-with-offcut', {}),
+                evidence: {
+                    outputs: {},
+                    automaticSplit: {
+                        xNormalized: 0.4,
+                        rotationDegrees: 0,
+                    },
+                },
+            },
+            ...book,
+        ]);
+        expect(anchors.get(1)).toEqual({right: {yNormalized: expect.closeTo(0.05, 10)}});
+    });
+
+    it('places a manual box on a sheet the detector left without evidence', () => {
+        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({
+            layoutOverride: 'single',
+            manualContentBoxes: {full: box(0.15)},
+        })}), [
+            {
+                ...sheet(1, 'single-uncut-page', {}),
+                evidence: undefined,
+            },
+            ...book,
+        ]);
+        expect(anchors.get(1)).toEqual({full: {yNormalized: expect.closeTo(0.05, 10)}});
+    });
+
     it('does not place a half the layout no longer produces', () => {
         // The left box was drawn while the sheet was a spread; keeping the
         // right half leaves it with the page, but not among the outputs.
