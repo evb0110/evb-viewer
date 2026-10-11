@@ -1,0 +1,19 @@
+app/components/document-viewer/DocumentPageSkeleton.vue
+  s_a9c00567311776::t_f02afb5c422b26 263-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3ac1393a9a0fc7501f0dfc034af864226cd77cdc",
+  "prompts": {},
+  "sessions": {
+    "s_a9c00567311776": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8948f8e1-87f2-4488-ab51-15641b8b81f7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
