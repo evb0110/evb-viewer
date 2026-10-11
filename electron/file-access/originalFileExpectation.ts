@@ -1,9 +1,6 @@
 import type {BigIntStats} from 'node:fs';
 import {lstat} from 'node:fs/promises';
-import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
-import {readFileChunk} from '@electron/file-access/readFileChunk';
-
-const ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
+import {hashContentFingerprintFilePath} from '@electron/file-access/originalPathSnapshot';
 
 export interface IWorkingCopyOriginalFileExpectation {
     contentFingerprint?: string;
@@ -17,16 +14,15 @@ export interface IWorkingCopyOriginalFileExpectation {
 
 
 export function expectationMatchesStat(expectation: IWorkingCopyOriginalFileExpectation, fileStat: BigIntStats) {
-    return fileStat.isFile()
-        && (expectation.deviceId === undefined || fileStat.dev.toString() === expectation.deviceId)
-        && (expectation.inode === undefined || fileStat.ino.toString() === expectation.inode)
-        && fileStat.size === BigInt(expectation.size)
-        && (expectation.mtimeNs === undefined
-            ? Math.abs(Number(fileStat.mtimeNs) / 1_000_000 - expectation.mtimeMs) < 1
-            : fileStat.mtimeNs.toString() === expectation.mtimeNs)
-        && (expectation.ctimeNs === undefined || fileStat.ctimeNs.toString() === expectation.ctimeNs);
+    return getExpectationStatMismatches(expectation, fileStat).length === 0;
 }
 
+/** Identity-only churn needs an already admitted full fingerprint. */
+function contentMetadataMatchesStat(expectation: IWorkingCopyOriginalFileExpectation, fileStat: BigIntStats) {
+    return expectation.ctimeNs !== undefined && expectation.mtimeNs !== undefined
+        && getExpectationStatMismatches(expectation, fileStat)
+            .every(field => field === 'deviceId' || field === 'inode');
+}
 
 export function getExpectationStatMismatches(
     expected: IWorkingCopyOriginalFileExpectation,
@@ -55,35 +51,32 @@ export async function createOriginalFileContentFingerprint(
     try {
         signal?.throwIfAborted();
         const before = await lstat(originalPath, {bigint: true});
-        if (!Number.isSafeInteger(Number(before.size)) || !expectationMatchesStat(expectation, before)) {
+        if (!Number.isSafeInteger(Number(before.size))) {
             return undefined;
         }
-        const hash = createOriginalFileContentFingerprintHash(Number(before.size));
-        const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(Number(before.size), ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES)));
-        let offset = 0;
-        while (offset < Number(before.size)) {
-            signal?.throwIfAborted();
-            const length = Math.min(buffer.byteLength, Number(before.size) - offset);
-            const bytesRead = await readFileChunk(originalPath, buffer.subarray(0, length), offset);
-            if (bytesRead <= 0) {
-                return undefined;
-            }
-            hash.update(buffer.subarray(0, bytesRead));
-            offset += bytesRead;
+        const beforeMatches = expectationMatchesStat(expectation, before);
+        if (!beforeMatches && (!expectation.contentFingerprint || !contentMetadataMatchesStat(expectation, before))) {
+            return undefined;
         }
+        const fingerprint = await hashContentFingerprintFilePath(originalPath, before.size, signal);
         const after = await lstat(originalPath, {bigint: true});
         signal?.throwIfAborted();
-        return expectationMatchesStat(expectation, after)
-            && expectationMatchesStat(createOriginalFileExpectationFromStat(before), after)
-            ? `sha256-full-v1:${hash.digest('hex')}`
-            : undefined;
+        const afterMatches = expectationMatchesStat(expectation, after)
+            && expectationMatchesStat(createOriginalFileExpectationFromStat(before), after);
+        if (beforeMatches && afterMatches) {
+            return fingerprint;
+        }
+        return contentMetadataMatchesStat(expectation, after)
+            && contentMetadataMatchesStat(createOriginalFileExpectationFromStat(before), after)
+            && fingerprint === expectation.contentFingerprint
+            ? fingerprint : undefined;
     } catch {
         return undefined;
     }
 }
 
 export function createOriginalFileExpectationFromStat(
-    originalStat: BigIntStats,
+    originalStat: Pick<BigIntStats, 'ctimeNs' | 'dev' | 'ino' | 'mtimeNs' | 'size'>,
 ): IWorkingCopyOriginalFileExpectation {
     return {
         ctimeNs: originalStat.ctimeNs.toString(),

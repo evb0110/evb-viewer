@@ -596,7 +596,8 @@ async function assertOriginalBackingSnapshot(backing: IOriginalBackedRead) {
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     }
-    if (!workingCopyAdmissionSnapshotsMatch(snapshot, backing.admissionSnapshot)) {
+    if (!await workingCopyAdmissionSnapshotsMatch(snapshot, backing.admissionSnapshot, backing.originalPath,
+        getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId)?.originalFileExpectation)) {
         failOriginalBacking(backing, 'SOURCE_BACKING_CHANGED');
     }
     const currentEntry = getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId);
@@ -606,11 +607,9 @@ async function assertOriginalBackingSnapshot(backing: IOriginalBackedRead) {
             'Working-copy registration changed during the read',
         );
     }
-    if (
-        currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
-        || currentEntry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
-    ) {
-        throw createSourceBackingError(currentEntry.sourceBackingErrorCode);
+    const sourceError = currentEntry.sourceBackingErrorCode;
+    if (sourceError === 'SOURCE_BACKING_CHANGED' || sourceError === 'SOURCE_BACKING_UNAVAILABLE') {
+        throw createSourceBackingError(sourceError);
     }
     return snapshot;
 }

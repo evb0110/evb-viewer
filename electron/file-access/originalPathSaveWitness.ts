@@ -1,4 +1,5 @@
 import {
+    createOriginalFileExpectationFromStat,
     expectationMatchesStat,
     getExpectationStatMismatches,
 } from '@electron/file-access/originalFileExpectation';
@@ -76,54 +77,20 @@ async function matchesBaselineOnWitnessPath(
     }
     try {
         signal?.throwIfAborted();
-        const pathBefore = await capturePathSnapshot(originalPath);
-        if (!snapshotsMatch(snapshot, pathBefore)) {
+        const pathBefore = await capturePathSnapshot(originalPath, {ignoreIdentity: true});
+        if (!snapshotsMatch(snapshot, pathBefore, {ignoreIdentity: true})) {
             return false;
         }
-        const actualFingerprint = await hashContentFingerprintFilePath(originalPath, snapshot.size, signal);
+        const actualFingerprint = snapshot.contentFingerprint
+            ?? await hashContentFingerprintFilePath(originalPath, snapshot.size, signal);
         signal?.throwIfAborted();
-        const pathAfter = await capturePathSnapshot(originalPath);
-        return snapshotsMatch(snapshot, pathAfter)
+        const pathAfter = await capturePathSnapshot(originalPath, {ignoreIdentity: true});
+        return snapshotsMatch(snapshot, pathAfter, {ignoreIdentity: true})
             && actualFingerprint === expected.contentFingerprint;
     } catch {
         return false;
     }
 }
-
-async function matchesExpectedContentFingerprint(
-    originalPath: string,
-    expected: IWorkingCopyOriginalFileExpectation,
-    admittedStat: BigIntStats,
-    signal?: AbortSignal,
-) {
-    if (
-        process.platform !== 'win32'
-        || expected.contentFingerprint === undefined
-    ) {
-        return true;
-    }
-    if (!/^sha256-full-v1:[0-9a-f]{64}$/u.test(expected.contentFingerprint)) {
-        return false;
-    }
-
-    try {
-        const before = await lstat(originalPath, {bigint: true});
-        if (!before.isFile() || before.size !== admittedStat.size || before.dev !== admittedStat.dev || before.ino !== admittedStat.ino) {
-            return false;
-        }
-        const actualFingerprint = await hashContentFingerprintFilePath(originalPath, before.size, signal);
-        const after = await lstat(originalPath, {bigint: true});
-        return after.isFile()
-            && after.size === before.size && after.dev === before.dev && after.ino === before.ino
-            && after.mtimeNs === before.mtimeNs && after.ctimeNs === before.ctimeNs
-            && actualFingerprint === expected.contentFingerprint;
-    } catch {
-        return false;
-    }
-}
-
-
-
 
 function rethrowWitnessSnapshotError(error: unknown): never {
     if (error instanceof OriginalPathSaveConflictError) {
@@ -143,7 +110,13 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
 
     async assertCurrent(options: {allowBackupMetadataChange?: boolean} = {}) {
         try {
-            if (!snapshotsMatch(this.snapshot, await capturePathSnapshot(this.originalPath), options)) {
+            const actual = await capturePathSnapshot(this.originalPath, {ignoreIdentity: this.snapshot.contentFingerprint !== undefined});
+            if (!snapshotsMatch(this.snapshot, actual)
+                && !(snapshotsMatch(this.snapshot, actual, {
+                    ...options,
+                    ignoreIdentity: true,
+                })
+                    && await matchesBaselineOnWitnessPath(this.originalPath, this.getOriginalFileExpectation(), actual))) {
                 throw new OriginalPathSaveConflictError();
             }
         } catch (error) {
@@ -176,13 +149,16 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
     }
 
     getOriginalFileExpectation(): IWorkingCopyOriginalFileExpectation {
+        const {
+            deviceId: dev, inode: ino, contentFingerprint, ...snapshot
+        } = this.snapshot;
         return {
-            ctimeNs: this.snapshot.ctimeNs.toString(),
-            deviceId: this.snapshot.deviceId.toString(),
-            inode: this.snapshot.inode.toString(),
-            mtimeMs: Number(this.snapshot.mtimeNs) / 1_000_000,
-            mtimeNs: this.snapshot.mtimeNs.toString(),
-            size: Number(this.snapshot.size),
+            ...createOriginalFileExpectationFromStat({
+                ...snapshot,
+                dev,
+                ino,
+            }),
+            ...(contentFingerprint ? {contentFingerprint} : {}),
         };
     }
 }
@@ -256,7 +232,7 @@ export async function captureOriginalPathSaveWitness(
     }
 
     try {
-        const snapshot = await captureAdmittedPathSnapshot(originalPath, expected, signal);
+        const snapshot = await captureAdmittedPathSnapshot(originalPath, process.platform === 'win32' ? undefined : expected, signal);
         const originalStat = await lstat(originalPath, {bigint: true});
         const expectationStatMatches = expectationMatchesStat(expected, originalStat);
         let contentFingerprintVerified = false;
@@ -308,14 +284,15 @@ export async function captureOriginalPathSaveWitness(
                 expected = restored;
             }
         }
-        if (!contentFingerprintVerified && !await matchesExpectedContentFingerprint(originalPath, expected, originalStat, signal)) {
+        if (!contentFingerprintVerified && process.platform === 'win32' && expected.contentFingerprint
+            && !await matchesBaselineOnWitnessPath(originalPath, expected, snapshot, signal)) {
             return null;
         }
         if (signal?.aborted) {
             return null;
         }
-        const pathSnapshot = await capturePathSnapshot(originalPath);
-        if (!snapshotsMatch(snapshot, pathSnapshot)) {
+        const pathSnapshot = await capturePathSnapshot(originalPath, {ignoreIdentity: contentFingerprintVerified});
+        if (!snapshotsMatch(snapshot, pathSnapshot, {ignoreIdentity: contentFingerprintVerified})) {
             return null;
         }
         return new OriginalPathSaveWitness(originalPath, snapshot);
@@ -386,14 +363,15 @@ export async function originalPathSaveBaseMatches(
         return false;
     }
     if (expectationMatchesStat(expected, actual)) {
-        return matchesExpectedContentFingerprint(originalPath, expected, actual);
+        if (process.platform !== 'win32' || !expected.contentFingerprint) return true;
     }
-    if (
-        process.platform !== 'win32'
-        || expected.contentFingerprint === undefined
-        || !actual.isFile()
-    ) {
+    if (!actual.isFile() || !expected.contentFingerprint) {
         return false;
     }
-    return matchesExpectedContentFingerprint(originalPath, expected, actual);
+    try {
+        return await matchesBaselineOnWitnessPath(originalPath, expected,
+            await captureAdmittedPathSnapshot(originalPath, {contentFingerprint: expected.contentFingerprint}));
+    } catch {
+        return false;
+    }
 }

@@ -594,6 +594,76 @@ describe('workingCopy', () => {
         }
     });
 
+    it.each([
+        'unchanged',
+        'changed',
+        'missing-baseline',
+    ])('fingerprints identity-churning originals only against admitted bytes: %s', async (scenario) => {
+        const originalPath = join(tempRoot, 'network-original.pdf');
+        const bytes = Buffer.alloc(1024 * 1024, 65);
+        writeFileSync(originalPath, bytes);
+        const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+        const baseline = `sha256-full-v1:${createOriginalFileContentFingerprintHash(bytes.length).update(bytes).digest('hex')}`;
+        if (scenario === 'changed') {
+            const changed = Buffer.from(bytes);
+            changed.write('EXTERNAL-EDIT', 262144);
+            writeFileSync(originalPath, changed);
+        }
+        const metadata = statSync(originalPath, {bigint: true});
+        let sequence = 0n;
+        vi.doMock('node:fs/promises', async importOriginal => {
+            const fs = await importOriginal<typeof FsPromises>();
+            return {
+                ...fs,
+                lstat: async (...args: Parameters<typeof fs.lstat>) => {
+                    const actual = await fs.lstat(...args);
+                    if (String(args[0]) !== originalPath) return actual;
+                    return {
+                        ...metadata,
+                        isFile: () => true,
+                        dev: metadata.dev + ++sequence,
+                        ino: metadata.ino + sequence,
+                    };
+                },
+            };
+        });
+        vi.resetModules();
+        try {
+            const {
+                createOriginalFileContentFingerprint, createOriginalFileExpectationFromStat,
+            } = await import('@electron/file-access/originalFileExpectation');
+            const result = await createOriginalFileContentFingerprint(originalPath, {
+                ...createOriginalFileExpectationFromStat(metadata),
+                ...(scenario === 'missing-baseline' ? {} : {contentFingerprint: baseline}),
+            });
+            expect(result).toBe(scenario === 'unchanged' ? baseline : undefined);
+            const {workingCopyAdmissionSnapshotsMatch} = await import('@electron/file-access/workingCopyStore');
+            expect(await workingCopyAdmissionSnapshotsMatch(
+                {
+                    deviceId: metadata.dev + 1n,
+                    inode: metadata.ino + 1n,
+                    size: metadata.size,
+                    mtimeNs: metadata.mtimeNs,
+                },
+                {
+                    deviceId: metadata.dev,
+                    inode: metadata.ino,
+                    size: metadata.size,
+                    mtimeNs: metadata.mtimeNs,
+                },
+                originalPath,
+                {
+                    ...createOriginalFileExpectationFromStat(metadata),
+                    ...(scenario === 'missing-baseline' ? {} : {contentFingerprint: baseline}),
+                },
+            )).toBe(scenario === 'unchanged');
+
+        } finally {
+            vi.doUnmock('node:fs/promises');
+            vi.resetModules();
+        }
+    });
+
     it('captures a full content fingerprint for mapped working copies', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
         const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');

@@ -160,9 +160,8 @@ export async function createWorkingCopyWithOutcome(
             ...(signal === undefined ? {} : {signal}),
             ...(admitRewrite === undefined ? {} : {admitRewrite}),
         };
-        // A rewrite reads the source for as long as qpdf takes. The original's
-        // identity is fixed here, checked again before registration, and
-        // registered as the save baseline.
+        // Capture the original before qpdf reads it, check it again before
+        // registration, and retain it as the save baseline.
         const sourceWitness = isPdf
             ? await measureWorkingCopyPhase(phaseTimings, 'source-witness', () =>
                 captureOpenSourceWitness(originalPath))
@@ -187,7 +186,7 @@ export async function createWorkingCopyWithOutcome(
                 && await normalizeWorkingCopyAppendBase(originalPath, workingPath, phaseTimings, normalizeOptions);
             const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
                 captureWorkingCopyAdmissionSnapshot(originalPath));
-            if (!workingCopyAdmissionSnapshotsMatch(beforeProbe, afterProbe)) {
+            if (!await workingCopyAdmissionSnapshotsMatch(beforeProbe, afterProbe)) {
                 throw new OriginalPathSaveConflictError();
             }
             admissionSnapshot = afterProbe;

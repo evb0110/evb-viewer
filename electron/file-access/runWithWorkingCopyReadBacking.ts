@@ -54,7 +54,7 @@ async function assertOriginalBackingCurrent(
     } catch (error) {
         throwBackingError(entry, logicalRef, 'SOURCE_BACKING_UNAVAILABLE', error);
     }
-    if (!workingCopyAdmissionSnapshotsMatch(currentSnapshot, entry.admissionSnapshot)) {
+    if (!await workingCopyAdmissionSnapshotsMatch(currentSnapshot, entry.admissionSnapshot, entry.originalPath, entry.originalFileExpectation)) {
         throwBackingError(entry, logicalRef, 'SOURCE_BACKING_CHANGED');
     }
 }

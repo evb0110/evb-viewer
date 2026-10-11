@@ -35,11 +35,11 @@ export function snapshotsMatch(
     options: {
         allowBackupMetadataChange?: boolean;
         contentOnly?: boolean;
+        ignoreIdentity?: boolean;
     } = {},
 ) {
     return (options.contentOnly === true || (
-        left.deviceId === right.deviceId
-        && left.inode === right.inode
+        (options.ignoreIdentity === true || left.deviceId === right.deviceId && left.inode === right.inode)
         && left.mtimeNs === right.mtimeNs
     ))
         && left.sampleSha256 === right.sampleSha256
@@ -142,7 +142,7 @@ export function serializeSnapshot(snapshot: IOriginalPathSaveSnapshot): IOrigina
     };
 }
 
-export async function capturePathSnapshot(originalPath: string) {
+export async function capturePathSnapshot(originalPath: string, options: {ignoreIdentity?: boolean} = {}) {
     const before = await lstat(originalPath, {bigint: true});
     if (!before.isFile()) {
         throw new OriginalPathSaveConflictError();
@@ -150,7 +150,10 @@ export async function capturePathSnapshot(originalPath: string) {
     const sampleSha256 = await sampleFilePath(originalPath, before.size);
     const after = await lstat(originalPath, {bigint: true});
     const snapshot = createSnapshot(after, sampleSha256);
-    if (!after.isFile() || !snapshotsMatch(createSnapshot(before, sampleSha256), snapshot, {allowBackupMetadataChange: true})) {
+    if (!after.isFile() || !snapshotsMatch(createSnapshot(before, sampleSha256), snapshot, {
+        ...options,
+        allowBackupMetadataChange: true,
+    })) {
         throw new OriginalPathSaveConflictError();
     }
     return snapshot;
@@ -165,14 +168,23 @@ export async function captureAdmittedPathSnapshot(
     originalPath: string,
     baseline?: {
         contentFingerprint?: string;
-        ctimeNs?: string
+        ctimeNs?: string;
+        deviceId?: string;
+        inode?: string;
     },
     signal?: AbortSignal,
 ) {
-    const snapshot = await capturePathSnapshot(originalPath);
-    snapshot.contentFingerprint = baseline?.contentFingerprint !== undefined && baseline.ctimeNs === snapshot.ctimeNs.toString()
-        ? baseline.contentFingerprint
-        : await hashContentFingerprintFilePath(originalPath, snapshot.size, signal);
+    const options = {ignoreIdentity: baseline?.contentFingerprint !== undefined};
+    const snapshot = await capturePathSnapshot(originalPath, options);
+    const canReuse = baseline?.contentFingerprint !== undefined
+        && baseline.ctimeNs === snapshot.ctimeNs.toString()
+        && baseline.deviceId === snapshot.deviceId.toString()
+        && baseline.inode === snapshot.inode.toString();
+    snapshot.contentFingerprint = (canReuse ? baseline?.contentFingerprint : undefined)
+        ?? await hashContentFingerprintFilePath(originalPath, snapshot.size, signal);
+    if (!snapshotsMatch(snapshot, await capturePathSnapshot(originalPath, options), options)) {
+        throw new OriginalPathSaveConflictError();
+    }
     return snapshot;
 }
 
@@ -181,13 +193,8 @@ export async function captureAdmittedPathSnapshot(
  *
  * - `own-backup-link`: compare the original with its admitted full baseline.
  *   A hard link shares a writable inode and cannot prove unchanged content.
- * - `open-copy`: an open's working copy moved the original's ctime while it was
- *   made. `source` is the copy's full-content fingerprint (eager copy) or the
- *   clone to hash (cloned copy); the original is read once and must match it.
- *   Without a source (a lazy copy) the move cannot be proven and is refused.
- * - `open-rewrite`: the working copy was rewritten from the original (qpdf).
- *   The rewrite's bytes are not the original's, so only the sampled check
- *   applies. A rewrite that reads every byte cannot give back a hash here.
+ * - `open-copy`: compare the raw copy's fingerprint (or hash its clone) with
+ *   one fresh read of the original. Without raw proof, refuse a ctime move.
  */
 export type TOriginalRebaseProof =
     | {kind: 'own-backup-link'}
@@ -207,39 +214,44 @@ export async function rebaseUnchangedSnapshot(
     admitted: IOriginalPathSaveSnapshot,
     proof: TOriginalRebaseProof,
 ): Promise<IOriginalPathSaveSnapshot> {
-    const snapshot = await capturePathSnapshot(originalPath);
-    if (!snapshotsMatch(admitted, snapshot, {allowBackupMetadataChange: true})) {
+    const options = {ignoreIdentity: admitted.contentFingerprint !== undefined
+        || proof.kind === 'open-copy' && proof.source !== null};
+    const snapshot = await capturePathSnapshot(originalPath, options);
+    if (!snapshotsMatch(admitted, snapshot, {
+        ...options,
+        allowBackupMetadataChange: true,
+    })) {
         throw new OriginalPathSaveConflictError();
     }
     const ctimeMoved = admitted.ctimeNs !== snapshot.ctimeNs;
+    const identityMoved = admitted.deviceId !== snapshot.deviceId || admitted.inode !== snapshot.inode;
     const linkCountMoved = admitted.linkCount !== snapshot.linkCount;
     if (proof.kind === 'own-backup-link') {
         if ((ctimeMoved || linkCountMoved) && snapshot.linkCount !== admitted.linkCount + 1n) {
             throw new OriginalPathSaveConflictError();
         }
-        if (ctimeMoved) {
-            if (admitted.contentFingerprint === undefined
-                || admitted.contentFingerprint !== await hashContentFingerprintFilePath(originalPath, snapshot.size)
-                || !snapshotsMatch(snapshot, await capturePathSnapshot(originalPath))) {
-                throw new OriginalPathSaveConflictError();
-            }
-        }
-        snapshot.contentFingerprint = admitted.contentFingerprint;
-        return snapshot;
-    }
-    if (linkCountMoved) {
+    } else if (linkCountMoved) {
         throw new OriginalPathSaveConflictError();
     }
-    if (ctimeMoved && proof.kind === 'open-copy') {
-        const source = proof.source;
+    const baselineFingerprint = admitted.contentFingerprint
+        ?? (proof.kind === 'open-copy' && proof.source && 'contentFingerprint' in proof.source
+            ? proof.source.contentFingerprint : undefined);
+    if (baselineFingerprint !== undefined) snapshot.contentFingerprint = baselineFingerprint;
+    if ((ctimeMoved || identityMoved) && proof.kind !== 'open-rewrite') {
+        const source = proof.kind === 'own-backup-link'
+            ? {contentFingerprint: admitted.contentFingerprint}
+            : proof.source;
         const sourceFingerprint = source === null
             ? undefined
             : 'contentFingerprint' in source
                 ? source.contentFingerprint
                 : await hashContentFingerprintFilePath(source.path, snapshot.size);
-        if (sourceFingerprint === undefined || sourceFingerprint !== await hashContentFingerprintFilePath(originalPath, snapshot.size)) {
+        if (sourceFingerprint === undefined
+            || sourceFingerprint !== await hashContentFingerprintFilePath(originalPath, snapshot.size)
+            || !snapshotsMatch(snapshot, await capturePathSnapshot(originalPath, options), options)) {
             throw new OriginalPathSaveConflictError();
         }
+        snapshot.contentFingerprint = sourceFingerprint;
     }
     return snapshot;
 }

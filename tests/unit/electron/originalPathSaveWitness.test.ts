@@ -28,6 +28,8 @@ import type * as ReadFileChunk from '@electron/file-access/readFileChunk';
 
 const mocks = vi.hoisted(() => ({
     getWorkingCopyOriginalFileExpectation: vi.fn(),
+    identityChurnPath: '',
+    identityStats: 0,
     mutateDuringWitnessPath: '',
     mutateDuringWitnessReplacementPath: '',
     mutatePostHashStatPath: '',
@@ -39,8 +41,31 @@ vi.mock('node:fs/promises', async importOriginal => {
     const original = await importOriginal<typeof FsPromises>();
     return {
         ...original,
+        stat: async (...args: Parameters<typeof original.stat>) => {
+            const fileStat = await original.stat(...args);
+            if (String(args[0]) !== mocks.identityChurnPath) return fileStat;
+            const bigintStat = fileStat as BigIntStats;
+            const sequence = BigInt(++mocks.identityStats);
+            return {
+                ...bigintStat,
+                isFile: () => bigintStat.isFile(),
+                dev: bigintStat.dev + sequence,
+                ino: bigintStat.ino + sequence,
+            };
+        },
         lstat: async (...args: Parameters<typeof original.lstat>) => {
             const fileStat = await original.lstat(...args);
+            if (String(args[0]) === mocks.identityChurnPath) {
+                const bigintStat = fileStat as BigIntStats;
+                const sequence = BigInt(++mocks.identityStats);
+                return {
+                    ...bigintStat,
+                    isFile: () => bigintStat.isFile(),
+                    dev: bigintStat.dev + sequence,
+                    ino: bigintStat.ino + sequence,
+                };
+            }
+
             if (String(args[0]) === mocks.mutatePostHashStatPath && ++mocks.postHashStatCalls === 2) {
                 const bigintStat = fileStat as BigIntStats;
                 return {
@@ -100,6 +125,8 @@ describe('originalPathSaveBaseMatches', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
+        mocks.identityChurnPath = '';
+        mocks.identityStats = 0;
         mocks.mutateDuringWitnessPath = '';
         mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
@@ -121,6 +148,40 @@ describe('originalPathSaveBaseMatches', () => {
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
 
         await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
+    });
+
+    it.each([
+        'unchanged',
+        'changed',
+        'missing-baseline',
+    ])('requires admitted content proof for identity-only churn: %s', async (scenario) => {
+        const originalPath = join(tempDir, 'network-original.pdf');
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 65));
+        const expected = await captureExpectation(originalPath);
+        const contentFingerprint = await hashContentFingerprintFilePath(originalPath, BigInt(expected.size));
+        if (scenario === 'changed') {
+            const handle = await open(originalPath, 'r+');
+            await handle.write('EXTERNAL-EDIT', 262144);
+            await handle.close();
+        }
+        // A remote filesystem can return stale content timestamps and changing
+        // client-generated inode numbers. The admitted full bytes remain the oracle.
+        const current = await captureExpectation(originalPath);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...expected,
+            ctimeNs: current.ctimeNs,
+            mtimeNs: current.mtimeNs,
+            mtimeMs: current.mtimeMs,
+            ...(scenario === 'missing-baseline' ? {} : {contentFingerprint}),
+        });
+        mocks.identityChurnPath = originalPath;
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness !== null).toBe(scenario === 'unchanged');
+        await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12))
+            .resolves.toBe(scenario === 'unchanged');
+        if (witness) {
+            await expect(witness.assertCurrent()).resolves.toBeUndefined();
+        }
     });
 
     it('rejects a same-size edit even when its mtime is restored', async () => {
@@ -564,6 +625,8 @@ describe('captureOpenSourceWitness', () => {
     let tempDir = '';
 
     beforeEach(async () => {
+        mocks.identityChurnPath = '';
+        mocks.identityStats = 0;
         mocks.mutateDuringWitnessPath = '';
         mocks.mutateDuringWitnessReplacementPath = '';
         mocks.mutatePostHashStatPath = '';
@@ -619,7 +682,10 @@ describe('captureOpenSourceWitness', () => {
             source: {contentFingerprint},
         }))
             .resolves.toBeUndefined();
-        await expect(witness.rebaseOnUnchangedContent({kind: 'open-rewrite'})).resolves.toBeUndefined();
+        await expect(witness.rebaseOnUnchangedContent({
+            kind: 'open-copy',
+            source: null,
+        })).resolves.toBeUndefined();
     });
 
     it('reports a source swapped while witnessing as a conflict', async () => {

@@ -1,3 +1,4 @@
+import type {FileHandle} from 'node:fs/promises';
 import {
     createOriginalFileContentFingerprint,
     createOriginalFileExpectationFromStat,
@@ -305,17 +306,6 @@ function sameOriginalFileExpectation(
         && left.mtimeMs === right.mtimeMs;
 }
 
-function withoutOriginalFileContentFingerprint(
-    expectation: IWorkingCopyOriginalFileExpectation | undefined,
-): IWorkingCopyOriginalFileExpectation | undefined {
-    if (!expectation) {
-        return undefined;
-    }
-    const statExpectation = {...expectation};
-    delete statExpectation.contentFingerprint;
-    return statExpectation;
-}
-
 
 function copyOriginalFileExpectation(
     expectation: IWorkingCopyOriginalFileExpectation | undefined,
@@ -341,9 +331,9 @@ function copyAdmissionSnapshot(
 }
 
 export async function captureWorkingCopyAdmissionSnapshot(
-    originalPath: string,
+    source: string | FileHandle,
 ): Promise<IWorkingCopyAdmissionSnapshot> {
-    const sourceStat = await stat(originalPath, {bigint: true});
+    const sourceStat = typeof source === 'string' ? await stat(source, {bigint: true}) : await source.stat({bigint: true});
     if (!sourceStat.isFile()) {
         throw new Error('Working-copy source is not a regular file');
     }
@@ -355,16 +345,21 @@ export async function captureWorkingCopyAdmissionSnapshot(
     };
 }
 
-// A file renamed over the original can keep its size and modification time;
-// only its identity tells it apart. A snapshot restored from a workspace
-// checkpoint carries no identity, so size and time decide for it.
-export function workingCopyAdmissionSnapshotsMatch(
+// Identity churn on network mounts needs an admitted full-content baseline.
+// Legacy checkpoints without identity retain their size/time comparison.
+export async function workingCopyAdmissionSnapshotsMatch(
     left: IWorkingCopyAdmissionSnapshot,
     right: IWorkingCopyAdmissionSnapshot,
+    originalPath?: string,
+    expectation?: IWorkingCopyOriginalFileExpectation | null,
 ) {
-    return left.size === right.size && left.mtimeNs === right.mtimeNs
-        && (left.inode === undefined || right.inode === undefined
-            || left.inode === right.inode && left.deviceId === right.deviceId);
+    if (left.size !== right.size || left.mtimeNs !== right.mtimeNs) return false;
+    if (left.inode !== undefined && right.inode !== undefined
+        && (left.inode !== right.inode || left.deviceId !== right.deviceId)) {
+        return !!originalPath && !!expectation?.contentFingerprint
+            && await createOriginalFileContentFingerprint(originalPath, expectation) === expectation.contentFingerprint;
+    }
+    return true;
 }
 
 function isSameOwner(left: number | undefined, right: number | undefined) {
@@ -570,7 +565,7 @@ export async function setWorkingCopyOriginalPath(
 
     const expectationAbortController = new AbortController();
     entry.originalFileExpectationAbortController = expectationAbortController;
-    const expectation = withoutOriginalFileContentFingerprint(options.originalFileExpectation)
+    const expectation = copyOriginalFileExpectation(options.originalFileExpectation)
         ?? await createOriginalFileExpectation(
             originalPath,
             expectationAbortController.signal,
@@ -623,7 +618,7 @@ function captureOriginalFileContentFingerprint(
     expectation: IWorkingCopyOriginalFileExpectation | undefined,
     controller: AbortController,
 ) {
-    if (!expectation) {
+    if (!expectation || expectation.contentFingerprint) {
         delete entry.originalFileExpectationAbortController;
         return;
     }
@@ -964,9 +959,7 @@ export function transitionWorkingCopyBackingState(
     activeEntry.backingState = backingState;
     if (options.originalFileExpectation) {
         activeEntry.originalFileExpectationAbortController?.abort();
-        const originalFileExpectation = withoutOriginalFileContentFingerprint(
-            copyOriginalFileExpectation(options.originalFileExpectation),
-        );
+        const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
         if (originalFileExpectation) {
             activeEntry.originalFileExpectation = originalFileExpectation;
             const controller = new AbortController();
