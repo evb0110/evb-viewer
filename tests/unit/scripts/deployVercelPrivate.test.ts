@@ -23,6 +23,7 @@ import {
     spawnSync,
 } from 'node:child_process';
 import {once} from 'node:events';
+import {createHash} from 'node:crypto';
 import {
     afterAll,
     beforeAll,
@@ -175,7 +176,7 @@ async function startProductionLockOwner(projectRoot: string) {
                 spawnSyncImpl: (_command, args) => ({
                     stderr: '',
                     stdout: args[0] === 'inspect'
-                        ? '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}'
+                        ? JSON.stringify({aliases: ['web.evb-viewer.com'], id: args[1] === 'https://next.vercel.app' ? 'dpl_next' : 'dpl_previous', name: 'fixture-project'})
                         : 'Production: https://next.vercel.app',
                     status: 0,
                 }),
@@ -221,9 +222,7 @@ interface IProductionRecord {
     url: string;
 }
 
-// A production alias the fake Vercel CLI moves: `deploy` promotes a new deployment,
-// `rollback` restores one by identity, and `inspect` reports what production serves.
-// Several deploys can share one alias, as two hosts sharing a Vercel project do.
+// The controlled CLI stages immutable deployments and moves one shared alias.
 function createVercelAlias(initial: IProductionRecord) {
     const deployments = new Map([[
         initial.id,
@@ -237,37 +236,37 @@ function createVercelAlias(initial: IProductionRecord) {
         return (_command: string, args: string[]) => {
             alias.calls.push(args);
             if (args[0] === 'inspect') {
+                const record = args[1] === 'https://web.evb-viewer.com/'
+                    ? alias.production
+                    : [...deployments.values()].find(deployment => args[1] === `https://${deployment.url}`);
                 return {
                     stderr: '',
-                    stdout: `${JSON.stringify({
+                    stdout: JSON.stringify({
+                        ...record,
                         aliases: ['web.evb-viewer.com'],
-                        id: alias.production.id,
                         name: 'fixture-project',
-                        url: alias.production.url,
-                    })}\n`,
-                    status: 0,
+                    }),
+                    status: record ? 0 : 1,
                 };
             }
-            if (args[0] === 'rollback') {
+            if (args[0] === 'promote' || args[0] === 'rollback') {
                 const target = deployments.get(args[1] ?? '');
-                if (target) {
-                    alias.production = target;
-                }
+                if (target) alias.production = target;
                 return {
                     stderr: '',
                     stdout: '',
                     status: target ? 0 : 1,
                 };
             }
-            const promoted = {
+            const staged = {
                 id: `dpl_${deploymentName}`,
                 url: `${deploymentName}.vercel.app`,
             };
-            deployments.set(promoted.id, promoted);
-            alias.production = promoted;
+            deployments.set(staged.id, staged);
+            if (!args.includes('--skip-domain')) alias.production = staged;
             return {
                 stderr: '',
-                stdout: printUrl ? `Production: https://${promoted.url}\n` : 'Production deploy completed\n',
+                stdout: printUrl ? `https://${staged.url}\n` : 'Production deploy completed\n',
                 status: 0,
             };
         };
@@ -629,11 +628,7 @@ describe('private Vercel deployment source', () => {
                 rawArgs: ['--prod'],
                 spawnSyncImpl: vercel.spawnFor('next'),
             })).resolves.toBe(0);
-            expect(vercel.alias.calls.map(args => args[0])).toEqual([
-                'inspect',
-                'deploy',
-                'inspect',
-            ]);
+            expect(vercel.alias.production.id).toBe('dpl_next');
             expect(readFileSync(lockPath, 'utf8')).toBe('');
         } finally {
             if (owner.exitCode === null && owner.signalCode === null) {
@@ -678,24 +673,53 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    // A record written by an earlier version of this lock, with no format, names its owner's pid.
-    it('keeps a legacy lock record in force while its owner on this host is alive', async () => {
-        const lockPath = getProductionDeployLockPath('project');
-        mkdirSync(path.dirname(lockPath), {recursive: true});
-        writeFileSync(lockPath, JSON.stringify({
+    it.each([
+        {
             hostname: hostname(),
             pid: process.pid,
-            token: 'legacy-live',
-        }));
+            token: 'reused-pid',
+        },
+        {
+            hostname: 'another-host',
+            pid: 2147483647,
+            token: 'foreign',
+        },
+    ])('ignores a pre-format-2 record when the flock is free: $token', async record => {
+        const lockPath = getProductionDeployLockPath('project');
+        mkdirSync(path.dirname(lockPath), {recursive: true});
+        writeFileSync(lockPath, JSON.stringify(record));
+        let release: (() => Promise<void>) | undefined;
+        try {
+            release = await acquireProductionDeployLock({
+                env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+                projectId: 'project',
+            });
+            expect(JSON.parse(readFileSync(lockPath, 'utf8')).format).toBe(2);
+        } finally {
+            await release?.();
+            rmSync(lockPath, {force: true});
+        }
+    });
 
+    it('refuses a live pre-lane publisher at the old TMPDIR lock path', async () => {
+        const fingerprint = createHash('sha256').update('project').digest('hex').slice(0, 24);
+        const oldPath = path.join(tmpdir(), `evb-vercel-production-${fingerprint}.lock`);
+        const record = {
+            pid: process.pid,
+            token: 'old-live',
+            acquiredAt: Date.now(),
+        };
+        writeFileSync(oldPath, JSON.stringify(record));
+        let release: (() => Promise<void>) | undefined;
         try {
             await expect(acquireProductionDeployLock({
                 env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
                 projectId: 'project',
-            })).rejects.toThrow('Timed out waiting for the production deploy lock');
-            expect(JSON.parse(readFileSync(lockPath, 'utf8')).token).toBe('legacy-live');
+            }).then(lock => { release = lock; })).rejects.toThrow('legacy production deploy');
+            expect(JSON.parse(readFileSync(oldPath, 'utf8'))).toEqual(record);
         } finally {
-            rmSync(lockPath, {force: true});
+            await release?.();
+            rmSync(oldPath, {force: true});
         }
     });
 
@@ -762,26 +786,6 @@ describe('private Vercel deployment source', () => {
                 recursive: true,
                 retryDelay: 20,
             });
-        }
-    });
-
-    it('keeps a lock recorded by another host in force', async () => {
-        const lockPath = getProductionDeployLockPath('project');
-        mkdirSync(path.dirname(lockPath), {recursive: true});
-        writeFileSync(lockPath, JSON.stringify({
-            hostname: 'another-host',
-            pid: 2147483647,
-            token: 'foreign',
-        }));
-
-        try {
-            await expect(acquireProductionDeployLock({
-                env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
-                projectId: 'project',
-            })).rejects.toThrow('Timed out waiting for the production deploy lock');
-            expect(JSON.parse(readFileSync(lockPath, 'utf8')).token).toBe('foreign');
-        } finally {
-            rmSync(lockPath, {force: true});
         }
     });
 
@@ -865,6 +869,7 @@ describe('private Vercel deployment source', () => {
             '/tmp/source',
             '--yes',
             '--archive=tgz',
+            '--skip-domain',
             '--prod',
             '--logs',
         ]);
@@ -891,6 +896,7 @@ describe('private Vercel deployment source', () => {
             '--archive=tgz',
             '--build-env',
             'EVB_APP_VERSION=1.2.3',
+            '--skip-domain',
             '--prod',
         ]);
     });
@@ -1093,20 +1099,13 @@ describe('private Vercel deployment source', () => {
                 'https://web.evb-viewer.com/',
                 '--json',
             ].map(spawnedArg));
-            expect(vercel.alias.calls.map(args => args[0])).toEqual([
-                'inspect',
-                'deploy',
-                'inspect',
-                'inspect',
-                'rollback',
-            ]);
-            expect(vercel.alias.calls[4]).toEqual([
-                'rollback',
+            expect(vercel.alias.calls.at(-1)).toEqual([
+                'promote',
                 'dpl_previous',
                 '--yes',
             ].map(spawnedArg));
             expect(vercel.alias.production.id).toBe('dpl_previous');
-            expect(fetchedUrls).toEqual(['https://health.example/status']);
+            expect(fetchedUrls).toEqual(['https://evb-viewer-test.vercel.app/status']);
         } finally {
             rmSync(projectRoot, {
                 force: true,
@@ -1117,7 +1116,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it('rolls back when a production deploy omits its deployment URL', async () => {
+    it('leaves production unchanged when a staged deploy omits its deployment URL', async () => {
         const projectRoot = createProjectFixture();
         const vercel = createVercelAlias({
             id: 'dpl_previous',
@@ -1132,16 +1131,10 @@ describe('private Vercel deployment source', () => {
                 rawArgs: ['--prod'],
                 spawnSyncImpl: vercel.spawnFor('evb-viewer-test', {printUrl: false}),
             })).rejects.toThrow(
-                'Production Vercel deploy did not report a deployment URL; refusing an unverified alias.',
+                'Production Vercel deploy did not report a deployment URL; refusing to promote.',
             );
 
-            expect(vercel.alias.calls.map(args => args[0])).toEqual([
-                'inspect',
-                'deploy',
-                'inspect',
-                'inspect',
-                'rollback',
-            ]);
+            expect(vercel.alias.calls.some(args => args[0] === 'promote' || args[0] === 'rollback')).toBe(false);
             expect(vercel.alias.production.id).toBe('dpl_previous');
         } finally {
             rmSync(projectRoot, {
@@ -1282,18 +1275,8 @@ describe('private Vercel deployment source', () => {
             await followerSpawned;
             await expect(secondDeploy).rejects.toThrow('The failed deployment was rolled back.');
             expect(followerSpawnedAfterLeaderRelease).toBe(true);
-            expect(vercel.alias.calls.map(args => args[0])).toEqual([
-                'inspect',
-                'deploy',
-                'inspect',
-                'inspect',
-                'deploy',
-                'inspect',
-                'inspect',
-                'rollback',
-            ]);
             expect(vercel.alias.calls.at(-1)).toEqual([
-                'rollback',
+                'promote',
                 'dpl_leader',
                 '--yes',
             ].map(spawnedArg));
@@ -1390,6 +1373,178 @@ describe('private Vercel deployment source', () => {
         }
     });
 
+    it.each([
+        'deploy',
+        'promote',
+    ])('retains the flock in a %s CLI after the deploy parent is killed', async phase => {
+        const projectRoot = createProjectFixture();
+        const childScript = path.join(projectRoot, '.devkit', 'controlled-cli.mjs');
+        mkdirSync(path.dirname(childScript), {recursive: true});
+        const promotedPath = path.join(projectRoot, '.devkit', 'promoted');
+        writeFileSync(childScript, `
+            import {watch, writeFileSync} from 'node:fs';
+            watch(${JSON.stringify(path.dirname(childScript))}, () => {});
+            process.on('SIGUSR2', () => {
+                writeFileSync(${JSON.stringify(promotedPath)}, 'dpl_ours');
+                process.stdout.write('cli-finished\\n');
+                process.exit(0);
+            });
+            process.stdout.write('cli-held:' + process.pid + '\\n');
+        `);
+        const owner = spawn(process.execPath, [
+            '--input-type=module',
+            '-e',
+            `
+            import {spawnSync} from 'node:child_process';
+            const {runPrivateVercelDeploy} = await import(${JSON.stringify(pathToFileURL(resolve('scripts/deployVercelPrivate.mjs')).href)});
+            await runPrivateVercelDeploy({
+                projectRoot: ${JSON.stringify(projectRoot)}, rawArgs: ['--prod'], env: {},
+                fetchImpl: async () => ({ok: true, status: 200}),
+                spawnSyncImpl: (_command, args, options) => args[0] === 'inspect'
+                    ? {status: 0, stdout: JSON.stringify({aliases: ['web.evb-viewer.com'], id: args[1] === 'https://ours.vercel.app' ? 'dpl_ours' : 'dpl_previous', name: 'fixture-project'})}
+                    : args[0] !== ${JSON.stringify(phase)}
+                    ? {status: 0, stdout: 'https://ours.vercel.app'}
+                    : spawnSync(process.execPath, [${JSON.stringify(childScript)}], {
+                        ...options, stdio: ['ignore', 1, 2, ...options.stdio.slice(3)],
+                    }),
+            });
+        `,
+        ], {
+            env: process.env,
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+        });
+        const closed = once(owner, 'close');
+        let cliPid: number | undefined;
+        let release: (() => Promise<void>) | undefined;
+        let admitted = false;
+        const finished = new Promise<void>(resolveFinished => {
+            owner.stdout.on('data', chunk => {
+                if (chunk.toString().includes('cli-finished')) resolveFinished();
+            });
+        });
+        try {
+            cliPid = await new Promise<number>((resolveReady, rejectReady) => {
+                owner.stdout.on('data', chunk => {
+                    const pid = chunk.toString().match(/cli-held:(\d+)/u)?.[1];
+                    if (pid) resolveReady(Number(pid));
+                });
+                owner.once('exit', code => rejectReady(new Error(`owner exited before CLI started: ${code}`)));
+            });
+            owner.kill('SIGKILL');
+            await once(owner, 'exit');
+            try {
+                release = await acquireProductionDeployLock({
+                    env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+                    projectId: 'project',
+                });
+                admitted = true;
+            } catch (error) {
+                expect(String(error)).toContain('Timed out waiting');
+            }
+            process.kill(cliPid, 'SIGUSR2');
+            await finished;
+            expect(readFileSync(promotedPath, 'utf8')).toBe('dpl_ours');
+            expect(admitted).toBe(false);
+        } finally {
+            await release?.();
+            if (owner.exitCode === null && owner.signalCode === null) {
+                owner.kill('SIGKILL');
+                await once(owner, 'exit');
+            }
+            if (cliPid) {
+                try { process.kill(cliPid, 'SIGKILL'); } catch { /* Already exited. */ }
+            }
+            await closed;
+            rmSync(projectRoot, {
+                recursive: true,
+                force: true,
+            });
+        }
+        release = await acquireProductionDeployLock({
+            env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+            projectId: 'project',
+        });
+        await release();
+    });
+
+    it('stops promotion when another publisher wins during the staged build', async () => {
+        const projectRoot = createProjectFixture();
+        const vercel = createVercelAlias({
+            id: 'dpl_previous',
+            url: 'previous.vercel.app',
+        });
+        const cli = vercel.spawnFor('ours');
+        try {
+            await expect(runPrivateVercelDeploy({
+                projectRoot,
+                rawArgs: ['--prod'],
+                env: {},
+                command: 'controlled-cli',
+                spawnSyncImpl: (command: string, args: string[]) => {
+                    const result = cli(command, args);
+                    if (args[0] === 'deploy') vercel.alias.production = {
+                        id: 'dpl_other',
+                        url: 'other.vercel.app',
+                    };
+                    return result;
+                },
+            })).rejects.toThrow(/another publisher.*dpl_other/iu);
+            expect(vercel.alias.production.id).toBe('dpl_other');
+            expect(vercel.alias.calls.some(args => args[0] === 'promote' || args[0] === 'rollback')).toBe(false);
+        } finally { rmSync(projectRoot, {
+            recursive: true,
+            force: true,
+        }); }
+    });
+
+    it('never borrows another deployment identity for acceptance or rollback', async () => {
+        const projectRoot = createProjectFixture();
+        const vercel = createVercelAlias({
+            id: 'dpl_previous',
+            url: 'previous.vercel.app',
+        });
+        const cli = vercel.spawnFor('ours');
+        const fetched: string[] = [];
+        try {
+            await expect(runPrivateVercelDeploy({
+                projectRoot,
+                rawArgs: ['--prod'],
+                env: {},
+                command: 'controlled-cli',
+                spawnSyncImpl: (command: string, args: string[]) => {
+                    const result = cli(command, args);
+                    if (args[0] === 'promote' && args[1] === 'dpl_ours') {
+                        vercel.alias.production = {
+                            id: 'dpl_other',
+                            url: 'other.vercel.app',
+                        };
+                    }
+                    return result;
+                },
+                fetchImpl: async (url: string) => {
+                    fetched.push(url);
+                    vercel.alias.production = {
+                        id: 'dpl_other',
+                        url: 'other.vercel.app',
+                    };
+                    return {
+                        ok: false,
+                        status: 503,
+                    };
+                },
+            })).rejects.toThrow(/Rollback skipped: .*dpl_other.*dpl_ours/u);
+            expect(fetched).toEqual(['https://ours.vercel.app/']);
+            expect(vercel.alias.production.id).toBe('dpl_other');
+        } finally { rmSync(projectRoot, {
+            recursive: true,
+            force: true,
+        }); }
+    });
+
     it('extracts deployment identities and builds an explicit rollback command', () => {
         expect(extractVercelDeploymentUrl('ready at https://viewer-abc.vercel.app')).toBe(
             'https://viewer-abc.vercel.app',
@@ -1416,7 +1571,7 @@ describe('private Vercel deployment source', () => {
             },
         )).toThrow('does not own the production alias');
         expect(buildVercelRollbackArgs('dpl_previous')).toEqual([
-            'rollback',
+            'promote',
             'dpl_previous',
             '--yes',
         ]);
