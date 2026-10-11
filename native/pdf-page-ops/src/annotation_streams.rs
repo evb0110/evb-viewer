@@ -338,12 +338,12 @@ fn note_appearance_stream_refs(
     else {
         return Vec::new();
     };
-    let references: Vec<ObjectId> = match normal {
-        Object::Dictionary(states) => states
+    let references: Vec<ObjectId> = match document.resolved(normal) {
+        Ok(Object::Dictionary(states)) => states
             .iter()
             .filter_map(|(_, state)| state.as_reference().ok())
             .collect(),
-        reference => reference.as_reference().ok().into_iter().collect(),
+        _ => normal.as_reference().ok().into_iter().collect(),
     };
     references
         .into_iter()
