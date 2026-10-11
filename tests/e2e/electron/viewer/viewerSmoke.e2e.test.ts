@@ -6105,7 +6105,11 @@ describe('Electron E2E - Document Output', () => {
         await session.page.waitForSelector('.tab.is-dirty', {visible: true});
     }, 120_000);
 
-    it('prints a text box that Save has written to the document', async () => {
+    it.each([
+        'Save',
+        'Save As',
+        'Save then edit',
+    ] as const)('prints a text box after %s', async (scenario) => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-after-save-${Date.now()}.pdf`, 1);
         const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-print-after-save-${Date.now()}`);
         const printedPath = join(printDirectory, 'printed.pdf');
@@ -6120,6 +6124,7 @@ describe('Electron E2E - Document Output', () => {
             extraEnv: {
                 EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
                 EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+                EVB_E2E_SAVE_DIALOG_PATH: join(printDirectory, 'saved-as.pdf'),
             },
         });
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -6131,8 +6136,20 @@ describe('Electron E2E - Document Output', () => {
             y: 0.31,
         });
         await session.page.waitForSelector('.tab.is-dirty', {visible: true});
-        await clickVisibleToolbarButton(session.page, 'Save');
+        if (scenario === 'Save As') {
+            await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+Shift+S'});
+        } else {
+            await clickVisibleToolbarButton(session.page, 'Save');
+        }
         await waitForFunctionInPage(session.page, () => !document.querySelector('.tab.is-dirty'), {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        const secondMarker = 'Second unsaved edit is printed too';
+        if (scenario === 'Save then edit') {
+            await createCanonicalTextBoxWithPointer(session.page, secondMarker, {
+                x: 0.4,
+                y: 0.45,
+            });
+            await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+        }
         await clickVisibleToolbarButton(session.page, 'Print');
         const submit = await session.page.waitForSelector(
             '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])',
@@ -6156,7 +6173,7 @@ describe('Electron E2E - Document Output', () => {
             await delay(250);
         }
         // The printed page must show the saved text box, whichever route printed it.
-        await expect.poll(async () => {
+        const printedText = async () => {
             const {stdout} = await execFileAsync(resolve(
                 process.cwd(),
                 'resources',
@@ -6169,7 +6186,12 @@ describe('Electron E2E - Document Output', () => {
                 '-',
             ], {timeout: 30_000});
             return stdout.replace(/\s+/gu, ' ');
-        }, {timeout: 30_000}).toContain(marker);
+        };
+        await expect.poll(printedText, {timeout: 30_000}).toContain(marker);
+        if (scenario === 'Save then edit') {
+            expect(await printedText()).toContain(secondMarker);
+            await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+        }
     });
 
     it('prints a typed page range of a PDF through the print dialog', async () => {

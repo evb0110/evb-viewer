@@ -897,10 +897,8 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         const isPathSource = isPathPdfSource(sourcePdf);
         const requiresLayoutComposition = payload.viewMode !== 'single'
             || payload.orientation !== 'auto';
-        const managedPrintPath = isPathSource || requiresLayoutComposition
-            ? deps.printPath?.value
-                ?? (isPathSource ? sourcePdf.path : deps.workingCopyPath.value)
-            : null;
+        const managedPrintPath = deps.printPath?.value
+            ?? (isPathSource ? sourcePdf.path : requiresLayoutComposition ? deps.workingCopyPath.value : null);
         if (!managedPrintPath) {
             return false;
         }

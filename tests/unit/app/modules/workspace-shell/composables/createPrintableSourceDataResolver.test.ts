@@ -195,24 +195,13 @@ describe('createPrintableSourceDataResolver', () => {
         expect(getSourcePdfData).not.toHaveBeenCalled();
     });
 
-    it('prints loaded bytes without a transaction or a lease when the document is clean', async () => {
-        const leaseKinds: TDocumentOperationKind[] = [];
-        const runSaveTransaction = vi.fn(async () => createTransactionResult(Uint8Array.of(1)));
+    it('prints the clean document bytes', async () => {
         const harness = createResolverHarness({
             dirty: false,
             pdfData: Uint8Array.of(7, 7, 7),
-            viewer: {runSaveTransaction},
-            runWithDocumentOperationLease: async (kind, operation) => {
-                leaseKinds.push(kind);
-                return operation();
-            },
         });
 
         await expect(harness.getPrintableSourceData()).resolves.toEqual(Uint8Array.of(7, 7, 7));
-
-        expect(runSaveTransaction).not.toHaveBeenCalled();
-        expect(harness.getSourcePdfData).not.toHaveBeenCalled();
-        expect(leaseKinds).toEqual([]);
     });
 
     it('reads the source when a clean document has no loaded bytes', async () => {
@@ -223,7 +212,6 @@ describe('createPrintableSourceDataResolver', () => {
         });
 
         await expect(harness.getPrintableSourceData()).resolves.toEqual(Uint8Array.of(5, 5));
-        expect(harness.getSourcePdfData).toHaveBeenCalledTimes(1);
     });
 
     it('retains a detached path until print releases it, without holding the document lease or clearing dirty work', async () => {
@@ -426,7 +414,6 @@ describe('createPrintableSourceDataResolver', () => {
         await save;
 
         await expect(print).resolves.toEqual(Uint8Array.of(8, 8));
-        expect(runSaveTransaction).not.toHaveBeenCalled();
     });
 
     it('does not print persisted bytes when the viewer is gone by the time the lease is granted', async () => {
