@@ -8,6 +8,10 @@ import {
     buildTiffImageIfd,
     encodeTiffIfds,
 } from '@pdf-core';
+import {
+    encode as encodePng, decode as decodePng,
+} from 'fast-png';
+import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
 import {addJpegJfifDensity} from '@pdf-core/addJpegJfifDensity';
 
 interface IUtifEncoderModule {
@@ -166,5 +170,53 @@ describe('JFIF density helper', () => {
         Number.POSITIVE_INFINITY,
     ])('ignores the invalid density %s and returns the JFIF bytes unchanged', (dpi) => {
         expect(addJpegJfifDensity(jfifJpeg, dpi)).toEqual(jfifJpeg);
+    });
+});
+
+describe('PNG density', () => {
+    it.each([
+        false,
+        true,
+    ])('writes one density before image data, replacing existing density (%s)', (existing) => {
+        const encoded = encodePng({
+            width: 1,
+            height: 1,
+            channels: 3,
+            data: Uint8Array.of(17, 33, 55),
+
+        });
+        // fast-png encodes no pHYs; insert a valid 96 DPI chunk after IHDR.
+        const density = Uint8Array.of(
+            0x00, 0x00, 0x00, 0x09, 0x70, 0x48, 0x59,
+            0x73, 0x00, 0x00, 0x0e, 0xc4, 0x00, 0x00,
+            0x0e, 0xc4, 0x01, 0x95, 0x2b, 0x0e, 0x1b,
+        );
+        const png = existing
+            ? Uint8Array.from([
+                ...encoded.subarray(0, 33),
+                ...density,
+                ...encoded.subarray(33),
+            ])
+            : encoded;
+        expect(decodePng(png).resolution?.x).toBe(existing ? 3780 : undefined);
+        const bytes = addPngPhysicalResolution(png, 300);
+        const chunks: string[] = [];
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        for (let offset = 8; offset < bytes.byteLength; offset += view.getUint32(offset) + 12) {
+            chunks.push(String.fromCharCode(...bytes.subarray(offset + 4, offset + 8)));
+        }
+        expect(chunks.filter(type => type === 'pHYs')).toHaveLength(1);
+        expect(chunks.indexOf('pHYs')).toBeLessThan(chunks.indexOf('IDAT'));
+        const decoded = decodePng(bytes);
+        expect(decoded.resolution).toEqual({
+            x: 11811,
+            y: 11811,
+            unit: 1,
+        });
+        expect(Array.from(decoded.data)).toEqual([
+            17,
+            33,
+            55,
+        ]);
     });
 });

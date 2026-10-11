@@ -491,6 +491,30 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             await browser.close();
         }
     });
+    it('exposes DjVu PNG density before image data to header readers', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance') === 'function');
+            const result = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')('density.png'));
+            const bytes = bytesOf(result);
+            const types: string[] = [];
+            for (let offset = 8; offset < bytes.length; offset += bytes.readUInt32BE(offset) + 12) {
+                types.push(bytes.toString('ascii', offset + 4, offset + 8));
+            }
+            expect(types.filter(type => type === 'pHYs')).toHaveLength(1);
+            expect(types.indexOf('pHYs')).toBeLessThan(types.indexOf('IDAT'));
+            expect(readPngDpi(bytes)).toEqual(PAGE_DPI);
+        } finally {
+            await browser.close();
+        }
+    });
+
     it('refuses a non-TIFF handle before writing and restricts the save picker', async () => {
         const browser = await chromium.launch({headless: true});
         try {

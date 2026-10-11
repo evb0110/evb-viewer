@@ -7,18 +7,6 @@ function writeUint32Be(target: Uint8Array, offset: number, value: number) {
     target[offset + 3] = value & 0xff;
 }
 
-/** Offset of the first chunk of `type`, or -1. Walks chunk lengths from the signature. */
-function findChunkOffset(pngBytes: Uint8Array, type: string) {
-    const view = new DataView(pngBytes.buffer, pngBytes.byteOffset, pngBytes.byteLength);
-    for (let offset = 8; offset + 12 <= pngBytes.length;) {
-        if (String.fromCharCode(...pngBytes.subarray(offset + 4, offset + 8)) === type) {
-            return offset;
-        }
-        offset += 12 + view.getUint32(offset, false);
-    }
-    return -1;
-}
-
 function crc32(bytes: Uint8Array) {
     let crc = 0xffffffff;
     for (const byte of bytes) {
@@ -59,15 +47,25 @@ export function addPngPhysicalResolution(pngBytes: Uint8Array, dpi: number) {
         return pngBytes;
     }
 
-    // PNG requires pHYs before the first IDAT; readers that stop at image data miss it.
-    const idatOffset = findChunkOffset(pngBytes, 'IDAT');
-    if (idatOffset < 0) {
-        return pngBytes;
+    const view = new DataView(pngBytes.buffer, pngBytes.byteOffset, pngBytes.byteLength);
+    if (view.getUint32(0) !== 0x89504e47 || view.getUint32(4) !== 0x0d0a1a0a) return pngBytes;
+    const chunks: Uint8Array[] = [];
+    for (let offset = 8; offset < pngBytes.length;) {
+        if (offset + 12 > pngBytes.length) return pngBytes;
+        const end = offset + view.getUint32(offset) + 12;
+        if (end > pngBytes.length) return pngBytes;
+        if (view.getUint32(offset + 4) !== 0x70485973) chunks.push(pngBytes.subarray(offset, end));
+        offset = end;
     }
-
-    const result = new Uint8Array(pngBytes.length + chunk.length);
-    result.set(pngBytes.subarray(0, idatOffset), 0);
-    result.set(chunk, idatOffset);
-    result.set(pngBytes.subarray(idatOffset), idatOffset + chunk.length);
+    const firstIdat = chunks.findIndex(bytes => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4) === 0x49444154);
+    if (firstIdat < 0) return pngBytes;
+    chunks.splice(firstIdat, 0, chunk);
+    const result = new Uint8Array(8 + chunks.reduce((total, bytes) => total + bytes.length, 0));
+    result.set(pngBytes.subarray(0, 8));
+    let offset = 8;
+    for (const bytes of chunks) {
+        result.set(bytes, offset);
+        offset += bytes.length;
+    }
     return result;
 }
