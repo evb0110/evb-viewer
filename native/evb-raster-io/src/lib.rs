@@ -66,8 +66,21 @@ pub struct PngMetadata {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PngTransparencyKey {
-    Gray(u8),
-    Rgb([u8; 3]),
+    /// Full-depth sample value; 16-bit keys keep all 16 bits.
+    Gray(u16),
+    Rgb([u16; 3]),
+}
+impl PngTransparencyKey {
+    fn gray(value: u8) -> Self {
+        Self::Gray(u16::from(value))
+    }
+    fn rgb(pixel: &[u8]) -> Self {
+        Self::Rgb([
+            u16::from(pixel[0]),
+            u16::from(pixel[1]),
+            u16::from(pixel[2]),
+        ])
+    }
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecodedRaster {
@@ -434,7 +447,7 @@ fn write_png_row(
     match color_type {
         PngColorType::Gray8 | PngColorType::GrayAlpha8 => {
             for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(channels)) {
-                *target = if transparency == Some(PngTransparencyKey::Gray(pixel[0])) {
+                *target = if transparency == Some(PngTransparencyKey::gray(pixel[0])) {
                     255
                 } else {
                     pixel[0]
@@ -446,7 +459,7 @@ fn write_png_row(
                     .zip(source.chunks_exact(channels))
                 {
                     target.fill(
-                        if transparency == Some(PngTransparencyKey::Gray(pixel[0])) {
+                        if transparency == Some(PngTransparencyKey::gray(pixel[0])) {
                             255
                         } else {
                             pixel[0]
@@ -467,8 +480,7 @@ fn write_png_row(
                     .chunks_exact_mut(3)
                     .zip(source.chunks_exact(channels))
                 {
-                    if transparency == Some(PngTransparencyKey::Rgb([pixel[0], pixel[1], pixel[2]]))
-                    {
+                    if transparency == Some(PngTransparencyKey::rgb(pixel)) {
                         target.fill(255);
                     } else {
                         target.copy_from_slice(&pixel[..3]);
@@ -492,7 +504,7 @@ fn write_composited_rgb_row(
     match color_type {
         PngColorType::Gray8 => {
             for (pixel, value) in target.chunks_exact_mut(3).zip(source.iter().copied()) {
-                pixel.fill(if transparency == Some(PngTransparencyKey::Gray(value)) {
+                pixel.fill(if transparency == Some(PngTransparencyKey::gray(value)) {
                     255
                 } else {
                     value
@@ -506,13 +518,7 @@ fn write_composited_rgb_row(
         }
         PngColorType::Rgb8 => {
             for (pixel, source_pixel) in target.chunks_exact_mut(3).zip(source.chunks_exact(3)) {
-                if transparency
-                    == Some(PngTransparencyKey::Rgb([
-                        source_pixel[0],
-                        source_pixel[1],
-                        source_pixel[2],
-                    ]))
-                {
+                if transparency == Some(PngTransparencyKey::rgb(source_pixel)) {
                     pixel.fill(255);
                 } else {
                     pixel.copy_from_slice(source_pixel);
@@ -1011,7 +1017,8 @@ struct WalkedPng {
     idat: Vec<u8>,
     icc_profile: Option<Vec<u8>>,
     palette: Option<Vec<u8>>,
-    indexed_transparency: Option<Vec<u8>>,
+    /// Raw tRNS chunk, kept so the png crate expands keys at source depth.
+    trns: Option<Vec<u8>>,
     transparency: Option<PngTransparencyKey>,
 }
 impl WalkedPng {
@@ -1021,8 +1028,8 @@ impl WalkedPng {
         if let Some(palette) = &self.palette {
             append_png_chunk(&mut png, b"PLTE", palette)?;
         }
-        if let Some(transparency) = &self.indexed_transparency {
-            append_png_chunk(&mut png, b"tRNS", transparency)?;
+        if let Some(trns) = &self.trns {
+            append_png_chunk(&mut png, b"tRNS", trns)?;
         }
         append_png_chunk(&mut png, b"IDAT", &self.idat)?;
         append_png_chunk(&mut png, b"IEND", &[])?;
@@ -1041,7 +1048,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
     let mut idat_len = 0usize;
     let mut icc_profile = None;
     let mut palette = None;
-    let mut indexed_transparency = None;
+    let mut trns = None;
     let mut indexed_transparency_seen = false;
     let mut transparency = None;
     loop {
@@ -1077,22 +1084,15 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 palette = Some(data);
             }
             b"tRNS" if matches!(mode, WalkMode::Decode(_)) => {
-                if transparency.is_some()
-                    || indexed_transparency.is_some()
-                    || length == 0
-                    || length > 256
-                {
+                if trns.is_some() || length == 0 || length > 256 {
                     return Err(RasterError::invalid("Invalid PNG transparency table"));
                 }
+                let parsed_header =
+                    header.ok_or_else(|| RasterError::invalid("PNG tRNS appeared before IHDR"))?;
                 let mut data = vec![0; length];
                 read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
-                if header.is_some_and(|header| matches!(header.color_type, PngColorType::Indexed)) {
-                    indexed_transparency = Some(data);
-                } else {
-                    let parsed_header = header
-                        .ok_or_else(|| RasterError::invalid("PNG tRNS appeared before IHDR"))?;
-                    transparency = Some(parse_transparency_key(parsed_header.color_type, &data)?);
-                }
+                transparency = parse_transparency_key(parsed_header, &data)?;
+                trns = Some(data);
             }
             b"iCCP" if matches!(mode, WalkMode::Passthrough(_) | WalkMode::Metadata(_)) => {
                 if icc_profile.is_some() {
@@ -1145,7 +1145,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                     }
                     let mut data = vec![0; length];
                     read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
-                    transparency = Some(parse_transparency_key(parsed_header.color_type, &data)?);
+                    transparency = parse_transparency_key(parsed_header, &data)?;
                 }
             }
             b"IDAT" => {
@@ -1205,7 +1205,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                     idat,
                     icc_profile: None,
                     palette: None,
-                    indexed_transparency: None,
+                    trns: None,
                     transparency: None,
                 });
             }
@@ -1221,32 +1221,46 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                 idat,
                 icc_profile,
                 palette,
-                indexed_transparency,
+                trns,
                 transparency,
             });
         }
     }
 }
 fn parse_transparency_key(
-    color_type: PngColorType,
+    header: PngHeader,
     data: &[u8],
-) -> Result<PngTransparencyKey, RasterError> {
-    match color_type {
+) -> Result<Option<PngTransparencyKey>, RasterError> {
+    let sample = |bytes: &[u8]| -> Result<u16, RasterError> {
+        let value = u16::from_be_bytes([bytes[0], bytes[1]]);
+        if header.bit_depth != 16 && value > u16::from(u8::MAX) {
+            return Err(RasterError::invalid(
+                "PNG tRNS sample exceeds its bit depth",
+            ));
+        }
+        Ok(value)
+    };
+    match header.color_type {
         PngColorType::Gray8 => {
-            if data.len() != 2 || data[0] != 0 {
+            if data.len() != 2 {
                 return Err(RasterError::invalid("Invalid PNG grayscale tRNS key"));
             }
-            Ok(PngTransparencyKey::Gray(data[1]))
+            Ok(Some(PngTransparencyKey::Gray(sample(data)?)))
         }
         PngColorType::Rgb8 => {
-            if data.len() != 6 || data.chunks_exact(2).any(|sample| sample[0] != 0) {
+            if data.len() != 6 {
                 return Err(RasterError::invalid("Invalid PNG RGB tRNS key"));
             }
-            Ok(PngTransparencyKey::Rgb([data[1], data[3], data[5]]))
+            Ok(Some(PngTransparencyKey::Rgb([
+                sample(&data[0..2])?,
+                sample(&data[2..4])?,
+                sample(&data[4..6])?,
+            ])))
         }
-        PngColorType::GrayAlpha8 | PngColorType::Rgba8 | PngColorType::Indexed => Err(
-            RasterError::invalid("PNG tRNS is not valid for this color type"),
-        ),
+        PngColorType::Indexed => Ok(None),
+        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => Err(RasterError::invalid(
+            "PNG tRNS is not valid for this color type",
+        )),
     }
 }
 fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterError> {

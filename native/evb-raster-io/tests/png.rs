@@ -241,10 +241,94 @@ fn decodes_standard_png_variants_into_the_existing_eight_bit_contract() {
     let adam7_pixels = (0..60)
         .map(|value| ((value * 7 + 10) % 251) as u8)
         .collect::<Vec<_>>();
-    let adam7 = make_adam7_png(5, 4, &adam7_pixels);
+    let adam7 = make_adam7_png(5, 4, &adam7_pixels, None);
     assert_eq!(
         decode_png(&adam7[..], DECODE).unwrap().rgb.data(),
         adam7_pixels
+    );
+}
+
+#[test]
+fn composites_keyed_interlaced_rgb_onto_white() {
+    // The black pixel matches the key, so it is transparent and paints white.
+    let pixels = [0, 0, 0, 1, 2, 3];
+    let keyed = make_adam7_png(2, 1, &pixels, Some(&[0, 0, 0, 0, 0, 0]));
+    assert_eq!(
+        decode_png_composited_rgb(&keyed[..], DECODE)
+            .unwrap()
+            .data(),
+        &[255, 255, 255, 1, 2, 3]
+    );
+}
+
+#[test]
+fn composites_sixteen_bit_keys_at_full_sample_depth() {
+    // A key above 255 is legal and must match all 16 bits. The control has the
+    // same samples without tRNS, so only the keyed sample may turn white.
+    let gray_samples = [0x12, 0x34, 0x56, 0x78];
+    let gray_keyed = encode_variant(
+        2,
+        1,
+        png::ColorType::Grayscale,
+        png::BitDepth::Sixteen,
+        None,
+        Some(&[0x12, 0x34]),
+        &gray_samples,
+    );
+    let gray_control = encode_variant(
+        2,
+        1,
+        png::ColorType::Grayscale,
+        png::BitDepth::Sixteen,
+        None,
+        None,
+        &gray_samples,
+    );
+    let control = decode_png_composited_rgb(&gray_control[..], DECODE).unwrap();
+    let keyed = decode_png_composited_rgb(&gray_keyed[..], DECODE).unwrap();
+    assert_eq!(
+        keyed.data(),
+        &[
+            255,
+            255,
+            255,
+            control.data()[3],
+            control.data()[4],
+            control.data()[5]
+        ]
+    );
+
+    // Only the low byte differs from the key, so the pixel stays colored.
+    let rgb_samples = [0x12, 0x34, 0, 0, 0, 0, 0x12, 0x35, 0, 0, 0, 0];
+    let rgb_keyed = encode_variant(
+        2,
+        1,
+        png::ColorType::Rgb,
+        png::BitDepth::Sixteen,
+        None,
+        Some(&[0x12, 0x34, 0, 0, 0, 0]),
+        &rgb_samples,
+    );
+    let rgb_control = encode_variant(
+        2,
+        1,
+        png::ColorType::Rgb,
+        png::BitDepth::Sixteen,
+        None,
+        None,
+        &rgb_samples,
+    );
+    assert_eq!(
+        decode_png_composited_rgb(&rgb_keyed[..], DECODE)
+            .unwrap()
+            .data(),
+        &[255, 255, 255, 0x12, 0, 0]
+    );
+    assert_eq!(
+        decode_png_composited_rgb(&rgb_control[..], DECODE)
+            .unwrap()
+            .data(),
+        &[0x12, 0, 0, 0x12, 0, 0]
     );
 }
 
@@ -472,7 +556,7 @@ fn encode_variant(
     output
 }
 
-fn make_adam7_png(width: usize, height: usize, pixels: &[u8]) -> Vec<u8> {
+fn make_adam7_png(width: usize, height: usize, pixels: &[u8], trns: Option<&[u8]>) -> Vec<u8> {
     const PASSES: [(usize, usize, usize, usize); 7] = [
         (0, 0, 8, 8),
         (4, 0, 8, 8),
@@ -485,7 +569,12 @@ fn make_adam7_png(width: usize, height: usize, pixels: &[u8]) -> Vec<u8> {
     let mut rows = Vec::new();
     for (x_start, y_start, x_step, y_step) in PASSES {
         let pass_width = width.saturating_sub(x_start).div_ceil(x_step);
-        let pass_height = height.saturating_sub(y_start).div_ceil(y_step);
+        // An empty pass has no scanlines, so it must not emit filter bytes.
+        let pass_height = if pass_width == 0 {
+            0
+        } else {
+            height.saturating_sub(y_start).div_ceil(y_step)
+        };
         for pass_y in 0..pass_height {
             rows.push(0);
             for pass_x in 0..pass_width {
@@ -503,6 +592,9 @@ fn make_adam7_png(width: usize, height: usize, pixels: &[u8]) -> Vec<u8> {
     ihdr.extend_from_slice(&(height as u32).to_be_bytes());
     ihdr.extend_from_slice(&[8, 2, 0, 0, 1]);
     append_chunk(&mut png, b"IHDR", &ihdr);
+    if let Some(trns) = trns {
+        append_chunk(&mut png, b"tRNS", trns);
+    }
     append_chunk(&mut png, b"IDAT", &compressed.finish().unwrap());
     append_chunk(&mut png, b"IEND", &[]);
     png
