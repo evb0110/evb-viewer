@@ -18,7 +18,9 @@ export { useBookmarkState } from '@app/modules/pdf-viewer/runtime/composables/pd
 export { useOcrTextContent } from '@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent';
 export { usePageContextMenu } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageContextMenu';
 export { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
-export { usePageOperations } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
+export {
+    buildPageMetadataSnapshot, usePageOperations,
+} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export type { TPageOperationCancelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations';
 export { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 export {

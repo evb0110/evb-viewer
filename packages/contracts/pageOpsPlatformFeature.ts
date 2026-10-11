@@ -260,7 +260,7 @@ function decodeBookmarkEntries(
     });
 }
 
-function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot {
+export function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot {
     if (!isRecord(value)) {
         throw new Error('options.metadataSnapshot must be an object');
     }
