@@ -6105,6 +6105,73 @@ describe('Electron E2E - Document Output', () => {
         await session.page.waitForSelector('.tab.is-dirty', {visible: true});
     }, 120_000);
 
+    it('prints a text box that Save has written to the document', async () => {
+        const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-after-save-${Date.now()}.pdf`, 1);
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-print-after-save-${Date.now()}`);
+        const printedPath = join(printDirectory, 'printed.pdf');
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-smoke-print-after-save-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const marker = 'Printed after save contains accepted text';
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await session.page.waitForSelector('.tab.is-dirty', {visible: true});
+        await clickVisibleToolbarButton(session.page, 'Save');
+        await waitForFunctionInPage(session.page, () => !document.querySelector('.tab.is-dirty'), {timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS});
+        await clickVisibleToolbarButton(session.page, 'Print');
+        const submit = await session.page.waitForSelector(
+            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])',
+            {
+                timeout: 15_000,
+                visible: true,
+            },
+        );
+        await clickAsUser(session.page, submit!);
+        // A refused print reports its reason in a failure toast and writes nothing,
+        // so the toast's text is the failure to report.
+        const deadline = Date.now() + 30_000;
+        while (!existsSync(printedPath)) {
+            const failure = await session.page.evaluate(() => document.querySelector('.app-toast-failure')?.textContent?.trim() ?? '');
+            if (failure) {
+                throw new Error(`Printing after Save failed: ${failure}`);
+            }
+            if (Date.now() > deadline) {
+                throw new Error('Printing after Save wrote no file');
+            }
+            await delay(250);
+        }
+        // The printed page must show the saved text box, whichever route printed it.
+        await expect.poll(async () => {
+            const {stdout} = await execFileAsync(resolve(
+                process.cwd(),
+                'resources',
+                'poppler',
+                resolvePlatformArchTag(),
+                'bin',
+                process.platform === 'win32' ? 'pdftotext.exe' : 'pdftotext',
+            ), [
+                printedPath,
+                '-',
+            ], {timeout: 30_000});
+            return stdout.replace(/\s+/gu, ' ');
+        }, {timeout: 30_000}).toContain(marker);
+    });
+
     it('prints a typed page range of a PDF through the print dialog', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-range-${Date.now()}.pdf`, 4);
         const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `viewer-smoke-print-range-${Date.now()}`);
