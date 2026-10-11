@@ -312,18 +312,14 @@ async function persistSearchCacheRecord(
     await prunePersistedSearchCaches();
 }
 
-async function persistSearchCacheRecordBestEffort(
-    record: IPersistedSearchDocumentCacheRecord,
-) {
-    try {
-        await persistSearchCacheRecord(record);
-    } catch (error) {
-        BrowserLogger.warn('search', 'Search completed but cache persistence failed', {
-            pdfPath: record.pdfPath,
-            pageCount: record.pageCount,
-            error,
-        });
-    }
+// The cache only speeds up searches of identical bytes. A storage failure
+// on a search path is logged and read as a miss, so the search still reads
+// the PDF's own text. Explicit cache clears keep surfacing their errors.
+function bestEffortSearchCache<T>(operation: Promise<T>) {
+    return operation.catch((error: unknown) => {
+        BrowserLogger.warn('search', 'Search cache is unavailable; searching without it', { error });
+        return null;
+    });
 }
 
 async function clearPersistedSearchCaches() {
@@ -836,7 +832,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             cache = getDocumentCache(memoryCacheKey);
         }
 
-        const persistedRecord = await loadPersistedSearchCacheRecord(pdfPath);
+        const persistedRecord = await bestEffortSearchCache(loadPersistedSearchCacheRecord(pdfPath));
         const validPersistedRecord = pickValidPersistedRecord(
             persistedRecord,
             fileSize,
@@ -850,7 +846,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 for (const page of validPersistedRecord.pages) {
                     migratedPages.set(page.pageNumber, page.text);
                 }
-                void persistSearchCacheRecordBestEffort(createPersistedSearchCacheRecord(
+                void bestEffortSearchCache(persistSearchCacheRecord(createPersistedSearchCacheRecord(
                     pdfPath,
                     fileSize,
                     contentSignature,
@@ -860,15 +856,15 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                     createSearchCacheAccessTimestamp(),
                     SEARCH_CACHE_RECORD_VERSION,
                     validPersistedRecord.textSource ?? PDFJS_TEXT_SOURCE,
-                ));
+                )));
             } else {
-                void touchPersistedSearchCacheRecord(validPersistedRecord);
+                void bestEffortSearchCache(touchPersistedSearchCacheRecord(validPersistedRecord));
             }
             hydrateCacheFromPersistedRecord(cache, validPersistedRecord);
             return iterateCachedDocumentPages(pdfPath, cache, validPersistedRecord.pageCount, options);
         }
         if (persistedRecord) {
-            await clearPersistedSearchCacheForDocument(pdfPath);
+            await bestEffortSearchCache(clearPersistedSearchCacheForDocument(pdfPath));
         }
 
         let canceled = false as boolean;
@@ -918,7 +914,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         cache.pageCount = pageCount;
         cache.isComplete = !canceled && cache.canCacheWholeDocumentText;
         if (cache.isComplete && canPersistPageTexts(cache.pageTexts)) {
-            await persistSearchCacheRecordBestEffort(createPersistedSearchCacheRecord(
+            await bestEffortSearchCache(persistSearchCacheRecord(createPersistedSearchCacheRecord(
                 pdfPath,
                 fileSize,
                 contentSignature,
@@ -928,7 +924,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
                 createSearchCacheAccessTimestamp(),
                 SEARCH_CACHE_RECORD_VERSION,
                 PDFJS_TEXT_SOURCE,
-            ));
+            )));
         }
         return !canceled;
     }

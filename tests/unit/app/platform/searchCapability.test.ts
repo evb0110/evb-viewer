@@ -201,6 +201,53 @@ describe('createBrowserSearchCapability', () => {
             });
     });
 
+    it.each([
+        [
+            'cannot open',
+            'open',
+        ],
+        [
+            'rejects its read transaction',
+            'transaction',
+        ],
+    ])('searches a readable PDF when the optional search cache %s', async (_label, failure) => {
+        const pdfPath = 'browser://documents/test/cache-failure.pdf';
+        pdfjsModule.getDocument.mockReturnValue({ promise: Promise.resolve({
+            numPages: 1,
+            getPage: async () => ({
+                getTextContent: async () => ({items: [{str: 'readable needle'}]}),
+                cleanup: async () => {},
+            }),
+            loadingTask: {destroy: async () => {}},
+        }) });
+        browserDocumentStoreMock.stat.mockResolvedValue({ size: 3 });
+        browserDocumentStoreMock.readRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+        ]));
+        const indexedDbFactory = requireFakeIndexedDbFactory();
+        const { createBrowserSearchCapability } = await import('@app/platform/browser-api/createBrowserSearchCapability');
+        if (failure === 'open') {
+            const open = indexedDbFactory.open.bind(indexedDbFactory);
+            vi.spyOn(indexedDbFactory, 'open').mockImplementation((name, version) => {
+                if (name === 'evb-browser-search-cache') {
+                    throw new DOMException('Search cache storage is unavailable', 'InvalidStateError');
+                }
+                return open(name, version);
+            });
+        } else {
+            await createBrowserSearchCapability().clearSearchCaches();
+            indexedDbFactory.getDatabase('evb-browser-search-cache')
+                ?.rejectNextTransaction(new Error('search cache transaction failed'));
+        }
+
+        const { capability } = createBrowserSearchCapability();
+        const result = await capability.run(pdfPath, 'needle');
+
+        expect(result.results).toEqual([expect.objectContaining({ pageNumber: 1 })]);
+    });
+
     it('extracts browser search text from the current PDF bytes without OCR sidecars', async () => {
         const pdfPath = 'browser://documents/test/search.pdf';
         const getPage = vi.fn(async () => ({
