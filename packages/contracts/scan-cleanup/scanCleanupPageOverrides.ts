@@ -107,6 +107,16 @@ export function getScanCleanupPageOverride(
         : createScanCleanupPageOverride(explicit);
 }
 
+// The one rule for "differs from what the page inherits": a page whose value equals
+// the all-pages defaults is redundant, so the sparse map drops it and the
+// customized markers do not show it.
+export function isScanCleanupPageOverrideInherited(
+    overrides: TScanCleanupPageOverrides,
+    value: IScanCleanupPageOverride,
+) {
+    return isEqual(value, getScanCleanupPageOverrideDefaults(overrides));
+}
+
 export function setScanCleanupPageOverride(
     overrides: TScanCleanupPageOverrides,
     pageNumber: TPageNumber,
@@ -115,9 +125,8 @@ export function setScanCleanupPageOverride(
 ) {
     const key = String(pageNumber);
     const normalized = createScanCleanupPageOverride(value, documentMargins);
-    // An absent page resolves to the all-pages defaults, so only a value equal to
-    // them is redundant. A built-in value is kept when the defaults differ.
-    if (isEqual(normalized, getScanCleanupPageOverrideDefaults(overrides))) {
+    // A built-in value is kept when the all-pages defaults differ from it.
+    if (isScanCleanupPageOverrideInherited(overrides, normalized)) {
         Reflect.deleteProperty(overrides, key);
         return;
     }

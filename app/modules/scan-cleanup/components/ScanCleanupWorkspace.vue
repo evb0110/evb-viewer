@@ -195,6 +195,7 @@ import {
     DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
     getScanCleanupPageOverride,
     isDefaultScanCleanupPageOverride,
+    isScanCleanupPageOverrideInherited,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     resolveScanCleanupMarginsMm,
@@ -514,7 +515,8 @@ function resolveAllPageOverrideValue<T>(
 const scopeCustomizedCounts = computed(() => {
     const customizedPages = new Set(Object.keys(settings.pageOverrides)
         .map(Number)
-        .filter(page => Number.isInteger(page) && page >= 1 && page <= previewTotalPages.value));
+        .filter(page => Number.isInteger(page) && page >= 1 && page <= previewTotalPages.value)
+        .filter(page => !isScanCleanupPageOverrideInherited(settings.pageOverrides, getPageOverride(page))));
     return {
         all: isDefaultScanCleanupPageOverride(allScopeDefaultOverride.value)
             ? customizedPages.size
