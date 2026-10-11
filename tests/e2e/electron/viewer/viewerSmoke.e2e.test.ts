@@ -14,6 +14,7 @@ import {
 } from 'vitest';
 import {
     copyFile,
+    cp,
     mkdir,
     readdir,
     readFile,
@@ -24,6 +25,8 @@ import {
 import { decode as decodePng } from 'fast-png';
 import {
     PDFDocument,
+    PDFName,
+    PDFString,
     rgb,
     StandardFonts,
 } from 'pdf-lib';
@@ -5665,6 +5668,299 @@ describe('Electron E2E - Viewer Smoke', () => {
 // print dialog, so these run under their own session instead of the shared one.
 describe('Electron E2E - Document Output', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-document-output-${Date.now()}`});
+
+    it('prints appearance-less annotation styles through advanced print', async () => {
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `annotation-print-${Date.now()}`);
+        await mkdir(printDirectory, {recursive: true});
+        const fixturePath = join(printDirectory, 'annotations.pdf');
+        const printedPath = join(printDirectory, 'printed.pdf');
+        const expectedPath = join(printDirectory, 'native.pdf');
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        const styles = [
+            'S',
+            'D',
+            'B',
+            'I',
+            'U',
+            'Mystery',
+        ];
+        const controls = styles.map(style => ({
+            Subtype: 'Square',
+            BS: {
+                W: 4,
+                S: style,
+                D: new Array<number>(),
+            },
+        }));
+        controls.push({
+            Subtype: 'Square',
+            BS: {
+                W: 4,
+                S: 'D',
+                D: [
+                    -1,
+                    2,
+                ],
+            },
+        });
+        const annotations = [
+            ...controls,
+            {
+                Subtype: 'Square',
+                Border: [
+                    0,
+                    0,
+                    4,
+                    [],
+                ],
+            },
+            {
+                Subtype: 'Square',
+                BS: {
+                    W: 4,
+                    S: 'D',
+                    D: [
+                        0,
+                        0,
+                    ],
+                },
+            },
+            ...[
+                0,
+                1,
+                2,
+            ].map(intensity => ({
+                Subtype: 'Circle',
+                BS: {W: 4},
+                BE: {
+                    S: 'C',
+                    I: intensity,
+                },
+                RD: [
+                    30,
+                    30,
+                    30,
+                    30,
+                ],
+            })),
+            {
+                Subtype: 'Square',
+                RD: [
+                    30,
+                    30,
+                    30,
+                    30,
+                ],
+                BS: {W: 4},
+            },
+            ...[
+                'Square',
+                'Circle',
+                'Diamond',
+                'OpenArrow',
+                'ClosedArrow',
+                'None',
+                'Butt',
+                'ROpenArrow',
+                'RClosedArrow',
+                'Slash',
+            ]
+                .map(ending => ({
+                    Subtype: 'Line',
+                    L: [
+                        120,
+                        550,
+                        280,
+                        650,
+                    ],
+                    LE: [
+                        ending,
+                        ending,
+                    ],
+                    BS: {
+                        W: 4,
+                        S: 'D',
+                        D: [
+                            8,
+                            8,
+                        ],
+                    },
+                })),
+            {
+                Subtype: 'PolyLine',
+                Vertices: [
+                    120,
+                    520,
+                    120,
+                    680,
+                    280,
+                    680,
+                ],
+                LE: [
+                    'OpenArrow',
+                    'OpenArrow',
+                ],
+                BS: {W: 4},
+            },
+            ...[
+                [],
+                [
+                    0,
+                    0,
+                    1,
+                ],
+            ].map(interior => ({
+                Subtype: 'Line',
+                L: [
+                    120,
+                    550,
+                    280,
+                    650,
+                ],
+                LE: [
+                    'ClosedArrow',
+                    'ClosedArrow',
+                ],
+                IC: interior,
+                BS: {W: 4},
+            })),
+            {
+                Subtype: 'Polygon',
+                Vertices: [
+                    120,
+                    520,
+                    200,
+                    680,
+                    280,
+                    520,
+                ],
+                BS: {W: 4},
+            },
+            {
+                Subtype: 'Ink',
+                InkList: [[
+                    120,
+                    520,
+                    200,
+                    680,
+                    280,
+                    520,
+                ]],
+                BS: {W: 4},
+            },
+            ...styles.map(style => ({
+                Subtype: 'FreeText',
+                Contents: PDFString.of('Printable text'),
+                DA: PDFString.of('/Helv 12 Tf 0 g'),
+                BS: {
+                    W: 4,
+                    S: style,
+                },
+                RD: [
+                    10,
+                    10,
+                    10,
+                    10,
+                ],
+            })),
+        ];
+        for (const annotation of annotations) {
+            const page = pdf.addPage([
+                595.28,
+                841.89,
+            ]);
+            page.node.set(PDFName.of('Resources'), pdf.context.obj({Font: {Helv: font.ref}}));
+            const reference = pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Rect: [
+                    90,
+                    490,
+                    310,
+                    710,
+                ],
+                C: [
+                    1,
+                    0,
+                    0,
+                ],
+                F: 4,
+                ...annotation,
+            }));
+            page.node.set(PDFName.of('Annots'), pdf.context.obj([reference]));
+        }
+        await writeFile(fixturePath, await pdf.save({useObjectStreams: false}));
+        const evidenceDirectory = process.env.EVB_AU66BR5_EVIDENCE_DIR;
+        if (evidenceDirectory) {
+            await mkdir(evidenceDirectory, {recursive: true});
+            await copyFile(fixturePath, join(evidenceDirectory, 'annotations.pdf'));
+        }
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-annotation-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        if (evidenceDirectory) {
+            onTestFinished(async () => {
+                await sessionFixture.stop({preserveArtifacts: true});
+                await cp(join(process.cwd(), '.devkit', 'sessions', session.name, 'recordings'), join(evidenceDirectory, 'recordings'), {recursive: true});
+                // Keep this suite's normal session owner ready for later cases.
+                await sessionFixture.start({clean: true});
+            });
+        }
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await clickVisibleToolbarButton(session.page, 'Print');
+        const portrait = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Portrait"])', {visible: true});
+        await clickAsUser(session.page, portrait!);
+        const submit = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])', {visible: true});
+        await clickAsUser(session.page, submit!);
+        await expect.poll(async () => existsSync(printedPath), {timeout: 30_000}).toBe(true);
+        const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
+        await execFileAsync(resolveNativePageOpsPath()!, [
+            'print-layout',
+            '--input',
+            fixturePath,
+            '--output',
+            expectedPath,
+            '--view-mode',
+            'single',
+            '--orientation',
+            'portrait',
+        ]);
+        expect((await PDFDocument.load(await readFile(printedPath))).getPageCount()).toBe(annotations.length);
+        const rasterizer = resolve(process.cwd(), 'resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftoppm.exe' : 'pdftoppm');
+        await execFileAsync(rasterizer, [
+            '-r',
+            '72',
+            '-png',
+            printedPath,
+            join(printDirectory, 'app'),
+        ]);
+        await execFileAsync(rasterizer, [
+            '-r',
+            '72',
+            '-png',
+            expectedPath,
+            join(printDirectory, 'native'),
+        ]);
+        for (const name of (await readdir(printDirectory)).filter(name => name.startsWith('app-') && name.endsWith('.png'))) {
+            expect(await readFile(join(printDirectory, name))).toEqual(await readFile(join(printDirectory, name.replace('app-', 'native-'))));
+        }
+        if (evidenceDirectory) {
+            await copyFile(printedPath, join(evidenceDirectory, 'printed.pdf'));
+            await copyFile(expectedPath, join(evidenceDirectory, 'native.pdf'));
+            await session.page.screenshot({path: join(evidenceDirectory, 'completed.png')});
+        }
+    }, 180_000);
 
     it('hands off the first dirty path-backed print without saving the original', async () => {
         const fixturePath = await createLargeScannedFixturePdf(`viewer-smoke-dirty-print-${Date.now()}.pdf`, 1, 17 * 1024 * 1024);

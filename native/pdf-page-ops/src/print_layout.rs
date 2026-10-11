@@ -666,42 +666,32 @@ mod tests {
             "q /PrintAnnot0 gs 100 400 200 100 re W n 2 0 0 2 100 400 cm /PrintAnnot0 Do Q"
         ));
         assert!(content.contains("400 500 20 20 re W n 1 0 0 1 400 500 cm /PrintAnnot1 Do Q"));
-        assert!(content.contains("100 200 200 80 re W n 1 0 0 1 100 200 cm /PrintAnnot2 Do Q"));
+        assert!(content.contains("100 200 200 80 re W n 1 0 0 1 0 0 cm /PrintAnnot2 Do Q"));
         assert_eq!(content.matches(" Do Q").count(), 3);
-        let xobjects = form
-            .dict
-            .get(b"Resources")
-            .unwrap()
-            .as_dict()
-            .unwrap()
-            .get(b"XObject")
-            .unwrap()
-            .as_dict()
-            .unwrap();
-        let explicit = document
-            .get_object(
-                xobjects
-                    .get(b"PrintAnnot0")
-                    .unwrap()
-                    .as_reference()
-                    .unwrap(),
-            )
-            .unwrap()
-            .as_stream()
-            .unwrap();
-        assert_eq!(explicit.content, b"1 0 0 rg 0 0 100 50 re f");
-        let text = document
-            .get_object(
-                xobjects
-                    .get(b"PrintAnnot2")
-                    .unwrap()
-                    .as_reference()
-                    .unwrap(),
-            )
-            .unwrap()
-            .as_stream()
-            .unwrap();
-        let text_content = String::from_utf8(text.content.clone()).unwrap();
+        let resources = resolved_dictionary(&document, form.dict.get(b"Resources").ok()).unwrap();
+        let xobjects = resolved_dictionary(&document, resources.get(b"XObject").ok()).unwrap();
+        let appearance = |name| {
+            let id = xobjects.get(name).unwrap().as_reference().unwrap();
+            document.get_object(id).unwrap().as_stream().unwrap()
+        };
+        assert_eq!(
+            appearance(b"PrintAnnot0").content,
+            b"1 0 0 rg 0 0 100 50 re f"
+        );
+        let text = appearance(b"PrintAnnot2");
+        let resources = resolved_dictionary(&document, text.dict.get(b"Resources").ok()).unwrap();
+        let xobjects = resolved_dictionary(&document, resources.get(b"XObject").ok()).unwrap();
+        let text_id = xobjects.get(b"PrintText").unwrap().as_reference().unwrap();
+        let text_content = String::from_utf8(
+            document
+                .get_object(text_id)
+                .unwrap()
+                .as_stream()
+                .unwrap()
+                .content
+                .clone(),
+        )
+        .unwrap();
         assert!(text_content.contains("1 0 0 rg"));
         assert!(text_content.contains(
             "/ActualText <FEFF0046006F0072006500690067006E002000460072006500650054006500780074>"

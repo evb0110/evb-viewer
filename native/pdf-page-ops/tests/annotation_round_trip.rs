@@ -1702,3 +1702,33 @@ fn print_draws_ink_paths_without_an_appearance() {
     assert!(tip[0] > 220 && tip[1] < 220, "round endpoint {tip:?}");
     assert!(poppler_ink_pixels(&printed) > 1000);
 }
+
+#[test]
+fn print_preserves_freetext_background_border_and_text() {
+    let temp = TempPaths::new("print-freetext-fields");
+    write_single_annotation_pdf(&temp.pdf, "/Subtype /FreeText /Rect [100 500 300 700] /C [1 0 0] /BS << /W 4 >> /Contents (Printable text) /DA (/Helv 12 Tf 0 g)");
+    let mut doc = Document::load(&temp.pdf).unwrap();
+    let font = doc.add_object(
+        lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"Type1", "BaseFont"=>"Helvetica"},
+    );
+    doc.get_dictionary_mut((3, 0)).unwrap().set(
+        "Resources",
+        lopdf::dictionary! {"Font"=>lopdf::dictionary! {"Helv"=>font}},
+    );
+    doc.save(&temp.pdf).unwrap();
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(poppler_ink_pixels(&printed), 40_000);
+    let pixels = poppler_pixels(&printed);
+    let at = |x: usize, y: usize| &pixels[(y * 596 + x) * 3..(y * 596 + x) * 3 + 3];
+    assert!(
+        at(200, 200)[0] > 220 && at(200, 200)[1] < 30,
+        "red background"
+    );
+    assert!(at(101, 200).iter().all(|c| *c < 30), "black border");
+    let black_text = (145..160)
+        .flat_map(|y| (106..180).map(move |x| (y * 596 + x) * 3))
+        .filter(|i| pixels[*i..*i + 3].iter().all(|c| *c < 100))
+        .count();
+    assert!(black_text > 50, "DA black text, got {black_text}");
+}
