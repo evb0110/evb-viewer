@@ -3,6 +3,7 @@ import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
 import {
     mkdtemp,
     readdir,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -272,6 +273,56 @@ describe('DjVu image export limits', () => {
         expect(mocks.promoteStagedFiles).toHaveBeenCalledOnce();
         expect(mocks.rollbackStagedFilePublications).toHaveBeenCalledOnce();
         expect(mocks.commitStagedFilePublications).not.toHaveBeenCalled();
+    });
+
+    it('keeps the files of an unproven PNG writer when the earlier batch rollback also fails', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-png-unproven-rollback-test-'));
+        mocks.appTempDir = tempDir;
+        mocks.getPageCount.mockResolvedValue(2);
+        mocks.getPageSizeWindows.mockImplementation(async function* () {
+            yield {
+                firstPage: 1,
+                sizes: Array.from({length: 2}, () => ({
+                    width: 1_000,
+                    height: 1_000,
+                    dpi: 300,
+                })),
+            };
+        });
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 1.5 * 1024 * 1024 * 1024,
+            };
+        });
+        let unresolvedInput = '';
+        let unresolvedOutput = '';
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
+            const pngPath = `${ppmPath}.png`;
+            if (!ppmPath.includes('page-2.ppm')) {
+                await writeFile(pngPath, 'png');
+                return pngPath;
+            }
+            // The encoder's tree was not proven dead, so it may still read the
+            // input or write the output: the export must keep both files.
+            unresolvedInput = ppmPath;
+            unresolvedOutput = pngPath;
+            await writeFile(pngPath, 'native partial output');
+            throw markUnprovenNativeTermination(new Error('encoder not proven dead'), 'encoder owns both page files');
+        });
+        mocks.rollbackStagedFilePublications.mockRejectedValue(new Error('previous batch backup cannot be restored'));
+        const {exportDjvuPagesAsPng} = await import(
+            '@electron/features/image-export/main/djvuImageExport'
+        );
+
+        await expect(exportDjvuPagesAsPng('/books/failure.djvu', join(tempDir, 'page.png')))
+            .rejects.toThrow('rollback was incomplete');
+
+        expect(await readFile(unresolvedInput, 'utf8')).toBe('ppm');
+        expect(await readFile(unresolvedOutput, 'utf8')).toBe('native partial output');
     });
 
     it('resets PNG staged-byte accounting after each promoted batch', async () => {
