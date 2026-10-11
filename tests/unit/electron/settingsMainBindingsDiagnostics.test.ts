@@ -51,6 +51,7 @@ describe('Electron settings diagnostics scheduling', () => {
         vi.clearAllMocks();
         mocks.events.length = 0;
         mocks.diagnosticsConsentRevision = 0;
+        mocks.loadSettings.mockResolvedValue({...DEFAULT_SETTINGS});
         vi.useFakeTimers();
         mocks.updateSettings.mockImplementation(async (mutate: (settings: typeof DEFAULT_SETTINGS) => unknown) => {
             mocks.events.push('persist');

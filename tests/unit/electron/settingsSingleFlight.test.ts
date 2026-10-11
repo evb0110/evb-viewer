@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import type * as FsPromises from 'node:fs/promises';
 import type * as Os from 'node:os';
+import type * as ElectronTranslations from '@electron/te';
 
 function deferred<T>() {
     let resolve: (value: T) => void = () => {};
@@ -34,7 +35,7 @@ const mocks = vi.hoisted(() => ({
     userDataPath: '',
     appWindows: [] as unknown[],
     trustedRendererUrl: 'evb-viewer://app/electron',
-    setElectronLocale: vi.fn(async () => undefined),
+    setElectronLocale: vi.fn<typeof ElectronTranslations.setElectronLocale>(async () => undefined),
 }));
 
 vi.mock('electron', () => ({app: {getPath: () => mocks.userDataPath}}));
@@ -180,6 +181,32 @@ describe('settings single-flight loading', () => {
         await update;
 
         expect(window.send).not.toHaveBeenCalled();
+    });
+
+    it('keeps native UI text in the current locale after an older shutdown finishes', async () => {
+        const translations = await vi.importActual<typeof ElectronTranslations>('@electron/te');
+        mocks.setElectronLocale.mockImplementation(translations.setElectronLocale);
+        const {updateSettings} = await import('@electron/settings');
+        await updateSettings(() => ({
+            assistantPanelEnabled: true,
+            locale: 'en',
+        }));
+        const {createSettingsMainBindings} = await import('@electron/features/settings/createSettingsMainBindings');
+        const started = deferred<undefined>();
+        const release = deferred<undefined>();
+        const bindings = createSettingsMainBindings(async () => {
+            started.resolve(undefined);
+            await release.promise;
+        });
+        const first = bindings.save({senderId: 11} as never, {assistantPanelEnabled: false});
+        await started.promise;
+        try {
+            await bindings.save({senderId: 12} as never, {locale: 'ru'});
+        } finally {
+            release.resolve(undefined);
+        }
+        await first;
+        expect(translations.te('toolbar.settings')).toBe('Настройки');
     });
 
     it('shares one unresolved read and returns a distinct clone to every caller', async () => {
