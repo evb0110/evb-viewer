@@ -40,6 +40,7 @@ import {
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {createFileBackedScanCleanupResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
+import {overlayScanCleanupTextLayerAndMeasure} from '@evb/scan-cleanup/core/overlayScanCleanupTextLayerAndMeasure';
 import {
     readDetectionResultsForPageNumbers,
     runScanCleanupConversion,
@@ -1493,6 +1494,77 @@ describe('scan-cleanup-core conversion coverage', () => {
             0,
             SCAN_CLEANUP_STREAMING_BATCH_PAGES,
         ]));
+    });
+
+    it('measures the published file after the source-text overlay rewrites it', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-overlay-measure-test-'));
+        roots.push(root);
+        const stagedPdfPath = join(root, 'staged.pdf');
+        const reportPath = join(root, 'scan-cleanup-representation-report.json');
+        const writeReport = (maxOutputBytes: number) => writeFile(reportPath, JSON.stringify({
+            schemaVersion: 1,
+            sourceBytes: 100,
+            outputBytes: 15,
+            outputToSourceByteRatio: 0.15,
+            compactSourceBudget: {
+                compactLayeredPages: 1,
+                maxOutputBytes,
+                sourceBytes: 100,
+            },
+            outputMappings: [],
+            pages: [],
+        }));
+        // The overlay writes the source text into a larger file.
+        const runCommand = vi.fn(async (_command: string, args: string[]) => {
+            await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n% source text\n%%EOF\n');
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const dependencies: IRunScanCleanupPipelineDependencies = {
+            getPageCount: vi.fn(),
+            getPageSizeStore: vi.fn(),
+            detectSourceDpi: vi.fn(),
+            renderPage: vi.fn(),
+            renderPagePpm: vi.fn(),
+            runSidecar: vi.fn(),
+            runCommand,
+            getAvailableScratchBytes: vi.fn(async () => null),
+        };
+        const overlay = () => overlayScanCleanupTextLayerAndMeasure(
+            [{
+                sourcePageIndex: 0,
+                outputPageIndex: 0,
+                matrix: [
+                    1,
+                    0,
+                    0,
+                    1,
+                    0,
+                    0,
+                ],
+            }],
+            paths(root),
+            join(root, 'source.pdf'),
+            stagedPdfPath,
+            root,
+            new AbortController().signal,
+            vi.fn<TScanCleanupLog>(),
+            dependencies,
+        );
+
+        await writeFile(stagedPdfPath, '%PDF-1.7\n%%EOF\n');
+        await writeReport(1_000);
+        await expect(overlay()).resolves.toBe(true);
+        const report = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};
+        expect(report.outputBytes).toBe(statSync(stagedPdfPath).size);
+
+        // A file the overlay grew past the compact-source budget is refused.
+        await writeFile(stagedPdfPath, '%PDF-1.7\n%%EOF\n');
+        await writeReport(20);
+        await expect(overlay()).rejects.toThrow(/refused to publish/u);
     });
 
     it('runs the bounded PPM handoff and publishes a color output', async () => {

@@ -177,11 +177,11 @@ import {
 import {
     assembleWithCompactSourcePages,
     type IRenderedCleanupOutputPage,
-    overlayScanCleanupTextLayer,
     resolveCompactSourcePreservation,
     resolveFullSourcePagePreservation,
     sourceMrcForegroundPdfMatrix,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
+import {overlayScanCleanupTextLayerAndMeasure} from '@evb/scan-cleanup/core/overlayScanCleanupTextLayerAndMeasure';
 import {
     appendJsonLine,
     collectSourceText,
@@ -1975,7 +1975,7 @@ export async function runScanCleanupConversion(
             });
         }
         // One overlay over the merged output: a link may name another batch's page.
-        await overlayScanCleanupTextLayer(
+        const overlaid = await overlayScanCleanupTextLayerAndMeasure(
             sourceText.pages, paths, prepared.pdfPath, stagedPdfPath, scratch, signal, log, dependencies,
             retainScratchUntilRecovery,
         );
@@ -1989,7 +1989,7 @@ export async function runScanCleanupConversion(
             runCommand: dependencies.runCommand,
             log,
         });
-        if (largeStreamingRun) {
+        if (largeStreamingRun || overlaid) {
             await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         }
         emitProgress('handoff', 0, pageCount, []);
