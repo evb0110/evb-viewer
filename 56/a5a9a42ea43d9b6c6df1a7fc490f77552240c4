@@ -1,0 +1,23 @@
+tests/e2e/electron/navigation/rapidPdfNavigation.e2e.test.ts
+  s_a9c00567311776::t_98c1c0b8ef88e8 2865-2871
+tests/e2e/electron/viewer/viewerSmoke.e2e.test.ts
+  s_a9c00567311776::t_b3b227423e5725 3147-3151
+app/components/document-viewer/DocumentPageSkeleton.vue
+  s_a9c00567311776::t_754706c25d454b 64-67,95-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "56a5a9a42ea43d9b6c6df1a7fc490f77552240c4",
+  "prompts": {},
+  "sessions": {
+    "s_a9c00567311776": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8948f8e1-87f2-4488-ab51-15641b8b81f7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
