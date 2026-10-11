@@ -806,12 +806,18 @@ pub(crate) fn attach_shape_appearance(dict: &mut Dictionary, appearance_ref: Obj
     let mut appearance = Dictionary::new();
     appearance.set("N", Object::Reference(appearance_ref));
     dict.set("AP", Object::Dictionary(appearance));
+    set_print_flag(dict);
+}
+
+/// Adds the Print flag, so the annotation is drawn by advanced print and by
+/// other readers.
+pub(crate) fn set_print_flag(dict: &mut Dictionary) {
     let flags = dict
         .get(b"F")
         .ok()
         .and_then(|value| value.as_i64().ok())
         .unwrap_or(0);
-    dict.set("F", Object::Integer(flags | 4));
+    dict.set("F", Object::Integer(flags | ANNOTATION_FLAG_PRINT));
 }
 
 /// `existing_rect` is the annotation's own `/Rect`, resolved through the
@@ -848,6 +854,11 @@ pub(crate) fn update_shape_annotation_dict(
     }
     set_shape_dates(dict, shape, modified_at);
     write_managed_shape_stable_key(dict, shape.stable_key.as_deref());
+    // EVB-owned shapes print, including ones saved before the flag was written.
+    // Imported shapes keep their own flags.
+    if read_managed_shape_stable_key(dict).is_some() {
+        set_print_flag(dict);
+    }
     Ok(true)
 }
 
@@ -861,6 +872,7 @@ pub(crate) fn create_shape_annotation_dict(
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"Annot".to_vec()));
     dict.set("Subtype", Object::Name(subtype.as_bytes().to_vec()));
+    set_print_flag(&mut dict);
     match subtype {
         "Square" | "Circle" => {
             set_rect_shape_fields(&mut dict, shape, page_view, page_rotation, None)?
@@ -1932,4 +1944,26 @@ fn ellipse_path((cx, cy): (f64, f64), (rx, ry): (f64, f64)) -> String {
         cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry,
         cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy,
     )
+}
+
+/// Style checks for a saved shape, shared by the shape postconditions: the
+/// stroke width matches the request, and an EVB-owned shape carries the Print
+/// flag. Imported shapes keep whatever flag they were saved with.
+pub(crate) fn validate_saved_shape_style(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+    shape: &ShapeAnnotation,
+) -> Result<()> {
+    if (shape_stroke_width(document, dict).unwrap_or(1.0) - shape.stroke_width).abs() > 0.0001 {
+        return Err("Saved shape stroke width differs from the request".into());
+    }
+    let flags = dict
+        .get(b"F")
+        .ok()
+        .and_then(|value| value.as_i64().ok())
+        .unwrap_or(0);
+    if read_managed_shape_stable_key(dict).is_some() && flags & ANNOTATION_FLAG_PRINT == 0 {
+        return Err("Saved EVB shape is not printable".into());
+    }
+    Ok(())
 }

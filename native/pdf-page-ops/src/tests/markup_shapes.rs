@@ -2890,3 +2890,98 @@ fn print_layout_still_refuses_an_ink_annotation_without_appearance() {
         .unwrap_err();
     assert!(error.to_string().contains("has no normal appearance"));
 }
+
+fn ordinary_shape(shape_type: &str, stable_key: &str) -> ShapeAnnotation {
+    let mut shape = rectangle_shape(stable_key, "#336699");
+    shape.shape_type = shape_type.to_string();
+    shape.x2 = Some(0.7);
+    shape.y2 = Some(0.6);
+    shape.points = vec![
+        ShapePoint { x: 0.1, y: 0.2 },
+        ShapePoint { x: 0.4, y: 0.6 },
+        ShapePoint { x: 0.8, y: 0.3 },
+    ];
+    shape
+}
+
+fn assert_every_page_annotation_prints(document: &Document, page_id: ObjectId, expected: usize) {
+    let annots = get_page_annots(document, page_id).unwrap();
+    assert_eq!(annots.len(), expected);
+    for annot in annots {
+        let dict = document.get_dictionary(annot.as_reference().unwrap()).unwrap();
+        let flags = dict.get(b"F").ok().and_then(|value| value.as_i64().ok()).unwrap_or(0);
+        assert_eq!(flags & 4, 4, "{} saved without the Print flag: {dict:?}", annotation_subtype(dict));
+    }
+}
+
+#[test]
+fn saves_every_ordinary_shape_with_the_print_flag_on_both_routes() {
+    let shapes = vec![
+        ordinary_shape("rectangle", "evb-shape:print-rectangle"),
+        ordinary_shape("circle", "evb-shape:print-circle"),
+        ordinary_shape("line", "evb-shape:print-line"),
+        ordinary_shape("polyline", "evb-shape:print-polyline"),
+        ordinary_shape("polygon", "evb-shape:print-polygon"),
+    ];
+
+    let (mut document, page_id) = create_test_document();
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: shapes.clone(),
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260609123456+03'00'",
+        &mut None,
+    )
+    .unwrap();
+    assert_every_page_annotation_prints(&document, page_id, shapes.len());
+
+    let (mut seed, _page_id) = create_test_document();
+    let input_path = seed_shape_pdf(&mut seed, "print-flag-incremental");
+    let output_path = temp_pdf_path("print-flag-incremental-output");
+    write(&output_path, read(&input_path).unwrap()).unwrap();
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &shapes_mutation(shapes.clone()),
+        "D:20260609123456+03'00'",
+    )
+    .unwrap();
+    let loaded = Document::load(&output_path).unwrap();
+    assert_every_page_annotation_prints(&loaded, page_id, shapes.len());
+}
+
+#[test]
+fn an_edited_evb_shape_saved_without_the_print_flag_prints_after_the_edit() {
+    let legacy_square = dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Square",
+        "Rect" => vec![20.into(), 20.into(), 100.into(), 60.into()],
+        "C" => vec![1.into(), 0.into(), 0.into()],
+        "Border" => vec![0.into(), 0.into(), 2.into()],
+    };
+    let (mut document, page_id) =
+        embedded_shape_pdf(&[("evb-shape:legacy-square", legacy_square)]);
+    assert!(get_page_annots(&document, page_id).unwrap().len() == 1);
+
+    let mut shape = rectangle_shape("evb-shape:legacy-square", "#112233");
+    shape.x = 0.25;
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![shape],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260609123456+03'00'",
+        &mut None,
+    )
+    .unwrap();
+    assert_every_page_annotation_prints(&document, page_id, 1);
+}

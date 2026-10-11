@@ -1475,10 +1475,7 @@ pub(crate) fn validate_shape_semantics(
             .into());
         }
     }
-    if (shape_stroke_width(document, dict).unwrap_or(1.0) - shape.stroke_width).abs() > 0.0001 {
-        return Err("Saved shape stroke width differs from the request".into());
-    }
-    Ok(())
+    validate_saved_shape_style(document, dict, shape)
 }
 
 pub(crate) fn parse_pdfjs_annotation_object_id(value: &str) -> Option<ObjectId> {

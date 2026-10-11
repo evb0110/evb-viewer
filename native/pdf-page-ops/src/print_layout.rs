@@ -45,7 +45,7 @@ const A4_WIDTH: f64 = 595.28;
 const A4_HEIGHT: f64 = 841.89;
 const ANNOTATION_FLAG_INVISIBLE: i64 = 1;
 const ANNOTATION_FLAG_HIDDEN: i64 = 2;
-const ANNOTATION_FLAG_PRINT: i64 = 4;
+pub(crate) const ANNOTATION_FLAG_PRINT: i64 = 4;
 
 struct PlacedPage {
     form_id: ObjectId,
