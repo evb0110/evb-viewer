@@ -9,7 +9,7 @@ import { uniq } from 'es-toolkit/array';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
 import {
     collectChunkIndicesByRef,
-    countNonWorkingDependents,
+    countSourceBytesDependents,
     isChunkedRecordMissingChunks,
     shouldRemovePersistedRecord,
     toPersistedDocumentRecord,
@@ -158,12 +158,12 @@ export async function sweepBrowserDocumentMaintenance(
         ? storedRecentFiles
         : buildRecentFilesFromPersistedRecords(records);
     const recentRefs = new Set<string>(currentRecentFiles.map((file) => file.originalPath));
-    const nonWorkingDependentCounts = countNonWorkingDependents(records);
+    const sourceBytesDependentCounts = countSourceBytesDependents(records);
     const refsToRemove = records
         .filter((record) => shouldRemovePersistedRecord(
             record,
             recentRefs,
-            nonWorkingDependentCounts,
+            sourceBytesDependentCounts,
         ))
         .filter((record) => !pendingRefs.has(record.ref))
         .filter(record => !hasActivePendingChunkGeneration(record))
@@ -234,7 +234,7 @@ export async function sweepBrowserDocumentMaintenance(
                     ] as const]
                     : []),
         );
-        const transactionNonWorkingDependentCounts = countNonWorkingDependents(authorities.documents);
+        const transactionSourceBytesDependentCounts = countSourceBytesDependents(authorities.documents);
         const transactionBrokenChunkRefs = new Set(
             authorities.documents
                 .filter(record => (
@@ -247,7 +247,7 @@ export async function sweepBrowserDocumentMaintenance(
             .filter(record => shouldRemovePersistedRecord(
                 record,
                 transactionRecentRefs,
-                transactionNonWorkingDependentCounts,
+                transactionSourceBytesDependentCounts,
             ))
             .filter(record => !authorities.recoveryLeasedRefs.has(record.ref))
             .filter(record => !authorities.liveLeases.leasedRefs.has(record.ref))

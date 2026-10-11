@@ -127,10 +127,17 @@ export function isChunkedRecordMissingChunks(
     return false;
 }
 
-export function countNonWorkingDependents(records: IBrowserPersistedDocumentRecord[]) {
+// A record needs its source's bytes only when it reads them through the source
+// (a source-proxy working copy). A record with its own bytes names its source as
+// lineage only, so it does not keep the source.
+export function retainsSourceBytes(record: IBrowserPersistedDocumentRecord) {
+    return record.storageMode === 'source-proxy' && Boolean(record.sourceRef);
+}
+
+export function countSourceBytesDependents(records: IBrowserPersistedDocumentRecord[]) {
     const dependentCounts = new Map<string, number>();
     for (const record of records) {
-        if (!record.sourceRef || record.kind === 'working') {
+        if (!record.sourceRef || !retainsSourceBytes(record)) {
             continue;
         }
 
@@ -145,7 +152,7 @@ export function countNonWorkingDependents(records: IBrowserPersistedDocumentReco
 export function shouldRemovePersistedRecord(
     record: IBrowserPersistedDocumentRecord,
     recentRefs: Set<string>,
-    nonWorkingDependentCounts: Map<string, number>,
+    sourceBytesDependentCounts: Map<string, number>,
 ) {
     const durableWorkingRecoveryGraceMs = 10 * 60 * 1_000;
     return (
@@ -158,7 +165,7 @@ export function shouldRemovePersistedRecord(
         )
         || (
             !recentRefs.has(record.ref)
-            && (nonWorkingDependentCounts.get(record.ref) ?? 0) === 0
+            && (sourceBytesDependentCounts.get(record.ref) ?? 0) === 0
         )
     );
 }
