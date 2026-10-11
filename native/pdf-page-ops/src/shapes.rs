@@ -809,6 +809,22 @@ pub(crate) fn attach_shape_appearance(dict: &mut Dictionary, appearance_ref: Obj
     set_print_flag(dict);
 }
 
+/// The flags advanced print reads. An EVB-owned shape saved before the Print
+/// flag was written has no /F at all; it reads as printable, as the next save
+/// of it would write the flag. Any other annotation without /F keeps the 0 it
+/// always had.
+pub(crate) fn annotation_print_flags(document: &Document, annotation: &Dictionary) -> i64 {
+    match annotation.get(b"F") {
+        Ok(flags) => document
+            .dereference(flags)
+            .ok()
+            .and_then(|(_, flags)| flags.as_i64().ok())
+            .unwrap_or(0),
+        Err(_) if read_managed_shape_stable_key(annotation).is_some() => ANNOTATION_FLAG_PRINT,
+        Err(_) => 0,
+    }
+}
+
 /// Adds the Print flag, so the annotation is drawn by advanced print and by
 /// other readers.
 pub(crate) fn set_print_flag(dict: &mut Dictionary) {

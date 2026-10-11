@@ -2873,6 +2873,34 @@ fn print_layout_skips_a_shape_without_the_print_flag() {
 }
 
 #[test]
+fn print_layout_draws_an_evb_shape_saved_before_the_print_flag_but_not_a_foreign_one() {
+    let square = || {
+        dictionary! {
+            "Subtype" => "Square", "Rect" => vec![20.into(), 20.into(), 100.into(), 80.into()],
+            "C" => vec![1.into(), 0.into(), 0.into()], "Border" => vec![0.into(), 0.into(), 2.into()],
+        }
+    };
+
+    let (mut evb_document, _) = embedded_shape_pdf(&[("evb-shape:legacy-square", square())]);
+    build_print_layout(&mut evb_document, None, PrintViewMode::Single, PrintOrientation::Auto)
+        .unwrap();
+    assert!(
+        print_annotation_appearance(&evb_document).is_some(),
+        "EVB-owned Square without /F was not printed"
+    );
+
+    let (mut foreign_document, foreign_page_id) = create_test_document();
+    let annot_id = foreign_document.add_object(square());
+    foreign_document
+        .get_dictionary_mut(foreign_page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annot_id)]);
+    build_print_layout(&mut foreign_document, None, PrintViewMode::Single, PrintOrientation::Auto)
+        .unwrap();
+    assert!(print_annotation_appearance(&foreign_document).is_none());
+}
+
+#[test]
 fn print_layout_still_refuses_an_ink_annotation_without_appearance() {
     let (mut document, page_id) = create_test_document();
     let annot_id = document.add_object(dictionary! {

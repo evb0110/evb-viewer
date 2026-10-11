@@ -613,12 +613,7 @@ fn flatten_printable_annotations(
     let mut drew = false;
     for item in &annotations {
         let annotation = document.dereference(item)?.1.as_dict()?.clone();
-        let flags = annotation
-            .get(b"F")
-            .ok()
-            .and_then(|flags| document.dereference(flags).ok())
-            .and_then(|(_, flags)| flags.as_i64().ok())
-            .unwrap_or(0);
+        let flags = annotation_print_flags(document, &annotation);
         let printable = flags & ANNOTATION_FLAG_PRINT != 0
             && flags & (ANNOTATION_FLAG_INVISIBLE | ANNOTATION_FLAG_HIDDEN) == 0;
         let is_popup = annotation
