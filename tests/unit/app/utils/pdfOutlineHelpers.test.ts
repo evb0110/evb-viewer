@@ -37,10 +37,60 @@ function createPdfPageStub(view: TPdfPageView = [
     0,
     612,
     792,
-]): IPdfPage {
+], rotation = 0): IPdfPage {
     return cast<IPdfPage>({
         view,
-        getViewport: vi.fn(() => ({ height: view[3] - view[1] })),
+        rotate: rotation,
+        getViewport: vi.fn(() => {
+            const [
+                left,
+                bottom,
+                right,
+                top,
+            ] = view;
+            const width = right - left;
+            const height = top - bottom;
+            const transform = rotation === 90 ? [
+                0,
+                1,
+                1,
+                0,
+                -bottom,
+                -left,
+            ]
+                : rotation === 180 ? [
+                    -1,
+                    0,
+                    0,
+                    1,
+                    right,
+                    -bottom,
+                ]
+                    : rotation === 270 ? [
+                        0,
+                        -1,
+                        -1,
+                        0,
+                        top,
+                        right,
+                    ]
+                        : [
+                            1,
+                            0,
+                            0,
+                            -1,
+                            -left,
+                            top,
+                        ];
+            return {
+                height: rotation % 180 === 0 ? height : width,
+                transform,
+                convertToViewportPoint: (x: number, y: number) => [
+                    transform[0]! * x + transform[2]! * y + transform[4]!,
+                    transform[1]! * x + transform[3]! * y + transform[5]!,
+                ],
+            };
+        }),
     });
 }
 
@@ -299,6 +349,40 @@ describe('pdfOutlineHelpers', () => {
         });
     });
 
+    it.each([
+        [
+            0,
+            0.25,
+        ],
+        [
+            90,
+            0.25,
+        ],
+        [
+            180,
+            0.75,
+        ],
+        [
+            270,
+            0.75,
+        ],
+    ])('maps an imported bookmark through the cropped page view at %s degrees', async (rotation, expected) => {
+        const pdfDoc = createPdfDocumentStub({getPage: async () => createPdfPageStub([
+            60,
+            80,
+            460,
+            320,
+        ], rotation)});
+        const target = await resolveBookmarkDestinationTarget(pdfDoc, [
+            0,
+            {name: 'XYZ'},
+            160,
+            260,
+            null,
+        ]);
+        expect(target?.pageYRatio).toBeCloseTo(expected!);
+    });
+
     it('resolves the vertical anchor of a lazily loaded bookmark with its page', async () => {
         const pdfDoc = createPdfDocumentStub({
             numPages: 2,
@@ -430,7 +514,7 @@ describe('pdfOutlineHelpers', () => {
         expect(getPage).toHaveBeenCalledWith(3);
     });
 
-    it('treats /XYZ destinations without an explicit top as top-of-page bookmarks', async () => {
+    it('keeps the vertical coordinate unspecified for /XYZ with a null top', async () => {
         const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub());
         const pdfDoc = createPdfDocumentStub({
             numPages: 6,
@@ -443,10 +527,7 @@ describe('pdfOutlineHelpers', () => {
             null,
             null,
             null,
-        ])).resolves.toEqual({
-            page: 2,
-            pageYRatio: 0,
-        });
+        ])).resolves.toEqual({page: 2});
         expect(getPage).not.toHaveBeenCalled();
     });
 

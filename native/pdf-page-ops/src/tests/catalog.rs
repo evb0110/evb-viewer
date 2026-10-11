@@ -1383,3 +1383,57 @@ fn cleanup_split_keeps_notes_with_their_owner_and_markup_on_both_halves() {
         );
     }
 }
+
+#[test]
+fn saved_bookmark_anchor_uses_rotated_crop_coordinates() {
+    for (rotation, expected) in [
+        (0, (None, 260.0)),
+        (90, (Some(160.0), 80.0)),
+        (180, (None, 140.0)),
+        (270, (Some(360.0), 320.0)),
+    ] {
+        let (mut document, page_id) = create_test_document();
+        let page = document.get_dictionary_mut(page_id).unwrap();
+        page.set("MediaBox", vec![0.into(), 0.into(), 600.into(), 800.into()]);
+        page.set(
+            "CropBox",
+            vec![60.into(), 80.into(), 460.into(), 320.into()],
+        );
+        page.set("Rotate", rotation);
+        let mut input = Vec::new();
+        document.save_to(&mut input).unwrap();
+        let mutations = read_native_mutations_bytes(
+            br#"{"bookmarks":{"totalPages":1,"untitledLabel":"Untitled","items":[{"title":"Anchor","pageIndex":0,"pageYRatio":0.25,"namedDest":null,"bold":false,"italic":false,"color":null,"items":[]}]}}"#,
+        ).unwrap();
+        let output =
+            append_native_mutations_to_bytes(&input, &mutations, "D:20261011000000Z").unwrap();
+        let loaded = Document::load_mem(&output.data).unwrap();
+        let outlines = loaded
+            .get_dictionary(
+                loaded
+                    .catalog()
+                    .unwrap()
+                    .get(b"Outlines")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        let bookmark = loaded
+            .get_dictionary(outlines.get(b"First").unwrap().as_reference().unwrap())
+            .unwrap();
+        let dest = bookmark.get(b"Dest").unwrap().as_array().unwrap();
+        assert_eq!(dest[1].as_name().unwrap(), b"XYZ");
+        match expected.0 {
+            Some(left) => assert!(
+                (f64::from(dest[2].as_float().unwrap()) - left).abs() < 0.01,
+                "rotation {rotation}"
+            ),
+            None => assert!(dest[2].is_null()),
+        }
+        assert!(
+            (f64::from(dest[3].as_float().unwrap()) - expected.1).abs() < 0.01,
+            "rotation {rotation}"
+        );
+    }
+}

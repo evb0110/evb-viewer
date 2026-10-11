@@ -1,7 +1,4 @@
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import { clamp } from 'es-toolkit/math';
 import {
     parsePageIndex,
@@ -92,12 +89,6 @@ export function shouldEmitResolvedBookmarkDestinationTarget(
     }
 
     return typeof target.pageYRatio === 'number' && Number.isFinite(target.pageYRatio);
-}
-
-interface IPageViewBounds {
-    top: number;
-    bottom: number;
-    height: number;
 }
 
 function isRefProxy(value: unknown): value is IRefProxy {
@@ -284,32 +275,6 @@ function shouldAlignDestinationToPageTop(destinationKind: string | null) {
         || destinationKind === 'FitR';
 }
 
-function getPageViewBounds(page: IPdfPage): IPageViewBounds | null {
-    const view = Array.isArray(page.view) ? page.view : null;
-    const top = view ? getFiniteDestinationNumber(view[3]) : null;
-    const bottom = view ? getFiniteDestinationNumber(view[1]) : null;
-
-    if (top !== null && bottom !== null && top > bottom) {
-        return {
-            top,
-            bottom,
-            height: top - bottom,
-        };
-    }
-
-    const viewport = page.getViewport({ scale: 1 });
-    const height = getFiniteDestinationNumber(viewport.height);
-    if (height !== null && height > 0) {
-        return {
-            top: height,
-            bottom: 0,
-            height,
-        };
-    }
-
-    return null;
-}
-
 async function resolveDestinationPageYRatio(
     pdfDocument: IPdfDocument,
     page: number,
@@ -323,19 +288,39 @@ async function resolveDestinationPageYRatio(
     }
 
     const destinationTop = getDestinationTopValue(destinationArray, destinationKind);
-    if (destinationTop === null) {
+    if (destinationKind === 'Fit' || destinationKind === 'FitB') {
         return 0;
     }
-
+    const left = destinationKind === 'XYZ' || destinationKind === 'FitR'
+        ? getFiniteDestinationNumber(destinationArray[2])
+        : null;
+    if (left === null && destinationTop === null) {
+        return null;
+    }
     try {
         const pdfPage = await pdfDocument.getPage(page);
         throwIfAborted(signal);
-        const bounds = getPageViewBounds(pdfPage);
-        if (!bounds) {
+        const viewport = pdfPage.getViewport({scale: 1});
+        if (!Number.isFinite(viewport.height) || viewport.height <= 0) {
             return null;
         }
-
-        return clamp((bounds.top - destinationTop) / bounds.height, 0, 1);
+        // A null PDF coordinate retains the reader's current coordinate.
+        // Only the axis contributing to displayed Y needs to be specified.
+        if ((viewport.transform[1] !== 0 && left === null)
+            || (viewport.transform[3] !== 0 && destinationTop === null)) {
+            return null;
+        }
+        const point = viewport.convertToViewportPoint(left ?? 0, destinationTop ?? 0);
+        let top = point[1];
+        if (destinationKind === 'FitR') {
+            const right = getFiniteDestinationNumber(destinationArray[4]);
+            const bottom = getFiniteDestinationNumber(destinationArray[3]);
+            if (right === null || bottom === null) return null;
+            top = Math.min(top ?? 0, viewport.convertToViewportPoint(right, bottom)[1] ?? 0);
+        }
+        return typeof top === 'number' && Number.isFinite(top)
+            ? clamp(top / viewport.height, 0, 1)
+            : null;
     } catch (error) {
         if (signal?.aborted) {
             throwIfAborted(signal);

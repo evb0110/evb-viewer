@@ -1,5 +1,8 @@
 import {
-    copyFile, mkdtemp, realpath,
+    PDFDocument, degrees,
+} from 'pdf-lib';
+import {
+    copyFile, mkdtemp, readFile, realpath, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -14,7 +17,9 @@ import {
     createOutlinePageLabelFixturePdf, fixtureBookmark, readPdfMetadataWithQpdf,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    clickAsUser, clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -24,6 +29,40 @@ import type {Page} from 'puppeteer-core';
 
 describe('Electron E2E - bookmark destination round trip', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-bookmark-rename-${Date.now()}`});
+
+    it('saves a rotated-page bookmark in displayed crop coordinates and reopens at its top', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`rotated-bookmark-${Date.now()}.pdf`, []);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        const first = pdf.getPages()[0]!;
+        first.setMediaBox(40, 60, 500, 700);
+        first.setCropBox(60, 80, 400, 600);
+        first.setRotation(degrees(270));
+        await writeFile(fixture, await pdf.save());
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
+        await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+            .find(button => button.textContent?.trim() === title), 'Add first bookmark', {description: 'Add first bookmark'});
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type('Rotated crop top');
+        await page.keyboard.press('Enter');
+        await findBookmarkRow(page, 'Rotated crop top');
+        await saveViaWindowHandle(page);
+        const dest = (await readPdfMetadataWithQpdf(fixture)).outlines[0]?.dest;
+        expect(dest?.[2]).toBeCloseTo(460, 0);
+        expect(dest?.[3]).toBeCloseTo(680, 0);
+        await clickAsUser(page, 'button[aria-label="Close Tab"]');
+        await page.waitForSelector('.page_container', {hidden: true});
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await goToPageViaToolbar(page, 2);
+        await activateBookmark(page, 'Rotated crop top');
+        await waitForToolbarCurrentPage(page, 1);
+        await waitForViewportQuiet(page);
+    }, 90_000);
 
     it('keeps imported destinations when one bookmark title is renamed and saved', async () => {
         const evidenceDirectory = await mkdtemp(join(tmpdir(), 'evb-e2e-bookmark-rename-'));

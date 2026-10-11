@@ -339,7 +339,7 @@ fn offset_wasm_bookmark(
         page_index: bookmark
             .page_index
             .map(|page| page.saturating_add(page_offset)),
-        page_y_ratio: None,
+        page_y_ratio: bookmark.page_y_ratio,
         named_dest: bookmark.named_dest,
         bold: bookmark.bold,
         italic: bookmark.italic,
@@ -808,6 +808,61 @@ mod tests {
         let mut bytes = Vec::new();
         document.save_to(&mut bytes).expect("serialize test PDF");
         bytes
+    }
+
+    #[test]
+    fn merge_keeps_imported_mid_page_bookmark_positions() {
+        let mut document = Document::load_mem(&test_pdf_bytes()).unwrap();
+        let page_id = *document.get_pages().get(&1).unwrap();
+        let outlines_id = document.new_object_id();
+        let bookmark_id = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Section"),
+            "Parent" => outlines_id,
+            "Dest" => vec![Object::Reference(page_id), Object::Name(b"FitH".to_vec()), 75.into()],
+        });
+        document.set_object(
+            outlines_id,
+            dictionary! {
+                "Type" => "Outlines", "First" => bookmark_id, "Last" => bookmark_id, "Count" => 1,
+            },
+        );
+        document.catalog_mut().unwrap().set("Outlines", outlines_id);
+        let mut source = Vec::new();
+        document.save_to(&mut source).unwrap();
+        let mut request = REQUEST_MAGIC.to_vec();
+        for value in [REQUEST_VERSION_DOCUMENT_LIST, OP_MERGE_PAGES, 2] {
+            write_u32_le(&mut request, value);
+        }
+        for _ in 0..2 {
+            write_u32_le(&mut request, source.len() as u32);
+            request.extend_from_slice(&source);
+        }
+        let output = run_request(&request).unwrap();
+        let saved = Document::load_mem(&output[MUTATION_HEADER.bytes..]).unwrap();
+        let outlines = saved
+            .get_dictionary(
+                saved
+                    .catalog()
+                    .unwrap()
+                    .get(b"Outlines")
+                    .unwrap()
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        let first_id = outlines.get(b"First").unwrap().as_reference().unwrap();
+        let first = saved.get_dictionary(first_id).unwrap();
+        let second = saved
+            .get_dictionary(first.get(b"Next").unwrap().as_reference().unwrap())
+            .unwrap();
+        for (bookmark, page_number) in [(first, 1), (second, 2)] {
+            let dest = bookmark.get(b"Dest").unwrap().as_array().unwrap();
+            assert_eq!(
+                dest[0].as_reference().unwrap(),
+                *saved.get_pages().get(&page_number).unwrap()
+            );
+            assert_eq!(f64::from(dest[3].as_float().unwrap()), 75.0);
+        }
     }
 
     fn crop_request(data: &[u8], top: f64) -> Vec<u8> {

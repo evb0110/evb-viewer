@@ -6,6 +6,8 @@ use serde::Serialize;
 pub(crate) struct PdfCombineBookmarkEntry {
     pub(crate) title: String,
     pub(crate) page_index: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) page_y_ratio: Option<f64>,
     pub(crate) named_dest: Option<String>,
     pub(crate) bold: bool,
     pub(crate) italic: bool,
@@ -16,6 +18,7 @@ pub(crate) struct PdfCombineBookmarkEntry {
 pub(super) struct RawPdfCombineBookmarkEntry {
     title: String,
     page_id: Option<ObjectId>,
+    page_y_ratio: Option<f64>,
     items: Vec<RawPdfCombineBookmarkEntry>,
     bold: bool,
     italic: bool,
@@ -60,11 +63,12 @@ pub(super) fn read_outline_items<'a>(
                 })
                 .and_then(|action| action.get(b"D").ok().cloned())
         });
-        let page_id = destination
+        let page_target = destination
             .as_ref()
-            .map(|value| destination_page_id(document, catalog, named_destinations, value))
+            .map(|value| destination_page_target(document, catalog, named_destinations, value))
             .transpose()?
             .flatten();
+        let page_id = page_target.map(|(page_id, _)| page_id);
         if let Some(page_id) = page_id {
             page_ids.insert(page_id);
         }
@@ -79,6 +83,7 @@ pub(super) fn read_outline_items<'a>(
         output.push(RawPdfCombineBookmarkEntry {
             title,
             page_id,
+            page_y_ratio: page_target.and_then(|(_, ratio)| ratio),
             items: read_outline_items(
                 document,
                 catalog,
@@ -101,12 +106,12 @@ pub(super) fn read_outline_items<'a>(
     Ok(output)
 }
 
-fn destination_page_id<'a>(
+fn destination_page_target<'a>(
     document: &'a impl PdfObjectSource,
     catalog: &'a Dictionary,
     named_destinations: &mut Option<HashMap<String, &'a Object>>,
     value: &Object,
-) -> Result<Option<ObjectId>> {
+) -> Result<Option<(ObjectId, Option<f64>)>> {
     let mut destination = document.resolved(value)?.clone();
     if let Some(name) = pdf_name_or_string(&destination) {
         let Some(named_destination) =
@@ -128,7 +133,55 @@ fn destination_page_id<'a>(
     let Some(first) = array.first() else {
         return Ok(None);
     };
-    Ok(first.as_reference().ok())
+    let Ok(page_id) = first.as_reference() else {
+        return Ok(None);
+    };
+    let ratio = destination_page_y_ratio(document, page_id, array)?;
+    Ok(Some((page_id, ratio)))
+}
+
+fn destination_page_y_ratio(
+    document: &impl PdfObjectSource,
+    page_id: ObjectId,
+    destination: &[Object],
+) -> Result<Option<f64>> {
+    let kind = destination.get(1).and_then(|value| value.as_name().ok());
+    if matches!(kind, Some(b"Fit" | b"FitB")) {
+        return Ok(Some(0.0));
+    }
+    let number = |index: usize| {
+        destination
+            .get(index)
+            .and_then(|value| value.as_float().ok())
+            .map(f64::from)
+    };
+    let (left, top) = match kind {
+        Some(b"XYZ") => (number(2), number(3)),
+        Some(b"FitH" | b"FitBH") => (None, number(2)),
+        Some(b"FitV" | b"FitBV") => (number(2), None),
+        Some(b"FitR") => (number(2), number(5)),
+        _ => return Ok(None),
+    };
+    let view = resolve_page_view(document, page_id)?;
+    let rotation = resolve_page_rotation(document, page_id)?;
+    let origin = pdf_point_from_marker_point(0.0, 0.0, view, rotation);
+    let bottom = pdf_point_from_marker_point(0.0, 1.0, view, rotation);
+    let project = |x: Option<f64>, y: Option<f64>| {
+        if bottom.0 != origin.0 {
+            x.map(|x| (x - origin.0) / (bottom.0 - origin.0))
+        } else {
+            y.map(|y| (y - origin.1) / (bottom.1 - origin.1))
+        }
+    };
+    let mut ratio = project(left, top);
+    if kind == Some(b"FitR") {
+        ratio = ratio
+            .zip(project(number(4), number(3)))
+            .map(|(a, b)| a.min(b));
+    }
+    Ok(ratio
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.0, 1.0)))
 }
 
 /// Looks a name up in the legacy `/Dests` dictionary, then in the `/Names
@@ -250,6 +303,7 @@ pub(super) fn finalize_bookmark(
         page_index: bookmark
             .page_id
             .and_then(|page_id| page_indices.get(&page_id).copied()),
+        page_y_ratio: bookmark.page_y_ratio,
         named_dest: None,
         bold: bookmark.bold,
         italic: bookmark.italic,
@@ -359,12 +413,19 @@ pub(crate) fn validate_bookmark_destination(
                 .ok_or("Invalid bookmark page index")?,
         )?;
         let page_view = resolve_page_view(document, page_id)?;
-        let expected_top = resolve_bookmark_destination_top(&page_view, item.page_y_ratio);
+        let (expected_left, expected_top) = resolve_bookmark_destination_position(
+            page_view,
+            resolve_page_rotation(document, page_id)?,
+            item.page_y_ratio,
+        );
         let destination = bookmark.get(b"Dest")?.as_array()?;
         if destination.len() != 5
             || destination[0].as_reference()? != page_id
             || destination[1].as_name()? != b"XYZ"
-            || !destination[2].is_null()
+            || match expected_left {
+                Some(left) => (f64::from(destination[2].as_float()?) - left).abs() > 0.01,
+                None => !destination[2].is_null(),
+            }
             || (f64::from(destination[3].as_float()?) - expected_top).abs() > 0.01
             || !destination[4].is_null()
         {
@@ -383,14 +444,14 @@ pub(crate) fn validate_bookmark_destination(
     Ok(())
 }
 
-pub(crate) fn resolve_bookmark_destination_top(
-    page_view: &PdfRect,
+pub(crate) fn resolve_bookmark_destination_position(
+    page_view: PdfRect,
+    page_rotation: i64,
     page_y_ratio: Option<f64>,
-) -> f64 {
-    let Some(page_y_ratio) = page_y_ratio else {
-        return page_view.y2;
-    };
-    page_view.y2 - page_y_ratio.clamp(0.0, 1.0) * page_view.height().max(0.0)
+) -> (Option<f64>, f64) {
+    let ratio = page_y_ratio.unwrap_or(0.0).clamp(0.0, 1.0);
+    let (left, top) = pdf_point_from_marker_point(0.0, ratio, page_view, page_rotation);
+    (matches!(page_rotation, 90 | 270).then_some(left), top)
 }
 
 pub(crate) struct OutlineBuildResult {
@@ -417,13 +478,15 @@ pub(crate) fn set_bookmark_destination(
             .ok_or("Invalid bookmark page index")?;
         let page_id = page_resolver.page_id(base_document, page_number)?;
         let page_view = resolve_page_view(base_document, page_id)?;
-        let destination_top = resolve_bookmark_destination_top(&page_view, item.page_y_ratio);
+        let page_rotation = resolve_page_rotation(base_document, page_id)?;
+        let (destination_left, destination_top) =
+            resolve_bookmark_destination_position(page_view, page_rotation, item.page_y_ratio);
         dict.set(
             "Dest",
             Object::Array(vec![
                 Object::Reference(page_id),
                 Object::Name(b"XYZ".to_vec()),
-                Object::Null,
+                destination_left.map(number_object).unwrap_or(Object::Null),
                 number_object(destination_top),
                 Object::Null,
             ]),
