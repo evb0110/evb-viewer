@@ -819,6 +819,76 @@ describe('release mirror publisher', () => {
         ]);
     });
 
+    it('completes an interrupted same-tag mirror from the same bytes without re-uploading finished objects', async () => {
+        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-resume-'));
+        await writeFile(join(artifactDirectory, 'core.zip'), 'core');
+        await writeFile(join(artifactDirectory, 'EVB-Viewer-2.1.0-x64-setup.exe'), 'installer');
+        await writeFile(join(artifactDirectory, 'SHA256SUMS'), 'checksums');
+        const stored = new Map<string, {
+            bytes: Buffer;
+            sha256: string
+        }>();
+        const puts: string[] = [];
+        let rejectedInstaller = false;
+        const client = {send: vi.fn(async (command: unknown) => {
+            if (command instanceof PutObjectCommand) {
+                const key = command.input.Key!;
+                if (key.endsWith('EVB-Viewer-2.1.0-x64-setup.exe') && !rejectedInstaller) {
+                    rejectedInstaller = true;
+                    throw Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}});
+                }
+                puts.push(key);
+                stored.set(key, {
+                    bytes: await commandBodyBytes(command.input.Body),
+                    sha256: command.input.Metadata!.sha256!,
+                });
+                return {};
+            }
+            if (command instanceof HeadObjectCommand) {
+                const object = stored.get(command.input.Key!);
+                return object
+                    ? {
+                        ContentLength: object.bytes.byteLength,
+                        Metadata: {sha256: object.sha256},
+                    }
+                    : {$metadata: {httpStatusCode: 404}};
+            }
+            if (command instanceof GetObjectCommand) {
+                const object = stored.get(command.input.Key!);
+                if (!object) {
+                    throw new Error('Unexpected missing repair object');
+                }
+                return {Body: objectBody(object.bytes)};
+            }
+            throw new Error(`Unexpected resume command: ${String(command)}`);
+        })};
+        const publishOptions = {
+            artifactDirectory,
+            releaseTag: 'v2.1.0',
+            publishChannel: false,
+            environment,
+            client,
+        };
+
+        await expect(publishReleaseMirror(publishOptions)).rejects.toThrow('AccessDenied');
+        expect(puts).toEqual(['evb-viewer/releases/v2.1.0/core.zip']);
+
+        const resumed = await publishReleaseMirror(publishOptions);
+
+        expect(resumed.assets.map(asset => asset.name)).toEqual([
+            'core.zip',
+            'EVB-Viewer-2.1.0-x64-setup.exe',
+            'SHA256SUMS',
+        ]);
+        expect(puts.slice(1)).toEqual([
+            'evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-x64-setup.exe',
+            'evb-viewer/releases/v2.1.0/SHA256SUMS',
+            'evb-viewer/releases/v2.1.0/manifest.json',
+        ]);
+        expect(stored.get('evb-viewer/releases/v2.1.0/core.zip')?.bytes.toString()).toBe('core');
+        expect(stored.get('evb-viewer/releases/v2.1.0/EVB-Viewer-2.1.0-x64-setup.exe')?.bytes.toString()).toBe('installer');
+    });
+
     it('rejects invalid input, missing credentials, empty folders, and verification mismatches', async () => {
         await expect(publishReleaseMirror({
             artifactDirectory: '',

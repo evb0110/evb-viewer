@@ -18,7 +18,7 @@ To recover a workflow for a tag that already exists, dispatch `Release` with tha
 
 ## Release workflow
 
-One tag-triggered workflow packages five targets in parallel: macOS arm64 (Developer ID signed and notarized DMG plus updater ZIP), Windows x64 and ARM64 (NSIS), and Linux x64 and ARM64 (deb). It sets the package version from the tag before building, uploads Sentry source maps before packaging, checks each package, validates final updater metadata and asset bytes, creates checksums and provenance, promotes the GitHub draft, and then activates the stable mirror channel. A failed promotion leaves installed clients on the previous channel; if mirror activation fails after promotion, the GitHub release is public while clients remain on the previous channel. electron-builder remains on `--publish never`; the final upload happens only after macOS notarization rewrites the DMG and updater metadata.
+One tag-triggered workflow packages five targets in parallel: macOS arm64 (Developer ID signed and notarized DMG plus updater ZIP), Windows x64 and ARM64 (NSIS), and Linux x64 and ARM64 (deb). It sets the package version from the tag before building, uploads Sentry source maps before packaging, checks each package, validates final updater metadata and asset bytes, creates checksums and provenance, promotes the GitHub draft, and then activates the stable mirror channel. A failed promotion leaves installed clients on the previous channel; if mirror activation fails after promotion, the GitHub release is public while clients remain on the previous channel until the same tag is re-run (see [Status and recovery](#status-and-recovery)). electron-builder remains on `--publish never`; the final upload happens only after macOS notarization rewrites the DMG and updater metadata.
 
 The Microsoft Store AppX lane remains manual. Dispatch `store-appx.yml` for the published tag, download both artifacts, then submit them in Partner Center as described in [Microsoft Store packages](release-guardrails.md#microsoft-store-packages).
 
@@ -36,6 +36,9 @@ Check a release with:
 pnpm run release:status vX.Y.Z
 ```
 
-The command reports the tag, draft or public state, expected assets, checksums, the release workflow run, and the mirror pointer. For a failed run, fix the cause and re-run the workflow for the same existing tag. Immutable uploaded assets are compared with the new local files before reuse; mismatching bytes stop the recovery.
+The command reports the tag, draft or public state, expected assets, checksums, the release workflow run, and the mirror pointer. For a failed run, fix the cause and re-run the workflow for the same existing tag.
+
+- While the GitHub release is still a draft, a re-run rebuilds the packages, reuses matching immutable uploads, and stops if any byte differs.
+- Once the release is public, a re-run does not rebuild packages or edit the GitHub release. It downloads the published assets, verifies them against the published `SHA256SUMS`, and completes the mirror from those exact bytes: missing objects are uploaded, existing matching objects are reused, and the stable channel moves to the tag. Use this when a mirror transfer failed after promotion.
 
 After promotion, follow the [updater canary](release-updater-canary.md) on each published updater feed. A draft proves package and mirror handling but cannot prove that an installed client sees a public update.
