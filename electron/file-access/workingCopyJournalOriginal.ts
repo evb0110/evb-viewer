@@ -29,8 +29,8 @@ export const originalSchema = v.object({
 
 export type IWorkingCopyJournalOriginal = v.InferOutput<typeof originalSchema>;
 
-export async function captureIntendedContentFingerprint(sourcePath: string) {
-    return hashContentFingerprintFilePath(sourcePath, (await stat(sourcePath, {bigint: true})).size);
+export async function captureIntendedContentFingerprint(sourcePath: string, signal?: AbortSignal) {
+    return hashContentFingerprintFilePath(sourcePath, (await stat(sourcePath, {bigint: true})).size, signal);
 }
 
 /**

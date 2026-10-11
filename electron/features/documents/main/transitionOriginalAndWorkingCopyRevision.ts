@@ -86,7 +86,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         backupPath: originalBackupPath,
                         state: 'prepared',
                         ...(witness === null ? {} : {preparedSnapshot: witness.getSnapshotForJournal()}),
-                        ...(witness === null ? {} : {intendedFingerprint: await captureIntendedContentFingerprint(input.publishedSourcePath)}),
+                        ...(witness === null ? {} : {intendedFingerprint: await captureIntendedContentFingerprint(input.publishedSourcePath, input.signal)}),
                     } as const;
                     await measureTransitionPhase('transition-journal-prepared', input.onPhase, () =>
                         recordWorkingCopyJournalOriginal(transitionJournal, original));
