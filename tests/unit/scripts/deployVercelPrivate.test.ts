@@ -1,4 +1,3 @@
-import type * as FsPromises from 'node:fs/promises';
 import {
     appendFileSync,
     cpSync,
@@ -30,22 +29,7 @@ import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
-
-// Hooks run before the real unlink, so a test can pause one caller inside it.
-const lockFsHooks = vi.hoisted(() => ({beforeUnlink: undefined as undefined | ((file: string) => Promise<void>)}));
-
-vi.mock('node:fs/promises', async (importOriginal) => {
-    const actual = await importOriginal<typeof FsPromises>();
-    return {
-        ...actual,
-        unlink: async (file: Parameters<typeof FsPromises.unlink>[0]) => {
-            await lockFsHooks.beforeUnlink?.(String(file));
-            return actual.unlink(file);
-        },
-    };
-});
 
 interface IPreparedPrivateDeploySource {
     cleanup: () => void;
@@ -124,6 +108,18 @@ function restoreEnv(name: 'HOME' | 'TMPDIR' | 'USERPROFILE', value: string | und
     }
 }
 
+// The production lock lives under the home directory, so a deploy started inside
+// another home takes a different lock. Its lock path is fixed before it awaits.
+function inHome<T>(home: string, run: () => T): T {
+    const savedHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+        return run();
+    } finally {
+        restoreEnv('HOME', savedHome);
+    }
+}
+
 let projectFixtureTemplate: string | undefined;
 let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
@@ -164,6 +160,9 @@ async function startProductionLockOwner(projectRoot: string) {
         '-e',
         `
             const {runPrivateVercelDeploy} = await import(process.env.EVB_TEST_DEPLOY_MODULE);
+            // A deploy that is still running keeps its process alive; the stub acceptance
+            // below holds no handle, so without this the process would exit holding nothing.
+            setInterval(() => {}, 1000);
             await runPrivateVercelDeploy({
                 command: 'vercel-test',
                 env: {CI: 'true'},
@@ -203,6 +202,80 @@ async function startProductionLockOwner(projectRoot: string) {
         owner.once('exit', code => rejectHeld(new Error(`owner exited before taking the lock: ${code}`)));
     });
     return owner;
+}
+
+function childProcessIds(parentPid: number) {
+    return spawnSync('pgrep', [
+        '-P',
+        String(parentPid),
+    ], {encoding: 'utf8'})
+        .stdout
+        .trim()
+        .split(/\s+/u)
+        .filter(Boolean)
+        .map(Number);
+}
+
+interface IProductionRecord {
+    id: string;
+    url: string;
+}
+
+// A production alias the fake Vercel CLI moves: `deploy` promotes a new deployment,
+// `rollback` restores one by identity, and `inspect` reports what production serves.
+// Several deploys can share one alias, as two hosts sharing a Vercel project do.
+function createVercelAlias(initial: IProductionRecord) {
+    const deployments = new Map([[
+        initial.id,
+        initial,
+    ]]);
+    const alias = {
+        calls: [] as string[][],
+        production: initial,
+    };
+    function spawnFor(deploymentName: string, {printUrl = true} = {}) {
+        return (_command: string, args: string[]) => {
+            alias.calls.push(args);
+            if (args[0] === 'inspect') {
+                return {
+                    stderr: '',
+                    stdout: `${JSON.stringify({
+                        aliases: ['web.evb-viewer.com'],
+                        id: alias.production.id,
+                        name: 'fixture-project',
+                        url: alias.production.url,
+                    })}\n`,
+                    status: 0,
+                };
+            }
+            if (args[0] === 'rollback') {
+                const target = deployments.get(args[1] ?? '');
+                if (target) {
+                    alias.production = target;
+                }
+                return {
+                    stderr: '',
+                    stdout: '',
+                    status: target ? 0 : 1,
+                };
+            }
+            const promoted = {
+                id: `dpl_${deploymentName}`,
+                url: `${deploymentName}.vercel.app`,
+            };
+            deployments.set(promoted.id, promoted);
+            alias.production = promoted;
+            return {
+                stderr: '',
+                stdout: printUrl ? `Production: https://${promoted.url}\n` : 'Production deploy completed\n',
+                status: 0,
+            };
+        };
+    }
+    return {
+        alias,
+        spawnFor,
+    };
 }
 
 function createProjectFixture() {
@@ -538,7 +611,10 @@ describe('private Vercel deployment source', () => {
             owner.kill('SIGKILL');
             await once(owner, 'exit');
 
-            const deployCalls: string[][] = [];
+            const vercel = createVercelAlias({
+                id: 'dpl_previous',
+                url: 'previous.vercel.app',
+            });
             await expect(runPrivateVercelDeploy({
                 command: 'vercel-test',
                 env: {
@@ -551,22 +627,13 @@ describe('private Vercel deployment source', () => {
                 }),
                 projectRoot,
                 rawArgs: ['--prod'],
-                spawnSyncImpl: (_command: string, args: string[]) => {
-                    deployCalls.push(args);
-                    return deployCalls.length === 1
-                        ? {
-                            stderr: '',
-                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}\n',
-                            status: 0,
-                        }
-                        : {
-                            stderr: '',
-                            stdout: 'Production: https://next.vercel.app\n',
-                            status: 0,
-                        };
-                },
+                spawnSyncImpl: vercel.spawnFor('next'),
             })).resolves.toBe(0);
-            expect(deployCalls).toHaveLength(2);
+            expect(vercel.alias.calls.map(args => args[0])).toEqual([
+                'inspect',
+                'deploy',
+                'inspect',
+            ]);
             expect(readFileSync(lockPath, 'utf8')).toBe('');
         } finally {
             if (owner.exitCode === null && owner.signalCode === null) {
@@ -590,46 +657,111 @@ describe('private Vercel deployment source', () => {
             pid: 2147483647,
             token: 'dead',
         }));
-        const bReachedUnlink = Promise.withResolvers<undefined>();
-        const bMayUnlink = Promise.withResolvers<undefined>();
         const waitZero = {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'};
-        let releaseA: (() => Promise<void>) | undefined;
-        let releaseB: (() => Promise<void>) | undefined;
-        lockFsHooks.beforeUnlink = async (file) => {
-            if (file !== lockPath) {
-                return;
-            }
-            lockFsHooks.beforeUnlink = undefined;
-            bReachedUnlink.resolve(undefined);
-            await bMayUnlink.promise;
-        };
 
         try {
-            // Caller B reaches the unlink of the dead lock and pauses there.
-            const pendingB = acquireProductionDeployLock({
-                env: waitZero,
-                projectId: 'project',
-            });
-            await Promise.race([
-                bReachedUnlink.promise,
-                pendingB.then(() => undefined, () => undefined),
+            const attempts = await Promise.allSettled([
+                acquireProductionDeployLock({
+                    env: waitZero,
+                    projectId: 'project',
+                }),
+                acquireProductionDeployLock({
+                    env: waitZero,
+                    projectId: 'project',
+                }),
             ]);
-            // Caller A runs while B is paused; a live lock must stop it.
-            releaseA = await acquireProductionDeployLock({
-                env: waitZero,
-                projectId: 'project',
-            })
-                .catch(() => undefined);
-            bMayUnlink.resolve(undefined);
-            releaseB = await pendingB;
-
-            expect(releaseA === undefined || releaseB === undefined).toBe(true);
+            const holders = attempts.flatMap(attempt => (attempt.status === 'fulfilled' ? [attempt.value] : []));
+            expect(holders).toHaveLength(1);
+            await holders[0]?.();
         } finally {
-            lockFsHooks.beforeUnlink = undefined;
-            bMayUnlink.resolve(undefined);
-            await releaseA?.();
-            await releaseB?.();
             rmSync(lockPath, {force: true});
+        }
+    });
+
+    // A record written by an earlier version of this lock, with no format, names its owner's pid.
+    it('keeps a legacy lock record in force while its owner on this host is alive', async () => {
+        const lockPath = getProductionDeployLockPath('project');
+        mkdirSync(path.dirname(lockPath), {recursive: true});
+        writeFileSync(lockPath, JSON.stringify({
+            hostname: hostname(),
+            pid: process.pid,
+            token: 'legacy-live',
+        }));
+
+        try {
+            await expect(acquireProductionDeployLock({
+                env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+                projectId: 'project',
+            })).rejects.toThrow('Timed out waiting for the production deploy lock');
+            expect(JSON.parse(readFileSync(lockPath, 'utf8')).token).toBe('legacy-live');
+        } finally {
+            rmSync(lockPath, {force: true});
+        }
+    });
+
+    // The pre-hostname format: no hostname, so the record belongs to this host.
+    it('stops treating a legacy lock record as blocking once its owner has exited', async () => {
+        const lockPath = getProductionDeployLockPath('project');
+        mkdirSync(path.dirname(lockPath), {recursive: true});
+        writeFileSync(lockPath, JSON.stringify({
+            pid: 2147483647,
+            token: 'legacy-dead',
+        }));
+
+        const release = await acquireProductionDeployLock({
+            env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+            projectId: 'project',
+        });
+        try {
+            expect(JSON.parse(readFileSync(lockPath, 'utf8')).pid).toBe(process.pid);
+        } finally {
+            await release();
+            rmSync(lockPath, {force: true});
+        }
+    });
+
+    // The lock must belong to the deploy process itself. A helper that the deploy
+    // started may die at any time; the deploy keeps the lock until it finishes.
+    it('keeps a live deploy\'s production lock when the processes it started are killed', async () => {
+        const projectRoot = createProjectFixture();
+        const lockPath = getProductionDeployLockPath('project');
+        const owner = await startProductionLockOwner(projectRoot);
+
+        try {
+            // A killed process closes its descriptors while it exits, before the next
+            // deploy spawns its own helper, so no wait is needed here.
+            for (const childPid of childProcessIds(owner.pid as number)) {
+                process.kill(childPid, 'SIGKILL');
+            }
+
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {
+                    CI: 'true',
+                    EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0',
+                },
+                fetchImpl: async () => ({
+                    ok: true,
+                    status: 200,
+                }),
+                projectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: createVercelAlias({
+                    id: 'dpl_previous',
+                    url: 'previous.vercel.app',
+                }).spawnFor('second'),
+            })).rejects.toThrow('Timed out waiting for the production deploy lock');
+            expect(owner.exitCode).toBeNull();
+        } finally {
+            owner.kill('SIGKILL');
+            await once(owner, 'exit');
+            rmSync(lockPath, {force: true});
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
         }
     });
 
@@ -931,10 +1063,10 @@ describe('private Vercel deployment source', () => {
 
     it('requires a reported deployment URL and rolls back a failed production acceptance', async () => {
         const projectRoot = createProjectFixture();
-        const calls: Array<{
-            args: string[];
-            command: string
-        }> = [];
+        const vercel = createVercelAlias({
+            id: 'dpl_previous',
+            url: 'previous.vercel.app',
+        });
         const fetchedUrls: string[] = [];
 
         try {
@@ -953,40 +1085,27 @@ describe('private Vercel deployment source', () => {
                 },
                 projectRoot,
                 rawArgs: ['--prod'],
-                spawnSyncImpl: (command: string, args: string[]) => {
-                    calls.push({
-                        args,
-                        command,
-                    });
-                    return calls.length === 1
-                        ? {
-                            stderr: '',
-                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}\n',
-                            status: 0,
-                        }
-                        : calls.length === 2
-                            ? {
-                                stderr: '',
-                                stdout: 'Production: https://evb-viewer-test.vercel.app\n',
-                                status: 0,
-                            }
-                            : {status: 0};
-                },
+                spawnSyncImpl: vercel.spawnFor('evb-viewer-test'),
             })).rejects.toThrow('The failed deployment was rolled back.');
 
-            expect(calls.map(call => call.args)).toEqual([
-                [
-                    'inspect',
-                    'https://web.evb-viewer.com/',
-                    '--json',
-                ].map(spawnedArg),
-                expect.arrayContaining(['deploy'].map(spawnedArg)),
-                [
-                    'rollback',
-                    'dpl_previous',
-                    '--yes',
-                ].map(spawnedArg),
+            expect(vercel.alias.calls[0]).toEqual([
+                'inspect',
+                'https://web.evb-viewer.com/',
+                '--json',
+            ].map(spawnedArg));
+            expect(vercel.alias.calls.map(args => args[0])).toEqual([
+                'inspect',
+                'deploy',
+                'inspect',
+                'inspect',
+                'rollback',
             ]);
+            expect(vercel.alias.calls[4]).toEqual([
+                'rollback',
+                'dpl_previous',
+                '--yes',
+            ].map(spawnedArg));
+            expect(vercel.alias.production.id).toBe('dpl_previous');
             expect(fetchedUrls).toEqual(['https://health.example/status']);
         } finally {
             rmSync(projectRoot, {
@@ -1000,7 +1119,10 @@ describe('private Vercel deployment source', () => {
 
     it('rolls back when a production deploy omits its deployment URL', async () => {
         const projectRoot = createProjectFixture();
-        const calls: string[][] = [];
+        const vercel = createVercelAlias({
+            id: 'dpl_previous',
+            url: 'previous.vercel.app',
+        });
 
         try {
             await expect(runPrivateVercelDeploy({
@@ -1008,39 +1130,19 @@ describe('private Vercel deployment source', () => {
                 env: {CI: 'true'},
                 projectRoot,
                 rawArgs: ['--prod'],
-                spawnSyncImpl: (_command: string, args: string[]) => {
-                    calls.push(args);
-                    return calls.length === 1
-                        ? {
-                            stderr: '',
-                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}\n',
-                            status: 0,
-                        }
-                        : calls.length === 2
-                            ? {
-                                stderr: '',
-                                stdout: 'Production deploy completed\n',
-                                status: 0,
-                            }
-                            : {status: 0};
-                },
+                spawnSyncImpl: vercel.spawnFor('evb-viewer-test', {printUrl: false}),
             })).rejects.toThrow(
                 'Production Vercel deploy did not report a deployment URL; refusing an unverified alias.',
             );
 
-            expect(calls).toEqual([
-                [
-                    'inspect',
-                    'https://web.evb-viewer.com/',
-                    '--json',
-                ].map(spawnedArg),
-                expect.arrayContaining(['deploy'].map(spawnedArg)),
-                [
-                    'rollback',
-                    'dpl_previous',
-                    '--yes',
-                ].map(spawnedArg),
+            expect(vercel.alias.calls.map(args => args[0])).toEqual([
+                'inspect',
+                'deploy',
+                'inspect',
+                'inspect',
+                'rollback',
             ]);
+            expect(vercel.alias.production.id).toBe('dpl_previous');
         } finally {
             rmSync(projectRoot, {
                 force: true,
@@ -1116,13 +1218,17 @@ describe('private Vercel deployment source', () => {
     it('serializes production deploys so a failed follower rolls back to the successful leader', async () => {
         const firstProjectRoot = createProjectFixture();
         const secondProjectRoot = createProjectFixture();
-        const firstCalls: string[][] = [];
-        const secondCalls: string[][] = [];
+        const vercel = createVercelAlias({
+            id: 'dpl_original',
+            url: 'original.vercel.app',
+        });
+        const followerSpawn = vercel.spawnFor('follower');
         let releaseFirstAcceptance!: () => void;
         let markFirstAcceptanceStarted!: () => void;
         let markFollowerSpawned!: () => void;
         let leaderAcceptanceReleased = false;
         let followerSpawnedAfterLeaderRelease = false;
+        let followerSpawnStarted = false;
         const firstAcceptanceGate = new Promise<void>(resolve => {
             releaseFirstAcceptance = resolve;
         });
@@ -1147,20 +1253,7 @@ describe('private Vercel deployment source', () => {
                 },
                 projectRoot: firstProjectRoot,
                 rawArgs: ['--prod'],
-                spawnSyncImpl: (_command: string, args: string[]) => {
-                    firstCalls.push(args);
-                    return firstCalls.length === 1
-                        ? {
-                            stderr: '',
-                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_original","name":"fixture-project"}\n',
-                            status: 0,
-                        }
-                        : {
-                            stderr: '',
-                            stdout: 'Production: https://leader.vercel.app\n',
-                            status: 0,
-                        };
-                },
+                spawnSyncImpl: vercel.spawnFor('leader'),
             });
             await firstAcceptanceStarted;
 
@@ -1173,27 +1266,13 @@ describe('private Vercel deployment source', () => {
                 }),
                 projectRoot: secondProjectRoot,
                 rawArgs: ['--prod'],
-                spawnSyncImpl: (_command: string, args: string[]) => {
-                    if (secondCalls.length === 0) {
+                spawnSyncImpl: (command: string, args: string[]) => {
+                    if (!followerSpawnStarted) {
+                        followerSpawnStarted = true;
                         followerSpawnedAfterLeaderRelease = leaderAcceptanceReleased;
                         markFollowerSpawned();
                     }
-                    secondCalls.push(args);
-                    if (secondCalls.length === 1) {
-                        return {
-                            stderr: '',
-                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_leader","name":"fixture-project"}\n',
-                            status: 0,
-                        };
-                    }
-                    if (secondCalls.length === 2) {
-                        return {
-                            stderr: '',
-                            stdout: 'Production: https://follower.vercel.app\n',
-                            status: 0,
-                        };
-                    }
-                    return {status: 0};
+                    return followerSpawn(command, args);
                 },
             });
             leaderAcceptanceReleased = true;
@@ -1203,20 +1282,22 @@ describe('private Vercel deployment source', () => {
             await followerSpawned;
             await expect(secondDeploy).rejects.toThrow('The failed deployment was rolled back.');
             expect(followerSpawnedAfterLeaderRelease).toBe(true);
-            expect(firstCalls).toHaveLength(2);
-            expect(secondCalls).toEqual([
-                [
-                    'inspect',
-                    'https://web.evb-viewer.com/',
-                    '--json',
-                ].map(spawnedArg),
-                expect.arrayContaining(['deploy'].map(spawnedArg)),
-                [
-                    'rollback',
-                    'dpl_leader',
-                    '--yes',
-                ].map(spawnedArg),
+            expect(vercel.alias.calls.map(args => args[0])).toEqual([
+                'inspect',
+                'deploy',
+                'inspect',
+                'inspect',
+                'deploy',
+                'inspect',
+                'inspect',
+                'rollback',
             ]);
+            expect(vercel.alias.calls.at(-1)).toEqual([
+                'rollback',
+                'dpl_leader',
+                '--yes',
+            ].map(spawnedArg));
+            expect(vercel.alias.production.id).toBe('dpl_leader');
         } finally {
             releaseFirstAcceptance();
             for (const projectRoot of [
@@ -1232,6 +1313,82 @@ describe('private Vercel deployment source', () => {
             }
         }
     }, 10_000);
+
+    // Two hosts share a Vercel project but not a lock root (each host has its own
+    // home, so its lock file differs), and their deploys overlap. A failed deploy
+    // must not roll back over a promotion the other host made in the meantime.
+    it('refuses to roll back over a production promotion from another lock root', async () => {
+        const followerProjectRoot = createProjectFixture();
+        const leaderProjectRoot = createProjectFixture();
+        const followerHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-root-follower-'));
+        const leaderHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-root-leader-'));
+        const vercel = createVercelAlias({
+            id: 'dpl_predecessor',
+            url: 'predecessor.vercel.app',
+        });
+        const followerSpawn = vercel.spawnFor('follower');
+        let markFollowerAcceptanceStarted!: () => void;
+        let releaseFollowerAcceptance!: () => void;
+        const followerAcceptanceStarted = new Promise<void>(resolve => {
+            markFollowerAcceptanceStarted = resolve;
+        });
+        const followerAcceptanceGate = new Promise<void>(resolve => {
+            releaseFollowerAcceptance = resolve;
+        });
+
+        try {
+            const followerDeploy = inHome(followerHome, () => runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                fetchImpl: async () => {
+                    markFollowerAcceptanceStarted();
+                    await followerAcceptanceGate;
+                    return {
+                        ok: false,
+                        status: 503,
+                    };
+                },
+                projectRoot: followerProjectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: followerSpawn,
+            }));
+            await followerAcceptanceStarted;
+
+            await expect(inHome(leaderHome, () => runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                fetchImpl: async () => ({
+                    ok: true,
+                    status: 200,
+                }),
+                projectRoot: leaderProjectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: vercel.spawnFor('leader'),
+            }))).resolves.toBe(0);
+            releaseFollowerAcceptance();
+
+            await expect(followerDeploy).rejects.toThrow(
+                /Rollback skipped: .*served by dpl_leader, not by the deployment this run promoted \(dpl_follower\)/u,
+            );
+            expect(vercel.alias.calls.filter(args => args[0] === 'rollback')).toEqual([]);
+            expect(vercel.alias.production.id).toBe('dpl_leader');
+        } finally {
+            releaseFollowerAcceptance();
+            for (const directory of [
+                followerProjectRoot,
+                leaderProjectRoot,
+                followerHome,
+                leaderHome,
+            ]) {
+                rmSync(directory, {
+                    force: true,
+                    maxRetries: 5,
+                    recursive: true,
+                    retryDelay: 20,
+                });
+            }
+        }
+    });
 
     it('extracts deployment identities and builds an explicit rollback command', () => {
         expect(extractVercelDeploymentUrl('ready at https://viewer-abc.vercel.app')).toBe(

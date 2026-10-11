@@ -1,14 +1,19 @@
 import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
+    closeSync,
+    constants,
     cpSync,
     existsSync,
+    ftruncateSync,
     lstatSync,
     mkdirSync,
     mkdtempSync,
+    openSync,
     readFileSync,
     realpathSync,
     rmSync,
     writeFileSync,
+    writeSync,
 } from 'node:fs';
 import {
     homedir,
@@ -21,7 +26,6 @@ import {
     spawn,
     spawnSync,
 } from 'node:child_process';
-import {once} from 'node:events';
 import {createHash} from 'node:crypto';
 import {
     fileURLToPath,
@@ -459,7 +463,8 @@ function resolveProductionAliasUrl(deployTarget) {
     return aliasUrl;
 }
 
-export function extractVercelDeploymentIdentity(output, {
+// The deployment an alias serves, as `vercel inspect` reports it.
+function parseVercelDeployment(output, {
     expectedAliasUrl,
     expectedProjectName,
 } = {}) {
@@ -481,13 +486,36 @@ export function extractVercelDeploymentIdentity(output, {
             throw new Error('Vercel inspect returned a deployment that does not own the production alias.');
         }
     }
+    if (!id && !url) {
+        throw new Error('Vercel inspect did not identify the current production deployment.');
+    }
+    return {
+        id,
+        url,
+    };
+}
+
+function deploymentIdentity({
+    id,
+    url,
+}) {
     if (id) {
         return id;
     }
-    if (url) {
-        return /^https?:\/\//iu.test(url) ? url : `https://${url}`;
-    }
-    throw new Error('Vercel inspect did not identify the current production deployment.');
+    return /^https?:\/\//iu.test(url) ? url : `https://${url}`;
+}
+
+export function extractVercelDeploymentIdentity(output, options) {
+    return deploymentIdentity(parseVercelDeployment(output, options));
+}
+
+// Two inspect records name the same deployment when their ids match (the URL
+// stands in for a record without an id).
+function productionKey({
+    id,
+    url,
+}) {
+    return id || url;
 }
 
 function inspectCurrentProductionDeployment({
@@ -523,7 +551,7 @@ function inspectCurrentProductionDeployment({
     if ((result.status ?? 1) !== 0) {
         throw new Error(`Vercel inspect exited with ${result.status ?? 1}; refusing a production deploy without a rollback target.`);
     }
-    return extractVercelDeploymentIdentity(result.stdout ?? '', {
+    return parseVercelDeployment(result.stdout ?? '', {
         expectedAliasUrl: aliasUrl,
         expectedProjectName,
     });
@@ -563,41 +591,92 @@ export function getProductionDeployLockPath(projectId) {
     return path.join(homedir(), '.cache', 'evb-viewer', 'deploy-locks', `evb-vercel-production-${projectFingerprint}.lock`);
 }
 
-// The lock is an advisory flock held by a small helper process for as long as
-// the deploy runs. The operating system drops it when the helper exits, so a
-// killed deploy never leaves a lock behind and no caller reclaims another's.
-// The helper takes the lock, refuses a record written by another host (its
-// liveness cannot be checked here), writes its own record, and waits for stdin
-// to close. Closing stdin, or the death of the deploy process, ends it.
+// Node cannot call flock(2), so a short-lived python helper takes the lock. A flock
+// belongs to an open file description, and every descriptor copied from that
+// description shares the lock. The deploy process keeps its own descriptor until
+// release, so the lock lasts exactly as long as the deploy process: the helper
+// exits as soon as it holds the lock, and its death cannot release a deploy's
+// lock. A record of format 2 is written under the lock and needs no liveness
+// check. A record without a format came from an earlier version of this lock: it belongs
+// to this host unless it names another, and its pid decides whether it still blocks.
 const PRODUCTION_DEPLOY_LOCK_HELPER = `
 import fcntl, json, os, sys, time
-lock_path, record, host, wait_ms, poll_s = sys.argv[1:6]
+host, wait_ms, poll_s = sys.argv[1:4]
 deadline = time.monotonic() + int(wait_ms) / 1000
-lock = open(lock_path, 'a+')
+
+def blocked_by_legacy_owner():
+    os.lseek(3, 0, os.SEEK_SET)
+    try:
+        owner = json.loads(os.read(3, 1 << 20).decode() or 'null')
+    except ValueError:
+        return False
+    if not isinstance(owner, dict) or owner.get('format') == 2:
+        return False
+    if owner.get('hostname', host) != host:
+        return True
+    pid = owner.get('pid')
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
 while True:
     try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        lock.seek(0)
-        text = lock.read()
-        try:
-            owner = json.loads(text) if text.strip() else None
-        except ValueError:
-            owner = None
-        if owner is None or owner.get('hostname') == host:
-            break
-        fcntl.flock(lock, fcntl.LOCK_UN)
+        fcntl.flock(3, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         pass
+    else:
+        if not blocked_by_legacy_owner():
+            print('locked', flush=True)
+            sys.exit(0)
+        fcntl.flock(3, fcntl.LOCK_UN)
     if time.monotonic() >= deadline:
         sys.exit(3)
     time.sleep(float(poll_s))
-os.ftruncate(lock.fileno(), 0)
-lock.write(record)
-lock.flush()
-print('locked', flush=True)
-sys.stdin.read()
-os.ftruncate(lock.fileno(), 0)
 `;
+
+// Runs the helper against the lock descriptor this process holds (inherited as fd 3).
+// It resolves once the helper has the flock, and the descriptor keeps the lock.
+function takeProductionDeployLock(fd, {waitMs}) {
+    return new Promise((resolve, reject) => {
+        const helper = spawn('python3', [
+            '-I',
+            '-c',
+            PRODUCTION_DEPLOY_LOCK_HELPER,
+            hostname(),
+            String(waitMs),
+            String(PRODUCTION_DEPLOY_LOCK_POLL_MS / 1000),
+        ], {stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+            fd,
+        ]});
+        let locked = false;
+        let stderr = '';
+        helper.stdout.on('data', () => {
+            locked = true;
+        });
+        helper.stderr.on('data', (chunk) => {
+            stderr += chunk;
+        });
+        helper.once('error', reject);
+        helper.once('close', (code) => {
+            if (locked && code === 0) {
+                resolve();
+            } else if (code === 3) {
+                reject(new Error(`Timed out waiting for the production deploy lock for ${waitMs}ms.`));
+            } else {
+                reject(new Error(`Production deploy lock helper exited with ${code}: ${stderr.trim()}`));
+            }
+        });
+    });
+}
 
 export async function acquireProductionDeployLock({
     env,
@@ -610,45 +689,32 @@ export async function acquireProductionDeployLock({
         : PRODUCTION_DEPLOY_LOCK_WAIT_MS;
     mkdirSync(path.dirname(lockPath), {recursive: true});
 
-    const record = JSON.stringify({
-        acquiredAt: Date.now(),
-        hostname: hostname(),
-        pid: process.pid,
-    });
-    const helper = spawn('python3', [
-        '-I',
-        '-c',
-        PRODUCTION_DEPLOY_LOCK_HELPER,
-        lockPath,
-        record,
-        hostname(),
-        String(waitMs),
-        String(PRODUCTION_DEPLOY_LOCK_POLL_MS / 1000),
-    ], {stdio: [
-        'pipe',
-        'pipe',
-        'pipe',
-    ]});
-    let stderr = '';
-    helper.stderr.on('data', (chunk) => {
-        stderr += chunk;
-    });
-    await new Promise((resolve, reject) => {
-        helper.stdout.once('data', () => resolve());
-        helper.once('error', reject);
-        helper.once('exit', (code) => {
-            if (code === 3) {
-                reject(new Error(`Timed out waiting for the production deploy lock for ${waitMs}ms.`));
-            } else {
-                reject(new Error(`Production deploy lock helper exited with ${code}: ${stderr.trim()}`));
-            }
-        });
-    });
+    // The lock file is never removed while in use: a replaced file would be a
+    // second lock on a new inode.
+    const fd = openSync(lockPath, constants.O_RDWR | constants.O_CREAT, 0o600);
+    try {
+        await takeProductionDeployLock(fd, {waitMs});
+        ftruncateSync(fd, 0);
+        writeSync(fd, JSON.stringify({
+            acquiredAt: Date.now(),
+            format: 2,
+            hostname: hostname(),
+            pid: process.pid,
+        }), 0);
+    } catch (error) {
+        closeSync(fd);
+        throw error;
+    }
+    let released = false;
     return async () => {
-        helper.stdin.end();
-        if (helper.exitCode === null && helper.signalCode === null) {
-            await once(helper, 'exit');
+        if (released) {
+            return;
         }
+        released = true;
+        // Clear the record while the lock is still held, then let the descriptor
+        // close: the close is what releases the flock.
+        ftruncateSync(fd, 0);
+        closeSync(fd);
     };
 }
 
@@ -713,6 +779,59 @@ export function quoteWindowsShellArg(arg) {
     return `"${arg.replace(/"/g, '\\"')}"`;
 }
 
+// Rolls production back to the predecessor only while the alias still serves the
+// deployment this run promoted. Another deploy that promoted since would be
+// overwritten by the rollback, so the alias is left as it is and the outcome says
+// which deployment holds it.
+function rollBackPromotedDeployment({
+    aliasUrl,
+    command,
+    env,
+    expectedProjectName,
+    previous,
+    promoted,
+    sourceRoot,
+    spawnSyncImpl,
+}) {
+    let production;
+    try {
+        production = inspectCurrentProductionDeployment({
+            aliasUrl,
+            command,
+            env,
+            expectedProjectName,
+            sourceRoot,
+            spawnSyncImpl,
+        });
+    } catch (error) {
+        return `Rollback skipped: the production alias could not be read (${getCliErrorMessage(error)}), so no alias was changed.`;
+    }
+    if (productionKey(production) !== productionKey(promoted)) {
+        return `Rollback skipped: ${aliasUrl} is served by ${productionKey(production)}, not by the deployment this run promoted (${productionKey(promoted)}), so no alias was changed.`;
+    }
+    try {
+        const rollbackArgs = buildVercelRollbackArgs(deploymentIdentity(previous));
+        const useShell = process.platform === 'win32';
+        const rollbackCommand = useShell ? quoteWindowsShellArg(command) : command;
+        const rollbackSpawnArgs = useShell ? rollbackArgs.map(quoteWindowsShellArg) : rollbackArgs;
+        const rollbackResult = spawnSyncImpl(rollbackCommand, rollbackSpawnArgs, {
+            cwd: sourceRoot,
+            env,
+            shell: useShell,
+            stdio: 'inherit',
+        });
+        if (rollbackResult.error) {
+            throw rollbackResult.error;
+        }
+        if ((rollbackResult.status ?? 1) !== 0) {
+            throw new Error(`Vercel rollback exited with ${rollbackResult.status ?? 1}.`);
+        }
+    } catch (rollbackFailure) {
+        return `Rollback also failed: ${getCliErrorMessage(rollbackFailure)}`;
+    }
+    return 'The failed deployment was rolled back.';
+}
+
 export async function runPrivateVercelDeploy({
     command = process.env.VERCEL_CLI || 'vercel',
     projectRoot = defaultProjectRoot,
@@ -772,9 +891,12 @@ export async function runPrivateVercelDeploy({
                 env,
             })
             : [];
+        const productionAliasUrl = isProduction ? resolveProductionAliasUrl(deployTarget) : null;
+        // The predecessor is read under the lock, immediately before the promotion:
+        // it is the production target this deploy's failure rollback restores.
         const previousProductionDeployment = isProduction
             ? inspectCurrentProductionDeployment({
-                aliasUrl: resolveProductionAliasUrl(deployTarget),
+                aliasUrl: productionAliasUrl,
                 command,
                 env: vercelEnv,
                 expectedProjectName: projectLink.projectName,
@@ -813,10 +935,21 @@ export async function runPrivateVercelDeploy({
             return result.status ?? 1;
         }
         const deploymentUrl = extractVercelDeploymentUrl(output);
+        let promotedDeployment = null;
         try {
             if (!isProduction) {
                 return 0;
             }
+
+            // Read right after the promotion: the deployment this run now serves.
+            promotedDeployment = inspectCurrentProductionDeployment({
+                aliasUrl: productionAliasUrl,
+                command,
+                env: vercelEnv,
+                expectedProjectName: projectLink.projectName,
+                sourceRoot: prepared.sourceRoot,
+                spawnSyncImpl,
+            });
 
             if (!deploymentUrl) {
                 throw new Error('Production Vercel deploy did not report a deployment URL; refusing an unverified alias.');
@@ -835,34 +968,19 @@ export async function runPrivateVercelDeploy({
             if (!isProduction) {
                 throw error;
             }
-            let rollbackError;
-            try {
-                const rollbackArgs = buildVercelRollbackArgs(previousProductionDeployment);
-                const rollbackUseShell = process.platform === 'win32';
-                const rollbackCommand = rollbackUseShell ? quoteWindowsShellArg(command) : command;
-                const rollbackSpawnArgs = rollbackUseShell
-                    ? rollbackArgs.map(quoteWindowsShellArg)
-                    : rollbackArgs;
-                const rollbackResult = spawnSyncImpl(rollbackCommand, rollbackSpawnArgs, {
-                    cwd: prepared.sourceRoot,
+            const rollbackOutcome = promotedDeployment
+                ? rollBackPromotedDeployment({
+                    aliasUrl: productionAliasUrl,
+                    command,
                     env: vercelEnv,
-                    shell: rollbackUseShell,
-                    stdio: 'inherit',
-                });
-                if (rollbackResult.error) {
-                    throw rollbackResult.error;
-                }
-                if ((rollbackResult.status ?? 1) !== 0) {
-                    throw new Error(`Vercel rollback exited with ${rollbackResult.status ?? 1}.`);
-                }
-            } catch (rollbackFailure) {
-                rollbackError = rollbackFailure;
-            }
-            const acceptanceMessage = getCliErrorMessage(error);
-            const rollbackMessage = rollbackError
-                ? ` Rollback also failed: ${getCliErrorMessage(rollbackError)}`
-                : ' The failed deployment was rolled back.';
-            throw new Error(`Production deploy acceptance failed: ${acceptanceMessage}.${rollbackMessage}`, {cause: error});
+                    expectedProjectName: projectLink.projectName,
+                    previous: previousProductionDeployment,
+                    promoted: promotedDeployment,
+                    sourceRoot: prepared.sourceRoot,
+                    spawnSyncImpl,
+                })
+                : 'Rollback skipped: the production alias was not read after the deploy, so no alias was changed.';
+            throw new Error(`Production deploy acceptance failed: ${getCliErrorMessage(error)}. ${rollbackOutcome}`, {cause: error});
         }
 
         return 0;
