@@ -8,6 +8,7 @@ import {
     buildTiffImageIfd,
     encodeTiffIfds,
 } from '@pdf-core';
+import {addJpegJfifDensity} from '@pdf-core/addJpegJfifDensity';
 
 interface IUtifEncoderModule {
     _binBE: {
@@ -100,4 +101,70 @@ describe('tiff encoding helpers', () => {
         ]);
     });
 
+});
+
+describe('JFIF density helper', () => {
+    // SOI, then an APP0 "JFIF\0" segment with units 0 and 1x1 densities, then EOI.
+    const jfifJpeg = Uint8Array.of(
+        0xff, 0xd8,
+        0xff, 0xe0, 0x00, 0x10,
+        0x4a, 0x46, 0x49, 0x46, 0x00,
+        0x01, 0x01, 0x00,
+        0x00, 0x01,
+        0x00, 0x01,
+        0x00, 0x00,
+        0xff, 0xd9,
+    );
+
+    it('records a valid density in units of dots per inch', () => {
+        const output = addJpegJfifDensity(jfifJpeg, 300);
+
+        // Units 1 is dots per inch; the X and Y densities follow as big-endian 16-bit values.
+        expect(Array.from(output.subarray(13, 18))).toEqual([
+            1,
+            0x01,
+            0x2c,
+            0x01,
+            0x2c,
+        ]);
+    });
+
+    // An APP1 Exif segment in place of the APP0 JFIF segment, then EOI.
+    const exifJpeg = Uint8Array.of(
+        0xff, 0xd8,
+        0xff, 0xe1, 0x00, 0x10,
+        0x45, 0x78, 0x69, 0x66, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xff, 0xd9,
+    );
+    const pngBytes = Uint8Array.of(
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+    );
+
+    it.each([
+        [
+            'an APP1 Exif header',
+            exifJpeg,
+        ],
+        [
+            'a PNG signature',
+            pngBytes,
+        ],
+        [
+            'a header shorter than the density fields',
+            jfifJpeg.subarray(0, 17),
+        ],
+    ])('returns %s unchanged even with a valid density', (_label, input) => {
+        expect(addJpegJfifDensity(input, 300)).toEqual(input);
+    });
+
+    it.each([
+        0,
+        -300,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+    ])('ignores the invalid density %s and returns the JFIF bytes unchanged', (dpi) => {
+        expect(addJpegJfifDensity(jfifJpeg, dpi)).toEqual(jfifJpeg);
+    });
 });
