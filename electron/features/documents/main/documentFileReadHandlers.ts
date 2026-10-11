@@ -14,6 +14,7 @@ import {
 } from '@electron/file-access/workingCopyMutationQueue';
 import {
     captureWorkingCopyAdmissionSnapshot,
+    findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry,
     normalizePathForLookup,
     transitionWorkingCopyBackingState,
@@ -63,7 +64,7 @@ interface IRangeReadHandleCacheEntry {
 
 interface IRangeReadHandleLease {
     handle: FileHandle;
-    release(): Promise<void>;
+    release(retain?: boolean): Promise<void>;
 }
 
 interface IOriginalBackedRead {
@@ -462,13 +463,15 @@ function acquireRangeReadHandleEntry(
     let released = false;
     return {
         handle: entry.handle,
-        async release() {
+        async release(retain = true) {
             if (released) {
                 return;
             }
             released = true;
             entry.activeReads -= 1;
-            if (entry.closeRequested) {
+            if (!retain) {
+                await requestRangeReadHandleClose(cacheKey, entry);
+            } else if (entry.closeRequested) {
                 await closeRangeReadHandleEntryWhenUnused(entry);
             } else {
                 scheduleRangeReadHandleIdleClose(cacheKey, entry);
@@ -513,18 +516,16 @@ function failOriginalBacking(
     throw createSourceBackingError(code, cause);
 }
 
+function readsThroughOriginal(backingState: string | undefined) {
+    return backingState === 'lazy-original' || backingState === 'materializing';
+}
+
 function resolveOriginalBackedRead(
     logicalRef: string,
     senderId?: number,
 ): IOriginalBackedRead | null {
     const entry = getWorkingCopyBackingEntry(logicalRef, senderId);
-    if (
-        !entry
-        || (
-            entry.backingState !== 'lazy-original'
-            && entry.backingState !== 'materializing'
-        )
-    ) {
+    if (!entry || !readsThroughOriginal(entry.backingState)) {
         return null;
     }
     if (
@@ -663,7 +664,11 @@ async function readOriginalBackingRange(
     } catch (error) {
         failOriginalBacking(backing, 'SOURCE_BACKING_UNAVAILABLE', error);
     } finally {
-        await lease?.release();
+        // A read routed before the copy published can finish after it; EVB must
+        // not keep a published copy's original open.
+        await lease?.release(readsThroughOriginal(
+            getWorkingCopyBackingEntry(backing.logicalRef, backing.senderId)?.backingState,
+        ));
     }
     await assertOriginalBackingSnapshot(backing);
     return new Uint8Array(buffer.subarray(0, bytesRead));
@@ -839,7 +844,8 @@ export async function handleFileReadRange(
             const { bytesRead } = await lease.handle.read(buf, 0, want, off);
             return new Uint8Array(buf.subarray(0, bytesRead));
         } finally {
-            await lease?.release();
+            // The renderer may still name an original whose copy is published.
+            await lease?.release(!findWorkingCopyPathByOriginalPath(resolvedPath, context.senderId));
             releaseBudget();
         }
     })();

@@ -896,7 +896,9 @@ describe('fileOps path security', () => {
         mocks.resolveAllowedReadPath
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce('/tmp/electron-test/mapped.pdf');
-        mocks.findWorkingCopyPathByOriginalPath.mockReturnValue('/tmp/electron-test/mapped.pdf');
+        mocks.findWorkingCopyPathByOriginalPath.mockImplementation(path => (
+            path === '/Users/alice/Documents/file.pdf' ? '/tmp/electron-test/mapped.pdf' : null
+        ));
         const close = vi.fn(async () => {});
         const read = vi.fn(async (buffer: Buffer) => {
             buffer.set([
@@ -921,6 +923,34 @@ describe('fileOps path security', () => {
         expect(close).not.toHaveBeenCalled();
         await clearCachedRangeReadHandlesForTests();
         expect(close).toHaveBeenCalled();
+    });
+
+    it('reads an original that a published working copy still names without keeping its handle', async () => {
+        mocks.resolveAllowedReadPath.mockResolvedValue('/Users/alice/Documents/file.pdf');
+        mocks.findWorkingCopyPathByOriginalPath.mockImplementation(path => (
+            path === '/Users/alice/Documents/file.pdf' ? '/tmp/electron-test/mapped.pdf' : null
+        ));
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer) => {
+            buffer.set([
+                6,
+                7,
+            ]);
+            return { bytesRead: 2 };
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const content = await handleFileReadRange(readContext, '/Users/alice/Documents/file.pdf', 0, 2);
+
+        expect(content).toEqual(new Uint8Array([
+            6,
+            7,
+        ]));
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({handles: 0});
     });
 
     it('recreates managed working copies before range reads when direct temp resolution misses', async () => {
@@ -1010,6 +1040,31 @@ describe('fileOps path security', () => {
             handles: 0,
             pendingOpens: 0,
         });
+    });
+
+    it('closes the original after a read that finishes once its copy is published', async () => {
+        const entry = {
+            ...lazyOriginalEntry(),
+            backingState: 'materializing',
+        };
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, _offset: number, length: number) => {
+            entry.backingState = 'materialized';
+            buffer.fill(5, 0, length);
+            return {bytesRead: length};
+        });
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        await handleFileReadRange(readContext, '/tmp/electron-test/lazy.pdf', 0, 2);
+
+        expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 'r');
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({handles: 0});
     });
 
     it('shares and invalidates original-backed range handles across macOS path aliases', async () => {

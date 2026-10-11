@@ -462,6 +462,10 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
             status: 'running',
         });
         await publishMaterializedTarget(flight, tempPath, sourceFileExpectation, sourceFingerprint);
+        // A read that began while the original still backed the copy can reopen
+        // its cached handle after the invalidation above and before the state flips,
+        // so drop it once the copy is published.
+        await invalidateBackingSwapCaches(flight);
         published = true;
         emitProgress(flight, {
             bytesCopied: flight.totalBytes,

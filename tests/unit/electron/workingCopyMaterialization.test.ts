@@ -80,15 +80,14 @@ describe('workingCopyMaterialization', () => {
                 });
             }
         });
-        let cacheInvalidatedBeforePublication = false;
+        const invalidationsSeeWorkingCopy: boolean[] = [];
         const removeInvalidator = onWorkingCopyBackingSwapCacheInvalidation((
             logicalRef,
             previousPhysicalPath,
         ) => {
             expect(logicalRef).toBe(fixture.workingPath);
             expect(previousPhysicalPath).toBe(fixture.originalPath);
-            expect(existsSync(fixture.workingPath)).toBe(false);
-            cacheInvalidatedBeforePublication = true;
+            invalidationsSeeWorkingCopy.push(existsSync(fixture.workingPath));
         });
 
         const result = await ensureWorkingCopyMaterialized(fixture.workingPath, {
@@ -98,7 +97,12 @@ describe('workingCopyMaterialization', () => {
 
         removeInvalidator();
         removeProgressListener();
-        expect(cacheInvalidatedBeforePublication).toBe(true);
+        // The first invalidation runs before the working copy is replaced; the
+        // second drops handles reopened while the original still backed the copy.
+        expect(invalidationsSeeWorkingCopy).toEqual([
+            false,
+            true,
+        ]);
         expect(readFileSync(fixture.workingPath).equals(fixture.bytes)).toBe(true);
         expect(result).toMatchObject({
             logicalRef: fixture.workingPath,
@@ -158,7 +162,8 @@ describe('workingCopyMaterialization', () => {
         removeProgressListener();
         expect(new Set(results.map(result => result.sourceFingerprint)).size).toBe(1);
         expect(operationIds.size).toBe(1);
-        expect(publications).toBe(1);
+        // One flight invalidates twice: before and after its single publication.
+        expect(publications).toBe(2);
     });
 
     it('cancels one waiter without aborting a flight retained by another waiter', async () => {
