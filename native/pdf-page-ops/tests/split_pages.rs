@@ -1551,3 +1551,229 @@ fn split_pages_moves_a_note_thread_whole_to_the_half_that_holds_its_root() {
     let _ = remove_file(output);
     let _ = remove_file(instructions);
 }
+
+/// A 200 pt page holding a note whose centre lies in the right half and its
+/// reply in the left half. With `indirect_subtype`, the note's /Subtype is an
+/// indirect name object, as some writers emit it.
+fn save_thread_pdf(path: &Path, indirect_subtype: bool) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let subtype = Object::Name(b"Text".to_vec());
+    let subtype = if indirect_subtype {
+        Object::Reference(document.add_object(subtype))
+    } else {
+        subtype
+    };
+    let root_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => subtype,
+        "P" => page_id,
+        "Rect" => vec![145.into(), 45.into(), 156.into(), 55.into()],
+        "Contents" => Object::string_literal("root note"),
+    });
+    let reply_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => vec![40.into(), 45.into(), 50.into(), 55.into()],
+        "Contents" => Object::string_literal("reply body"),
+        "IRT" => root_id,
+    });
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Annots" => vec![Object::Reference(root_id), Object::Reference(reply_id)],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+/// Annotation dictionaries of one output page, each with its own object id.
+fn split_page_annotations(
+    split: &Document,
+    page_number: u32,
+) -> Vec<(lopdf::ObjectId, Dictionary)> {
+    let page = split
+        .get_dictionary(split.get_pages()[&page_number])
+        .unwrap();
+    let Ok(annots) = page.get(b"Annots") else {
+        return Vec::new();
+    };
+    split
+        .dereference(annots)
+        .unwrap()
+        .1
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            let (id, object) = split.dereference(entry).unwrap();
+            (id.unwrap(), object.as_dict().unwrap().clone())
+        })
+        .collect()
+}
+
+/// Assert that each output page of a thread split holds its whole thread on
+/// the half that holds the root's centre, with `/P` naming that half.
+fn assert_thread_on_right_half_only(split: &Document) {
+    let pages = split.get_pages();
+    assert!(split_page_annotations(split, 1).is_empty());
+    let right = split_page_annotations(split, 2);
+    assert_eq!(right.len(), 2);
+    for (_, dictionary) in &right {
+        assert_eq!(
+            dictionary.get(b"P").and_then(Object::as_reference).unwrap(),
+            pages[&2]
+        );
+    }
+}
+
+#[test]
+fn split_pages_keeps_a_legacy_point_marker_a_note_on_its_half() {
+    let input = path("split-legacy-input", "pdf");
+    let output = path("split-legacy-output", "pdf");
+    let instructions = path("split-legacy-instructions", "json");
+    let parsed = path("split-legacy-parsed", "jsonl");
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let appearance = document.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.into(), 2.into()]},
+        Vec::new(),
+    ));
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id,
+        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+        "Contents" => Object::string_literal("Legacy popup"),
+    });
+    let root_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+        "Rect" => vec![48.9.into(), 49.into(), 51.1.into(), 51.2.into()],
+        "Contents" => Object::string_literal("Legacy marker"),
+        "AP" => dictionary! {"N" => appearance},
+        "Popup" => popup_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", root_id);
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Annots" => vec![Object::Reference(root_id), Object::Reference(popup_id)],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+    // The marker is 2.2 pt on a 200 pt page but 4.4% of a 100 pt half, the
+    // size a split must still read as a note.
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let parse_annotations = |input: &Path, output: &Path| {
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["parse-annotations", "--input"])
+            .arg(input)
+            .arg("--output")
+            .arg(output)
+            .args(["--modified-at", "D:20261011000000Z"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    parse_annotations(&output, &parsed);
+    let notes = std::fs::read_to_string(&parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .filter(|entry| entry["contents"] == "Legacy marker")
+        .map(|entry| {
+            (
+                entry["kind"].as_str().map(str::to_string),
+                entry["pageIndex"].as_u64(),
+            )
+        })
+        .collect::<Vec<_>>();
+    // Only the left half holds the marker, and the reader admits it as a note.
+    assert_eq!(notes, [(Some("note".to_string()), Some(0))]);
+}
+
+#[test]
+fn split_pages_places_a_crop_only_thread_on_the_half_that_holds_its_root() {
+    let input = path("split-crop-only-thread-input", "pdf");
+    let output = path("split-crop-only-thread-output", "pdf");
+    let instructions = path("split-crop-only-thread-instructions", "json");
+    save_thread_pdf(&input, false);
+    // Crop-only outputs keep the content, so no content transform is given.
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120}},{"cropRect":{"x":100,"y":0,"width":100,"height":120}}]}]}"#,
+    )
+    .unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    assert_thread_on_right_half_only(&Document::load(&output).unwrap());
+}
+
+#[test]
+fn split_pages_places_a_thread_whose_note_has_an_indirect_subtype() {
+    let input = path("split-indirect-subtype-thread-input", "pdf");
+    let output = path("split-indirect-subtype-thread-output", "pdf");
+    let instructions = path("split-indirect-subtype-thread-instructions", "json");
+    save_thread_pdf(&input, true);
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    assert_thread_on_right_half_only(&Document::load(&output).unwrap());
+}

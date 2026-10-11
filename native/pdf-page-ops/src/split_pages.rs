@@ -538,26 +538,29 @@ fn apply_content_transform_incremental(
     source_page_id: ObjectId,
     page_id: ObjectId,
     page: &mut Dictionary,
-    transform: SplitContentTransform,
+    transform: Option<SplitContentTransform>,
     crop: PdfRect,
 ) -> Result<()> {
-    let mut streams = vec![target.add_object(Object::Stream(Stream::new(
-        Dictionary::new(),
-        format!(
-            "q {} 0 0 {} {} {} cm\n",
-            transform.scale, transform.scale, transform.translate_x, transform.translate_y
-        )
-        .into_bytes(),
-    )))];
-    streams.extend(content_stream_ids_from_base(base, target, page)?);
-    streams.push(target.add_object(Object::Stream(Stream::new(
-        Dictionary::new(),
-        b"\nQ\n".to_vec(),
-    ))));
-    page.set(
-        "Contents",
-        Object::Array(streams.into_iter().map(Object::Reference).collect()),
-    );
+    let transform = transform.map(validate_content_transform).transpose()?;
+    if let Some(transform) = transform {
+        let mut streams = vec![target.add_object(Object::Stream(Stream::new(
+            Dictionary::new(),
+            format!(
+                "q {} 0 0 {} {} {} cm\n",
+                transform.scale, transform.scale, transform.translate_x, transform.translate_y
+            )
+            .into_bytes(),
+        )))];
+        streams.extend(content_stream_ids_from_base(base, target, page)?);
+        streams.push(target.add_object(Object::Stream(Stream::new(
+            Dictionary::new(),
+            b"\nQ\n".to_vec(),
+        ))));
+        page.set(
+            "Contents",
+            Object::Array(streams.into_iter().map(Object::Reference).collect()),
+        );
+    }
     transform_page_annotations(base, target, source_page_id, page_id, page, transform, crop)
 }
 
@@ -753,17 +756,15 @@ pub(crate) fn split_pages(
             let crop = validate_crop_rect(output_instruction.crop_rect)?;
             let mut page = materialized_page_dictionary(&source, source_page_id)?;
             let page_id = document.new_object_id();
-            if let Some(transform) = output_instruction.content_transform {
-                apply_content_transform_incremental(
-                    &source,
-                    &mut document,
-                    source_page_id,
-                    page_id,
-                    &mut page,
-                    validate_content_transform(transform)?,
-                    crop,
-                )?;
-            }
+            apply_content_transform_incremental(
+                &source,
+                &mut document,
+                source_page_id,
+                page_id,
+                &mut page,
+                output_instruction.content_transform,
+                crop,
+            )?;
             set_page_box(&mut page, "MediaBox", crop);
             set_page_box(&mut page, "CropBox", crop);
             page.remove(b"BleedBox");
@@ -887,17 +888,15 @@ pub(crate) fn split_pages_incremental(
             let mut page =
                 materialized_page_dictionary(&incremental.previous_document, source_page_id)?;
             let page_id = incremental.new_document.new_object_id();
-            if let Some(transform) = output_instruction.content_transform {
-                apply_content_transform_incremental(
-                    &incremental.previous_document,
-                    &mut incremental.new_document,
-                    source_page_id,
-                    page_id,
-                    &mut page,
-                    validate_content_transform(transform)?,
-                    crop,
-                )?;
-            }
+            apply_content_transform_incremental(
+                &incremental.previous_document,
+                &mut incremental.new_document,
+                source_page_id,
+                page_id,
+                &mut page,
+                output_instruction.content_transform,
+                crop,
+            )?;
             set_page_box(&mut page, "MediaBox", crop);
             set_page_box(&mut page, "CropBox", crop);
             page.remove(b"BleedBox");

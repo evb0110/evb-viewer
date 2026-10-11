@@ -1,4 +1,5 @@
 use super::*;
+use crate::note_markers::legacy_note_marker_as_text;
 use crate::split_pages::{page_annotation_array, transform_annotation_geometry};
 
 /// The annotation a reply or popup answers to: the thread root for a reply,
@@ -56,27 +57,30 @@ fn owner_centre_in_crop(
 /// thread root get fresh objects, and `/IRT`, `/Parent` and `/Popup` point at
 /// those copies, not at the source. `/P` points at the output page. A thread
 /// whose owner is a note is written only to the output that holds the owner's
-/// centre; other annotations are written to every output, as before.
+/// centre; other annotations are written to every output, as before. A
+/// crop-only output has no transform, which leaves every annotation in place.
 pub(crate) fn transform_page_annotations(
     source: &Document,
     target: &mut Document,
     source_page_id: ObjectId,
     page_id: ObjectId,
     page: &mut Dictionary,
-    transform: SplitContentTransform,
+    transform: Option<SplitContentTransform>,
     crop: PdfRect,
 ) -> Result<()> {
     let Some(entries) = page_annotation_array(source, page) else {
         return Ok(());
     };
-    let matrix = [
-        transform.scale,
-        0.0,
-        0.0,
-        transform.scale,
-        transform.translate_x,
-        transform.translate_y,
-    ];
+    let matrix = transform.map_or([1.0, 0.0, 0.0, 1.0, 0.0, 0.0], |transform| {
+        [
+            transform.scale,
+            0.0,
+            0.0,
+            transform.scale,
+            transform.translate_x,
+            transform.translate_y,
+        ]
+    });
     let rotation = page
         .get(b"Rotate")
         .ok()
@@ -103,10 +107,13 @@ pub(crate) fn transform_page_annotations(
             }
         };
         let owner = thread_owner(source, &annotation);
-        let note_owner = matches!(
-            owner.get(b"Subtype").and_then(Object::as_name),
-            Ok(b"Text" | b"Popup")
-        ) || is_free_text_note_marker(source, &owner, source_view, rotation);
+        let subtype = owner
+            .get(b"Subtype")
+            .ok()
+            .and_then(|object| source.resolved(object).ok())
+            .and_then(|object| object.as_name().ok());
+        let note_owner = matches!(subtype, Some(b"Text" | b"Popup"))
+            || is_free_text_note_marker(source, &owner, source_view, rotation);
         if note_owner && !owner_centre_in_crop(source, &owner, matrix, crop) {
             continue;
         }
@@ -154,6 +161,9 @@ pub(crate) fn transform_page_annotations(
         if annotation.has(b"P") {
             annotation.set("P", page_id);
         }
+        // A legacy marker is recognized by its size on its page, which the
+        // split may narrow, so it becomes a /Text note before it moves.
+        legacy_note_marker_as_text(source, &mut annotation, source, source_page_id)?;
         transform_annotation_geometry(target, &mut annotation, matrix, Some(source), rotation)?;
         target
             .objects
