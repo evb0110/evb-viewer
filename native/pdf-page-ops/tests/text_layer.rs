@@ -1586,6 +1586,12 @@ fn page_content(pdf: &Path) -> String {
     String::from_utf8_lossy(&document.get_page_content(page_id)).into_owned()
 }
 
+fn page_content_stream_count(pdf: &Path) -> usize {
+    let document = Document::load(pdf).unwrap();
+    let page_id = *document.get_pages().get(&1).unwrap();
+    document.get_page_contents(page_id).len()
+}
+
 #[test]
 fn replaces_previous_ocr_text_and_keeps_the_page_ink() {
     let source = path("ocr-source", "pdf");
@@ -2132,6 +2138,114 @@ fn keeps_page_content_that_only_mentions_the_ocr_marker() {
     assert!(text.contains("Recognized words"), "{text}");
 
     for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}
+
+#[test]
+fn keeps_page_ink_in_a_stream_that_an_evb_layer_shares() {
+    let source = path("shared-layer-source", "pdf");
+    let input = path("shared-layer-input", "pdf");
+    let output = path("shared-layer-output", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 400, 240],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    // qpdf --coalesce-contents joins a page's streams and keeps the layer's
+    // comment lines, so one stream holds the page's ink and a whole layer. The
+    // stream does not begin and end with the layer's markers, so it is not one.
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![b"1 0 0 rg 0 0 10 10 re f\n% EVB_VIEWER_OCR_LAYER_BEGIN\nq\n2 0 0 2 0 0 cm\nBT /F1 12 Tf 3 Tr 10 20 Td (old OCR) Tj ET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text = pdftotext_all(&output, &[]);
+    assert!(text.contains("Recognized"), "{text}");
+    assert!(!text.contains("old OCR"), "{text}");
+    let before = red_pixels(&input);
+    assert_eq!(before.len(), 100);
+    assert_eq!(red_pixels(&output), before, "page ink changed");
+
+    for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}
+
+#[test]
+fn replacing_a_written_layer_removes_it_whole_and_keeps_the_page_ink() {
+    let source = path("written-layer-source", "pdf");
+    let input = path("written-layer-input", "pdf");
+    let written = path("written-layer-written", "pdf");
+    let replaced = path("written-layer-replaced", "pdf");
+    // The raster is twice the page's size, so the layer maps it at one half.
+    // A scale the layer left open would shrink the ink that follows it.
+    save_ocr_page(
+        &source,
+        [0, 0, 400, 240],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![b"1 0 0 rg 0 0 10 10 re f".to_vec()],
+        Dictionary::new(),
+    );
+    let before = red_pixels(&input);
+    assert_eq!(before.len(), 100);
+
+    // The layer is written in front of the page's content, so a graphics state
+    // it leaves open would move the ink that follows it.
+    let result = run_ocr_text_layer(&input, &written, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        red_pixels(&written),
+        before,
+        "the written layer moved the page ink"
+    );
+
+    // Replacing the layer removes it whole: the page keeps two streams, the new
+    // layer and the ink, and the ink stays where it was.
+    let result = run_ocr_text_layer(&written, &replaced, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        red_pixels(&replaced),
+        before,
+        "replacing the layer moved the page ink"
+    );
+    assert_eq!(
+        pdftotext_all(&replaced, &[]).matches("Recognized").count(),
+        1
+    );
+    assert_eq!(
+        page_content_stream_count(&replaced),
+        2,
+        "the replaced layer left a stream behind"
+    );
+
+    for file in [source, input, written, replaced] {
         let _ = fs::remove_file(file);
     }
 }
