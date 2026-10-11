@@ -66,9 +66,13 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
         let height = component.bottom - component.top + 1;
         height >= width.saturating_mul(4)
     };
-    // Faint means the fragment's mean luminance stays within a quarter of the
-    // paper's: measured crease fragments sit 15-32 levels below paper 219-228,
-    // while even a thin printed rule blurred at analysis scale averages darker.
+    // Faint means the mean luminance of the fragment's bounding box stays
+    // within a quarter of the paper's: measured crease fragments average 15-32
+    // levels below paper 219-228, and a printed vertical rule, even thin and
+    // blurred at analysis scale, averages darker. A thin dark line slanted by
+    // several degrees can average lighter because its box holds more paper,
+    // but its fragments then shift sideways and do not stack in one column
+    // band, so they keep their standalone marks.
     let paper = crate::mode_select::grayscale_percentile(image, 0.7);
     let is_faint = |component: &Component| {
         let mut luminance_sum = 0usize;
