@@ -1,6 +1,6 @@
 use super::*;
 use evb_native_support::output::AtomicOutput;
-use lopdf::{dictionary, DecompressError, Error as LopdfError};
+use lopdf::{DecompressError, Error as LopdfError};
 
 /// Print layout places each selected page, with its printable annotation
 /// appearances flattened, on an A4 sheet as a Form XObject: one page per sheet
@@ -282,7 +282,7 @@ fn add_sheet(document: &mut Document, pages_id: ObjectId, sheet: Sheet) -> Resul
     ])))
 }
 
-fn format_operands(values: &[f64]) -> String {
+pub(crate) fn format_operands(values: &[f64]) -> String {
     values
         .iter()
         .map(|value| {
@@ -449,7 +449,7 @@ fn unused_resource_name(category: &Dictionary, prefix: &str) -> String {
         .expect("an unused resource name exists")
 }
 
-fn numbers(document: &Document, object: &Object, count: usize) -> Option<Vec<f64>> {
+pub(crate) fn numbers(document: &Document, object: &Object, count: usize) -> Option<Vec<f64>> {
     let values = document.dereference(object).ok()?.1.as_array().ok()?;
     if values.len() != count {
         return None;
@@ -465,49 +465,11 @@ fn numbers(document: &Document, object: &Object, count: usize) -> Option<Vec<f64
         .collect()
 }
 
-/// Resolve an explicit normal appearance, or draw the standard Note icon for
-/// a /Text annotation without /AP. Saved notes rely on viewers drawing this
-/// icon; print layout must materialize it before flattening the page.
+/// Resolve an explicit normal appearance. An annotation without /AP has the
+/// appearance a stock reader synthesizes for it, if EVB can draw that too.
 fn normal_appearance(document: &mut Document, annotation: &Dictionary) -> Option<ObjectId> {
-    if !annotation.has(b"AP")
-        && annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Text")
-        && annotation
-            .get(b"Name")
-            .and_then(Object::as_name)
-            .unwrap_or(b"Note")
-            == b"Note"
-    {
-        let color = match annotation.get(b"C") {
-            Ok(color) => {
-                let count = document.dereference(color).ok()?.1.as_array().ok()?.len();
-                let operator = match count {
-                    1 => "g",
-                    3 => "rg",
-                    4 => "k",
-                    _ => return None,
-                };
-                let components = numbers(document, color, count)?;
-                if components.iter().any(|value| !(0.0..=1.0).contains(value)) {
-                    return None;
-                }
-                format!("{} {operator}", format_operands(&components))
-            }
-            Err(_) => "1 1 0 rg".to_string(),
-        };
-        let content = format!(
-            "q {color} 0 G 0.8 w 1 1 m 19 1 l 19 15 l 15 19 l 1 19 l h B\n\
-             15 19 m 15 15 l 19 15 l S\n\
-             4 12 m 16 12 l 4 9 m 16 9 l 4 6 m 12 6 l S Q\n"
-        );
-        return Some(document.add_object(Stream::new(
-            dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Form",
-                "BBox" => vec![0.into(), 0.into(), 20.into(), 20.into()],
-                "Resources" => Dictionary::new(),
-            },
-            content.into_bytes(),
-        )));
+    if !annotation.has(b"AP") {
+        return synthesized_appearance(document, annotation);
     }
     let appearances = document
         .dereference(annotation.get(b"AP").ok()?)
@@ -792,6 +754,7 @@ fn flatten_printable_annotations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lopdf::dictionary;
 
     fn page_document(pages: &[(PdfRect, i64)]) -> Document {
         let mut document = Document::with_version("1.7");

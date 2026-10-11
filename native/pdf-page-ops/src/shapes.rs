@@ -1,4 +1,5 @@
 use super::*;
+use lopdf::dictionary;
 
 pub(crate) fn normalize_managed_shape_stable_key(value: Option<&str>) -> Option<String> {
     let trimmed = value?.trim();
@@ -1626,4 +1627,62 @@ pub(crate) fn apply_shape_annotations_incremental(
         return Err("Shape mutation did not modify the document".into());
     }
     Ok(())
+}
+
+/// The appearance a stock reader synthesizes for an annotation that has no
+/// /AP, for the subtypes EVB can draw itself. `None` leaves the annotation
+/// without a printable appearance, so print layout fails closed.
+pub(crate) fn synthesized_appearance(
+    document: &mut Document,
+    annotation: &Dictionary,
+) -> Option<ObjectId> {
+    match annotation.get(b"Subtype").and_then(Object::as_name).ok()? {
+        b"Text" => synthesized_note_icon(document, annotation),
+        _ => None,
+    }
+}
+
+/// The standard Note icon for a /Text annotation without /AP. Saved notes rely
+/// on viewers drawing this icon; print layout must materialize it before
+/// flattening the page.
+fn synthesized_note_icon(document: &mut Document, annotation: &Dictionary) -> Option<ObjectId> {
+    if annotation
+        .get(b"Name")
+        .and_then(Object::as_name)
+        .unwrap_or(b"Note")
+        != b"Note"
+    {
+        return None;
+    }
+    let color = match annotation.get(b"C") {
+        Ok(color) => {
+            let count = document.dereference(color).ok()?.1.as_array().ok()?.len();
+            let operator = match count {
+                1 => "g",
+                3 => "rg",
+                4 => "k",
+                _ => return None,
+            };
+            let components = numbers(document, color, count)?;
+            if components.iter().any(|value| !(0.0..=1.0).contains(value)) {
+                return None;
+            }
+            format!("{} {operator}", format_operands(&components))
+        }
+        Err(_) => "1 1 0 rg".to_string(),
+    };
+    let content = format!(
+        "q {color} 0 G 0.8 w 1 1 m 19 1 l 19 15 l 15 19 l 1 19 l h B\n\
+         15 19 m 15 15 l 19 15 l S\n\
+         4 12 m 16 12 l 4 9 m 16 9 l 4 6 m 12 6 l S Q\n"
+    );
+    Some(document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 20.into(), 20.into()],
+            "Resources" => Dictionary::new(),
+        },
+        content.into_bytes(),
+    )))
 }
