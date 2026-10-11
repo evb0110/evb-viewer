@@ -90,8 +90,8 @@ function doesExternalOpenPathExist(filePath: string) {
     }
 }
 
-function normalizeExistingExternalOpenPath(filePath: string) {
-    if (doesExternalOpenPathExist(filePath)) {
+function normalizeExistingExternalOpenPath(filePath: string, workingDirectory = process.cwd()) {
+    if (doesExternalOpenPathExist(resolve(workingDirectory, filePath))) {
         return filePath;
     }
     return filePath.trim();
@@ -167,8 +167,8 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let startupEmptyClaimGraceResolve: (() => void) | null = null;
     let startupEmptyClaimGracePromise: Promise<void> | null = null;
 
-    function normalizeCommandLineArg(arg: string) {
-        let normalized = normalizeExistingExternalOpenPath(arg);
+    function normalizeCommandLineArg(arg: string, workingDirectory: string) {
+        let normalized = normalizeExistingExternalOpenPath(arg, workingDirectory);
         if (!normalized || normalized.startsWith('-')) {
             return null;
         }
@@ -196,13 +196,13 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             }
         }
 
-        return normalizeExistingExternalOpenPath(normalized);
+        return normalizeExistingExternalOpenPath(normalized, workingDirectory);
     }
 
-    function findJoinedSupportedPath(args: string[], startIndex: number, firstToken: string) {
+    function findJoinedSupportedPath(args: string[], startIndex: number, firstToken: string, workingDirectory: string) {
         let candidate = firstToken;
         for (let cursor = startIndex + 1; cursor < args.length && cursor <= startIndex + 7; cursor += 1) {
-            const nextToken = normalizeCommandLineArg(args[cursor] ?? '');
+            const nextToken = normalizeCommandLineArg(args[cursor] ?? '', workingDirectory);
             if (!nextToken) {
                 break;
             }
@@ -218,10 +218,10 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         return null;
     }
 
-    function collectSupportedPathsFromArgs(args: string[]) {
+    function collectSupportedPathsFromArgs(args: string[], workingDirectory: string) {
         const files: string[] = [];
         for (let i = 0; i < args.length; i += 1) {
-            const normalized = normalizeCommandLineArg(args[i] ?? '');
+            const normalized = normalizeCommandLineArg(args[i] ?? '', workingDirectory);
             if (!normalized) {
                 continue;
             }
@@ -231,7 +231,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
                 continue;
             }
 
-            const joinedPath = findJoinedSupportedPath(args, i, normalized);
+            const joinedPath = findJoinedSupportedPath(args, i, normalized, workingDirectory);
             if (joinedPath) {
                 files.push(joinedPath.path);
                 i = joinedPath.endIndex;
@@ -242,7 +242,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
     function normalizeOpenRequestPaths(paths: string[]) {
         return uniq(paths
-            .map(normalizeExistingExternalOpenPath)
+            .map(path => normalizeExistingExternalOpenPath(path))
             .filter(path => path.length > 0)
             .map(normalizeExternalOpenPath));
     }
@@ -428,7 +428,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     }
 
     function queueOpenRequestFromArgs(args: string[], workingDirectory: string) {
-        const parsedPaths = collectSupportedPathsFromArgs(args)
+        const parsedPaths = collectSupportedPathsFromArgs(args, workingDirectory)
             .map(filePath => resolve(workingDirectory, filePath));
         if (parsedPaths.length > 0) {
             options.logger.info(`Parsed external open paths (${parsedPaths.length}): ${parsedPaths.join(' | ')}`);
