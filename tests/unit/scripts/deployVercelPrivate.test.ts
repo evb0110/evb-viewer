@@ -23,7 +23,6 @@ import {
     spawnSync,
 } from 'node:child_process';
 import {once} from 'node:events';
-import {createHash} from 'node:crypto';
 import {
     afterAll,
     beforeAll,
@@ -698,28 +697,6 @@ describe('private Vercel deployment source', () => {
         } finally {
             await release?.();
             rmSync(lockPath, {force: true});
-        }
-    });
-
-    it('refuses a live pre-lane publisher at the old TMPDIR lock path', async () => {
-        const fingerprint = createHash('sha256').update('project').digest('hex').slice(0, 24);
-        const oldPath = path.join(tmpdir(), `evb-vercel-production-${fingerprint}.lock`);
-        const record = {
-            pid: process.pid,
-            token: 'old-live',
-            acquiredAt: Date.now(),
-        };
-        writeFileSync(oldPath, JSON.stringify(record));
-        let release: (() => Promise<void>) | undefined;
-        try {
-            await expect(acquireProductionDeployLock({
-                env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
-                projectId: 'project',
-            }).then(lock => { release = lock; })).rejects.toThrow('legacy production deploy');
-            expect(JSON.parse(readFileSync(oldPath, 'utf8'))).toEqual(record);
-        } finally {
-            await release?.();
-            rmSync(oldPath, {force: true});
         }
     });
 

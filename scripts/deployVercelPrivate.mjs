@@ -626,20 +626,6 @@ export async function acquireProductionDeployLock({
     projectId,
 }) {
     const lockPath = getProductionDeployLockPath(projectId);
-    // One explicit legacy cutover check. Old versions use TMPDIR and no flock;
-    // refuse a live old publisher here, then rely solely on the new flock.
-    const oldPath = path.join(tmpdir(), path.basename(lockPath));
-    if (existsSync(oldPath)) {
-        const oldOwner = JSON.parse(readFileSync(oldPath, 'utf8'));
-        if (Number.isSafeInteger(oldOwner?.pid) && oldOwner.pid > 0) {
-            try {
-                process.kill(oldOwner.pid, 0);
-                throw new Error(`A legacy production deploy is running at ${oldPath}; finish it before the format-2 cutover.`);
-            } catch (error) {
-                if (error.code !== 'ESRCH') throw error;
-            }
-        }
-    }
     const configuredWaitMs = Number(env.EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS);
     const waitMs = Number.isSafeInteger(configuredWaitMs) && configuredWaitMs >= 0
         ? configuredWaitMs
