@@ -24,7 +24,10 @@ import {
     WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
-import { browserWindowTabsCapability } from '@app/platform/browserWindowTabs';
+import {
+    browserWindowTabsCapability,
+    publishBrowserDocumentLiveLeases,
+} from '@app/platform/browserWindowTabs';
 import * as liveLeases from '@app/platform/browser/browserDocumentLeaseStore';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -367,6 +370,20 @@ describe('browserWorkspaceRecoveryStore', () => {
                 protectedDependencies: [],
             });
             await expect(recovery.load('window:1')).resolves.toEqual(expect.objectContaining({checkpoint}));
+        });
+
+        it('publishes a live lease for an open document that writes no recovery record', async () => {
+            const source = requireDocumentRef('browser://documents/open.djvu');
+            await publishBrowserDocumentLiveLeases('window:open', [source]);
+
+            const database = recoveryDbFactory.getDatabase(DB_NAME);
+            if (!database) throw new Error('Recovery database is unavailable');
+            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:open')).toMatchObject({
+                ownerId: 'window:open',
+                status: 'active',
+                protectedDependencies: [{ref: source}],
+            });
+            await expect(loadBrowserWorkspaceRecovery('window:open')).resolves.toBeNull();
         });
 
         it('does not take over a journal whose owner still holds its lease lock, however old', async () => {
