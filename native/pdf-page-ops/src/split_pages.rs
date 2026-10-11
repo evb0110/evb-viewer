@@ -413,8 +413,8 @@ pub(crate) fn split_pages(
     document.max_id = source.max_id;
     let pages_id = document.new_object_id();
     let catalog_id = source.trailer.get(b"Root")?.as_reference()?;
-    let catalog = split_catalog(&source, catalog_id, pages_id)?;
-    document.trailer.set("Root", catalog_id);
+    let catalog = split_catalog(&source, catalog_id, pages_id, instructions.catalog)?;
+    document.trailer = split_trailer(&source, catalog_id, instructions.catalog);
     let mut output_page_ids = Vec::new();
 
     for instruction in &instructions.pages {
@@ -604,12 +604,9 @@ pub(crate) fn split_pages_incremental(
         .into(),
     );
 
-    let catalog_id = incremental
-        .previous_document
-        .trailer
-        .get(b"Root")?
-        .as_reference()?;
-    let catalog = split_catalog(&incremental.previous_document, catalog_id, pages_id)?;
+    let previous = &incremental.previous_document;
+    let catalog_id = previous.trailer.get(b"Root")?.as_reference()?;
+    let catalog = split_catalog(previous, catalog_id, pages_id, instructions.catalog)?;
     incremental
         .new_document
         .set_object(catalog_id, Object::Dictionary(catalog));

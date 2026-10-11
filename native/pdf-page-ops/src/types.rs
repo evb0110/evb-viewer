@@ -762,6 +762,8 @@ pub(crate) struct SplitPagesFile {
     pub(crate) pages: Vec<SplitPageInstruction>,
     #[serde(default)]
     pub(crate) provenance_stamp_hex: Option<String>,
+    #[serde(default)]
+    pub(crate) catalog: SplitCatalog,
 }
 
 #[derive(Deserialize)]

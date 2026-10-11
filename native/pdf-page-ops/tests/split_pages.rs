@@ -154,7 +154,7 @@ fn split_pages_accepts_pdf_input_above_the_shared_encoded_limit() {
 }
 
 #[test]
-fn split_pages_leaves_a_deep_optional_content_graph_out_of_its_catalog() {
+fn split_pages_rejects_deep_optional_content_graph_in_the_real_binary() {
     let input = path("deep-ocg-input", "pdf");
     let output = path("deep-ocg-output", "pdf");
     let instructions = path("deep-ocg-instructions", "json");
@@ -175,12 +175,12 @@ fn split_pages_leaves_a_deep_optional_content_graph_out_of_its_catalog() {
     )
     .unwrap();
 
-    run_split_pages(&input, &output, &instructions);
-
-    let split = Document::load(&output).unwrap();
-    let split_catalog_id = split.trailer.get(b"Root").unwrap().as_reference().unwrap();
-    let split_catalog = split.get_dictionary(split_catalog_id).unwrap();
-    assert!(split_catalog.get(b"OCProperties").is_err());
+    let result = run_split_pages_output(&input, &output, &instructions);
+    let envelope = assert_error_code(&result, "too-large");
+    assert!(envelope["message"]
+        .as_str()
+        .unwrap()
+        .contains("64-level traversal ceiling"));
 
     for path in [input, output, instructions] {
         let _ = remove_file(path);
@@ -399,7 +399,7 @@ fn split_pages_small_rewrite_is_safe_for_same_path_and_hardlink_output() {
 }
 
 #[test]
-fn split_pages_keeps_optional_content_out_of_its_catalog() {
+fn split_pages_preserves_valid_optional_content_properties() {
     let input = path("split-ocg-input", "pdf");
     let output = path("split-ocg-output", "pdf");
     let instructions = path("split-ocg-instructions", "json");
@@ -444,13 +444,23 @@ fn split_pages_keeps_optional_content_out_of_its_catalog() {
 
     run_split_pages(&input, &output, &instructions);
 
-    // The split writes only its page tree and the source's page labels, so the
-    // assembled output inherits no optional content from the source.
     let split = Document::load(&output).unwrap();
     let split_catalog_id = split.trailer.get(b"Root").unwrap().as_reference().unwrap();
     let split_catalog = split.get_dictionary(split_catalog_id).unwrap();
-    assert!(split_catalog.get(b"OCProperties").is_err());
-    assert_eq!(split.get_pages().len(), 1);
+    let properties = match split_catalog.get(b"OCProperties").unwrap() {
+        Object::Reference(id) => split.get_dictionary(*id).unwrap(),
+        Object::Dictionary(dictionary) => dictionary,
+        value => panic!("OCProperties must be a dictionary, got {value:?}"),
+    };
+    let groups = match properties.get(b"OCGs").unwrap() {
+        Object::Array(groups) => groups,
+        Object::Reference(id) => split.get_object(*id).unwrap().as_array().unwrap(),
+        value => panic!("OCGs must be an array, got {value:?}"),
+    };
+    assert_eq!(groups.len(), 1);
+    let group_id = groups[0].as_reference().unwrap();
+    let group = split.get_dictionary(group_id).unwrap();
+    assert_eq!(group.get(b"Type").unwrap().as_name().unwrap(), b"OCG");
 
     let _ = remove_file(input);
     let _ = remove_file(output);
@@ -2025,4 +2035,155 @@ fn split_pages_keeps_a_legacy_marker_with_navigation_a_note() {
             let _ = remove_file(file);
         }
     }
+}
+
+/// A source whose catalog carries what a lossless split must keep: outlines,
+/// named destinations, page labels, viewer preferences, language, metadata and
+/// valid optional content. Its Info has a title and an author.
+fn save_rich_catalog_source(path: &Path) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let content_id = document.add_object(Stream::new(dictionary! {}, Vec::new()));
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+        "Contents" => content_id,
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let group_id = document.add_object(dictionary! {
+        "Type" => "OCG",
+        "Name" => Object::string_literal("Layer"),
+    });
+    let properties_id = document.add_object(dictionary! {
+        "OCGs" => vec![Object::Reference(group_id)],
+        "D" => dictionary! {
+            "Order" => vec![Object::Reference(group_id)],
+            "ON" => vec![Object::Reference(group_id)],
+        },
+    });
+    let outlines_id = document.add_object(dictionary! {"Type" => "Outlines", "Count" => 0});
+    let metadata_id = document.add_object(Stream::new(
+        dictionary! {"Type" => "Metadata", "Subtype" => "XML"},
+        b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>".to_vec(),
+    ));
+    let info_id = document.add_object(dictionary! {
+        "Title" => Object::string_literal("Rich source"),
+        "Author" => Object::string_literal("Source author"),
+    });
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+        "Outlines" => outlines_id,
+        "Names" => dictionary! {
+            "Dests" => dictionary! {
+                "Names" => vec![
+                    Object::string_literal("start"),
+                    Object::Array(vec![Object::Reference(page_id), "Fit".into()]),
+                ],
+            },
+        },
+        "PageLabels" => dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "D"}.into()]},
+        "ViewerPreferences" => dictionary! {"DisplayDocTitle" => true},
+        "Lang" => Object::string_literal("en-US"),
+        "Metadata" => metadata_id,
+        "OCProperties" => properties_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.trailer.set("Info", info_id);
+    document.save(path).unwrap();
+}
+
+fn split_catalog_keys(split: &Document) -> Vec<Vec<u8>> {
+    let catalog_id = split.trailer.get(b"Root").unwrap().as_reference().unwrap();
+    let mut keys: Vec<Vec<u8>> = split
+        .get_dictionary(catalog_id)
+        .unwrap()
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect();
+    keys.sort();
+    keys
+}
+
+#[test]
+fn split_pages_keeps_the_source_catalog_and_info_by_default() {
+    let input = path("split-default-catalog-input", "pdf");
+    let output = path("split-default-catalog-output", "pdf");
+    let instructions = path("split-default-catalog-instructions", "json");
+    save_rich_catalog_source(&input);
+    write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120}}]}]}"#).unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let split = Document::load(&output).unwrap();
+    let keys = split_catalog_keys(&split);
+    for key in [
+        &b"Outlines"[..],
+        b"Names",
+        b"PageLabels",
+        b"ViewerPreferences",
+        b"Lang",
+        b"Metadata",
+        b"OCProperties",
+    ] {
+        assert!(
+            keys.iter().any(|kept| kept == key),
+            "the lossless split keeps /{} from the source catalog",
+            String::from_utf8_lossy(key)
+        );
+    }
+    assert_eq!(split.get_pages().len(), 1);
+    let info_id = split.trailer.get(b"Info").unwrap().as_reference().unwrap();
+    let info = split.get_dictionary(info_id).unwrap();
+    assert_eq!(
+        info.get(b"Title").unwrap().as_str().unwrap(),
+        b"Rich source"
+    );
+    assert_eq!(
+        info.get(b"Author").unwrap().as_str().unwrap(),
+        b"Source author"
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
+}
+
+#[test]
+fn split_pages_assembly_writes_only_the_page_tree_and_page_labels() {
+    let input = path("split-assembly-catalog-input", "pdf");
+    let output = path("split-assembly-catalog-output", "pdf");
+    let instructions = path("split-assembly-catalog-instructions", "json");
+    save_rich_catalog_source(&input);
+    write(&instructions, r#"{"catalog":"assembly","provenanceStampHex":"5445535453544d50","pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120}}]}]}"#).unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let split = Document::load(&output).unwrap();
+    assert_eq!(
+        split_catalog_keys(&split),
+        vec![b"PageLabels".to_vec(), b"Pages".to_vec(), b"Type".to_vec()]
+    );
+    assert_eq!(split.get_pages().len(), 1);
+    assert!(split.trailer.get(b"ID").is_err());
+    let info_id = split.trailer.get(b"Info").unwrap().as_reference().unwrap();
+    let info = split.get_dictionary(info_id).unwrap();
+    assert_eq!(info.len(), 1);
+    assert_eq!(
+        info.get(b"EVBScanCleanup").unwrap().as_str().unwrap(),
+        b"5445535453544d50"
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
 }

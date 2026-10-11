@@ -392,7 +392,7 @@ export async function assembleWithCompactSourcePages(
                 cropRect: page.cropRect,
                 contentTransform: page.contentTransform,
             }],
-        })), provenanceStampHex);
+        })), provenanceStampHex, 'assembly');
         await writeFile(
             instructionsPath,
             paths.provenanceStampSupport === false

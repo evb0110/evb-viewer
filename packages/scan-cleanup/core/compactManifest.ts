@@ -64,15 +64,19 @@ export interface IScanCleanupPageOpsInstruction {
 
 export interface IScanCleanupPageOpsInstructionEnvelope {
     provenanceStampHex?: string;
+    /** `assembly` writes only the page tree and page labels; omitted, the split keeps the source catalog. */
+    catalog?: 'assembly';
     pages: IScanCleanupPageOpsInstruction[];
 }
 
 export function buildScanCleanupPageOpsInstructions(
     pages: readonly IScanCleanupPageOpsInstruction[],
     provenanceStampHex?: string,
+    catalog?: 'assembly',
 ): IScanCleanupPageOpsInstructionEnvelope {
     return {
         ...(provenanceStampHex === undefined ? {} : {provenanceStampHex}),
+        ...(catalog === undefined ? {} : {catalog}),
         pages: pages.map(page => ({
             ...page,
             outputs: page.outputs.map(output => ({...output})),

@@ -5150,7 +5150,7 @@ fn assemble_compact_cleanup(
     let split_instructions = path(&format!("{label}-split"), "json");
     write(
         &split_instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}}]}]}"#,
+        r#"{"catalog":"assembly","pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}}]}]}"#,
     )
     .unwrap();
     let split = path(&format!("{label}-split-output"), "pdf");
@@ -5365,4 +5365,26 @@ fn compact_cleanup_does_not_attach_a_cross_page_reply_to_a_same_body_note() {
         page_one_replies.is_empty(),
         "a reply for the page-2 note attached to page 1's same-body note: {threads:?}"
     );
+}
+
+#[test]
+fn lossless_split_keeps_each_note_reply() {
+    let source = path("reply-lossless-source", "pdf");
+    save_note_thread_source(&source, NoteShape::Identical);
+    let instructions = path("reply-lossless-instructions", "json");
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120}}]}]}"#,
+    )
+    .unwrap();
+    let output = path("reply-lossless-output", "pdf");
+    run_split_pages(&source, &output, &instructions);
+
+    let source_threads = note_threads(&source, "reply-lossless-source");
+    assert_eq!(source_threads.len(), 2);
+    assert_eq!(note_threads(&output, "reply-lossless"), source_threads);
+
+    for file in [source, instructions, output] {
+        let _ = remove_file(file);
+    }
 }
