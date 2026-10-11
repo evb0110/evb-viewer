@@ -21,7 +21,7 @@ import {
 import { createDocumentViewportWritePort } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import {
     resolveDocumentContinuousScrollWindow,
-    resolveNearestDocumentPageToViewportCenter,
+    resolveDocumentVisiblePageForIndicator,
 } from '@app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 import {
     resolveDocumentPageDisplayLayouts,
@@ -1020,7 +1020,8 @@ export const useDocumentPageSourceRuntime = (options: {
         const totalPages = source.value?.pageCount
             ?? chassisAuthority?.openSurface.snapshot.value.openingPageGeometry?.pageCount
             ?? pageMetrics.value.length;
-        const nearestPage = resolveNearestDocumentPageToViewportCenter({
+        const visiblePage = resolveDocumentVisiblePageForIndicator({
+            currentPage: props.value.currentPage,
             geometry: {
                 pageHeights: pageHeights.value,
                 pageTops: pageTops.value,
@@ -1030,8 +1031,8 @@ export const useDocumentPageSourceRuntime = (options: {
             totalPages,
             viewportHeight: container.clientHeight,
         });
-        if (nearestPage && (forceProjection || nearestPage !== props.value.currentPage)) {
-            const observedPage = chassisAuthority?.observePage(nearestPage) ?? nearestPage;
+        if (visiblePage && (forceProjection || visiblePage !== props.value.currentPage)) {
+            const observedPage = chassisAuthority?.observePage(visiblePage) ?? visiblePage;
             emit('update:currentPage', observedPage);
         }
     }

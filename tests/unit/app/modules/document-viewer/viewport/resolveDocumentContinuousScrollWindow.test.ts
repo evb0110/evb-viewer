@@ -6,7 +6,7 @@ import {
 import {
     resolveDocumentContinuousScrollGeometry,
     resolveDocumentContinuousScrollWindow,
-    resolveNearestDocumentPageToViewportCenter,
+    resolveDocumentVisiblePageForIndicator,
 } from '@app/modules/document-viewer/viewport/resolveDocumentContinuousScrollWindow';
 
 describe('resolveDocumentContinuousScrollWindow', () => {
@@ -104,7 +104,53 @@ describe('resolveDocumentContinuousScrollWindow', () => {
         });
     });
 
-    it('finds the nearest page center without scanning all pages', () => {
+    it('names a visible page for the indicator, never a nearer page wholly offscreen', () => {
+        const geometry = resolveDocumentContinuousScrollGeometry({
+            pageGapPx: 16,
+            pageHeights: [
+                10_000,
+                100,
+            ],
+            totalPages: 2,
+        });
+
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 2,
+            geometry,
+            scrollTop: 9_000,
+            totalPages: 2,
+            viewportHeight: 500,
+        })).toBe(1);
+    });
+
+    it('keeps the current page while it stays fully visible', () => {
+        const geometry = resolveDocumentContinuousScrollGeometry({
+            pageGapPx: 0,
+            pageHeights: [
+                100,
+                100,
+                100,
+            ],
+            totalPages: 3,
+        });
+
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 3,
+            geometry,
+            scrollTop: 100,
+            totalPages: 3,
+            viewportHeight: 200,
+        })).toBe(3);
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 1,
+            geometry,
+            scrollTop: 100,
+            totalPages: 3,
+            viewportHeight: 200,
+        })).toBe(2);
+    });
+
+    it('chooses the greatest visible fraction and keeps the lower page on a tie', () => {
         const geometry = resolveDocumentContinuousScrollGeometry({
             pageGapPx: 10,
             pageHeights: [
@@ -115,7 +161,8 @@ describe('resolveDocumentContinuousScrollWindow', () => {
             totalPages: 3,
         });
 
-        expect(resolveNearestDocumentPageToViewportCenter({
+        expect(resolveDocumentVisiblePageForIndicator({
+            currentPage: 1,
             geometry,
             scrollTop: 900,
             totalPages: 3,
