@@ -14,6 +14,10 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
+import {
+    isRecord,
+    isStringArray,
+} from '@contracts/runtimeGuards';
 import { resolveApplicationVersion } from '@electron/appVersion';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import { setNativeWindowCloseCancelHandler } from '@electron/window';
@@ -200,7 +204,24 @@ function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOpt
     };
 }
 
-function bootSingleInstance(options: IRunInitSequenceOptions) {
+interface ISecondInstanceLaunch {
+    argv: string[];
+    workingDirectory: string;
+}
+
+function isSecondInstanceLaunch(value: unknown): value is ISecondInstanceLaunch {
+    return isRecord(value)
+        && isStringArray(value.argv)
+        && typeof value.workingDirectory === 'string';
+}
+
+interface ISingleInstanceApp {
+    on(event: 'second-instance', listener: (event: unknown, commandLine: string[], workingDirectory: string, additionalData: unknown) => void): void;
+    quit(): void;
+    requestSingleInstanceLock(additionalData: ISecondInstanceLaunch): boolean;
+}
+
+export function bootSingleInstance(options: Pick<IRunInitSequenceOptions, 'allowMultipleAutomationSessions' | 'externalOpenManager' | 'logger' | 'onPrimaryInstanceReady'> & { app: ISingleInstanceApp; }) {
     const {
         allowMultipleAutomationSessions,
         app,
@@ -209,7 +230,10 @@ function bootSingleInstance(options: IRunInitSequenceOptions) {
     } = options;
 
     if (!allowMultipleAutomationSessions) {
-        const singleInstanceLock = app.requestSingleInstanceLock();
+        const singleInstanceLock = app.requestSingleInstanceLock({
+            argv: process.argv,
+            workingDirectory: process.cwd(),
+        });
         if (!singleInstanceLock) {
             app.quit();
             process.exit(0);
@@ -224,8 +248,14 @@ function bootSingleInstance(options: IRunInitSequenceOptions) {
         externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1), process.cwd());
     }
 
-    app.on('second-instance', (_event, commandLine, workingDirectory) => {
-        externalOpenManager.queueOpenRequestFromArgs(commandLine.slice(1), workingDirectory);
+    // Electron's event argv is not the exact list the second launch passed: it drops a trailing space from a
+    // file name. The launch sent with the lock request is exact, so open requests read that instead.
+    app.on('second-instance', (_event, _commandLine, _workingDirectory, additionalData) => {
+        if (isSecondInstanceLaunch(additionalData)) {
+            externalOpenManager.queueOpenRequestFromArgs(additionalData.argv.slice(1), additionalData.workingDirectory);
+        } else {
+            logger.warn('Ignoring a second instance that sent no launch arguments');
+        }
         externalOpenManager.requestMainWindowForExternalOpen();
     });
 }

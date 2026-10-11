@@ -10,6 +10,7 @@ import {
     createExternalOpenManager,
     createMacOpenFileRouter,
 } from '@electron/bootstrap/externalOpen';
+import { bootSingleInstance } from '@electron/bootstrap/runInitSequence';
 
 const mocks = vi.hoisted(() => ({existsSync: vi.fn((_path: string) => true)}));
 
@@ -519,5 +520,113 @@ describe('createExternalOpenManager', () => {
         await vi.advanceTimersByTimeAsync(10_000);
 
         expect(dispatchOpenPaths).toHaveBeenCalledTimes(10);
+    });
+
+    describe('second-instance hand-off', () => {
+        type TSecondInstanceListener = (event: unknown, commandLine: string[], workingDirectory: string, additionalData: unknown) => void;
+
+        function createSingleInstanceApp(lockGranted: boolean) {
+            const lockRequests: unknown[] = [];
+            const listeners: TSecondInstanceListener[] = [];
+            return {
+                app: {
+                    on: (_event: 'second-instance', listener: TSecondInstanceListener) => {
+                        listeners.push(listener);
+                    },
+                    quit: vi.fn(),
+                    requestSingleInstanceLock: (additionalData?: unknown) => {
+                        lockRequests.push(additionalData);
+                        return lockGranted;
+                    },
+                },
+                lockRequests,
+                emitSecondInstance: (commandLine: string[], workingDirectory: string, additionalData: unknown) => {
+                    for (const listener of listeners) {
+                        listener({}, commandLine, workingDirectory, additionalData);
+                    }
+                },
+            };
+        }
+
+        function launchOptions(
+            app: ReturnType<typeof createSingleInstanceApp>['app'],
+            externalOpenManager: ReturnType<typeof createManagerHarness>['manager'],
+        ) {
+            return {
+                allowMultipleAutomationSessions: false,
+                app,
+                externalOpenManager,
+                logger: createLogger(),
+                onPrimaryInstanceReady: vi.fn(),
+            };
+        }
+
+        // Electron's argv for a launch: the executable, the entry script, a switch, then the user's arguments.
+        function appArgv(...userArguments: string[]) {
+            return [
+                '/opt/evb/evb-viewer',
+                '/opt/evb/main.js',
+                '--',
+                ...userArguments,
+            ];
+        }
+
+        // Boots a launch whose argv and working directory come from the process.
+        function bootLaunch(argv: string[], cwd: string, options: ReturnType<typeof launchOptions>) {
+            const originalArgv = process.argv;
+            const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+            process.argv = argv;
+            try {
+                bootSingleInstance(options);
+            } finally {
+                process.argv = originalArgv;
+                cwdSpy.mockRestore();
+            }
+        }
+
+        // A launch whose lock request is refused exits right after sending it.
+        function bootRefusedLaunch(argv: string[], cwd: string, options: ReturnType<typeof launchOptions>) {
+            const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
+                throw new Error('refused launch exits');
+            });
+            try {
+                expect(() => bootLaunch(argv, cwd, options)).toThrow('refused launch exits');
+            } finally {
+                exitSpy.mockRestore();
+            }
+        }
+
+        it('opens the trailing-space file a second launch named when the event argv has lost the space', () => {
+            const harness = createManagerHarness();
+            const primary = createSingleInstanceApp(true);
+            const second = createSingleInstanceApp(false);
+            const secondCwd = resolve('/work/folder-c');
+            const exactPath = resolve(secondCwd, 'report.pdf ');
+            mocks.existsSync.mockImplementation(path => path === exactPath);
+
+            bootLaunch(appArgv(), resolve('/work/folder-a'), launchOptions(primary.app, harness.manager));
+            bootRefusedLaunch(appArgv('report.pdf '), secondCwd, launchOptions(second.app, harness.manager));
+            harness.manager.markBootstrapReady();
+            // The event's argv arrives without the trailing space; the exact launch travels in the lock request.
+            primary.emitSecondInstance(appArgv('report.pdf'), secondCwd, second.lockRequests[0]);
+
+            expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([exactPath]);
+        });
+
+        it('opens a relative file name from the second launch folder, not the first', () => {
+            const harness = createManagerHarness();
+            const primary = createSingleInstanceApp(true);
+            const second = createSingleInstanceApp(false);
+            const secondCwd = resolve('/work/folder-b');
+            const expectedPath = resolve(secondCwd, 'report.pdf');
+            mocks.existsSync.mockImplementation(path => path === expectedPath);
+
+            bootLaunch(appArgv(), resolve('/work/folder-a'), launchOptions(primary.app, harness.manager));
+            bootRefusedLaunch(appArgv('report.pdf'), secondCwd, launchOptions(second.app, harness.manager));
+            harness.manager.markBootstrapReady();
+            primary.emitSecondInstance(appArgv('report.pdf'), secondCwd, second.lockRequests[0]);
+
+            expect(harness.dispatchOpenPaths).toHaveBeenCalledWith([expectedPath]);
+        });
     });
 });
