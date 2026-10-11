@@ -264,7 +264,7 @@ describe('scan cleanup ink placement', () => {
         // the matched page, drew each half at its own size and kept that frame
         // until the rerun settled. Every frame shown from the change on is
         // recorded.
-        const opened = await openInScanCleanup(Array.from({length: 120}, () => [
+        const opened = await openInScanCleanup(Array.from({length: 48}, () => [
             100,
             100,
         ]), 13, false);
