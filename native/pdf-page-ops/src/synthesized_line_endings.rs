@@ -40,7 +40,7 @@ pub(super) fn line_ending_appearance(
             kind,
             Some(b"Square" | b"Circle" | b"Diamond" | b"ClosedArrow" | b"RClosedArrow")
         );
-        let interior = if closed { fill.or(stroke) } else { None };
+        let interior = if closed { fill } else { None };
         let paint = match (stroke.is_some(), interior.is_some()) {
             (true, true) => "B",
             (true, false) => "S",

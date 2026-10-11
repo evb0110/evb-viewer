@@ -1651,3 +1651,31 @@ fn print_draws_all_standard_endings_and_adjacent_polyline_directions() {
         "keep the zero-length round stroke"
     );
 }
+
+#[test]
+fn print_closed_endings_stroke_red_independently_of_the_interior() {
+    let temp = TempPaths::new("print-ending-fill");
+    let printed = temp.root.join("printed.pdf");
+    for interior in ["", "/IC []", "/IC [0 0 1]"] {
+        write_single_annotation_pdf(&temp.pdf, &format!("/Subtype /Line /Rect [80 470 420 550] /C [1 0 0] /BS << /W 4 >> /L [100 510 400 510] /LE [/ClosedArrow /ClosedArrow] {interior}"));
+        print_annotation_pdf(&temp.pdf, &printed);
+        let pixels = poppler_pixels(&printed);
+        let at = |x: usize, y: usize| &pixels[(y * 596 + x) * 3..(y * 596 + x) * 3 + 3];
+        let center = at(115, 335);
+        if interior.contains("0 0 1") {
+            assert!(
+                center[2] > 220 && center[0] < 30,
+                "blue interior {center:?}"
+            );
+        } else {
+            assert!(
+                center.iter().all(|c| *c > 220),
+                "transparent interior {center:?}"
+            );
+        }
+        assert!(
+            at(110, 337)[0] > 220 && at(110, 337)[1] < 100,
+            "red outline"
+        );
+    }
+}
