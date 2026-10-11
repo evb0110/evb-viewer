@@ -409,6 +409,41 @@ describe('browserDjvuTextSearchCapability', () => {
             expect(FakeSearchWorker.requests).toHaveLength(1);
         });
 
+        it('keeps another document searching when a DjVu regex is canceled', async () => {
+            const pending: Array<{
+                worker: FakeSearchWorker;
+                request: ISearchWorkerRequestForTest
+            }> = [];
+            FakeSearchWorker.responder = (worker, request) => pending.push({
+                worker,
+                request,
+            });
+            mocks.createWorker.mockImplementation(async (source: TDocumentRef) => createDjvuTextWorkerForTest([source.includes('first') ? 'a'.repeat(250_000) + '!' : 'hello']));
+            const firstId = requireRequestId('isolated-first-regex');
+            const first = browserDjvuTextSearchCapability.searchText(
+                requireDocumentRef('browser://documents/first.djvu'), 'a+.a+$',
+                {
+                    ...createSearchOptions(firstId),
+                    useRegex: true,
+                },
+            ).catch((error: unknown) => error);
+            const second = browserDjvuTextSearchCapability.searchText(
+                requireDocumentRef('browser://documents/second.djvu'), 'hello',
+                {
+                    ...createSearchOptions(requireRequestId('isolated-second-regex')),
+                    useRegex: true,
+                },
+            );
+            await vi.waitFor(() => expect(pending).toHaveLength(2));
+            await browserDjvuTextSearchCapability.cancelTextSearch(firstId);
+            expect(await first).toMatchObject({name: 'AbortError'});
+            const sibling = pending.find(entry => entry.request.payload.query === 'hello')!;
+            matchingResponder(sibling.worker, sibling.request);
+            const response = await second;
+            expect(response.results.map(result => result.excerpt.match)).toEqual(['hello']);
+            expect(response.truncated).toBe(false);
+        });
+
         it('cancels a stalled DjVu regex worker when its search is canceled', async () => {
             FakeSearchWorker.responder = stallingResponder;
             mocks.createWorker.mockImplementation(async () => createDjvuTextWorkerForTest(['a'.repeat(250_000) + '!']));

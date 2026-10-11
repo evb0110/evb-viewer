@@ -3877,6 +3877,45 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 120_000);
+    it('isolates another document when a DjVu regex is canceled', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            const url = `${origin}/__search-isolation`;
+            await page.route(url, route => route.fulfill({
+                contentType: 'text/html',
+                body: '<!doctype html><html><body>Search isolation</body></html>',
+            }));
+            await page.goto(url, {waitUntil: 'domcontentloaded'});
+            const result = await page.evaluate<{second: {
+                ok: boolean;
+                count?: number
+            }}>(`(async () => {
+            const {searchDjvuWorkerText} = await import('/_nuxt/platform/browser-api/createDjvuWorkerFromPath.ts');
+            const worker = text => ({doc:{
+                getPagesQuantity:()=>({run:async()=>1}),
+                getPagesSizes:()=>({run:async()=>[{width:612,height:792}]}),
+                getPage:()=>({getText:()=>({run:async()=>text}),getNormalizedTextZones:()=>({run:async()=>null})})
+            }});
+            const a = new AbortController(); const b = new AbortController();
+            const options = {pageCount:1,matchOptions:{useRegex:true,matchCase:false,wholeWord:false}};
+            const first = searchDjvuWorkerText(worker('a'.repeat(250000)+'!'), {...options,query:'a+.a+$',requestId:'review-a',signal:a.signal})
+                .then(()=>({ok:true}), e=>({ok:false,name:e.name,message:e.message}));
+            await new Promise(r=>setTimeout(r,200));
+            const second = searchDjvuWorkerText(worker('hello'), {...options,query:'hello',requestId:'review-b',signal:b.signal})
+                .then(r=>({ok:true,count:r.results.length}), e=>({ok:false,name:e.name,message:e.message}));
+            await new Promise(r=>setTimeout(r,50)); a.abort();
+            return {first:await first, second:await second, secondAborted:b.signal.aborted};
+        })()`);
+            console.log('REVIEW cross-document cancellation', JSON.stringify(result));
+            expect(result.second).toEqual({
+                ok:true,
+                count:1,
+            });
+        } finally {await browser.close();}
+    }, 90_000);
+
+
     it('stops a catastrophic DjVu regex at the search budget and keeps the page responsive', async () => {
         const browser = await chromium.launch({headless: true});
         try {
