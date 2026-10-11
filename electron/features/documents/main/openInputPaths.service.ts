@@ -29,7 +29,7 @@ import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { addRecentInputs } from '@electron/features/documents/main/addRecentInputs.service';
 import {getErrorMessage} from '@electron/utils/error';
-import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
+import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import {parseDocumentRef} from '@contracts/documentRef';
 import type { TOpenPathOwner } from '@electron/features/documents/main/openPathOwner';
@@ -152,7 +152,7 @@ export async function openInputPaths(
     owner?: TOpenPathOwner,
 ): Promise<TOpenFileResult | null> {
     const normalizedPaths = paths.filter(path => typeof path === 'string' && path.length > 0)
-        .map(path => normalizePossiblyEncodedExistingPath(path) ?? path);
+        .map(path => normalizeExistingPath(path) ?? path);
     logger.debug('Normalized open input paths', {
         pathCount: normalizedPaths.length,
         paths: normalizedPaths,

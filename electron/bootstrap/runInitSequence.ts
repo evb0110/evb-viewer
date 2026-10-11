@@ -15,9 +15,9 @@ import {
 } from '@contracts/documentRef';
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
 import {
-    isRecord,
-    isStringArray,
-} from '@contracts/runtimeGuards';
+    isSecondInstanceLaunch,
+    type ISecondInstanceLaunch,
+} from '@contracts/secondInstanceLaunch';
 import { resolveApplicationVersion } from '@electron/appVersion';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import { setNativeWindowCloseCancelHandler } from '@electron/window';
@@ -203,17 +203,6 @@ export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequ
     };
 }
 
-interface ISecondInstanceLaunch {
-    argv: string[];
-    workingDirectory: string;
-}
-
-function isSecondInstanceLaunch(value: unknown): value is ISecondInstanceLaunch {
-    return isRecord(value)
-        && isStringArray(value.argv)
-        && typeof value.workingDirectory === 'string';
-}
-
 interface ISingleInstanceApp {
     on(event: 'second-instance', listener: (event: unknown, commandLine: string[], workingDirectory: string, additionalData: unknown) => void): void;
     quit(): void;
@@ -249,11 +238,14 @@ export function bootSingleInstance(options: Pick<IRunInitSequenceOptions, 'allow
 
     // Electron's event argv is not the exact list the second launch passed: it drops a trailing space from a
     // file name. The launch sent with the lock request is exact, so open requests read that instead.
-    app.on('second-instance', (_event, _commandLine, _workingDirectory, additionalData) => {
+    app.on('second-instance', (_event, commandLine, workingDirectory, additionalData) => {
         if (isSecondInstanceLaunch(additionalData)) {
             externalOpenManager.queueOpenRequestFromArgs(additionalData.argv.slice(1), additionalData.workingDirectory);
+        } else if (additionalData === undefined || additionalData === null) {
+            // Remove when supported secondaries all send the exact launch payload introduced in 3c6d864e1.
+            externalOpenManager.queueOpenRequestFromArgs(commandLine.slice(1), workingDirectory);
         } else {
-            logger.warn('Ignoring a second instance that sent no launch arguments');
+            logger.warn('Ignoring a second instance that sent malformed launch arguments');
         }
         externalOpenManager.requestMainWindowForExternalOpen();
     });

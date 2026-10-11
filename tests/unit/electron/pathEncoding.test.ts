@@ -13,13 +13,13 @@ import {
     expect,
     it,
 } from 'vitest';
-import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
+import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
 import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 
 let tempRoot = '';
 
-describe('path encoding recovery', () => {
+describe('native path identity', () => {
     beforeEach(() => {
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-path-encoding-test-'));
     });
@@ -31,29 +31,27 @@ describe('path encoding recovery', () => {
         });
     });
 
-    it('recovers URI-encoded Unicode file paths', () => {
-        const filePath = join(tempRoot, 'Гиргас.djvu');
-        writeFileSync(filePath, new Uint8Array([1]));
+    it('does not substitute a decoded sibling for an absent native path', () => {
+        const sibling = join(tempRoot, 'missing name.pdf');
+        writeFileSync(sibling, new Uint8Array([1]));
 
-        expect(normalizePossiblyEncodedExistingPath(encodeURI(filePath))).toBe(realpathSync.native(filePath));
+        expect(normalizeExistingPath(join(tempRoot, 'missing%20name.pdf'))).toBeNull();
     });
 
-    it('recovers percent-encoded UTF-8 bytes decoded as Latin-1', () => {
+    it('does not substitute a repaired Unicode sibling for an absent native path', () => {
         const fileName = 'Гиргас - Словарь.djvu';
-        const filePath = join(tempRoot, fileName);
-        writeFileSync(filePath, new Uint8Array([1]));
+        writeFileSync(join(tempRoot, fileName), new Uint8Array([1]));
         const mojibakePath = join(tempRoot, Buffer.from(fileName, 'utf8').toString('latin1'));
 
-        expect(normalizePossiblyEncodedExistingPath(encodeURIComponent(mojibakePath))).toBe(realpathSync.native(filePath));
+        expect(normalizeExistingPath(mojibakePath)).toBeNull();
     });
 
-    it('tries the exact physical path before trimming or repairing it', () => {
-        const fileName = '100% Гиргас .pdf ';
-        const filePath = join(tempRoot, fileName);
+    it('preserves exact physical paths with percent characters and trailing spaces', () => {
+        const filePath = join(tempRoot, '100% Гиргас .pdf ');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        expect(normalizePossiblyEncodedExistingPath(filePath)).toBe(realpathSync.native(filePath));
-        expect(normalizePossiblyEncodedExistingPath(encodeURI(filePath))).toBe(realpathSync.native(filePath));
+        expect(normalizeExistingPath(filePath)).toBe(realpathSync.native(filePath));
+        expect(normalizeExistingPath(encodeURI(filePath))).toBeNull();
     });
 
     it('classifies a supported file while preserving trailing filename whitespace', () => {

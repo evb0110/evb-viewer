@@ -2,7 +2,7 @@ import type { WebContents } from 'electron';
 import { sep } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
+import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
 import type { Tagged } from 'type-fest';
 
 export type TOpenPath = Tagged<string, 'OpenPath'>;
@@ -21,7 +21,7 @@ function normalizeOpenPath(filePath: string) {
         return null;
     }
 
-    return normalizePossiblyEncodedExistingPath(filePath);
+    return normalizeExistingPath(filePath);
 }
 
 function pruneAllowedPathMap(

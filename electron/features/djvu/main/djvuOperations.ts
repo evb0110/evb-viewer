@@ -36,7 +36,7 @@ import {
     requireOpenPath,
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
-import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
+import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
 import { getRecentFiles } from '@electron/recentFiles';
 import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
@@ -494,7 +494,7 @@ function requireDjvuOpenPath(
 ): TOpenPath {
     const rawPath = typeof path === 'string' ? path.trim() : '';
     const normalizedPath = rawPath
-        ? (normalizePossiblyEncodedExistingPath(rawPath) ?? rawPath)
+        ? (normalizeExistingPath(rawPath) ?? rawPath)
         : '';
     if (!normalizedPath) {
         throw new Error('Invalid DjVu path');
@@ -521,14 +521,14 @@ async function requireDjvuPageSourceInfoPath(path: unknown, owner: WebContents) 
     } catch (error) {
         const rawPath = typeof path === 'string' ? path.trim() : '';
         const normalizedPath = rawPath
-            ? normalizePossiblyEncodedExistingPath(rawPath)
+            ? normalizeExistingPath(rawPath)
             : null;
         if (!normalizedPath || !isDjvuPath(normalizedPath)) {
             throw error;
         }
         const recentFiles = await getRecentFiles();
         const isPersistedRecent = recentFiles.some(file => (
-            normalizePossiblyEncodedExistingPath(String(file.originalPath)) === normalizedPath
+            normalizeExistingPath(String(file.originalPath)) === normalizedPath
         ));
         if (!isPersistedRecent) {
             throw error;
