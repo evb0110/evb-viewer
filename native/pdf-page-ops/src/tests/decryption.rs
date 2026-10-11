@@ -381,3 +381,29 @@ fn refuses_an_incremental_append_onto_an_empty_password_encrypted_base() {
 
     let _ = std::fs::remove_file(&input_path);
 }
+
+#[test]
+fn encryption_probe_counts_the_xref_bytes_a_chain_consumes_not_its_read_windows() {
+    // Each revision's xref table is a few dozen bytes, but the probe reads a
+    // 64 MiB window from every offset. Those windows overlap the later
+    // revisions, so summing them rejects a chain whose tables do not overlap.
+    const REVISIONS: u64 = 20;
+    const SPACING: u64 = 32 * 1024 * 1024;
+    let path = temp_pdf_path("xref-probe-revision-windows");
+    let mut file = std::fs::File::create(&path).unwrap();
+    let mut previous = None;
+    for revision in 0..REVISIONS {
+        let offset = revision * SPACING;
+        let prev = previous.map(|prev| format!("/Prev {prev}")).unwrap_or_default();
+        let section = format!(
+            "xref\n0 1\n0000000000 65535 f \ntrailer\n<</Size 1{prev}/Root 1 0 R>>\nstartxref\n{offset}\n%%EOF\n"
+        );
+        file.seek(std::io::SeekFrom::Start(offset)).unwrap();
+        file.write_all(section.as_bytes()).unwrap();
+        previous = Some(offset);
+    }
+    drop(file);
+
+    assert!(!path_has_encryption_entry(&path).unwrap());
+    remove_file(&path).unwrap();
+}

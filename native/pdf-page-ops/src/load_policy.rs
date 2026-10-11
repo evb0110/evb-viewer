@@ -1509,16 +1509,6 @@ pub(crate) fn path_has_encryption_entry(path: &Path) -> Result<bool> {
         }
 
         let section = read_xref_probe_window(path, offset)?;
-        scanned_bytes = scanned_bytes
-            .checked_add(u64::try_from(section.len()).map_err(|_| {
-                limit_error("PDF cross-reference scan length exceeds the addressable range")
-            })?)
-            .ok_or_else(|| limit_error("PDF cross-reference scan length overflow"))?;
-        if scanned_bytes > file_len {
-            return Err(xref_error(
-                "PDF cross-reference sections overlap or exceed the input",
-            ));
-        }
         let parsed = if section.starts_with(b"xref") {
             parse_classic_xref_section(&section, 0, PDF_PATH_LOAD_POLICY)
         } else {
@@ -1538,6 +1528,15 @@ pub(crate) fn path_has_encryption_entry(path: &Path) -> Result<bool> {
         }
         if consumed == 0 {
             return Err(xref_error("PDF cross-reference section consumed no bytes"));
+        }
+        // The parsed section, not its read window (which runs into later revisions), is xref data.
+        scanned_bytes = scanned_bytes
+            .checked_add(consumed as u64)
+            .ok_or_else(|| limit_error("PDF cross-reference scan length overflow"))?;
+        if scanned_bytes > file_len {
+            return Err(xref_error(
+                "PDF cross-reference sections overlap or exceed the input",
+            ));
         }
         for linked in [dictionary.prev, dictionary.xref_stm].into_iter().flatten() {
             if linked >= file_len {
@@ -1909,7 +1908,7 @@ mod tests {
     }
 
     #[test]
-    fn xref_probe_rejects_revision_windows_that_revisit_input_bytes() {
+    fn xref_probe_accepts_revision_windows_that_run_into_later_revisions() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -1926,9 +1925,9 @@ mod tests {
         bytes.extend_from_slice(format!("startxref\n{second_offset}\n%%EOF\n").as_bytes());
         std::fs::write(&path, bytes).unwrap();
 
-        let error = path_has_encryption_entry(&path)
-            .expect_err("overlapping revision probe windows must fail closed");
-        assert_corrupt_xref(error);
+        // The first window reads into the second revision; only the parsed
+        // tables count toward the input length, so the chain is admitted.
+        assert!(!path_has_encryption_entry(&path).unwrap());
 
         let _ = std::fs::remove_file(path);
     }
