@@ -7,9 +7,11 @@ import {
     vi,
 } from 'vitest';
 import {
+    closeSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
+    openSync,
     readFileSync,
     readdirSync,
     renameSync,
@@ -17,6 +19,7 @@ import {
     unlinkSync,
     utimesSync,
     writeFileSync,
+    writeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
@@ -615,6 +618,96 @@ describe('workingCopyMaterialization', () => {
             reason: 'save',
         })).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
         expect(existsSync(fixture.workingPath)).toBe(false);
+    });
+
+    it.each([
+        {
+            owner: undefined,
+            edit: true,
+        },
+        {
+            owner: undefined,
+            edit: false,
+        },
+    ])('keeps admitted bytes across network identity churn: %j', async ({
+        owner, edit,
+    }) => {
+        let originalPath = '';
+        let admittedCtime = 0n;
+        let replaced = false;
+        vi.doMock('node:fs/promises', async importOriginal => {
+            const original = await importOriginal<typeof FsPromises>();
+            const networkStat = (path: unknown, result: Awaited<ReturnType<typeof original.stat>>) =>
+                replaced && String(path) === originalPath
+                    ? Object.assign(Object.create(Object.getPrototypeOf(result)), result, {ctimeNs: admittedCtime})
+                    : result;
+            // Network premise only. File identities and bytes remain real.
+            return {
+                ...original,
+                stat: async (...args: Parameters<typeof original.stat>) => networkStat(args[0], await original.stat(...args)),
+                lstat: async (...args: Parameters<typeof original.lstat>) => networkStat(args[0], await original.lstat(...args)),
+            };
+        });
+        resetModulesAfterTest = true;
+        vi.resetModules();
+        const fs = await import('node:fs/promises');
+        const store = await import('@electron/file-access/workingCopyStore');
+        const {hashContentFingerprintFilePath} = await import('@electron/file-access/originalPathSnapshot');
+        const {
+            ensureWorkingCopyMaterialized, onWorkingCopyMaterializationProgress,
+        } = await import(
+            '@electron/file-access/workingCopyMaterialization'
+        );
+        originalPath = join(tempRoot, 'network-original.pdf');
+        const detachedPath = join(tempRoot, 'detached.pdf');
+        const workingPath = join(tempRoot, 'evb-viewer', 'pdf-work-network', 'working.pdf');
+        const bytes = Buffer.alloc(2 * 1024 * 1024, 65);
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, bytes);
+        utimesSync(originalPath, FIXTURE_TIME, FIXTURE_TIME);
+        const sourceStat = await fs.stat(originalPath, {bigint: true});
+        admittedCtime = sourceStat.ctimeNs;
+        await store.setWorkingCopyOriginalPath(workingPath, originalPath, owner, {
+            admissionSnapshot: await store.captureWorkingCopyAdmissionSnapshot(originalPath),
+            backingState: 'lazy-original',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: {
+                ...store.createOriginalFileExpectationFromStat(sourceStat),
+                contentFingerprint: await hashContentFingerprintFilePath(originalPath, sourceStat.size),
+            },
+        });
+        const removeListener = onWorkingCopyMaterializationProgress(event => {
+            if (replaced || event.phase !== 'copying' || event.bytesCopied !== 1024 * 1024) return;
+            renameSync(originalPath, detachedPath);
+            writeFileSync(originalPath, bytes);
+            utimesSync(originalPath, FIXTURE_TIME, FIXTURE_TIME);
+            replaced = true;
+            if (edit) {
+                const fd = openSync(detachedPath, 'r+');
+                writeSync(fd, Buffer.from('DETACHED-EDIT'), 0, 13, 1024 * 1024 + 4);
+                closeSync(fd);
+                utimesSync(detachedPath, FIXTURE_TIME, FIXTURE_TIME);
+            }
+        });
+        try {
+            const result = ensureWorkingCopyMaterialized(workingPath, {
+                ...(owner === undefined ? {} : {ownerWebContentsId: owner}),
+                reason: 'save',
+            });
+            if (edit) {
+                await expect(result).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+                expect(existsSync(workingPath)).toBe(false);
+                expect(readFileSync(detachedPath).subarray(1024 * 1024 + 4, 1024 * 1024 + 17).toString()).toBe('DETACHED-EDIT');
+            } else {
+                await result;
+                expect(readFileSync(workingPath).equals(bytes)).toBe(true);
+            }
+            expect(replaced).toBe(true);
+            expect(readFileSync(originalPath).equals(bytes)).toBe(true);
+            expect(materializingArtifacts(workingPath)).toEqual([]);
+        } finally {
+            removeListener();
+        }
     });
 
     it('discards copied bytes when the source changes during streaming', async () => {

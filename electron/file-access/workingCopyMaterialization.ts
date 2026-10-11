@@ -213,13 +213,14 @@ function yieldBetweenChunks() {
 }
 
 async function assertSourceSnapshot(
-    originalPath: string,
+    source: string | FileHandle,
     admissionSnapshot: IWorkingCopyAdmissionSnapshot,
+    originalPath: string,
     originalFileExpectation?: IWorkingCopyOriginalFileExpectation | null,
 ) {
     let currentSnapshot: IWorkingCopyAdmissionSnapshot;
     try {
-        currentSnapshot = await captureWorkingCopyAdmissionSnapshot(originalPath);
+        currentSnapshot = await captureWorkingCopyAdmissionSnapshot(source);
     } catch (error) {
         throw new WorkingCopyMaterializationError(
             'SOURCE_BACKING_UNAVAILABLE',
@@ -228,30 +229,6 @@ async function assertSourceSnapshot(
         );
     }
     if (!await workingCopyAdmissionSnapshotsMatch(currentSnapshot, admissionSnapshot, originalPath, originalFileExpectation)) {
-        throw new WorkingCopyMaterializationError(
-            'SOURCE_BACKING_CHANGED',
-            'The original document changed after it was opened',
-        );
-    }
-}
-
-async function assertSourceHandleSnapshot(
-    sourceHandle: FileHandle,
-    admissionSnapshot: IWorkingCopyAdmissionSnapshot,
-    originalPath: string,
-    originalFileExpectation: IWorkingCopyOriginalFileExpectation | null,
-) {
-    let sourceSnapshot: IWorkingCopyAdmissionSnapshot;
-    try {
-        sourceSnapshot = await captureWorkingCopyAdmissionSnapshot(sourceHandle);
-    } catch (error) {
-        throw new WorkingCopyMaterializationError(
-            'SOURCE_BACKING_UNAVAILABLE',
-            'The original document is unavailable',
-            {cause: error},
-        );
-    }
-    if (!await workingCopyAdmissionSnapshotsMatch(sourceSnapshot, admissionSnapshot, originalPath, originalFileExpectation)) {
         throw new WorkingCopyMaterializationError(
             'SOURCE_BACKING_CHANGED',
             'The original document changed after it was opened',
@@ -341,7 +318,7 @@ async function publishMaterializedTarget(
             }
 
             await invalidateBackingSwapCaches(flight);
-            await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+            await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
             throwIfAborted(flight.controller.signal);
             await atomicReplace(tempPath, flight.logicalRef, {markMutationCommitStarted: false});
             entry.backingState = 'materialized';
@@ -374,7 +351,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
             status: 'running',
         });
         throwIfAborted(signal);
-        await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+        await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
         const filesystem = await statfs(dirname(flight.logicalRef), {bigint: true});
         const availableBytes = filesystem.bavail * filesystem.bsize;
         if (availableBytes < flight.admissionSnapshot.size) {
@@ -385,7 +362,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
             );
         }
         sourceHandle = await open(flight.originalPath, 'r');
-        await assertSourceHandleSnapshot(sourceHandle, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+        await assertSourceSnapshot(sourceHandle, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
         outputHandle = await open(tempPath, 'wx');
 
         const hash = createOriginalFileContentFingerprintHash(flight.totalBytes);
@@ -424,7 +401,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
             }
         }
 
-        await assertSourceHandleSnapshot(sourceHandle, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+        await assertSourceSnapshot(sourceHandle, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
         const sourceFileExpectation = createOriginalFileExpectationFromStat(
             await sourceHandle.stat({bigint: true}),
         );
@@ -433,7 +410,7 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
         // hashing and publication below read only the working copy.
         await sourceHandle.close();
         sourceHandle = null;
-        await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
+        await assertSourceSnapshot(flight.originalPath, flight.admissionSnapshot, flight.originalPath, getWorkingCopyOriginalFileExpectation(flight.logicalRef));
         const outputStat = await outputHandle.stat({bigint: true});
         if (!outputStat.isFile() || outputStat.size !== flight.admissionSnapshot.size) {
             throw new WorkingCopyMaterializationError(
@@ -445,6 +422,13 @@ async function copyAndPublishFlight(flight: IMaterializationFlight) {
         await outputHandle.close();
         outputHandle = null;
         const sourceFingerprint = `sha256-full-v1:${hash.digest('hex')}`;
+        const admittedFingerprint = getWorkingCopyOriginalFileExpectation(flight.logicalRef)?.contentFingerprint;
+        if (admittedFingerprint !== undefined && admittedFingerprint !== sourceFingerprint) {
+            throw new WorkingCopyMaterializationError(
+                'SOURCE_BACKING_CHANGED',
+                'The original document changed while it was being materialized',
+            );
+        }
         const targetFingerprint = await hashMaterializedTarget(tempPath, flight.totalBytes, signal);
         if (targetFingerprint !== sourceFingerprint) {
             throw new WorkingCopyMaterializationError(
