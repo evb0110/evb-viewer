@@ -317,10 +317,8 @@ fn line_ending_appearance(
         match style {
             Some(b"OpenArrow") => {
                 if stroke.is_some() {
-                    // Solid even on a dashed border: reset the dash, and use the round
-                    // ends a solid border uses, not the butt ends a dash needs.
                     content.push_str(&format!(
-                        "1 J [] 0 d\n{} {} m {} {} l {} {} l S\n",
+                        "{} {} m {} {} l {} {} l S\n",
                         left.0, left.1, tip.0, tip.1, right.0, right.1
                     ));
                 }

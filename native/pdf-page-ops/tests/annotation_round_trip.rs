@@ -1469,12 +1469,12 @@ fn canonical_annotation_comparator_has_independent_negative_oracles() {
     );
 }
 
-fn write_single_annotation_pdf(path: &Path, annotation: &str) {
+fn write_single_square_pdf(path: &Path, border: &str) {
     let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << >> /Annots [4 0 R] >>".to_string(),
-        format!("<< /Type /Annot {annotation} >>"),
+        format!("<< /Type /Annot /Subtype /Square /Rect [100 500 300 700] /C [1 0 0] {border} /F 4 >>"),
     ];
     let mut bytes = b"%PDF-1.7\n".to_vec();
     let mut offsets = Vec::new();
@@ -1497,8 +1497,8 @@ fn write_single_annotation_pdf(path: &Path, annotation: &str) {
     fs::write(path, bytes).unwrap();
 }
 
-/// Width and RGB bytes of the first page, rendered by Poppler at 72 dpi.
-fn poppler_page(pdf: &Path) -> (usize, Vec<u8>) {
+/// Ink pixels (any channel below 220) of the first page, rendered by Poppler.
+fn poppler_ink_pixels(pdf: &Path) -> usize {
     let rendered = Command::new(external_tool::tool_path(
         "PDFTOPPM_PATH",
         "poppler",
@@ -1511,16 +1511,11 @@ fn poppler_page(pdf: &Path) -> (usize, Vec<u8>) {
     assert!(rendered.status.success());
     let mut header = rendered.stdout.splitn(4, |byte| *byte == b'\n');
     assert_eq!(header.next().unwrap(), b"P6");
-    let size = String::from_utf8(header.next().unwrap().to_vec()).unwrap();
-    let width = size.split(' ').next().unwrap().parse().unwrap();
+    header.next().unwrap();
     assert_eq!(header.next().unwrap(), b"255");
-    (width, header.next().unwrap().to_vec())
-}
-
-/// Ink pixels (any channel below 220) of the first page, rendered by Poppler.
-fn poppler_ink_pixels(pdf: &Path) -> usize {
-    poppler_page(pdf)
-        .1
+    header
+        .next()
+        .unwrap()
         .chunks_exact(3)
         .filter(|rgb| rgb.iter().any(|channel| *channel < 220))
         .count()
@@ -1537,10 +1532,7 @@ fn print_draws_square_borders_with_the_width_and_dash_poppler_draws() {
     for (label, border, expected_ink) in cases {
         let source = temp.root.join(format!("{label}.pdf"));
         let printed = temp.root.join(format!("{label}-print.pdf"));
-        write_single_annotation_pdf(
-            &source,
-            &format!("/Subtype /Square /Rect [100 500 300 700] /C [1 0 0] {border} /F 4"),
-        );
+        write_single_square_pdf(&source, border);
         let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
             .args(["print-layout", "--input"])
             .arg(&source)
@@ -1554,56 +1546,4 @@ fn print_draws_square_borders_with_the_width_and_dash_poppler_draws() {
         assert_eq!(poppler, expected_ink, "{label} as Poppler draws it");
         assert_eq!(poppler_ink_pixels(&printed), poppler, "{label} as printed");
     }
-}
-
-#[test]
-fn print_draws_open_line_endings_solid_on_a_dashed_line() {
-    // The line runs along row 421. Its arrowheads reach 40 px back from the tip at
-    // column 420 and 14 px either side of the line, so rows 416 to 428 hold the
-    // line itself and are left out of the comparison.
-    let temp = TempPaths::new("print-open-arrow-dash");
-    let mut arrowhead_ink = Vec::new();
-    for (label, border) in [
-        ("solid", "/BS << /W 4 /S /S >>"),
-        ("dashed", "/BS << /W 4 /S /D /D [3 2] >>"),
-    ] {
-        let source = temp.root.join(format!("{label}.pdf"));
-        let printed = temp.root.join(format!("{label}-print.pdf"));
-        write_single_annotation_pdf(
-            &source,
-            &format!(
-                "/Subtype /Line /Rect [100 380 440 460] /L [120 420 420 420] /C [0 0 0] {border} /LE [/OpenArrow /OpenArrow] /F 4"
-            ),
-        );
-        let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-            .args(["print-layout", "--input"])
-            .arg(&source)
-            .arg("--output")
-            .arg(&printed)
-            .args(["--view-mode", "single", "--orientation", "portrait"])
-            .output()
-            .unwrap();
-        assert_success(output, "print-layout");
-        let (width, pixels) = poppler_page(&printed);
-        let ink = pixels
-            .chunks_exact(3)
-            .enumerate()
-            .filter(|(index, rgb)| {
-                let (column, row) = (index % width, index / width);
-                (378..=422).contains(&column)
-                    && (380..=465).contains(&row)
-                    && !(416..=428).contains(&row)
-                    && rgb.iter().any(|channel| *channel < 220)
-            })
-            .count();
-        arrowhead_ink.push(ink);
-    }
-    assert!(
-        arrowhead_ink[0] > 0,
-        "the solid line must draw its arrowheads"
-    );
-    assert_eq!(
-        arrowhead_ink[1], arrowhead_ink[0],
-        "arrowheads on a dashed line print solid, as they do on a solid line"
-    );
 }
