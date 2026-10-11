@@ -10,6 +10,7 @@ import {
     afterEach, describe, expect, it, onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {
     clickAsUser,
     clickFoundAsUser,
@@ -62,35 +63,6 @@ async function createTwelvePageFixture(filePath: string) {
         });
     }
     writeFileSync(filePath, await document.save());
-}
-
-async function moveTabToNewWindow(page: Page) {
-    const browser = page.browser();
-    const previous = new Set(await browser.pages());
-    // Keep a second source tab so closing the moved tab cannot destroy the
-    // source window; then act on the loaded PDF tab through its real menu.
-    await clickAsUser(page, '.tab-new');
-    await clickAsUser(page, '.tab-list [role="tab"]:first-child');
-    await clickAsUser(page, '.tab-list [role="tab"].is-active', {button: 'right'});
-    await page.waitForFunction(() => Array.from(document.querySelectorAll('[role="menuitem"]'))
-        .some(item => item.textContent?.includes('Move Tab to New Window')));
-    const menuItems = await page.$$('[role="menuitem"]');
-    const transferItems = await Promise.all(menuItems.map(async candidate => ({
-        candidate,
-        text: await candidate.evaluate(element => element.textContent ?? ''),
-    })));
-    const transferItem = transferItems.find(item => item.text.includes('Move Tab to New Window'));
-    if (!transferItem) throw new Error('Move Tab to New Window menu item was not rendered');
-    await clickAsUser(page, transferItem.candidate);
-    let destination: Page | undefined;
-    const deadline = Date.now() + 30_000;
-    while (!destination && Date.now() < deadline) {
-        destination = (await browser.pages()).find(candidate => !previous.has(candidate));
-        if (!destination) await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    if (!destination) throw new Error('Transfer did not create a destination window');
-    await waitForFunctionInPage(destination, () => document.querySelector('.page_container--rendered') !== null, {timeout: 30_000});
-    return destination;
 }
 
 function createSlowTransferFixture(filePath: string, fontMapBytes = 64 * 1024 * 1024) {

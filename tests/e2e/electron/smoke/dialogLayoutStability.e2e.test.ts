@@ -25,11 +25,9 @@ import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import {decodeLogRecord} from '@contracts/logRecord';
 import type {TAppLocale} from '@contracts/shared';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
+import {clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {createPasswordProtectedFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
@@ -221,32 +219,6 @@ async function setSavedLocale(page: Page, locale: TAppLocale) {
     await page.reload({waitUntil: 'domcontentloaded'});
 }
 
-// Tab > Move Tab to New Window is the app's route to a second window. The item
-// is enabled while the window holds a second tab, so the moved tab is the
-// document and the source keeps the other one.
-async function moveTabToNewWindow(page: Page, tabTitle: string, menuLabel: string) {
-    const browser = page.browser();
-    const previousPages = new Set(await browser.pages());
-    await clickAsUser(page, '.tab-new');
-    await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"]'))
-        .find(tab => tab.textContent?.includes(title)), tabTitle, {description: `${tabTitle} tab`});
-    await clickFoundAsUser(page, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('.tab-list [role="tab"].is-active'))
-        .find(tab => tab.textContent?.includes(title)), tabTitle, {
-        button: 'right',
-        description: `${tabTitle} tab menu`,
-    });
-    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find(item => item.textContent?.includes(label)), menuLabel, {description: menuLabel});
-    await expect.poll(async () => (await browser.pages()).some(candidate => !previousPages.has(candidate)), {timeout: DIALOG_TIMEOUT_MS})
-        .toBe(true);
-    const destination = (await browser.pages()).find(candidate => !previousPages.has(candidate));
-    if (!destination) {
-        throw new Error('Move Tab to New Window did not create a window');
-    }
-    await destination.waitForSelector('.page_container--rendered', {timeout: DIALOG_TIMEOUT_MS});
-    return destination;
-}
-
 // The start-up overlay clears after the shell has mounted, and mounting sends
 // the start-up status request. Replies arrive in the order requests were sent,
 // so once this request is answered, that earlier reply has been applied and any
@@ -435,7 +407,11 @@ describe('Electron E2E - dialog layout stability', () => {
 
             await openPdfInApp(page, fixturePath, DIALOG_TIMEOUT_MS);
             await waitForPdfLoaded(page, DIALOG_TIMEOUT_MS);
-            destination = await moveTabToNewWindow(page, 'generated-text', messages.menu.moveTabToNewWindow);
+            destination = await moveTabToNewWindow(page, {
+                tabTitle: 'generated-text',
+                menuLabel: messages.menu.moveTabToNewWindow,
+                timeoutMs: DIALOG_TIMEOUT_MS,
+            });
             const newWindow = await readUpdateDialogAfterStart(destination, messages.updates.unsupportedDescription);
             await destination.screenshot({path: join(evidenceDirectory, 'new-window.png')});
 
