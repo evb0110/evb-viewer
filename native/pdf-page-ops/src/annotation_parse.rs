@@ -424,12 +424,6 @@ pub(crate) fn collect_parsed_annotations(
     Ok(entries)
 }
 
-#[derive(Clone, Copy)]
-struct PageAnnotation<'a> {
-    object_id: Option<ObjectId>,
-    dict: &'a Dictionary,
-}
-
 fn scan_page_annotations<F>(
     document: &impl PdfObjectSource,
     page_id: ObjectId,
@@ -451,97 +445,69 @@ where
         ));
     }
 
-    let mut page_annotations = Vec::with_capacity(annots.len());
+    let mut page_annotations = HashMap::with_capacity(annots.len());
     for object in &annots {
         if let Ok(object_id) = object.as_reference() {
-            let dict = document.dictionary(object_id)?;
-            page_annotations.push(PageAnnotation {
-                object_id: Some(object_id),
-                dict,
-            });
-        } else if let Ok(dict) = object.as_dict() {
-            // Direct dictionaries have no durable object reference. They still
-            // get a deterministic 0R0 identity and remain visible to callers.
-            page_annotations.push(PageAnnotation {
-                object_id: None,
-                dict,
-            });
-        }
-    }
-
-    let mut object_indexes = HashMap::with_capacity(page_annotations.len());
-    for (index, annotation) in page_annotations.iter().enumerate() {
-        if let Some(object_id) = annotation.object_id {
-            object_indexes.insert(object_id, index);
+            page_annotations.insert(object_id, document.dictionary(object_id)?);
         }
     }
 
     let mut reply_children: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
-    for annotation in &page_annotations {
-        let (Some(reply_id), Some(parent_id)) = (
-            annotation.object_id,
-            annotation_related_ref(annotation.dict, b"IRT"),
-        ) else {
+    for object in &annots {
+        let Ok(reply_id) = object.as_reference() else {
             continue;
         };
-        if object_indexes.contains_key(&parent_id) {
+        let dict = page_annotations[&reply_id];
+        let Some(parent_id) = annotation_related_ref(dict, b"IRT") else {
+            continue;
+        };
+        if page_annotations.contains_key(&parent_id) {
             reply_children.entry(parent_id).or_default().push(reply_id);
         }
     }
 
-    for annotation in &page_annotations {
-        let subtype = annotation_subtype_name(document, annotation.dict);
+    for object in &annots {
+        let object_id = object.as_reference().ok();
+        let dict = match object_id {
+            Some(id) => page_annotations.get(&id).copied(),
+            None => object.as_dict().ok(),
+        };
+        let Some(dict) = dict else { continue };
+        let subtype = annotation_subtype_name(document, dict);
         // `/IRT` marks an annotation as a reply regardless of whether its
         // parent is present on this page, recognized by us, or present at all.
         // A recognized same-page parent may emit the reply below itself, but
         // a reply must never also appear as a top-level entity.
-        if subtype.eq_ignore_ascii_case("Popup") || annotation.dict.get(b"IRT").is_ok() {
+        if subtype.eq_ignore_ascii_case("Popup") || dict.get(b"IRT").is_ok() {
             continue;
         }
 
-        let object_id = annotation.object_id.unwrap_or((0, 0));
-        let name = resolve_or_mint_name(
-            annotation.dict,
-            existing_names,
-            page_index,
-            object_id,
-            &subtype,
-        );
+        let object_id = object_id.unwrap_or((0, 0));
+        let name = resolve_or_mint_name(dict, existing_names, page_index, object_id, &subtype);
         existing_names.insert(name.clone());
 
         let entry = match subtype.to_ascii_lowercase().as_str() {
             kind if kind == "text"
                 || kind == "freetext"
-                    && is_free_text_note_marker(
-                        document,
-                        annotation.dict,
-                        page_view,
-                        page_rotation,
-                    ) =>
+                    && is_free_text_note_marker(document, dict, page_view, page_rotation) =>
             {
                 (|| {
-                    let rect = read_annotation_rect(document, annotation.dict)?;
+                    let rect = read_annotation_rect(document, dict)?;
                     let position = pdf_rect_to_note_marker_rect(rect, page_view, page_rotation)
                         .map_err(|error| error.to_string())?;
-                    let contents =
-                        read_optional_annotation_text(document, annotation.dict, b"Contents")?
-                            .unwrap_or_default();
-                    let color = read_annotation_color(document, annotation.dict);
-                    let open =
-                        read_optional_boolean(document, annotation.dict, b"Open")?.unwrap_or(false);
+                    let contents = read_optional_annotation_text(document, dict, b"Contents")?
+                        .unwrap_or_default();
+                    let color = read_annotation_color(document, dict);
+                    let open = read_optional_boolean(document, dict, b"Open")?.unwrap_or(false);
                     Ok(PdfAnnotationParseEntry::Note(PdfAnnotationParseNote {
                         recovery_data: None,
                         page_index,
                         object_number: u64::from(object_id.0),
                         generation_number: u64::from(object_id.1),
                         name: name.clone(),
-                        author: read_optional_annotation_author(document, annotation.dict)?,
-                        created_at: read_annotation_date(
-                            document,
-                            annotation.dict,
-                            b"CreationDate",
-                        ),
-                        modified_at: read_annotation_date(document, annotation.dict, b"M"),
+                        author: read_optional_annotation_author(document, dict)?,
+                        created_at: read_annotation_date(document, dict, b"CreationDate"),
+                        modified_at: read_annotation_date(document, dict, b"M"),
                         position,
                         contents,
                         color,
@@ -552,7 +518,7 @@ where
             }
             "freetext" => parse_text_box_entry(
                 document,
-                annotation.dict,
+                dict,
                 object_id,
                 page_index,
                 page_view,
@@ -562,7 +528,7 @@ where
             .map(PdfAnnotationParseEntry::TextBox),
             "highlight" | "underline" | "strikeout" | "squiggly" => parse_highlight_entry(
                 document,
-                annotation.dict,
+                dict,
                 object_id,
                 page_index,
                 page_view,
@@ -573,7 +539,7 @@ where
             .map(PdfAnnotationParseEntry::Highlight),
             "stamp" => parse_stamp_entry(
                 document,
-                annotation.dict,
+                dict,
                 object_id,
                 page_index,
                 page_view,
@@ -583,7 +549,7 @@ where
             .map(PdfAnnotationParseEntry::Stamp),
             "square" | "circle" | "line" | "polyline" | "polygon" | "ink" => parse_shape_entry(
                 document,
-                annotation.dict,
+                dict,
                 object_id,
                 page_index,
                 page_view,
@@ -595,14 +561,28 @@ where
             _ => Err(format!("Unsupported annotation subtype /{subtype}")),
         };
 
-        let entry = entry.and_then(|mut entry| {
-            let replies = parse_replies(
+        let replies = if entry.is_ok() {
+            parse_replies(
                 document,
                 object_id,
                 &reply_children,
-                &object_indexes,
                 &page_annotations,
-            )?;
+                |reply_id, reason| {
+                    let dict = page_annotations[&reply_id];
+                    let subtype = annotation_subtype_name(document, dict);
+                    let name =
+                        resolve_or_mint_name(dict, existing_names, page_index, reply_id, &subtype);
+                    existing_names.insert(name.clone());
+                    on_entry(foreign_entry(page_index, reply_id, name, subtype, reason))?;
+                    *entry_count += 1;
+                    Ok(())
+                },
+            )?
+        } else {
+            Ok(Vec::new())
+        };
+        let entry = entry.and_then(|mut entry| {
+            let replies = replies?;
             let target = match &mut entry {
                 PdfAnnotationParseEntry::TextBox(parent) => &mut parent.replies,
                 PdfAnnotationParseEntry::Highlight(parent) => &mut parent.replies,
@@ -624,26 +604,35 @@ where
             *target = replies;
             Ok(entry)
         });
-        let entry = entry.unwrap_or_else(|reason| {
-            PdfAnnotationParseEntry::Foreign(PdfAnnotationParseForeign {
-                page_index,
-                object_number: u64::from(object_id.0),
-                generation_number: u64::from(object_id.1),
-                name,
-                subtype: if subtype.is_empty() {
-                    "Unknown".to_string()
-                } else {
-                    subtype
-                },
-                reason: truncate_reason(&reason),
-            })
-        });
+        let entry = entry
+            .unwrap_or_else(|reason| foreign_entry(page_index, object_id, name, subtype, &reason));
         on_entry(entry)?;
         *entry_count = entry_count
             .checked_add(1)
             .ok_or("PDF annotation parse entry count overflow")?;
     }
     Ok(())
+}
+
+fn foreign_entry(
+    page_index: u64,
+    object_id: ObjectId,
+    name: String,
+    subtype: String,
+    reason: &str,
+) -> PdfAnnotationParseEntry {
+    PdfAnnotationParseEntry::Foreign(PdfAnnotationParseForeign {
+        page_index,
+        object_number: u64::from(object_id.0),
+        generation_number: u64::from(object_id.1),
+        name,
+        subtype: if subtype.is_empty() {
+            "Unknown".to_string()
+        } else {
+            subtype
+        },
+        reason: truncate_reason(reason),
+    })
 }
 
 pub(crate) fn parse_text_box_entry(
@@ -1136,9 +1125,9 @@ fn parse_replies(
     document: &impl PdfObjectSource,
     parent_id: ObjectId,
     reply_children: &HashMap<ObjectId, Vec<ObjectId>>,
-    object_indexes: &HashMap<ObjectId, usize>,
-    page_annotations: &[PageAnnotation<'_>],
-) -> std::result::Result<Vec<PdfAnnotationParseReply>, String> {
+    page_annotations: &HashMap<ObjectId, &Dictionary>,
+    mut on_unreadable: impl FnMut(ObjectId, &str) -> Result<()>,
+) -> Result<std::result::Result<Vec<PdfAnnotationParseReply>, String>> {
     let mut replies = Vec::new();
     let mut pending = reply_children
         .get(&parent_id)
@@ -1151,29 +1140,34 @@ fn parse_replies(
         if !seen.insert(reply_id) {
             continue;
         }
-        if replies.len() >= MAX_ANNOTATION_REPLIES {
-            return Err("Annotation reply chain exceeds the admission ceiling".to_string());
+        if seen.len() > MAX_ANNOTATION_REPLIES {
+            return Ok(Err(
+                "Annotation reply chain exceeds the admission ceiling".to_string()
+            ));
         }
-        let Some(index) = object_indexes.get(&reply_id).copied() else {
+        let Some(dict) = page_annotations.get(&reply_id) else {
             continue;
         };
-        let annotation = page_annotations
-            .get(index)
-            .ok_or_else(|| "Annotation reply reference is out of range".to_string())?;
-        replies.push(PdfAnnotationParseReply {
-            object_number: u64::from(reply_id.0),
-            generation_number: u64::from(reply_id.1),
-            contents: read_optional_annotation_text(document, annotation.dict, b"Contents")?
-                .unwrap_or_default(),
-            author: read_optional_annotation_author(document, annotation.dict)?,
-            created_at: read_annotation_date(document, annotation.dict, b"CreationDate"),
-            modified_at: read_annotation_date(document, annotation.dict, b"M"),
-        });
+        let reply: std::result::Result<_, String> = (|| {
+            Ok(PdfAnnotationParseReply {
+                object_number: u64::from(reply_id.0),
+                generation_number: u64::from(reply_id.1),
+                contents: read_optional_annotation_text(document, dict, b"Contents")?
+                    .unwrap_or_default(),
+                author: read_optional_annotation_author(document, dict)?,
+                created_at: read_annotation_date(document, dict, b"CreationDate"),
+                modified_at: read_annotation_date(document, dict, b"M"),
+            })
+        })();
+        match reply {
+            Ok(reply) => replies.push(reply),
+            Err(reason) => on_unreadable(reply_id, &reason)?,
+        }
         if let Some(children) = reply_children.get(&reply_id) {
             pending.extend(children.iter().copied());
         }
     }
-    Ok(replies)
+    Ok(Ok(replies))
 }
 
 fn annotation_subtype_name(document: &impl PdfObjectSource, dict: &Dictionary) -> String {
