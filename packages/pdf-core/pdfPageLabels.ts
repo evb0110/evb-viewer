@@ -47,6 +47,30 @@ function toPositiveInt(value: unknown, fallback: number) {
     return parsed;
 }
 
+/**
+ * Largest start number the alphabetic style admits: four letters, the length
+ * a toolbar page indicator can show. Its labels grow by one letter per 26.
+ */
+export const PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER = 26 * 4;
+
+/** Largest start number a Roman numeral can express in the classic form (MMMCMXCIX). */
+export const PAGE_LABEL_MAX_ROMAN_START_NUMBER = 3999;
+
+/** Largest start number the given style can format, for the admission boundary and its UI. */
+export function getPageLabelStartNumberMax(style: TDocumentPageLabelStyle): number {
+    if (style === 'A' || style === 'a') {
+        return PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER;
+    }
+    if (style === 'R' || style === 'r') {
+        return PAGE_LABEL_MAX_ROMAN_START_NUMBER;
+    }
+    return Number.MAX_SAFE_INTEGER;
+}
+
+function clampPageLabelStartNumber(style: TDocumentPageLabelStyle, startNumber: number) {
+    return clamp(startNumber, 1, getPageLabelStartNumberMax(style));
+}
+
 function normalizeStyle(style: unknown): TDocumentPageLabelStyle {
     if (style === null) {
         return null;
@@ -342,7 +366,7 @@ export function normalizePageLabelRanges(
         );
         const style = normalizeStyle(range.style);
         const prefix = typeof range.prefix === 'string' ? range.prefix : '';
-        const startNumber = toPositiveInt(range.startNumber, 1);
+        const startNumber = clampPageLabelStartNumber(style, toPositiveInt(range.startNumber, 1));
 
         deduped.set(startPage, {
             startPage,

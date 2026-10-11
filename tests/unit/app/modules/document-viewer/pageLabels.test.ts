@@ -288,6 +288,31 @@ describe('document page labels', () => {
         }
     });
 
+    it('bounds the label an accepted start value can format into', () => {
+        const alphabetic = createPageLabelModel(1, [{
+            startPage: 1,
+            style: 'A',
+            prefix: '',
+            startNumber: 20_000_000_000,
+        }]);
+        const roman = createPageLabelModel(1, [{
+            startPage: 1,
+            style: 'r',
+            prefix: '',
+            startNumber: 1_000_000_000,
+        }]);
+        const decimal = createPageLabelModel(1, [{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 20_000_000_000,
+        }]);
+
+        expect(alphabetic.labelAt(1)?.length ?? 0).toBeLessThan(10_000);
+        expect(roman.labelAt(1)?.length ?? 0).toBeLessThan(1_000);
+        expect(decimal.labelAt(1)).toBe('20000000000');
+    });
+
     it('prefers a logical label over a coincident physical page number', () => {
         const model = createPageLabelModel(20, [{
             startPage: 1,

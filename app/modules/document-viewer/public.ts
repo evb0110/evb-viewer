@@ -4,7 +4,7 @@ export {
 export { default as DocumentViewportHost } from '@app/modules/document-viewer/runtime/DocumentViewportHost.vue';
 export * from '@app/modules/document-viewer/thumbnails/documentThumbnailRenderMetrics';
 export {
-    applyPageLabelRange, applySparsePageLabelUpdates, buildPageLabelSegments, buildPageLabelsFromRanges, buildWholeDocumentPageLabelRanges, countPageLabelDifferences, createPageLabelModel, derivePageLabelRangesFromLabels, findPageByPageLabelInput, formatPageIndicatorWithOptions, formatPageRange, getPageIndicatorLayoutMetrics, getPageLabelWindow, getVisiblePageLabel, isImplicitDefaultPageLabels, materializePageLabelsForCompatibility, normalizePageLabelRanges, PAGE_LABEL_DENSE_READ_MAX_PAGES, PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES, parsePageRangeInput, type IDocumentPageLabelModel, type TDocumentPageLabelLookup,
+    applyPageLabelRange, applySparsePageLabelUpdates, buildPageLabelSegments, buildPageLabelsFromRanges, buildWholeDocumentPageLabelRanges, countPageLabelDifferences, createPageLabelModel, derivePageLabelRangesFromLabels, findPageByPageLabelInput, formatPageIndicatorWithOptions, formatPageRange, getPageIndicatorLayoutMetrics, getPageLabelStartNumberMax, getPageLabelWindow, getVisiblePageLabel, isImplicitDefaultPageLabels, materializePageLabelsForCompatibility, normalizePageLabelRanges, PAGE_LABEL_DENSE_READ_MAX_PAGES, PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES, parsePageRangeInput, type IDocumentPageLabelModel, type TDocumentPageLabelLookup,
 } from '@app/modules/document-viewer/pageLabels';
 export {
     canScrollWithinPageBounds, resolveWheelDirection, resolveWheelTargetPage,
