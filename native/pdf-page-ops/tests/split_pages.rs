@@ -1850,3 +1850,70 @@ fn split_pages_refuses_a_supported_note_wider_than_its_output_page() {
         }
     }
 }
+
+/// A preserved page keeps a remote GoToR link as a remote link, even when the
+/// source defines a local destination with the same name. The link's `/D` names
+/// a page of the other file, so it is not rebound to this document's catalog.
+#[test]
+fn split_pages_keeps_a_remote_link_remote_when_a_local_destination_shares_its_name() {
+    for defines_local_destination in [false, true] {
+        let input = path("split-remote-link-input", "pdf");
+        let output = path("split-remote-link-output", "pdf");
+        let instructions = path("split-remote-link-instructions", "json");
+        let (mut document, catalog_id, page_id) =
+            save_single_page_pdf(&input, Stream::new(dictionary! {}, b"".to_vec()));
+        if defines_local_destination {
+            document.get_dictionary_mut(catalog_id).unwrap().set(
+                "Dests",
+                dictionary! {
+                    "target" => vec![
+                        Object::Reference(page_id),
+                        "XYZ".into(),
+                        100.into(),
+                        60.into(),
+                        0.into(),
+                    ],
+                },
+            );
+        }
+        let link_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Link",
+            "P" => page_id,
+            "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
+            "A" => dictionary! {
+                "S" => "GoToR",
+                "F" => Object::string_literal("other.pdf"),
+                "D" => Object::string_literal("target"),
+            },
+        });
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link_id)]);
+        document.save(&input).unwrap();
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":0.5,"translateX":10,"translateY":20}}]}]}"#,
+        )
+        .unwrap();
+
+        run_split_pages(&input, &output, &instructions);
+
+        let split = Document::load(&output).unwrap();
+        let annotations = split_page_annotations(&split, 1);
+        assert_eq!(annotations.len(), 1);
+        let link = &annotations[0].1;
+        assert!(
+            !link.has(b"Dest"),
+            "a remote link gained a local destination"
+        );
+        let action = link.get(b"A").unwrap().as_dict().unwrap();
+        assert_eq!(action.get(b"S").unwrap().as_name().unwrap(), b"GoToR");
+        assert_eq!(action.get(b"F").unwrap().as_str().unwrap(), b"other.pdf");
+        assert_eq!(action.get(b"D").unwrap().as_str().unwrap(), b"target");
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}

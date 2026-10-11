@@ -5,6 +5,19 @@
 use super::*;
 use crate::internal_destinations::remap_internal_destination;
 
+/// The `/D` of a GoTo action, the only action whose destination names a page of
+/// this document. A remote or launch action's `/D` names something else.
+pub(crate) fn goto_destination<'a>(
+    document: &Document,
+    action: &'a Dictionary,
+) -> Option<&'a Object> {
+    let (_, kind) = document.dereference(action.get(b"S").ok()?).ok()?;
+    if kind.as_name().ok()? != b"GoTo" {
+        return None;
+    }
+    action.get(b"D").ok()
+}
+
 /// The output plan over the output document. A retained destination names its
 /// source page by a stand-in id per source index, which the remapper compares
 /// but never reads.
