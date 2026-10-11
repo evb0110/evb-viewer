@@ -81,6 +81,13 @@ function createBrowserFileWritePermissionError() {
     );
 }
 
+function createBrowserFileWritePermissionChangedError() {
+    return new Error(
+        'Browser write permission for this file changed while the save waited for other saves. '
+        + 'Save again to be asked for write permission.',
+    );
+}
+
 function normalizeBrowserFileHandleError(error: unknown) {
     return error instanceof Error ? error : new Error(String(error));
 }
@@ -148,19 +155,26 @@ async function closeBrowserFileWritable(
     }
 }
 
-export async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
+async function queryFileHandleWritePermission(handle: FileSystemFileHandle) {
     const permissionHandle = handle as TPermissionCapableFileHandle;
     const descriptor = { mode: 'readwrite' as const };
     const queryPermission = permissionHandle.queryPermission?.bind(permissionHandle);
-    const requestPermission = permissionHandle.requestPermission?.bind(permissionHandle);
 
-    const currentPermission = queryPermission
-        ? await runBrowserFileHandlePhase(
+    return queryPermission
+        ? runBrowserFileHandlePhase(
             'file write permission check',
             BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
             () => queryPermission(descriptor),
         )
         : 'granted';
+}
+
+export async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
+    const permissionHandle = handle as TPermissionCapableFileHandle;
+    const descriptor = { mode: 'readwrite' as const };
+    const requestPermission = permissionHandle.requestPermission?.bind(permissionHandle);
+
+    const currentPermission = await queryFileHandleWritePermission(handle);
     if (currentPermission === 'granted') {
         return;
     }
@@ -174,6 +188,14 @@ export async function ensureFileHandleWritePermission(handle: FileSystemFileHand
         : currentPermission;
     if (nextPermission !== 'granted') {
         throw createBrowserFileWritePermissionError();
+    }
+}
+
+// For the physical-save lock: a grant lost while the save waited is a retryable
+// failure here. A prompt inside the lock would block every other window's save.
+async function assertFileHandleWriteGranted(handle: FileSystemFileHandle) {
+    if (await queryFileHandleWritePermission(handle) !== 'granted') {
+        throw createBrowserFileWritePermissionChangedError();
     }
 }
 
@@ -563,6 +585,27 @@ export async function writeBytesToHandle(
 ) {
     throwIfAborted(signal);
     await ensureFileHandleWritePermission(handle);
+    await writeBytesAfterPermission(handle, data, signal);
+}
+
+// Inside the physical-save lock, after the caller's preflight. It never prompts.
+// The grant is checked before a writer exists, so a conflict or cancellation has no
+// writer to abort.
+export async function writeBytesToHandleInSaveLock(
+    handle: FileSystemFileHandle,
+    data: Uint8Array,
+    signal?: AbortSignal,
+) {
+    throwIfAborted(signal);
+    await assertFileHandleWriteGranted(handle);
+    await writeBytesAfterPermission(handle, data, signal);
+}
+
+async function writeBytesAfterPermission(
+    handle: FileSystemFileHandle,
+    data: Uint8Array,
+    signal?: AbortSignal,
+) {
     throwIfAborted(signal);
     const writable = await runBrowserFileHandlePhase(
         'opening file for writing',
@@ -584,11 +627,12 @@ export async function writeBytesToHandle(
     await closeBrowserFileWritable(writable);
 }
 
+// Inside the physical-save lock, after the caller's preflight. It never prompts.
 export async function writeDocumentRefToHandle(
     handle: FileSystemFileHandle,
     ref: TDocumentRef,
 ) {
-    await ensureFileHandleWritePermission(handle);
+    await assertFileHandleWriteGranted(handle);
     const writable = await runBrowserFileHandlePhase(
         'opening file for writing',
         BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,

@@ -7,12 +7,18 @@ import {
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {
+    createFileSystemFileHandle,
+    FakeLockManager,
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import type * as BrowserFilePickerAdapter from '@app/platform/browser-api/browserFilePickerAdapter';
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     getSourceRef: vi.fn(),
     getSaveTarget: vi.fn(),
     stat: vi.fn(),
     read: vi.fn(),
+    readRange: vi.fn(),
     write: vi.fn(),
     runDocumentMutationWithSource: vi.fn(),
     assignSaveTarget: vi.fn(),
@@ -237,5 +243,57 @@ describe('browserSaveTargets', () => {
             expect.any(Function),
         );
         expect(filePickerMock.saveBytesToPickerOrDownload).not.toHaveBeenCalled();
+    });
+
+    it('does not prompt for a revoked write permission while holding the physical-save lock', async () => {
+        const actualAdapter = await vi.importActual<typeof BrowserFilePickerAdapter>(
+            '@app/platform/browser-api/browserFilePickerAdapter',
+        );
+        filePickerMock.ensureFileHandleWritePermission.mockImplementation(actualAdapter.ensureFileHandleWritePermission);
+        filePickerMock.writeDocumentRefToHandle.mockImplementation(actualAdapter.writeDocumentRefToHandle);
+        browserDocumentStoreMock.readRange.mockResolvedValue(Uint8Array.of(1, 2, 3));
+        const locks = new FakeLockManager();
+        const lockNamesAtPrompt: string[] = [];
+        let permissionQueries = 0;
+        // Granted when the preflight asks; revoked by the time the save is inside the lock.
+        const handle = Object.assign(createFileSystemFileHandle({name: 'source.pdf'}), {
+            queryPermission: async () => (++permissionQueries === 1 ? 'granted' : 'prompt'),
+            requestPermission: async () => {
+                lockNamesAtPrompt.push(...(await locks.query()).held.map(lock => lock.name));
+                return 'granted';
+            },
+        });
+        browserDocumentStoreMock.getSaveTarget.mockResolvedValue({
+            saveName: 'source.pdf',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        browserDocumentStoreMock.runDocumentMutationWithSource.mockImplementation((
+            _path: string,
+            _sourceRef: string,
+            _revision: string | null | undefined,
+            operation: (mutation: unknown) => Promise<unknown>,
+        ) => locks.request('evb-viewer:browser-physical-save', {}, () => operation({
+            writeSource: browserDocumentStoreMock.write,
+            assertPhysicalSourceBaseCurrent: vi.fn(),
+            acknowledgePhysicalSourceCommit: browserDocumentStoreMock.acknowledgePhysicalSourceCommit,
+        })));
+        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
+
+        let result: unknown;
+        try {
+            result = await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint');
+        } finally {
+            filePickerMock.ensureFileHandleWritePermission.mockResolvedValue(undefined);
+            filePickerMock.writeDocumentRefToHandle.mockReset();
+        }
+
+        expect(lockNamesAtPrompt).not.toContain('evb-viewer:browser-physical-save');
+        expect(result).toMatchObject({
+            ok: false,
+            reason: 'write-failed',
+            externalWriteCommitted: false,
+        });
+        expect((await locks.query()).held).toEqual([]);
     });
 });

@@ -1275,8 +1275,15 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
-        const queryPermission = vi.fn(async () => 'prompt' as const);
-        const requestPermission = vi.fn(async () => 'granted' as const);
+        // Read and write permission are granted separately, and each is reported granted from then on.
+        const grantedModes = new Set<string>();
+        const queryPermission = vi.fn(async (descriptor?: {mode?: string}) => (
+            grantedModes.has(descriptor?.mode ?? '') ? 'granted' as const : 'prompt' as const
+        ));
+        const requestPermission = vi.fn(async (descriptor?: {mode?: string}) => {
+            grantedModes.add(descriptor?.mode ?? '');
+            return 'granted' as const;
+        });
         const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
         const handle = createFileSystemFileHandle({
             name: 'needs-permission.pdf',

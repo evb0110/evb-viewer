@@ -20,7 +20,7 @@ import {
     pickSaveTarget,
     saveBytesToPickerOrDownload,
     writeDocumentRefToHandle,
-    writeBytesToHandle,
+    writeBytesToHandleInSaveLock,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import { getErrorMessage } from '@app/utils/error';
 
@@ -80,7 +80,7 @@ export async function saveWorkingBytesToSource(
     }
     // A stored handle may need its write permission re-granted, which shows a
     // browser prompt. Ask before the origin-wide save lock, so the prompt does
-    // not hold up other windows' saves. The base check still runs inside it.
+    // not hold up other windows' saves. The write inside the lock never prompts.
     if (pickedTarget.handle) {
         await ensureFileHandleWritePermission(pickedTarget.handle);
     }
@@ -231,7 +231,7 @@ export async function savePdfAsFromWorkingCopy(
         return null;
     }
     // Same as saveWorkingBytesToSource: the permission prompt runs before the
-    // origin-wide save lock, the base check runs inside it.
+    // origin-wide save lock, and the write inside it never prompts.
     if (saveResult.handle) {
         await ensureFileHandleWritePermission(saveResult.handle);
     }
@@ -249,7 +249,7 @@ export async function savePdfAsFromWorkingCopy(
                 let sourceRef: TDocumentRef;
 
                 if (saveResult.handle) {
-                    if (staged) await writeBytesToHandle(saveResult.handle, staged.bytes);
+                    if (staged) await writeBytesToHandleInSaveLock(saveResult.handle, staged.bytes);
                     else await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
                     externalWriteCommitted = true;
                     const size = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
