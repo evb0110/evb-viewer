@@ -181,20 +181,21 @@ fn write_sparse_linked_source(
     let ocr_content_object = empty_content_object + 1;
     let malformed_content_object = ocr_content_object + 1;
     let font_object = malformed_content_object + 1;
-    let sparse_object = font_object + 1;
+    let indirect_destination_object = font_object + 1;
+    let sparse_object = indirect_destination_object + 1;
     let mut offsets = vec![0_u64; sparse_object + 1];
     let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
     // A named link's target is defined in the catalog, where `--empty` drops it.
     let target_page = |to: usize| format!("[{} 0 R/XYZ 0 120 0]", first_page_object + to);
     let catalog = match link {
-        Some((_, to, LinkTarget::LegacyNamed)) => {
+        Some((_, to, LinkTarget::LegacyNamed | LinkTarget::IndirectLegacyNamed)) => {
             format!(
                 "<</Type/Catalog/Pages 2 0 R/Dests<</target{}>>>>",
                 target_page(to)
             )
         }
-        Some((_, to, LinkTarget::TreeNamed)) => format!(
+        Some((_, to, LinkTarget::TreeNamed | LinkTarget::IndirectTreeNamed)) => format!(
             "<</Type/Catalog/Pages 2 0 R/Names<</Dests<</Names[(target){}]>>>>>>",
             target_page(to)
         ),
@@ -221,6 +222,9 @@ fn write_sparse_linked_source(
                     LinkTarget::Explicit => format!("/Dest{}", target_page(to)),
                     LinkTarget::Action => format!("/A<</S/GoTo/D{}>>", target_page(to)),
                     LinkTarget::LegacyNamed | LinkTarget::TreeNamed => "/Dest(target)".to_owned(),
+                    LinkTarget::IndirectLegacyNamed | LinkTarget::IndirectTreeNamed => {
+                        format!("/Dest {indirect_destination_object} 0 R")
+                    }
                 };
                 format!("/Annots[<</Type/Annot/Subtype/Link/Rect[2 2 40 20]/Border[0 0 0]{destination}>>]")
             }
@@ -258,6 +262,16 @@ fn write_sparse_linked_source(
         &mut offsets,
         font_object,
         b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+    );
+    let indirect_destination: &[u8] = match link {
+        Some((_, _, LinkTarget::IndirectTreeNamed)) => b"/target",
+        _ => b"(target)",
+    };
+    write_raw_object(
+        &mut file,
+        &mut offsets,
+        indirect_destination_object,
+        indirect_destination,
     );
     offsets[sparse_object] = file.stream_position().unwrap();
     write!(
@@ -1209,6 +1223,8 @@ fn overlay_text_keeps_a_link_across_source_subsets_above_the_byte_budget() {
         LinkTarget::Explicit,
         LinkTarget::LegacyNamed,
         LinkTarget::TreeNamed,
+        LinkTarget::IndirectLegacyNamed,
+        LinkTarget::IndirectTreeNamed,
     ] {
         assert_link_survives_source_subsets(kind);
     }
@@ -1921,6 +1937,10 @@ enum LinkTarget {
     TreeNamed,
     /// A GoTo action whose destination is an explicit array.
     Action,
+    /// An indirect string naming a legacy catalog /Dests entry.
+    IndirectLegacyNamed,
+    /// An indirect name naming a /Names /Dests name-tree entry.
+    IndirectTreeNamed,
 }
 
 fn add_catalog_entry(document: &mut Document, key: &str, value: Object) {
@@ -1948,17 +1968,21 @@ fn save_link_source(path: &Path, target: LinkTarget, defined: bool) {
         LinkTarget::Explicit => link.set("Dest", explicit.clone()),
         LinkTarget::Action => link.set("A", dictionary! {"S" => "GoTo", "D" => explicit.clone()}),
         LinkTarget::LegacyNamed | LinkTarget::TreeNamed => link.set("Dest", name.clone()),
+        LinkTarget::IndirectLegacyNamed | LinkTarget::IndirectTreeNamed => {
+            let named = document.add_object(name.clone());
+            link.set("Dest", Object::Reference(named));
+        }
     }
     if defined {
         match target {
-            LinkTarget::LegacyNamed => {
+            LinkTarget::LegacyNamed | LinkTarget::IndirectLegacyNamed => {
                 add_catalog_entry(
                     &mut document,
                     "Dests",
                     dictionary! {"target" => explicit}.into(),
                 );
             }
-            LinkTarget::TreeNamed => {
+            LinkTarget::TreeNamed | LinkTarget::IndirectTreeNamed => {
                 let tree = dictionary! {"Names" => vec![name, explicit.into()]};
                 add_catalog_entry(
                     &mut document,

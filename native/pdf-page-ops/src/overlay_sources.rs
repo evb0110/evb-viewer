@@ -302,9 +302,9 @@ pub(crate) fn annotation_destination(
         .get(b"A")
         .ok()
         .and_then(|action| document.dereference(action).ok())
-        .and_then(|(_, action)| action.as_dict().ok())
-        .and_then(|action| action.get(b"D").ok());
-    annotation.get(b"Dest").ok().or(action).cloned()
+        .and_then(|(_, action)| action.as_dict().ok()?.get(b"D").ok());
+    let destination = annotation.get(b"Dest").ok().or(action)?;
+    Some(document.dereference(destination).ok()?.1.clone())
 }
 
 /// The source document's destinations as source page indices. Built from the
