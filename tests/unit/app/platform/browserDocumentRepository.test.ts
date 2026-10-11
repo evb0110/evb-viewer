@@ -16,6 +16,7 @@ import {
 import {
     createFileSystemFileHandle,
     FakeIndexedDbFactory,
+    FakeLockManager,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
@@ -251,6 +252,64 @@ describe('BrowserDocumentStore source registration', () => {
         expect(writer).not.toHaveBeenCalled();
         await expect(store.read(sourceRef)).resolves.toEqual(openingBytes);
         expect((await store.requireEntry(workingRef)).sourceBaseWitness).toBe(openingWitness);
+    });
+
+    it('serializes two saves of one physical file so the second cannot overwrite the first', async () => {
+        vi.stubGlobal('navigator', {locks: new FakeLockManager()});
+        const openingBytes = Uint8Array.of(37, 80, 68, 70, 1);
+        const openFile = () => new File([openingBytes], 'shared.pdf', {
+            type: 'application/pdf',
+            lastModified: 100,
+        });
+        let physicalFile = openFile();
+        const handle = createFileSystemFileHandle({
+            name: 'shared.pdf',
+            getFile: vi.fn(async () => physicalFile),
+        });
+        const store = new BrowserDocumentStore();
+        // Two windows select the same physical file: two File objects, two source versions.
+        const sourceA = await store.registerFile(openFile(), {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        const sourceB = await store.registerFile(openFile(), {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        const workingA = await store.cloneAsWorkingCopy(sourceA);
+        const workingB = await store.cloneAsWorkingCopy(sourceB);
+        const save = async (workingRef: string, sourceRef: string, edit: number) => {
+            const expectedRevision = (await store.getDocumentRevision(workingRef)).token;
+            return store.runDocumentMutationWithSource(
+                workingRef,
+                sourceRef,
+                expectedRevision,
+                async (mutation) => {
+                    await mutation.assertPhysicalSourceBaseCurrent();
+                    physicalFile = new File([Uint8Array.of(37, 80, 68, 70, edit)], 'shared.pdf', {
+                        type: 'application/pdf',
+                        lastModified: 200 + edit,
+                    });
+                    await mutation.acknowledgePhysicalSourceCommit();
+                    return true;
+                },
+            );
+        };
+
+        const results = await Promise.allSettled([
+            save(workingA, sourceA, 2),
+            save(workingB, sourceB, 3),
+        ]);
+
+        const accepted = results.filter(result => result.status === 'fulfilled');
+        expect(accepted).toHaveLength(1);
+        expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+        const acceptedEdit = results[0].status === 'fulfilled' ? 2 : 3;
+        await expect(physicalFile.arrayBuffer().then(bytes => new Uint8Array(bytes))).resolves.toEqual(
+            Uint8Array.of(37, 80, 68, 70, acceptedEdit),
+        );
     });
 
     it('refreshes a handle-backed source without inventing a new source version after save', async () => {

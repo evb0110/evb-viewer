@@ -809,17 +809,21 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 acknowledgePhysicalSourceCommit: () => this.acknowledgePhysicalSourceCommitUnlocked(ref, sourceRef),
             });
         });
-        return this.runPhysicalSourceLock(sourceRef, mutation);
+        return this.runPhysicalSourceLock(mutation);
     }
 
-    private runPhysicalSourceLock<T>(sourceRef: string, operation: () => Promise<T>) {
+    // Source refs are per open File, so two windows that opened one physical
+    // file hold different refs and different names. A context cannot name the
+    // file itself, so every physical save takes this origin-wide lock. The base
+    // check inside it then sees the bytes an earlier save committed.
+    private runPhysicalSourceLock<T>(operation: () => Promise<T>) {
         const locks = typeof navigator !== 'undefined'
             ? (navigator as Navigator & {locks?: {request<T>(name: string, options: {mode: 'exclusive'}, callback: () => Promise<T>): Promise<T>}}).locks
             : undefined;
         if (!locks) {
             return operation();
         }
-        return locks.request(`evb-viewer:browser-physical-save:${sourceRef}`, {mode: 'exclusive'}, operation);
+        return locks.request('evb-viewer:browser-physical-save', {mode: 'exclusive'}, operation);
     }
 
     private async assertPhysicalSourceBaseCurrent(workingRef: string, sourceRef: string) {
