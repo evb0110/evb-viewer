@@ -14,6 +14,7 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import {
@@ -25,6 +26,12 @@ import {
     join,
     resolve,
 } from 'node:path';
+interface IWorkflowStep {
+    env?: Record<string, string>;
+    if?: string;
+    name?: string;
+    run?: string;
+}
 type TReleaseArch = 'arm64' | 'x64';
 type TReleasePlatform = 'linux' | 'mac' | 'win';
 type TReleaseEnv = Record<string, string>;
@@ -831,6 +838,50 @@ describe('release policy', () => {
         expect(promoteIndex).toBeGreaterThanOrEqual(0);
         expect(mirrorActivationIndex).toBeGreaterThanOrEqual(0);
         expect(promoteIndex).toBeLessThan(mirrorActivationIndex);
+    });
+
+    it.skipIf(process.platform === 'win32')('requires packaging credentials only when the gate builds packages', () => {
+        const workflowSource = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
+        const workflow = getStaticYAMLValue(parseYAML(workflowSource)) as {jobs: {gate: {steps: Array<{
+            if?: string;
+            name?: string;
+            run?: string;
+        }>;};};};
+        const gateStep = (name: string) => {
+            const step = workflow.jobs.gate.steps.find(candidate => candidate.name === name);
+            if (!step?.run) {
+                throw new Error(`The gate has no ${name} step.`);
+            }
+            return step;
+        };
+        // A public release is resumed without packaging, so it skips the signing step.
+        const signing = gateStep('Validate signing credentials');
+        expect(signing.if).toBe('${{ steps.published.outputs.public != \'true\' }}');
+        const mirror = gateStep('Validate mirror credentials');
+        expect(mirror.if).toBeUndefined();
+
+        const mirrorOnly = {
+            MIRROR_S3_ENDPOINT: 'https://example.invalid',
+            MIRROR_S3_BUCKET: 'fixture',
+            MIRROR_S3_ACCESS_KEY_ID: 'fixture',
+            MIRROR_S3_SECRET_KEY: 'fixture',
+        };
+        const runStep = (step: IWorkflowStep, env: Record<string, string>) => spawnSync('bash', [
+            '-c',
+            step.run ?? '',
+        ], {
+            encoding: 'utf8',
+            env: {
+                PATH: process.env.PATH ?? '',
+                ...env,
+            },
+        }).status;
+        expect(runStep(mirror, mirrorOnly)).toBe(0);
+        expect(runStep(mirror, {
+            ...mirrorOnly,
+            MIRROR_S3_SECRET_KEY: '',
+        })).toBe(1);
+        expect(runStep(signing, mirrorOnly)).toBe(1);
     });
 
     it('keeps standalone release verification split into check and package gates', () => {

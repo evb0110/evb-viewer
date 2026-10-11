@@ -111,6 +111,8 @@ jobs:
           fi
           echo "public=$public" >> "$GITHUB_OUTPUT"
       - name: Validate signing credentials
+        # A public release is only resumed here: its packages are not rebuilt or re-signed.
+        if: ${{ steps.published.outputs.public != 'true' }}
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -123,10 +125,6 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
-          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
-          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
-          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
-          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
         run: |
           set -euo pipefail
           if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ] || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
@@ -141,6 +139,14 @@ jobs:
             echo '::error::Public releases require Sentry source-map upload credentials and desktop DSN.'
             exit 1
           fi
+      - name: Validate mirror credentials
+        env:
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+        run: |
+          set -euo pipefail
           if [ -z "$MIRROR_S3_ENDPOINT" ] || [ -z "$MIRROR_S3_BUCKET" ] || [ -z "$MIRROR_S3_ACCESS_KEY_ID" ] || [ -z "$MIRROR_S3_SECRET_KEY" ]; then
             echo '::error::Public releases require S3 mirror credentials.'
             exit 1
