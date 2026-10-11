@@ -16,6 +16,18 @@ import {
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
+import {
+    DB_NAME,
+    DOCUMENTS_STORE,
+    WORKSPACE_RECOVERY_STORE,
+} from '@app/platform/browser/browserDocumentConstants';
+import {saveBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireTabId} from '@contracts/windowTabs';
 
 const PDF_SOURCE_OPTIONS = {
     mimeType: 'application/pdf',
@@ -23,8 +35,55 @@ const PDF_SOURCE_OPTIONS = {
     saveKind: 'pdf',
 } as const;
 
+type TFakeDatabase = NonNullable<ReturnType<FakeIndexedDbFactory['getDatabase']>>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// Reads of the authority store fail: readonly transactions and joint
+// transactions that include it. Single-store writes still commit, so the record
+// stays intact and only the cleanup's admission read is unavailable.
+function failAuthorityReads(database: TFakeDatabase, authorityStore: string) {
+    const transaction = database.transaction.bind(database);
+    return vi.spyOn(database, 'transaction').mockImplementation((names, mode, options) => {
+        const storeNames = typeof names === 'string' ? [names] : Array.from(names);
+        if (storeNames.includes(authorityStore) && (mode === 'readonly' || storeNames.length > 1)) {
+            throw new Error(`Temporary ${authorityStore} read failure`);
+        }
+        return transaction(names, mode, options);
+    });
+}
+
+function createRecoveryCheckpoint(ref: string): IWorkspaceCheckpoint {
+    return {
+        version: 1,
+        capturedAt: requireEpochMs(1),
+        activePaneId: requirePaneId('pane-1'),
+        activeTabId: requireTabId('tab-1'),
+        layout: {
+            type: 'leaf',
+            paneId: requirePaneId('pane-1'),
+        },
+        panes: [{
+            paneId: requirePaneId('pane-1'),
+            tabIds: [requireTabId('tab-1')],
+            activeTabId: requireTabId('tab-1'),
+        }],
+        tabs: [{
+            tabId: requireTabId('tab-1'),
+            paneId: requirePaneId('pane-1'),
+            fileName: 'recovered.pdf',
+            sourceRef: requireDocumentRef(ref),
+            workingCopyRef: requireDocumentRef(ref),
+            requiresSaveAsOnFirstSave: true,
+            isDirty: true,
+            isDjvu: false,
+            currentPage: requirePageNumber(1),
+            zoom: 1,
+            zoomMode: 'custom',
+        }],
+    };
 }
 
 function createStoredPdf(
@@ -740,6 +799,42 @@ describe('BrowserDocumentStore', () => {
 
         await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
         await expect(store.exists(sourceRef)).resolves.toBe(true);
+    });
+
+    it('keeps a source when its dependent working copy cannot be read during detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const bytes = Uint8Array.of(1, 2, 3);
+        const sourceRef = await createStoredPdf(store, 'dependent-read.pdf', bytes);
+        await store.touchRecentFile(sourceRef);
+        await store.cloneAsWorkingCopy(sourceRef);
+        const database = indexedDbFactory.getDatabase(DB_NAME)!;
+
+        const readsFail = failAuthorityReads(database, DOCUMENTS_STORE);
+        try {
+            await store.clearRecentFiles();
+        } finally {
+            readsFail.mockRestore();
+        }
+
+        await expect(store.read(sourceRef)).resolves.toEqual(bytes);
+    });
+
+    it('keeps a source that a recovery checkpoint leases when the recovery store cannot be read', async () => {
+        const store = new BrowserDocumentStore();
+        const bytes = Uint8Array.of(4, 5, 6);
+        const ref = await createStoredPdf(store, 'recovery-read.pdf', bytes);
+        await store.touchRecentFile(ref);
+        await saveBrowserWorkspaceRecovery('window:crashed', 0, createRecoveryCheckpoint(ref), [requireDocumentRef(ref)]);
+        const database = indexedDbFactory.getDatabase(DB_NAME)!;
+
+        const readsFail = failAuthorityReads(database, WORKSPACE_RECOVERY_STORE);
+        try {
+            await store.clearRecentFiles();
+        } finally {
+            readsFail.mockRestore();
+        }
+
+        await expect(store.read(ref)).resolves.toEqual(bytes);
     });
 
     it('serializes dependent creation against detached-source cleanup', async () => {
