@@ -499,6 +499,40 @@ describe('captureOriginalPathSaveWitness rebase', () => {
         await expect(witness!.rebaseOnUnchangedContent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
     });
 
+    it.each([
+        'before-link',
+        'after-link',
+    ])('refuses an unsampled external edit %s with restored mtime', async (changeAt) => {
+        const originalPath = join(tempDir, `unsampled-${changeAt}.pdf`);
+        await writeFile(originalPath, Buffer.alloc(1024 * 1024, 65));
+        await utimes(originalPath, 1700000000, 1700000000);
+        const expected = await captureExpectation(originalPath);
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            ...expected,
+            contentFingerprint: await hashContentFingerprintFilePath(originalPath, BigInt(expected.size)),
+        });
+        const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+        expect(witness).not.toBeNull();
+        await witness!.assertCurrent();
+        const edit = async () => {
+            const handle = await open(originalPath, 'r+');
+            await handle.write('EXTERNAL-EDIT', 262144);
+            await handle.close();
+            await utimes(originalPath, 1700000000, 1700000000);
+        };
+        if (changeAt === 'before-link') {
+            await edit();
+        }
+        await link(originalPath, join(tempDir, 'backup.pdf'));
+        if (changeAt === 'after-link') {
+            await edit();
+        }
+
+        await expect(witness!.rebaseOnUnchangedContent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
+        const {readFile} = await import('fs/promises');
+        expect((await readFile(originalPath)).subarray(262144, 262157).toString()).toBe('EXTERNAL-EDIT');
+    });
+
     it('rebases over the save\'s own backup link when the admitted content still matches', async () => {
         const originalPath = join(tempDir, 'metadata-only.pdf');
         await writeFile(originalPath, Buffer.alloc(1024 * 1024, 66));

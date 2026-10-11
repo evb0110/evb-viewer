@@ -179,9 +179,8 @@ export async function captureAdmittedPathSnapshot(
 /**
  * What proves that a ctime move during a rebase left the content alone.
  *
- * - `own-backup-link`: the save's backup hard link. It adds exactly one name,
- *   and the admitted fingerprint stays valid because the save checked ctime
- *   right before linking; no byte is read.
+ * - `own-backup-link`: compare the original with its admitted full baseline.
+ *   A hard link shares a writable inode and cannot prove unchanged content.
  * - `open-copy`: an open's working copy moved the original's ctime while it was
  *   made. `source` is the copy's full-content fingerprint (eager copy) or the
  *   clone to hash (cloned copy); the original is read once and must match it.
@@ -218,9 +217,14 @@ export async function rebaseUnchangedSnapshot(
         if ((ctimeMoved || linkCountMoved) && snapshot.linkCount !== admitted.linkCount + 1n) {
             throw new OriginalPathSaveConflictError();
         }
-        if (admitted.contentFingerprint !== undefined) {
-            snapshot.contentFingerprint = admitted.contentFingerprint;
+        if (ctimeMoved) {
+            if (admitted.contentFingerprint === undefined
+                || admitted.contentFingerprint !== await hashContentFingerprintFilePath(originalPath, snapshot.size)
+                || !snapshotsMatch(snapshot, await capturePathSnapshot(originalPath))) {
+                throw new OriginalPathSaveConflictError();
+            }
         }
+        snapshot.contentFingerprint = admitted.contentFingerprint;
         return snapshot;
     }
     if (linkCountMoved) {
