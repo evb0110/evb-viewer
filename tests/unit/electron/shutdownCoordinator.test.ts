@@ -628,6 +628,46 @@ describe('shutdown coordinator', () => {
         expect(fixture.app.quit).not.toHaveBeenCalled();
     });
 
+    it('runs the checkpoint flush and cleanup a held quit skipped when a fatal error follows', async () => {
+        const checkpointFlush = vi.fn();
+        const cleanup = vi.fn();
+        const phases = createShutdownPhaseRunners(createLogger(), {
+            createPreservationSteps: context => [
+                {
+                    label: 'renderer-save-flush',
+                    run: () => {
+                        context.retryablePreservationFailure = true;
+                    },
+                },
+                {
+                    label: 'workspace-checkpoint-flush',
+                    run: checkpointFlush,
+                },
+            ],
+            createBestEffortCleanupSteps: () => [{
+                label: 'services',
+                run: cleanup,
+            }],
+        });
+        const fixture = createCoordinator({
+            runBestEffortCleanupSteps: phases.runBestEffortCleanupSteps,
+            runPreservationSteps: phases.runPreservationSteps,
+        });
+
+        fixture.coordinator.requestGracefulQuit();
+        await fixture.coordinator.performCleanup();
+        expect(checkpointFlush).not.toHaveBeenCalled();
+        expect(cleanup).not.toHaveBeenCalled();
+
+        fixture.coordinator.requestFatalShutdown('fatal after held quit');
+        await vi.waitFor(() => {
+            expect(fixture.app.exit).toHaveBeenCalledWith(1);
+        });
+        expect(checkpointFlush).toHaveBeenCalledOnce();
+        expect(cleanup).toHaveBeenCalledOnce();
+        expect(fixture.app.quit).not.toHaveBeenCalled();
+    });
+
     it('forces a fatal shutdown when preservation never settles', async () => {
         vi.useFakeTimers();
         const fixture = createCoordinator({runPreservationSteps: () => new Promise<void>(() => undefined)});
