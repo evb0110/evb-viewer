@@ -19,6 +19,7 @@ import {
     resolveActiveBookmarkForPage,
     resolveBookmarkDestinationPage,
     resolveBookmarkDestinationTarget,
+    resolveBookmarkPageTargets,
     resolveImmediateBookmarkDestinationTarget,
     resolvePageIndex,
     shouldEmitResolvedBookmarkDestinationTarget,
@@ -293,6 +294,35 @@ describe('pdfOutlineHelpers', () => {
 
         expect(resolved[0]).toMatchObject({
             title: 'Mid-page section',
+            pageIndex: 0,
+            pageYRatio: 0.25,
+        });
+    });
+
+    it('resolves the vertical anchor of a lazily loaded bookmark with its page', async () => {
+        const pdfDoc = createPdfDocumentStub({
+            numPages: 2,
+            getPage: vi.fn(async (_pageNumber: number) => createPdfPageStub([
+                0,
+                0,
+                612,
+                800,
+            ])),
+        });
+        const lazyBookmark: IBookmarkItem = {
+            ...createBookmark('lazy', null),
+            dest: [
+                0,
+                { name: 'XYZ' },
+                null,
+                600,
+                null,
+            ],
+        };
+
+        const targets = await resolveBookmarkPageTargets(pdfDoc, [lazyBookmark], new Map(), new Map());
+
+        expect(targets?.get(lazyBookmark)).toEqual({
             pageIndex: 0,
             pageYRatio: 0.25,
         });

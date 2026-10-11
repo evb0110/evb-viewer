@@ -143,10 +143,11 @@ import {
     buildOutlineFromBookmarkEntries,
     buildResolvedOutline,
     flattenBookmarks,
+    type IResolvedBookmarkPageTarget,
     parseOutlineItems,
     resolveActiveBookmarkForPage,
+    resolveBookmarkPageTargets,
     resolveMaxBookmarkDepth,
-    resolveBookmarkPageIndexes,
 } from '@app/utils/pdfOutlineHelpers';
 import { usePdfOutlineSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineSelection';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -649,32 +650,38 @@ async function updateActiveItemFromCurrentPage() {
     const pdfDocument = props.pdfDocument;
     const currentPage = props.currentPage;
     const items = flatBookmarks.value;
-    let pageIndexes: Map<IBookmarkItem, number | null> | null;
+    let targets: Map<IBookmarkItem, IResolvedBookmarkPageTarget | null> | null;
     try {
-        pageIndexes = await resolveBookmarkPageIndexes(
+        targets = await resolveBookmarkPageTargets(
             pdfDocument,
             items,
             bookmarkDestinationCache,
             bookmarkPageRefCache,
             controller.signal,
         );
-        if (!pageIndexes) return;
+        if (!targets) return;
     } catch (error) {
         if (controller.signal.aborted) return;
         throw error;
     }
-    if (!pageIndexes) return;
+    if (!targets) return;
     if (controller.signal.aborted || props.currentPage !== currentPage || props.pdfDocument !== pdfDocument) return;
     activeItemResolution = null;
+    // The vertical anchor is saved with the page; without it an unrelated edit
+    // would rewrite the bookmark to the top of its page.
     for (const [
         item,
-        pageIndex,
-    ] of pageIndexes) if (pageIndex !== null) item.pageIndex ??= requirePageIndex(pageIndex);
+        target,
+    ] of targets) {
+        if (!target) continue;
+        item.pageIndex ??= requirePageIndex(target.pageIndex);
+        item.pageYRatio ??= target.pageYRatio;
+    }
     const active = resolveActiveBookmarkForPage(
         items,
         currentPage,
         activeItemId.value,
-        item => pageIndexes.get(item) ?? null,
+        item => targets.get(item)?.pageIndex ?? null,
     );
     activeItemId.value = active?.id ?? null;
     if (!isEditMode.value) {
