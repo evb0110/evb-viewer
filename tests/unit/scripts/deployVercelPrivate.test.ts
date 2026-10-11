@@ -1,3 +1,4 @@
+import type * as FsPromises from 'node:fs/promises';
 import {
     appendFileSync,
     cpSync,
@@ -29,7 +30,22 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
+
+// Hooks run before the real unlink, so a test can pause one caller inside it.
+const lockFsHooks = vi.hoisted(() => ({beforeUnlink: undefined as undefined | ((file: string) => Promise<void>)}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+    const actual = await importOriginal<typeof FsPromises>();
+    return {
+        ...actual,
+        unlink: async (file: Parameters<typeof FsPromises.unlink>[0]) => {
+            await lockFsHooks.beforeUnlink?.(String(file));
+            return actual.unlink(file);
+        },
+    };
+});
 
 interface IPreparedPrivateDeploySource {
     cleanup: () => void;
@@ -38,6 +54,10 @@ interface IPreparedPrivateDeploySource {
 }
 
 interface IPrivateDeployModule {
+    acquireProductionDeployLock: (options: {
+        env: Record<string, string | undefined>;
+        projectId: string;
+    }) => Promise<() => Promise<void>>;
     buildVercelRollbackArgs: (deploymentUrl: string) => string[];
     buildPrivateDeployArgs: (
         sourceRoot: string,
@@ -74,6 +94,7 @@ interface IPrivateDeployModule {
 }
 
 const {
+    acquireProductionDeployLock,
     buildVercelRollbackArgs,
     buildPrivateDeployArgs,
     extractVercelDeploymentUrl,
@@ -135,6 +156,54 @@ afterAll(() => {
         });
     }
 });
+
+// A separate deploy process that holds the production lock until it is killed.
+async function startProductionLockOwner(projectRoot: string) {
+    const owner = spawn(process.execPath, [
+        '--input-type=module',
+        '-e',
+        `
+            const {runPrivateVercelDeploy} = await import(process.env.EVB_TEST_DEPLOY_MODULE);
+            await runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                fetchImpl: () => {
+                    process.stdout.write('lock-held\\n');
+                    return new Promise(() => {});
+                },
+                projectRoot: process.env.EVB_TEST_PROJECT_ROOT,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (_command, args) => ({
+                    stderr: '',
+                    stdout: args[0] === 'inspect'
+                        ? '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}'
+                        : 'Production: https://next.vercel.app',
+                    status: 0,
+                }),
+            });
+        `,
+    ], {
+        env: {
+            ...process.env,
+            EVB_TEST_DEPLOY_MODULE: pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href,
+            EVB_TEST_PROJECT_ROOT: projectRoot,
+        },
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
+    });
+    await new Promise<void>((resolveHeld, rejectHeld) => {
+        owner.stdout.on('data', (chunk: Buffer) => {
+            if (chunk.toString().includes('lock-held')) {
+                resolveHeld();
+            }
+        });
+        owner.once('exit', code => rejectHeld(new Error(`owner exited before taking the lock: ${code}`)));
+    });
+    return owner;
+}
 
 function createProjectFixture() {
     const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-private-deploy-fixture-'));
@@ -463,54 +532,11 @@ describe('private Vercel deployment source', () => {
     it('lets a deploy proceed after the process holding the production lock was killed', async () => {
         const projectRoot = createProjectFixture();
         const lockPath = getProductionDeployLockPath('project');
-        const owner = spawn(process.execPath, [
-            '--input-type=module',
-            '-e',
-            `
-                const {runPrivateVercelDeploy} = await import(process.env.EVB_TEST_DEPLOY_MODULE);
-                await runPrivateVercelDeploy({
-                    command: 'vercel-test',
-                    env: {CI: 'true'},
-                    fetchImpl: () => {
-                        process.stdout.write('lock-held\\n');
-                        return new Promise(() => {});
-                    },
-                    projectRoot: process.env.EVB_TEST_PROJECT_ROOT,
-                    rawArgs: ['--prod'],
-                    spawnSyncImpl: (_command, args) => ({
-                        stderr: '',
-                        stdout: args[0] === 'inspect'
-                            ? '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}'
-                            : 'Production: https://next.vercel.app',
-                        status: 0,
-                    }),
-                });
-            `,
-        ], {
-            env: {
-                ...process.env,
-                EVB_TEST_DEPLOY_MODULE: pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href,
-                EVB_TEST_PROJECT_ROOT: projectRoot,
-            },
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
-        });
+        const owner = await startProductionLockOwner(projectRoot);
 
         try {
-            await new Promise<void>((resolveHeld, rejectHeld) => {
-                owner.stdout.on('data', (chunk: Buffer) => {
-                    if (chunk.toString().includes('lock-held')) {
-                        resolveHeld();
-                    }
-                });
-                owner.once('exit', code => rejectHeld(new Error(`owner exited before taking the lock: ${code}`)));
-            });
             owner.kill('SIGKILL');
             await once(owner, 'exit');
-            expect(existsSync(lockPath)).toBe(true);
 
             const deployCalls: string[][] = [];
             await expect(runPrivateVercelDeploy({
@@ -541,7 +567,7 @@ describe('private Vercel deployment source', () => {
                 },
             })).resolves.toBe(0);
             expect(deployCalls).toHaveLength(2);
-            expect(existsSync(lockPath)).toBe(false);
+            expect(readFileSync(lockPath, 'utf8')).toBe('');
         } finally {
             if (owner.exitCode === null && owner.signalCode === null) {
                 owner.kill('SIGKILL');
@@ -556,6 +582,77 @@ describe('private Vercel deployment source', () => {
         }
     });
 
+    it('never lets two callers hold the production deploy lock behind a dead owner', async () => {
+        const lockPath = getProductionDeployLockPath('project');
+        mkdirSync(path.dirname(lockPath), {recursive: true});
+        writeFileSync(lockPath, JSON.stringify({
+            hostname: hostname(),
+            pid: 2147483647,
+            token: 'dead',
+        }));
+        const bReachedUnlink = Promise.withResolvers<undefined>();
+        const bMayUnlink = Promise.withResolvers<undefined>();
+        const waitZero = {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'};
+        let releaseA: (() => Promise<void>) | undefined;
+        let releaseB: (() => Promise<void>) | undefined;
+        lockFsHooks.beforeUnlink = async (file) => {
+            if (file !== lockPath) {
+                return;
+            }
+            lockFsHooks.beforeUnlink = undefined;
+            bReachedUnlink.resolve(undefined);
+            await bMayUnlink.promise;
+        };
+
+        try {
+            // Caller B reaches the unlink of the dead lock and pauses there.
+            const pendingB = acquireProductionDeployLock({
+                env: waitZero,
+                projectId: 'project',
+            });
+            await Promise.race([
+                bReachedUnlink.promise,
+                pendingB.then(() => undefined, () => undefined),
+            ]);
+            // Caller A runs while B is paused; a live lock must stop it.
+            releaseA = await acquireProductionDeployLock({
+                env: waitZero,
+                projectId: 'project',
+            })
+                .catch(() => undefined);
+            bMayUnlink.resolve(undefined);
+            releaseB = await pendingB;
+
+            expect(releaseA === undefined || releaseB === undefined).toBe(true);
+        } finally {
+            lockFsHooks.beforeUnlink = undefined;
+            bMayUnlink.resolve(undefined);
+            await releaseA?.();
+            await releaseB?.();
+            rmSync(lockPath, {force: true});
+        }
+    });
+
+    it('keeps a lock recorded by another host in force', async () => {
+        const lockPath = getProductionDeployLockPath('project');
+        mkdirSync(path.dirname(lockPath), {recursive: true});
+        writeFileSync(lockPath, JSON.stringify({
+            hostname: 'another-host',
+            pid: 2147483647,
+            token: 'foreign',
+        }));
+
+        try {
+            await expect(acquireProductionDeployLock({
+                env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+                projectId: 'project',
+            })).rejects.toThrow('Timed out waiting for the production deploy lock');
+            expect(JSON.parse(readFileSync(lockPath, 'utf8')).token).toBe('foreign');
+        } finally {
+            rmSync(lockPath, {force: true});
+        }
+    });
+
     it('keeps a live owner\'s production deploy lock in force across task temp roots', async () => {
         const projectRoot = createProjectFixture();
         const originalTmpdir = process.env.TMPDIR;
@@ -565,13 +662,7 @@ describe('private Vercel deployment source', () => {
             process.env.TMPDIR = ownerTmpdir;
             return getProductionDeployLockPath('project');
         })();
-        mkdirSync(path.dirname(lockPath), {recursive: true});
-        writeFileSync(lockPath, JSON.stringify({
-            acquiredAt: Date.now(),
-            hostname: hostname(),
-            pid: process.pid,
-            token: 'live-owner',
-        }));
+        const owner = await startProductionLockOwner(projectRoot);
         const deployCalls: string[][] = [];
 
         try {
@@ -594,9 +685,11 @@ describe('private Vercel deployment source', () => {
                 },
             })).rejects.toThrow('Timed out waiting for the production deploy lock');
             expect(deployCalls).toEqual([]);
-            expect(JSON.parse(readFileSync(lockPath, 'utf8')).token).toBe('live-owner');
+            expect(JSON.parse(readFileSync(lockPath, 'utf8')).pid).toBe(owner.pid);
         } finally {
             restoreEnv('TMPDIR', originalTmpdir);
+            owner.kill('SIGKILL');
+            await once(owner, 'exit');
             rmSync(lockPath, {force: true});
             for (const directory of [
                 ownerTmpdir,

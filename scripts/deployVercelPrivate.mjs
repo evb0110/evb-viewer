@@ -11,12 +11,6 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {
-    link as linkAsync,
-    open as openFile,
-    readFile as readFileAsync,
-    unlink as unlinkAsync,
-} from 'node:fs/promises';
-import {
     homedir,
     hostname,
     tmpdir,
@@ -24,12 +18,11 @@ import {
 import path from 'node:path';
 import {
     execFileSync,
+    spawn,
     spawnSync,
 } from 'node:child_process';
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
+import {once} from 'node:events';
+import {createHash} from 'node:crypto';
 import {
     fileURLToPath,
     pathToFileURL,
@@ -570,98 +563,93 @@ export function getProductionDeployLockPath(projectId) {
     return path.join(homedir(), '.cache', 'evb-viewer', 'deploy-locks', `evb-vercel-production-${projectFingerprint}.lock`);
 }
 
-async function readProductionDeployLock(lockPath) {
-    try {
-        return JSON.parse(await readFileAsync(lockPath, 'utf8'));
-    } catch {
-        return null;
-    }
-}
+// The lock is an advisory flock held by a small helper process for as long as
+// the deploy runs. The operating system drops it when the helper exits, so a
+// killed deploy never leaves a lock behind and no caller reclaims another's.
+// The helper takes the lock, refuses a record written by another host (its
+// liveness cannot be checked here), writes its own record, and waits for stdin
+// to close. Closing stdin, or the death of the deploy process, ends it.
+const PRODUCTION_DEPLOY_LOCK_HELPER = `
+import fcntl, json, os, sys, time
+lock_path, record, host, wait_ms, poll_s = sys.argv[1:6]
+deadline = time.monotonic() + int(wait_ms) / 1000
+lock = open(lock_path, 'a+')
+while True:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock.seek(0)
+        text = lock.read()
+        try:
+            owner = json.loads(text) if text.strip() else None
+        except ValueError:
+            owner = None
+        if owner is None or owner.get('hostname') == host:
+            break
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    except BlockingIOError:
+        pass
+    if time.monotonic() >= deadline:
+        sys.exit(3)
+    time.sleep(float(poll_s))
+os.ftruncate(lock.fileno(), 0)
+lock.write(record)
+lock.flush()
+print('locked', flush=True)
+sys.stdin.read()
+os.ftruncate(lock.fileno(), 0)
+`;
 
-// A lock is live unless its owner is a process on this host that has exited.
-// A lock from another host cannot be checked here, so it stays in force.
-function isProductionDeployLockOwnerLive(owner) {
-    if (owner.hostname !== hostname()) {
-        return true;
-    }
-    try {
-        process.kill(owner.pid, 0);
-        return true;
-    } catch (error) {
-        return error?.code !== 'ESRCH';
-    }
-}
-
-// Removes the lock only when its owner has exited. Returns true when it did, so
-// the caller retries at once. The token re-read guards the window in which a
-// concurrent caller may already have replaced the dead lock.
-async function reclaimDeadProductionDeployLock(lockPath) {
-    const owner = await readProductionDeployLock(lockPath);
-    if (!owner || isProductionDeployLockOwnerLive(owner)) {
-        return false;
-    }
-    const current = await readProductionDeployLock(lockPath);
-    if (current?.token !== owner.token) {
-        return false;
-    }
-    await unlinkAsync(lockPath).catch((error) => {
-        if (error?.code !== 'ENOENT') {
-            throw error;
-        }
-    });
-    return true;
-}
-
-async function acquireProductionDeployLock({
+export async function acquireProductionDeployLock({
     env,
     projectId,
 }) {
     const lockPath = getProductionDeployLockPath(projectId);
-    const lockToken = randomUUID();
     const configuredWaitMs = Number(env.EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS);
     const waitMs = Number.isSafeInteger(configuredWaitMs) && configuredWaitMs >= 0
         ? configuredWaitMs
         : PRODUCTION_DEPLOY_LOCK_WAIT_MS;
-    const deadline = Date.now() + waitMs;
     mkdirSync(path.dirname(lockPath), {recursive: true});
 
-    while (true) {
-        const temporaryPath = `${lockPath}.${process.pid}.${lockToken}.tmp`;
-        try {
-            const handle = await openFile(temporaryPath, 'wx', 0o600);
-            try {
-                await handle.writeFile(JSON.stringify({
-                    acquiredAt: Date.now(),
-                    hostname: hostname(),
-                    pid: process.pid,
-                    token: lockToken,
-                }));
-            } finally {
-                await handle.close();
+    const record = JSON.stringify({
+        acquiredAt: Date.now(),
+        hostname: hostname(),
+        pid: process.pid,
+    });
+    const helper = spawn('python3', [
+        '-I',
+        '-c',
+        PRODUCTION_DEPLOY_LOCK_HELPER,
+        lockPath,
+        record,
+        hostname(),
+        String(waitMs),
+        String(PRODUCTION_DEPLOY_LOCK_POLL_MS / 1000),
+    ], {stdio: [
+        'pipe',
+        'pipe',
+        'pipe',
+    ]});
+    let stderr = '';
+    helper.stderr.on('data', (chunk) => {
+        stderr += chunk;
+    });
+    await new Promise((resolve, reject) => {
+        helper.stdout.once('data', () => resolve());
+        helper.once('error', reject);
+        helper.once('exit', (code) => {
+            if (code === 3) {
+                reject(new Error(`Timed out waiting for the production deploy lock for ${waitMs}ms.`));
+            } else {
+                reject(new Error(`Production deploy lock helper exited with ${code}: ${stderr.trim()}`));
             }
-            await linkAsync(temporaryPath, lockPath);
-            await unlinkAsync(temporaryPath).catch(() => undefined);
-            return async () => {
-                const currentOwner = await readProductionDeployLock(lockPath);
-                if (currentOwner?.token === lockToken) {
-                    await unlinkAsync(lockPath).catch(() => undefined);
-                }
-            };
-        } catch (error) {
-            await unlinkAsync(temporaryPath).catch(() => undefined);
-            if (error?.code !== 'EEXIST') {
-                throw error;
-            }
+        });
+    });
+    return async () => {
+        helper.stdin.end();
+        if (helper.exitCode === null && helper.signalCode === null) {
+            await once(helper, 'exit');
         }
-
-        if (await reclaimDeadProductionDeployLock(lockPath)) {
-            continue;
-        }
-        if (Date.now() >= deadline) {
-            throw new Error(`Timed out waiting for the production deploy lock for ${waitMs}ms.`);
-        }
-        await new Promise(resolve => setTimeout(resolve, PRODUCTION_DEPLOY_LOCK_POLL_MS));
-    }
+    };
 }
 
 async function runDeployAcceptanceChecks({
