@@ -392,6 +392,81 @@ describe('usePdfSearchHighlight', () => {
 });
 
 describe('pdfSearchHighlightDom text-layer mapping', () => {
+    it('reconciles a literal highlight when matching workers are unavailable', async () => {
+        vi.mocked(matchBrowserSearchPageWindowInWorker).mockRejectedValueOnce(new Error('Worker unavailable'));
+        const layer = document.createElement('div');
+        const span = document.createElement('span');
+        span.textContent = 'prefix needle';
+        layer.append(span);
+        registerTextLayerTextMapping(layer, {
+            textDivs: [span],
+            textContentItemsStr: ['prefix needle'],
+        });
+        const highlight = usePdfSearchHighlight();
+        highlight.highlightPage(layer, {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'needle',
+            searchOptions: {
+                useRegex: false,
+                matchCase: false,
+                wholeWord: false,
+            },
+            matches: [{
+                start: 0,
+                end: 6,
+                matchIndex: 0,
+                pageMatchIndex: 0,
+            }],
+        }, {
+            pageIndex: requirePageIndex(0),
+            startOffset: 0,
+            endOffset: 6,
+            matchIndex: 0,
+            pageMatchIndex: 0,
+        });
+        await expect.poll(() => [...layer.querySelectorAll('.pdf-search-highlight--current')]
+            .map(element => element.textContent).join('')).toBe('needle');
+        expect(layer.textContent).toBe('prefix needle');
+        highlight.clearHighlights(layer);
+        vi.mocked(matchBrowserSearchPageWindowInWorker).mockReset();
+        vi.mocked(matchBrowserSearchPageWindowInWorker).mockImplementation(async (
+            text, query, options, maxMatches, resultOffset,
+        ) => matchPdfSearchPageWindow(text, query, options, maxMatches, resultOffset));
+    });
+
+    it('leaves unverified backend coordinates unpainted after regex reconciliation fails', async () => {
+        vi.mocked(matchBrowserSearchPageWindowInWorker).mockRejectedValueOnce(new Error('Worker unavailable'));
+        const layer = document.createElement('div');
+        const span = document.createElement('span');
+        span.textContent = 'prefix needle';
+        layer.append(span);
+        registerTextLayerTextMapping(layer, {
+            textDivs: [span],
+            textContentItemsStr: ['prefix needle'],
+        });
+        const result = usePdfSearchHighlight().highlightPage(layer, {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'needle',
+            searchOptions: {
+                useRegex: true,
+                matchCase: false,
+                wholeWord: false,
+            },
+            matches: [{
+                start: 0,
+                end: 6,
+                matchIndex: 0,
+                pageMatchIndex: 0,
+            }],
+        }, null);
+        expect(result.elements).toEqual([]);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(layer.querySelector('.pdf-search-highlight')).toBeNull();
+        expect(layer.textContent).toBe('prefix needle');
+    });
+
     it.each([
         1,
         2,
@@ -459,6 +534,11 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             pageIndex: requirePageIndex(0),
             pageText: '',
             searchQuery: 'alpha',
+            searchOptions: {
+                useRegex: true,
+                matchCase: false,
+                wholeWord: false,
+            },
             matches: [{
                 matchIndex: 0,
                 start: 100,

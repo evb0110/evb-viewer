@@ -11,6 +11,7 @@ import {
     SEARCH_RESULT_LIMIT,
     type IAssembledSearchablePageText,
 } from '@contracts/search';
+import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
 import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
 import type { IHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 
@@ -149,8 +150,11 @@ export function buildVisualMatchesWithCurrent(
     layerText: string,
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
 ): IHighlightMatchRange[] {
+    const verified = pageMatches.pageText === assembledLayerText.text
+        ? assembledLayerText : assembleSearchablePageText([{text: layerText}]);
+    if (pageMatches.pageText !== verified.text) return [];
     return markVisualMatchesWithCurrent(
-        buildBackendVisualMatches(pageMatches, assembledLayerText),
+        buildBackendVisualMatches(pageMatches, verified),
         pageMatches,
         currentMatch,
     );
@@ -181,9 +185,9 @@ export async function reconcileVisualMatchesWithCurrent(
         wholeWord: pageMatches.searchOptions?.wholeWord ?? false,
         useRegex: pageMatches.searchOptions?.useRegex ?? false,
     };
-    const matchLayer = (assembled: IAssembledSearchablePageText) => matchBrowserSearchPageWindowInWorker(
-        assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal, budget, signal,
-    );
+    const matchLayer = (assembled: IAssembledSearchablePageText) => options.useRegex
+        ? matchBrowserSearchPageWindowInWorker(assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal, budget, signal)
+        : matchPdfSearchPageWindow(assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal);
     let assembled = assembledLayerText;
     let result = await matchLayer(assembled);
     // Positioned glyphs sometimes form words only in the contiguous assembly.

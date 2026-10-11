@@ -3955,6 +3955,74 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
+    it.each([{
+        label: 'literal without workers',
+        fragmented: false,
+    }])('reconciles search highlight text: $label', async ({fragmented}) => {
+        const browser = await chromium.launch({headless: true});
+        const evidenceDir = resolve(process.cwd(), `.devkit/search-highlight-regressions/${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        try {
+            const page = await browser.newPage();
+            const url = `${origin}/__highlight-window`;
+            await page.route(url, route => route.fulfill({
+                contentType: 'text/html',
+                body: '<!doctype html><html><body><button id="highlight">Highlight selected result</button><div id="layer"></div></body></html>',
+            }));
+            await page.goto(url, {waitUntil: 'domcontentloaded'});
+            await page.evaluate('import(\'/_nuxt/assets/css/pdf-search-highlights.scss\')');
+            await page.addStyleTag({content: 'body {font: 24px sans-serif} #layer {white-space: pre}'});
+            await page.evaluate(`(async () => {
+                const {usePdfSearchHighlight} = await import('/_nuxt/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight.ts');
+                const {registerTextLayerTextMapping} = await import('/_nuxt/modules/pdf-viewer/engine/search/pdfSearchHighlightDom.ts');
+                const fragmented = ${fragmented};
+                const items = fragmented ? ['needle', '\\n', ...'needle'] : ['prefix needle'];
+                const layer = document.querySelector('#layer');
+                const spans = items.map(text => {
+                    const span = document.createElement('span');
+                    span.textContent = text;
+                    layer.append(span);
+                    return span;
+                });
+                registerTextLayerTextMapping(layer, {textDivs: spans, textContentItemsStr: items});
+                if (!fragmented) window.Worker = undefined;
+                const highlight = usePdfSearchHighlight();
+                document.querySelector('#highlight').addEventListener('click', event => {
+                    if (!event.isTrusted) throw new Error('Highlight requires trusted input');
+                    const start = fragmented ? 7 : 0;
+                    const ordinal = fragmented ? 1 : 0;
+                    highlight.highlightPage(layer, {
+                        pageIndex: 0, pageText: '', searchQuery: 'needle',
+                        searchOptions: {useRegex: fragmented, matchCase: false, wholeWord: false},
+                        matches: [{start, end: start + 6, matchIndex: ordinal, pageMatchIndex: ordinal}],
+                    }, {pageIndex: 0, startOffset: start, endOffset: start + 6, matchIndex: ordinal, pageMatchIndex: ordinal});
+                });
+            })()`);
+            await page.locator('#highlight').click();
+            try {
+                await expect.poll(async () => (await page.locator('.pdf-search-highlight--current').allTextContents()).join(''))
+                    .toBe('needle');
+                expect(await page.locator('#layer').textContent()).toBe(fragmented ? 'needle\nneedle' : 'prefix needle');
+                const paint = await page.locator('.pdf-search-highlight--current').first().evaluate(element => ({
+                    background: getComputedStyle(element).backgroundColor,
+                    width: element.getBoundingClientRect().width,
+                }));
+                expect(paint.background).not.toBe('rgba(0, 0, 0, 0)');
+                expect(paint.width).toBeGreaterThan(0);
+                if (fragmented) expect(await page.locator('#layer > span').first().locator('.pdf-search-highlight').count()).toBe(0);
+            } finally {
+                const label = fragmented ? 'fragmented' : 'literal';
+                await page.screenshot({path: resolve(evidenceDir, `${label}.png`)});
+                writeFileSync(resolve(evidenceDir, `${label}.json`), JSON.stringify({
+                    current: (await page.locator('.pdf-search-highlight--current').allTextContents()).join(''),
+                    text: await page.locator('#layer').textContent(),
+                }, null, 2));
+            }
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
     it.each([
         true,
         false,
@@ -4008,13 +4076,16 @@ describe('browser document lifecycle UI', () => {
                 await expect.poll(() => page.locator('#response').textContent(), {timeout: 1_000}).toBe('Responded');
                 const acknowledgementMs = performance.now() - started;
                 expect(acknowledgementMs).toBeLessThan(1_000);
-                expect(await page.locator('.pdf-search-highlight').allTextContents()).toEqual(['needle']);
-                const painted = await page.locator('.pdf-search-highlight').evaluate(element => ({
-                    background: getComputedStyle(element).backgroundColor,
-                    width: element.getBoundingClientRect().width,
-                }));
-                expect(painted.background).not.toBe('rgba(0, 0, 0, 0)');
-                expect(painted.width).toBeGreaterThan(0);
+                // A failed match cannot verify backend coordinates in unknown layer text.
+                await expect.poll(() => page.locator('.pdf-search-highlight').allTextContents()).toEqual(knownText ? ['needle'] : []);
+                if (knownText) {
+                    const painted = await page.locator('.pdf-search-highlight').evaluate(element => ({
+                        background: getComputedStyle(element).backgroundColor,
+                        width: element.getBoundingClientRect().width,
+                    }));
+                    expect(painted.background).not.toBe('rgba(0, 0, 0, 0)');
+                    expect(painted.width).toBeGreaterThan(0);
+                }
                 console.info('Highlight trusted click acknowledgement', acknowledgementMs);
             })();
             try {

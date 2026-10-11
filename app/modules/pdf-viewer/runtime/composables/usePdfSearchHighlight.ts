@@ -211,8 +211,7 @@ export const usePdfSearchHighlight = () => {
             result.currentMatchElements.splice(0, result.currentMatchElements.length, ...completed.currentMatchElements);
             result.currentMatchRanges.splice(0, result.currentMatchRanges.length, ...completed.currentMatchRanges);
         }).catch(() => {
-            // Decoration retains the admitted ranges if reconciliation is unavailable
-            // or exceeds the match owner's bound. Search results stay authoritative.
+            // Only text-verified ranges were painted before reconciliation.
         }).finally(() => {
             if (!controller.signal.aborted) pendingHighlights.delete(textLayerDiv);
         });
