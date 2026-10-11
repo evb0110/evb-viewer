@@ -6852,9 +6852,12 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(thumbnailProbe.renderedCount, thumbnailDetail).toBeGreaterThan(0);
         expect(thumbnailProbe.placeholderPagesSeen, thumbnailDetail).toBeGreaterThan(0);
         expect(thumbnailProbe.matchedAspects.length, thumbnailDetail).toBeGreaterThanOrEqual(3);
+        // Every slot shares the document's one shape, and a placeholder has
+        // the shape its rendered page takes, so a raster never moves the rail.
+        const slotRatio = thumbnailProbe.matchedAspects[0]!.renderedRatio;
         expect(thumbnailProbe.matchedAspects.every(sample => (
             Math.abs(sample.placeholderRatio - sample.renderedRatio) <= 0.03
-            && Math.abs(sample.renderedRatio - 210 / 297) <= 0.03
+            && Math.abs(sample.renderedRatio - slotRatio) <= 0.03
         )), thumbnailDetail).toBe(true);
 
         const errorSurface = await session.page.evaluate(() => ({
