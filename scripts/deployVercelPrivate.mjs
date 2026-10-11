@@ -38,6 +38,7 @@ import {
     isExcludedWebDeploySourceFileName,
     isRootVendorPath,
 } from './check-web-deploy-source.mjs';
+import { assertWasmArtifactsCurrent } from './ensure-wasm-artifacts.mjs';
 import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
 export {promoteLandingVercelOutput} from './promoteLandingVercelOutput.mjs';
 
@@ -184,14 +185,11 @@ function configureDeployManifest(sourceRoot, deployTarget) {
 
 // public/wasm is built locally, not tracked, and the remote build has no Rust
 // toolchain, so a viewer upload carries the files `pnpm run build` produced.
+// assertWasmArtifactsCurrent has already checked them against the native sources.
 function copyBrowserWasm(projectRoot, sourceRoot) {
     for (const artifact of WASM_ARTIFACTS) {
-        const sourcePath = path.join(projectRoot, artifact.publicRelativePath);
-        if (!existsSync(sourcePath)) {
-            throw new Error(`Missing ${artifact.publicRelativePath}; run node scripts/ensure-wasm-artifacts.mjs before deploying.`);
-        }
         mkdirSync(path.dirname(path.join(sourceRoot, artifact.publicRelativePath)), {recursive: true});
-        cpSync(sourcePath, path.join(sourceRoot, artifact.publicRelativePath));
+        cpSync(path.join(projectRoot, artifact.publicRelativePath), path.join(sourceRoot, artifact.publicRelativePath));
     }
 }
 
@@ -238,6 +236,9 @@ export function preparePrivateDeploySource({
     }
 
     assertCleanTrackedWebDeploySource(projectRoot);
+    if (deployTarget === 'viewer') {
+        assertWasmArtifactsCurrent(projectRoot);
+    }
 
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'evb-vercel-private-'));
     const sourceRoot = path.join(scratchRoot, 'source');

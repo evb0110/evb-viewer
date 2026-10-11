@@ -13,6 +13,7 @@ import {
 import {tmpdir} from 'node:os';
 import path, {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {computeNativeBuildId} from '../../../scripts/native-build-id.mjs';
 import {
     execFileSync,
     spawnSync,
@@ -211,6 +212,30 @@ function createProjectFixture() {
     return projectRoot;
 }
 
+// Minimal native sources for the two browser WASM crates, with the build IDs a
+// local `ensure-wasm-artifacts.mjs` run would record for them.
+function writeNativeWasmFixture(projectRoot: string) {
+    const nativeRoot = path.join(projectRoot, 'native');
+    writeFileSync(path.join(nativeRoot, 'Cargo.toml'), '[workspace]\nmembers = ["pdf-image-combine", "pdf-page-ops"]\n');
+    writeFileSync(path.join(nativeRoot, 'Cargo.lock'), 'version = 4\n');
+    writeFileSync(path.join(nativeRoot, 'rust-toolchain.toml'), '[toolchain]\nchannel = "stable"\n');
+    for (const crateName of [
+        'pdf-image-combine',
+        'pdf-page-ops',
+    ]) {
+        mkdirSync(path.join(nativeRoot, crateName, 'src'), {recursive: true});
+        writeFileSync(path.join(nativeRoot, crateName, 'Cargo.toml'), `[package]\nname = "${crateName}"\n`);
+        writeFileSync(path.join(nativeRoot, crateName, 'src', 'lib.rs'), 'pub fn version() -> u32 { 1 }\n');
+    }
+    mkdirSync(path.join(projectRoot, 'public', 'fonts', 'annotation'), {recursive: true});
+    writeFileSync(path.join(projectRoot, 'public', 'fonts', 'annotation', 'DejaVuSans.ttf'), 'font\n');
+    mkdirSync(path.join(projectRoot, '.tmp'), {recursive: true});
+    writeFileSync(path.join(projectRoot, '.tmp', 'wasm-build-ids.json'), `${JSON.stringify({
+        'pdf-image-combine': computeNativeBuildId(projectRoot, 'pdf-image-combine'),
+        'pdf-page-ops': computeNativeBuildId(projectRoot, 'pdf-page-ops'),
+    }, null, 2)}\n`);
+}
+
 function commitFixtureChanges(projectRoot: string) {
     execFileSync('git', [
         'add',
@@ -366,6 +391,32 @@ describe('private Vercel deployment source', () => {
             ]) {
                 expect(existsSync(path.join(prepared.sourceRoot, relativePath))).toBe(true);
             }
+        } finally {
+            prepared?.cleanup();
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('refuses to upload browser WASM built from older native sources', () => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+        try {
+            writeNativeWasmFixture(projectRoot);
+            commitFixtureChanges(projectRoot);
+            prepared = preparePrivateDeploySource({projectRoot});
+            prepared.cleanup();
+            prepared = undefined;
+
+            writeFileSync(path.join(projectRoot, 'native', 'pdf-page-ops', 'src', 'lib.rs'), 'pub fn version() -> u32 { 2 }\n');
+            commitFixtureChanges(projectRoot);
+            expect(() => preparePrivateDeploySource({projectRoot})).toThrow(
+                /evb-pdf-page-ops\.wasm.*ensure-wasm-artifacts\.mjs/su,
+            );
         } finally {
             prepared?.cleanup();
             rmSync(projectRoot, {
