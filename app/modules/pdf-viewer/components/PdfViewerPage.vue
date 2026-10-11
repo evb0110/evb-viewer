@@ -27,6 +27,7 @@
             ></div>
             <DocumentPageSkeleton
                 v-if="showSkeleton && !rendered && !renderFailed"
+                :deferred="deferSkeleton"
                 :padding="pageSkeletonPadding"
                 :content-height="pageSkeletonContentHeight"
             />
@@ -73,6 +74,7 @@ import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/anno
 interface IProps {
     page: TPageNumber;
     showSkeleton: boolean;
+    deferSkeleton?: boolean;
     renderFailed?: boolean;
     renderErrorLabel?: string;
     spreadSingle?: boolean;
@@ -88,6 +90,7 @@ interface IProps {
 const {
     page,
     showSkeleton,
+    deferSkeleton = false,
     renderFailed = false,
     renderErrorLabel = '',
     spreadSingle = false,

@@ -636,6 +636,8 @@
     --app-document-page-skeleton-formula-height: 1.3rem;
     --app-document-page-skeleton-inline-gap: 0.55rem;
     --app-document-page-skeleton-inline-margin: 0.45rem;
+    --app-document-page-skeleton-reveal-delay: 0.2s;
+    --app-document-page-skeleton-reveal-duration: 0.15s;
     --app-pdf-note-title-gap: var(--app-space-3xl);
     --app-pdf-note-title-padding: var(--app-space-xl) var(--app-space-3xl) var(--app-space-md);
     --app-pdf-note-title-main-gap: 0.12rem;
