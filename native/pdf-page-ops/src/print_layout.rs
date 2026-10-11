@@ -392,10 +392,8 @@ fn embed_page_as_form(
 ) -> Result<PlacedPage> {
     let page = materialized_page_dictionary(document, page_id)?;
     let bounds = visible_box(document, &page)?;
-    let rotation = normalize_page_rotation(match page.get(b"Rotate") {
-        Ok(object) => document.dereference(object)?.1.as_i64()?,
-        Err(_) => 0,
-    });
+    let unit = resolve_page_user_unit(document, page_id)?;
+    let rotation = resolve_page_rotation(document, page_id)?;
     let mut resources = resolved_dictionary(document, page.get(b"Resources").ok())?;
     let mut content = b"q\n".to_vec();
     append_decoded_page_content(document, &page, page_number, &mut content)?;
@@ -413,6 +411,7 @@ fn embed_page_as_form(
             ("Type", Object::Name(b"XObject".to_vec())),
             ("Subtype", Object::Name(b"Form".to_vec())),
             ("FormType", Object::Integer(1)),
+            // The form maps raw page space to points, so the placed size is physical.
             (
                 "BBox",
                 Object::Array(
@@ -424,7 +423,7 @@ fn embed_page_as_form(
             (
                 "Matrix",
                 Object::Array(
-                    [1.0, 0.0, 0.0, 1.0, -bounds.x1, -bounds.y1]
+                    [unit, 0.0, 0.0, unit, -bounds.x1 * unit, -bounds.y1 * unit]
                         .map(number_object)
                         .to_vec(),
                 ),
@@ -436,8 +435,8 @@ fn embed_page_as_form(
     let _ = form.compress();
     Ok(PlacedPage {
         form_id: document.add_object(form),
-        width: bounds.width(),
-        height: bounds.height(),
+        width: bounds.width() * unit,
+        height: bounds.height() * unit,
         rotation,
     })
 }

@@ -431,3 +431,97 @@ fn rejects_non_finite_or_negative_margins_before_mutation() {
             .is_err());
     }
 }
+
+/// Width each form draws at on the printed sheet: the sheet's `cm` scale times
+/// the form's own /Matrix, times its /BBox width.
+fn printed_form_widths(document: &Document) -> Vec<f64> {
+    let page_id = *document.get_pages().values().next().unwrap();
+    let page = document.get_dictionary(page_id).unwrap();
+    let xobjects = page
+        .get(b"Resources")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"XObject")
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let contents = page.get(b"Contents").unwrap().as_reference().unwrap();
+    let content = document
+        .get_object(contents)
+        .unwrap()
+        .as_stream()
+        .unwrap()
+        .decompressed_content()
+        .unwrap();
+    let tokens = String::from_utf8(content).unwrap();
+    let tokens = tokens.split_whitespace().collect::<Vec<_>>();
+    let number = |token: &str| token.parse::<f64>().unwrap();
+    let mut widths = Vec::new();
+    for index in tokens
+        .iter()
+        .enumerate()
+        .filter(|(_, token)| **token == "cm")
+        .map(|(index, _)| index)
+    {
+        let placement = number(tokens[index - 6]);
+        let name = tokens[index + 1].trim_start_matches('/').as_bytes();
+        let form = document
+            .get_object(xobjects.get(name).unwrap().as_reference().unwrap())
+            .unwrap()
+            .as_stream()
+            .unwrap();
+        let matrix = form.dict.get(b"Matrix").unwrap().as_array().unwrap();
+        let bbox = form.dict.get(b"BBox").unwrap().as_array().unwrap();
+        let [x1, _, x2, _] = [0, 1, 2, 3].map(|slot| {
+            number_value(document, &bbox[slot])
+        });
+        widths.push(placement * number_value(document, &matrix[0]) * (x2 - x1));
+    }
+    widths
+}
+
+fn number_value(document: &Document, object: &Object) -> f64 {
+    let object = document.dereference(object).unwrap().1;
+    match object {
+        Object::Integer(value) => *value as f64,
+        Object::Real(value) => f64::from(*value),
+        _ => panic!("expected a number, found {object:?}"),
+    }
+}
+
+#[test]
+fn facing_print_keeps_a_user_unit_two_page_at_twice_the_size_of_a_user_unit_one_page() {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let mut kids = Vec::new();
+    for user_unit in [1, 2] {
+        let content = document.add_object(Stream::new(Dictionary::new(), b"0 0 1 rg 0 0 10 10 re f".to_vec()));
+        kids.push(Object::Reference(document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 600.into(), 800.into()],
+            "UserUnit" => user_unit,
+            "Contents" => content,
+        })));
+    }
+    document.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => kids,
+            "Count" => 2,
+        }),
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+
+    build_print_layout(&mut document, None, PrintViewMode::Facing, PrintOrientation::Portrait)
+        .unwrap();
+    let widths = printed_form_widths(&document);
+    assert_eq!(widths.len(), 2);
+    assert_approximately(widths[1] / widths[0], 2.0);
+}
