@@ -73,6 +73,10 @@ pub(crate) struct TextLayerInstruction {
     /// scalar, so normalize that scalar before embedding the stream.
     #[serde(default)]
     pub(crate) normalize_greek_micro_sign: bool,
+    /// The output page is named by links only. Its text and annotations are
+    /// copied by another subset; this run maps its destinations and nothing more.
+    #[serde(default)]
+    pub(crate) link_only: bool,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -111,6 +115,9 @@ fn append_overlay_pages(
         .collect::<Result<_>>()?;
     let mut copied = HashMap::new();
     for &(source_page_id, target_page_id, instruction, _) in &pages {
+        if instruction.link_only {
+            continue;
+        }
         // The new-document object map already owns materialization.
         if let Some(base) = base.filter(|_| !target.has_object(target_page_id)) {
             prepare_overlay_page(base, target, target_page_id)?;
@@ -280,10 +287,75 @@ fn is_too_large_error(error: &(dyn Error + 'static)) -> bool {
         .is_some_and(|error| error.code == NativeErrorCode::TooLarge)
 }
 
+/// The source document's destinations as source page indices. Built from the
+/// structural probe, which reads dictionaries and no stream bodies.
+struct OverlayDestinations<'a> {
+    probe: &'a Document,
+    page_index_by_id: HashMap<ObjectId, usize>,
+}
+
+impl<'a> OverlayDestinations<'a> {
+    fn new(probe: &'a Document) -> Result<Self> {
+        let page_index_by_id = probe
+            .get_pages()
+            .into_iter()
+            .map(|(number, id)| (id, number as usize - 1))
+            .collect();
+        Ok(Self {
+            probe,
+            page_index_by_id,
+        })
+    }
+
+    /// The pages a subset extracts for its copied pages: those pages plus every
+    /// page their links name, so each link resolves inside the subset.
+    fn subset_pages(&self, pages: &[usize]) -> Result<Vec<usize>> {
+        let resolver = PageTreeResolver::new(self.probe)?;
+        let mut subset = pages.to_vec();
+        for &page in pages {
+            let page_id =
+                resolver.page_id(self.probe, overlay_page_number(page, "sourcePageIndex")?)?;
+            let Ok(annotations) = self.probe.get_dictionary(page_id)?.get(b"Annots") else {
+                continue;
+            };
+            for annotation in self.probe.dereference(annotations)?.1.as_array()? {
+                let Ok((_, annotation)) = self.probe.dereference(annotation) else {
+                    continue;
+                };
+                let Ok(annotation) = annotation.as_dict() else {
+                    continue;
+                };
+                let action = annotation
+                    .get(b"A")
+                    .ok()
+                    .and_then(|action| self.probe.dereference(action).ok())
+                    .and_then(|(_, action)| action.as_dict().ok())
+                    .and_then(|action| action.get(b"D").ok());
+                let Some(destination) = annotation.get(b"Dest").ok().or(action) else {
+                    continue;
+                };
+                let Some(array) =
+                    crate::internal_destinations::resolve_destination(self.probe, destination)?
+                else {
+                    continue;
+                };
+                let target = array.first().and_then(|object| object.as_reference().ok());
+                if let Some(&index) = target.and_then(|id| self.page_index_by_id.get(&id)) {
+                    subset.push(index);
+                }
+            }
+        }
+        subset.sort_unstable();
+        subset.dedup();
+        Ok(subset)
+    }
+}
+
 fn referenced_source_pages(instructions: &TextLayerFile) -> Result<Vec<usize>> {
     let mut pages = instructions
         .pages
         .iter()
+        .filter(|instruction| !instruction.link_only)
         .map(|instruction| instruction.source_page_index)
         .collect::<Vec<_>>();
     pages.sort_unstable();
@@ -407,15 +479,20 @@ fn extract_overlay_source_batch(
     Ok(subset_path)
 }
 
+/// The instructions of one subset: every output page whose source page the
+/// subset extracts. Only the batch's own pages copy text; the destination pages
+/// it also holds are mapped as link-only.
 fn rebase_overlay_source_instructions(
     instructions: &TextLayerFile,
     pages: &[usize],
+    text_pages: &[usize],
 ) -> Result<TextLayerFile> {
     let local_pages = pages
         .iter()
         .enumerate()
         .map(|(local_index, page)| (*page, local_index))
         .collect::<HashMap<_, _>>();
+    let text_pages = text_pages.iter().copied().collect::<HashSet<_>>();
     let batch_pages = instructions
         .pages
         .iter()
@@ -429,6 +506,8 @@ fn rebase_overlay_source_instructions(
                     filter_to_output_page: instruction.filter_to_output_page,
                     normalize_greek_micro_sign: instruction.normalize_greek_micro_sign,
                     source_region: instruction.source_region,
+                    link_only: instruction.link_only
+                        || !text_pages.contains(&instruction.source_page_index),
                 })
         })
         .collect::<Vec<_>>();
@@ -446,9 +525,13 @@ fn try_write_overlay_source_batch(
     instructions: &TextLayerFile,
     temp_dir: &OverlaySourceTempDir,
     batch_id: usize,
+    destinations: &OverlayDestinations,
 ) -> std::result::Result<(), OverlaySourceBatchFailure> {
+    let subset_pages = destinations
+        .subset_pages(pages)
+        .map_err(OverlaySourceBatchFailure::Failed)?;
     let subset_path =
-        extract_overlay_source_batch(source_path, qpdf_path, pages, temp_dir, batch_id)?;
+        extract_overlay_source_batch(source_path, qpdf_path, &subset_pages, temp_dir, batch_id)?;
     let result = (|| {
         let source = match load_pdf_path(&subset_path) {
             Ok(source) => source,
@@ -469,8 +552,9 @@ fn try_write_overlay_source_batch(
             "Encrypted source PDFs are not supported by native page ops",
         )
         .map_err(OverlaySourceBatchFailure::Failed)?;
-        let batch_instructions = rebase_overlay_source_instructions(instructions, pages)
-            .map_err(OverlaySourceBatchFailure::Failed)?;
+        let batch_instructions =
+            rebase_overlay_source_instructions(instructions, &subset_pages, pages)
+                .map_err(OverlaySourceBatchFailure::Failed)?;
         let mut incremental =
             load_incremental_pdf_path(output_path, Some(qpdf_path)).map_err(|error| {
                 OverlaySourceBatchFailure::Failed(classify_pdf_load_error(
@@ -516,6 +600,7 @@ fn write_overlay_source_batch_with_split(
     instructions: &TextLayerFile,
     temp_dir: &OverlaySourceTempDir,
     next_batch_id: &mut usize,
+    destinations: &OverlayDestinations,
 ) -> Result<()> {
     let batch_id = *next_batch_id;
     *next_batch_id = batch_id
@@ -529,6 +614,7 @@ fn write_overlay_source_batch_with_split(
         instructions,
         temp_dir,
         batch_id,
+        destinations,
     ) {
         Ok(()) => Ok(()),
         Err(OverlaySourceBatchFailure::Failed(error)) => Err(error),
@@ -542,6 +628,7 @@ fn write_overlay_source_batch_with_split(
                 instructions,
                 temp_dir,
                 next_batch_id,
+                destinations,
             )?;
             write_overlay_source_batch_with_split(
                 output_path,
@@ -551,6 +638,7 @@ fn write_overlay_source_batch_with_split(
                 instructions,
                 temp_dir,
                 next_batch_id,
+                destinations,
             )
         }
         Err(OverlaySourceBatchFailure::TooLarge) => {
@@ -662,6 +750,7 @@ pub(crate) fn write_overlay_text_layers_path(
     )?;
 
     let source_pages = referenced_source_pages(instructions)?;
+    let destinations = OverlayDestinations::new(source_probe.get_prev_documents())?;
     let temp_dir = OverlaySourceTempDir::create()?;
     with_staged_incremental_output(input_path, output_path, |staged_output_path| {
         let mut next_batch_id = 0;
@@ -674,6 +763,7 @@ pub(crate) fn write_overlay_text_layers_path(
                 instructions,
                 &temp_dir,
                 &mut next_batch_id,
+                &destinations,
             )?;
         }
         Ok(())

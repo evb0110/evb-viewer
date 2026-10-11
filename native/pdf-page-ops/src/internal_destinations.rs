@@ -199,7 +199,10 @@ pub(crate) fn remap_internal_destination(
 /// is a named destination: it resolves through the catalog, and a name that
 /// the catalog does not define yields `None`, like any other destination the
 /// document no longer shows.
-fn resolve_destination(source: &Document, destination: &Object) -> Result<Option<Vec<Object>>> {
+pub(crate) fn resolve_destination(
+    source: &Document,
+    destination: &Object,
+) -> Result<Option<Vec<Object>>> {
     let mut object = source.dereference(destination)?.1.clone();
     if let Object::Name(name) | Object::String(name, _) = &object {
         let name = name.clone();

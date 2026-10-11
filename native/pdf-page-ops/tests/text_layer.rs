@@ -139,6 +139,24 @@ fn write_sparse_source(
     ocr_source_page_index: Option<usize>,
     malformed_source_page_index: Option<usize>,
 ) -> u64 {
+    write_sparse_linked_source(
+        path,
+        page_count,
+        ocr_source_page_index,
+        malformed_source_page_index,
+        None,
+    )
+}
+
+/// `link` names a (from, to) source page pair: the first page carries a link
+/// annotation whose destination is the second page.
+fn write_sparse_linked_source(
+    path: &Path,
+    page_count: usize,
+    ocr_source_page_index: Option<usize>,
+    malformed_source_page_index: Option<usize>,
+    link: Option<(usize, usize)>,
+) -> u64 {
     const SPARSE_UNREFERENCED_BYTES: u64 = 600 * 1024 * 1024;
     let first_page_object = 3;
     let last_page_object = first_page_object + page_count - 1;
@@ -165,8 +183,15 @@ fn write_sparse_source(
         } else {
             empty_content_object
         };
+        let annots = match link {
+            Some((from, to)) if from == page_index => format!(
+                "/Annots[<</Type/Annot/Subtype/Link/Rect[2 2 40 20]/Border[0 0 0]/Dest[{} 0 R/XYZ 0 120 0]>>]",
+                first_page_object + to,
+            ),
+            _ => String::new(),
+        };
         let page = format!(
-            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Resources<< /Font<< /F1 {font_object} 0 R>> >>/Contents {content_object} 0 R>>"
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 120]/Resources<< /Font<< /F1 {font_object} 0 R>> >>/Contents {content_object} 0 R{annots}>>"
         );
         write_raw_object(&mut file, &mut offsets, object_number, page.as_bytes());
     }
@@ -1135,6 +1160,91 @@ fn overlay_text_extracts_a_high_index_page_from_a_sparse_source_above_the_byte_b
             .as_name()
             .unwrap(),
         b"Pages"
+    );
+
+    for path in [source, input, output, instructions] {
+        let _ = remove_file(path);
+    }
+}
+
+#[test]
+fn overlay_text_keeps_a_link_across_source_subsets_above_the_byte_budget() {
+    const LINK_SOURCE_PAGE_INDEX: usize = 0;
+    const LINK_TARGET_PAGE_INDEX: usize = 1_234;
+    let source = path("large-source-cross-subset-link", "pdf");
+    let input = path("large-source-cross-subset-link-input", "pdf");
+    let output = path("large-source-cross-subset-link-output", "pdf");
+    let instructions = path("large-source-cross-subset-link-instructions", "json");
+    let source_len = write_sparse_linked_source(
+        &source,
+        1_235,
+        Some(LINK_TARGET_PAGE_INDEX),
+        None,
+        Some((LINK_SOURCE_PAGE_INDEX, LINK_TARGET_PAGE_INDEX)),
+    );
+    assert!(source_len > 512 * 1024 * 1024);
+    save_empty_pages(&input, 66);
+    // Source pages 0..=64 span two 64-page subsets; the link target is in a third.
+    let mut page_instructions = (0..65)
+        .map(|page_index| {
+            format!(
+                r#"{{"sourcePageIndex":{page_index},"outputPageIndex":{page_index},"matrix":[1,0,0,1,0,0]}}"#
+            )
+        })
+        .collect::<Vec<_>>();
+    page_instructions.push(format!(
+        r#"{{"sourcePageIndex":{LINK_TARGET_PAGE_INDEX},"outputPageIndex":65,"matrix":[1,0,0,1,0,0]}}"#
+    ));
+    write(
+        &instructions,
+        format!(r#"{{"pages":[{}]}}"#, page_instructions.join(",")),
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "overlay-text failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let overlaid = Document::load(&output).unwrap();
+    let pages = overlaid.get_pages();
+    let target_page_id = *pages.get(&66).unwrap();
+    let link_page_id = *pages.get(&1).unwrap();
+    let annotations = overlaid
+        .get_dictionary(link_page_id)
+        .unwrap()
+        .get(b"Annots")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .clone();
+    let destination = annotations
+        .iter()
+        .find_map(|annotation| {
+            overlaid
+                .dereference(annotation)
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap()
+                .get(b"Dest")
+                .ok()
+                .cloned()
+        })
+        .expect("the link keeps its destination across the subset boundary");
+    assert_eq!(
+        destination.as_array().unwrap()[0].as_reference().unwrap(),
+        target_page_id
+    );
+    // The target page's text comes from its own subset only, not from the
+    // subset that holds it as a link destination.
+    let text = pdftotext_page(&output, 66, &[]);
+    assert_eq!(
+        String::from_utf8_lossy(&text.stdout)
+            .matches("HIGH INDEX OCR")
+            .count(),
+        1
     );
 
     for path in [source, input, output, instructions] {
