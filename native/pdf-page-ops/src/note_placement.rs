@@ -84,7 +84,7 @@ pub(crate) fn prepare_note_copy(
 /// admits a note only while its centre lies on the page, so a marker that a
 /// split or canvas placement pushed past an edge would import as foreign. A
 /// popup has no centre rule of its own and is only moved. A note its source
-/// admits that cannot fit fails the conversion; a foreign one stays as copied.
+/// admits that cannot fit fails the conversion; a foreign one is never moved.
 pub(crate) fn fit_note_to_view(
     document: &Document,
     annotation: &mut Dictionary,
@@ -102,8 +102,12 @@ pub(crate) fn fit_note_to_view(
     let subtype = annotation
         .get(b"Subtype")
         .ok()
+        .and_then(|value| document.resolved(value).ok())
         .and_then(|value| value.as_name().ok());
     let is_popup = subtype == Some(b"Popup");
+    if !source_note && !is_popup {
+        return Ok(());
+    }
     if !is_popup
         && !matches!(subtype, Some(b"Text"))
         && !is_free_text_note_marker(document, annotation, view, page_rotation)
@@ -121,7 +125,7 @@ pub(crate) fn fit_note_to_view(
     };
     // A note root its source page admits must stay one; a foreign one is copied.
     if source_note && pdf_rect_to_note_marker_rect(fitted, view, page_rotation).is_err() {
-        return Err("overlay-text cannot keep a note on its output page".into());
+        return Err("cannot keep a note on its output page".into());
     }
     if x1 == rect.x1 && y1 == rect.y1 {
         return Ok(());

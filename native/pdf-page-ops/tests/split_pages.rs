@@ -1777,3 +1777,76 @@ fn split_pages_places_a_thread_whose_note_has_an_indirect_subtype() {
 
     assert_thread_on_right_half_only(&Document::load(&output).unwrap());
 }
+
+/// A 200 x 120 page holding one /Text note with `rect`, as a split reads it.
+fn save_note_pdf(path: &Path, rect: [i64; 4]) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let note_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "P" => page_id,
+        "Rect" => rect.map(Object::Integer).to_vec(),
+        "Contents" => Object::string_literal("split note"),
+    });
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Annots" => vec![Object::Reference(note_id)],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+#[test]
+fn split_pages_refuses_a_supported_note_wider_than_its_output_page() {
+    for incremental in [false, true] {
+        let input = path("split-wide-note-input", "pdf");
+        let output = path("split-wide-note-output", "pdf");
+        let instructions = path("split-wide-note-instructions", "json");
+        // The 11 pt note is supported on its 200 pt page; a 10 pt crop cannot keep it a note.
+        save_note_pdf(&input, [0, 45, 11, 55]);
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":10,"height":120}}]}]}"#,
+        )
+        .unwrap();
+        let mut command = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"));
+        command
+            .args(["split-pages", "--input"])
+            .arg(&input)
+            .arg("--output")
+            .arg(&output)
+            .arg("--instructions-file")
+            .arg(&instructions);
+        if incremental {
+            command.arg("--qpdf").arg(qpdf_path());
+        }
+
+        let result = command.output().unwrap();
+
+        assert!(
+            !result.status.success(),
+            "incremental {incremental}: a supported note was split onto a page it cannot fit"
+        );
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}

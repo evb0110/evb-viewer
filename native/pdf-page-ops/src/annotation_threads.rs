@@ -1,6 +1,5 @@
 use super::*;
-use crate::note_markers::legacy_note_marker_as_text;
-use crate::split_pages::{page_annotation_array, transform_annotation_geometry};
+use crate::split_pages::page_annotation_array;
 
 /// The annotation a reply or popup answers to: the thread root for a reply,
 /// the note for a popup. A form field is not a thread member, so a widget's
@@ -87,24 +86,28 @@ pub(crate) fn transform_page_annotations(
         .and_then(|value| value.as_i64().ok())
         .unwrap_or(0);
     let source_view = resolve_page_view(source, source_page_id)?;
+    // A split narrows the page, so a legacy marker becomes a /Text note before it moves.
+    let note_copy = NoteCopy {
+        source,
+        source_page_id,
+        filtered: true,
+        matrix,
+        view: crop,
+        rotation,
+    };
     let mut copies = HashMap::new();
     let mut pending = Vec::new();
     let mut kept = Vec::with_capacity(entries.len());
     for entry in entries {
         // An entry this tool cannot read as an annotation dictionary is carried
         // over exactly as it was, as it always has been.
-        let (source_id, annotation) = match source.dereference(&entry) {
-            Ok((source_id, object)) => match object.as_dict() {
-                Ok(annotation) => (source_id, annotation.clone()),
-                Err(_) => {
-                    kept.push(entry);
-                    continue;
-                }
-            },
-            Err(_) => {
-                kept.push(entry);
-                continue;
-            }
+        let Some((source_id, annotation)) = source
+            .dereference(&entry)
+            .ok()
+            .and_then(|(source_id, object)| Some((source_id, object.as_dict().ok()?.clone())))
+        else {
+            kept.push(entry);
+            continue;
         };
         let owner = thread_owner(source, &annotation);
         let subtype = owner
@@ -161,10 +164,7 @@ pub(crate) fn transform_page_annotations(
         if annotation.has(b"P") {
             annotation.set("P", page_id);
         }
-        // A legacy marker is recognized by its size on its page, which the
-        // split may narrow, so it becomes a /Text note before it moves.
-        legacy_note_marker_as_text(source, &mut annotation, source, source_page_id)?;
-        transform_annotation_geometry(target, &mut annotation, matrix, Some(source), rotation)?;
+        place_note_copy(target, &mut annotation, Some(source), &note_copy)?;
         target
             .objects
             .insert(copy_id, Object::Dictionary(annotation));

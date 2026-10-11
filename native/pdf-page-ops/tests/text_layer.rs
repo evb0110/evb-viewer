@@ -4125,3 +4125,161 @@ fn overlay_copies_a_text_annotation_its_source_page_already_shows_as_foreign() {
         remove_file(file).unwrap();
     }
 }
+
+/// A 200 x 120 source page holding one note with `rect`. With `indirect_subtype`
+/// the /Subtype is an indirect name object, as some writers emit it.
+fn save_note_source(path: &Path, indirect_subtype: bool, rect: [i64; 4]) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let subtype = Object::Name(b"Text".to_vec());
+    let subtype = if indirect_subtype {
+        Object::Reference(document.add_object(subtype))
+    } else {
+        subtype
+    };
+    let note_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => subtype,
+        "P" => page_id,
+        "Rect" => rect.map(Object::Integer).to_vec(),
+        "Contents" => Object::string_literal("source note"),
+    });
+    document.objects.insert(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+            "Annots" => vec![Object::Reference(note_id)],
+        }
+        .into(),
+    );
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let catalog_id = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", catalog_id);
+    document.save(path).unwrap();
+}
+
+/// A blank one-page target `width` points wide and 120 points high.
+fn save_target_of_width(path: &Path, width: i64) {
+    let mut document = save_pages(path, std::iter::once(None), Dictionary::new());
+    for page in document.get_pages().into_values() {
+        document.get_dictionary_mut(page).unwrap().set(
+            "MediaBox",
+            vec![0.into(), 0.into(), width.into(), 120.into()],
+        );
+    }
+    document.save(path).unwrap();
+}
+
+/// Overlays the whole 200 x 120 source onto the target's page without moving it.
+fn overlay_whole_source_instructions() -> &'static str {
+    r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":200,"height":120}}}]}"#
+}
+
+#[test]
+fn overlay_refuses_a_note_whose_indirect_subtype_is_wider_than_its_output_page() {
+    for indirect_subtype in [false, true] {
+        let source = path("overwide-note-source", "pdf");
+        let input = path("overwide-note-target", "pdf");
+        let output = path("overwide-note-output", "pdf");
+        let instructions = path("overwide-note-instructions", "json");
+        // An 11 pt note admitted on its 200 pt source page cannot stay a note on a 10 pt page.
+        save_note_source(&source, indirect_subtype, [0, 45, 11, 55]);
+        save_target_of_width(&input, 10);
+        write(&instructions, overlay_whole_source_instructions()).unwrap();
+
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+
+        assert!(
+            !result.status.success(),
+            "indirect subtype {indirect_subtype}: an admitted note was published on a page it cannot fit"
+        );
+        for file in [source, input, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+fn overlay_leaves_a_foreign_note_where_it_is_on_any_output_page() {
+    for target_width in [150, 300] {
+        let source = path("foreign-note-source", "pdf");
+        let input = path("foreign-note-target", "pdf");
+        let output = path("foreign-note-output", "pdf");
+        let instructions = path("foreign-note-instructions", "json");
+        // The 225 pt rectangle is wider than the 200 pt source page, so the reader
+        // does not admit it as a note and the overlay must not move or reclassify it.
+        save_note_source(&source, false, [-60, 45, 165, 55]);
+        save_target_of_width(&input, target_width);
+        write(&instructions, overlay_whole_source_instructions()).unwrap();
+
+        let result = run_overlay_text(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        let saved = Document::load(&output).unwrap();
+        let page = saved.get_pages()[&1];
+        let annots = saved.get_dictionary(page).unwrap().get(b"Annots").unwrap();
+        let (_, annots) = saved.dereference(annots).unwrap();
+        let (_, note) = saved.dereference(&annots.as_array().unwrap()[0]).unwrap();
+        let rect: Vec<f32> = note
+            .as_dict()
+            .unwrap()
+            .get(b"Rect")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_float().unwrap())
+            .collect();
+        assert_eq!(
+            rect,
+            [-60.0, 45.0, 165.0, 55.0],
+            "target width {target_width}"
+        );
+
+        let parsed = path("foreign-note-parsed", "jsonl");
+        let parse = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["parse-annotations", "--input"])
+            .arg(&output)
+            .arg("--output")
+            .arg(&parsed)
+            .args(["--modified-at", "D:20261011000000Z"])
+            .output()
+            .unwrap();
+        assert!(parse.status.success());
+        let kinds: Vec<String> = fs::read_to_string(&parsed)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .flat_map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                    .as_array()
+                    .unwrap()
+                    .clone()
+            })
+            .map(|entry| entry["kind"].as_str().unwrap().to_string())
+            .collect();
+        // Only a 150 pt page is too narrow for the 225 pt rectangle. On 300 pt the
+        // reader admits it by its own rule, which placement does not decide.
+        if target_width == 150 {
+            assert_eq!(kinds, ["foreign"]);
+        }
+        for file in [source, input, output, instructions, parsed] {
+            remove_file(file).unwrap();
+        }
+    }
+}
