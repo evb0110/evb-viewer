@@ -81,6 +81,7 @@ describe('useAppUpdates', () => {
                     ...idleStatus,
                     phase: 'unsupported',
                     origin: 'manual',
+                    requestedHere: true,
                 });
                 return {started: false};
             }),
@@ -159,6 +160,65 @@ describe('useAppUpdates', () => {
         });
     });
 
+    it('keeps a progress dialog the person closed closed until the download finishes', async () => {
+        let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
+        const updatesCapability = createElectronPlatformApiFixture({updates: {onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+            statusListener = callback;
+            return () => {};
+        })}}).updates;
+        platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
+
+        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const updates = useAppUpdates();
+        await updates.ensureInitialized();
+        const pushToAskingWindow = (status: Pick<IAppUpdateStatus, 'phase'> & Partial<IAppUpdateStatus>) => {
+            requireStatusListener(statusListener)({
+                origin: 'manual',
+                version: '2.0.0',
+                percent: null,
+                message: null,
+                requestedHere: true,
+                ...status,
+            });
+        };
+
+        pushToAskingWindow({phase: 'available'});
+        pushToAskingWindow({
+            phase: 'downloading',
+            percent: 10,
+        });
+        expect(updates.dialog.value).toMatchObject({
+            open: true,
+            phase: 'downloading',
+            percent: 10,
+        });
+
+        updates.closeDialog();
+        pushToAskingWindow({
+            phase: 'downloading',
+            percent: 40,
+        });
+        pushToAskingWindow({
+            phase: 'downloading',
+            percent: 80,
+        });
+        expect(updates.dialog.value.open).toBe(false);
+        expect(updates.status.value).toMatchObject({
+            phase: 'downloading',
+            percent: 80,
+        });
+
+        pushToAskingWindow({
+            phase: 'downloaded',
+            percent: 100,
+        });
+        expect(updates.dialog.value).toMatchObject({
+            open: true,
+            kind: 'ready',
+            version: '2.0.0',
+        });
+    });
+
     it('opens an automatic offer only on request and starts the download only on request', async () => {
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
         const download = vi.fn(async () => ({ started: true }));
@@ -215,6 +275,7 @@ describe('useAppUpdates', () => {
             version: '2.0.0',
             percent: null,
             message: null,
+            requestedHere: true,
         };
 
         for (const choose of [
@@ -258,9 +319,23 @@ describe('useAppUpdates', () => {
         requireStatusListener(statusListener)(failedStatus);
         expect(updates.dialog.value.open).toBe(false);
 
+        // A manual result the owner addressed to another window updates Settings
+        // and the status, but this window's dialog stays closed.
         requireStatusListener(statusListener)({
             ...failedStatus,
             origin: 'manual',
+            requestedHere: false,
+        });
+        expect(updates.status.value).toMatchObject({
+            phase: 'error',
+            origin: 'manual',
+        });
+        expect(updates.dialog.value.open).toBe(false);
+
+        requireStatusListener(statusListener)({
+            ...failedStatus,
+            origin: 'manual',
+            requestedHere: true,
         });
         expect(updates.dialog.value).toMatchObject({
             open: true,
@@ -304,6 +379,7 @@ describe('useAppUpdates', () => {
                 percent: null,
                 message: raw,
                 reason: reason as NonNullable<IAppUpdateStatus['reason']>,
+                requestedHere: true,
             });
             for (const language of Object.keys(LOCALE_MESSAGES)) {
                 locale.value = language as TLocale;
@@ -424,4 +500,40 @@ describe('useAppUpdates', () => {
             version: '2.0.0',
         });
     });
+    it('presents an unreceived startup failure even when a newer push precedes its hydration reply', async () => {
+        const hydration = Promise.withResolvers<IAppUpdateStatus>();
+        let listener: ((status: IAppUpdateStatus) => void) | null = null;
+        platformApi = createElectronPlatformApiFixture({updates: {
+            getState: () => hydration.promise,
+            onStatus: callback => {listener = callback; return () => {};},
+        }});
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
+        const ui = useAppUpdates();
+        const initialized = ui.ensureInitialized();
+        requireStatusListener(listener)({
+            phase: 'checking',
+            origin: 'manual',
+            version: '2.0.0',
+            percent: null,
+            message: null,
+            requestedHere: false,
+        });
+        hydration.resolve({
+            phase: 'error',
+            reason: 'install-failed',
+            origin: 'manual',
+            version: '2.0.0',
+            percent: null,
+            message: 'Installation failed',
+            requestedHere: true,
+        });
+        await initialized;
+        expect(ui.dialog.value).toMatchObject({
+            open: true,
+            phase: 'error',
+            reason: 'install-failed',
+        });
+        expect(ui.dialog.value.failure?.technicalDetails).toBe('Installation failed');
+    });
+
 });

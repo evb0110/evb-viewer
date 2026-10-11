@@ -54,6 +54,9 @@ const appUpdateStatusSchema = v.object({
         v.string('invalid app update status'),
         v.maxLength(APP_UPDATE_MESSAGE_MAX_LENGTH, 'invalid app update status'),
     )),
+    // Per-window presentation eligibility. Restores are silent except for an
+    // unreceived startup install failure, consumed by the first ready renderer.
+    requestedHere: v.optional(v.boolean('invalid app update status')),
 }, 'invalid app update status');
 export type IAppUpdateStatus = v.InferOutput<typeof appUpdateStatusSchema>;
 export type TAppUpdateReason = NonNullable<IAppUpdateStatus['reason']>;
@@ -93,7 +96,7 @@ export const UPDATES_PLATFORM_FEATURE = definePlatformFeature({
             },
             main: {
                 method: 'getUpdateStatus',
-                context: 'none',
+                context: 'sender',
             },
             browser: browserUnsupported,
             lazy: 'forwarded',
@@ -107,7 +110,7 @@ export const UPDATES_PLATFORM_FEATURE = definePlatformFeature({
             },
             main: {
                 method: 'triggerManualUpdateCheck',
-                context: 'none',
+                context: 'sender',
             },
             browser: browserUnsupported,
             lazy: 'forwarded',
@@ -121,7 +124,7 @@ export const UPDATES_PLATFORM_FEATURE = definePlatformFeature({
             },
             main: {
                 method: 'downloadAvailableUpdate',
-                context: 'none',
+                context: 'sender',
             },
             browser: browserUnsupported,
             lazy: 'forwarded',
@@ -135,7 +138,7 @@ export const UPDATES_PLATFORM_FEATURE = definePlatformFeature({
             },
             main: {
                 method: 'installDownloadedUpdate',
-                context: 'none',
+                context: 'sender',
             },
             browser: browserUnsupported,
             lazy: 'forwarded',

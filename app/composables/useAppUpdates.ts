@@ -39,22 +39,12 @@ const DEFAULT_STATUS: IAppUpdateStatus = {
     message: null,
 };
 
-const DEFAULT_DIALOG: IUpdateDialogState = {
-    open: false,
-    kind: 'status',
-    phase: 'checking',
-    version: null,
-    percent: null,
-    message: null,
-    failure: null,
-};
-
 const status = ref<IAppUpdateStatus>({ ...DEFAULT_STATUS });
-const dialog = ref<IUpdateDialogState>({ ...DEFAULT_DIALOG });
+const dialogOpen = ref(false);
 const initialized = ref(false);
 let statusUnsubscribe: (() => void) | null = null;
 let initializationPromise: Promise<boolean> | null = null;
-let activeUpdateFailure: TUpdateFailureCapture | null = null;
+const activeUpdateFailure = ref<TUpdateFailureCapture | null>(null);
 
 function toErrorMessage(error: unknown) {
     const message = getErrorMessage(error);
@@ -64,52 +54,8 @@ function toErrorMessage(error: unknown) {
     return String(error);
 }
 
-function openStatusDialog(
-    nextStatus: IAppUpdateStatus,
-    failure: TUpdateFailureCapture | null,
-) {
-    if (nextStatus.phase === 'idle' || nextStatus.phase === 'downloaded') {
-        return;
-    }
-
-    dialog.value = {
-        open: true,
-        kind: 'status',
-        phase: nextStatus.phase,
-        version: nextStatus.version,
-        percent: nextStatus.percent,
-        message: nextStatus.message,
-        reason: nextStatus.reason,
-        failure,
-    };
-}
-
-function openReadyDialog(version: string | null) {
-    dialog.value = {
-        open: true,
-        kind: 'ready',
-        phase: 'downloading',
-        version,
-        percent: 100,
-        message: null,
-        failure: null,
-    };
-}
-
-function openAvailableDialog(version: string | null) {
-    dialog.value = {
-        open: true,
-        kind: 'available',
-        phase: 'available',
-        version,
-        percent: null,
-        message: null,
-        failure: null,
-    };
-}
-
 function closeDialog() {
-    dialog.value.open = false;
+    dialogOpen.value = false;
 }
 
 function captureUpdateFailure(
@@ -139,51 +85,34 @@ function captureUpdateFailure(
 function applyStatus(
     nextStatus: IAppUpdateStatus,
     failure: TUpdateFailureCapture | null = null,
+    opensDialog = nextStatus.origin === 'manual',
 ) {
     status.value = nextStatus;
 
     if (nextStatus.phase === 'error') {
-        activeUpdateFailure = failure
-            ?? activeUpdateFailure
+        activeUpdateFailure.value = failure
+            ?? activeUpdateFailure.value
             ?? captureUpdateFailure(
                 new Error(nextStatus.message ?? 'Update status reported an error.'),
                 'status',
                 'Update status reported an error',
             );
     } else {
-        activeUpdateFailure = null;
+        activeUpdateFailure.value = null;
     }
 
-    // Only a status the user asked for opens the modal. The shell presents an
-    // automatic offer as a notice, and an automatic failure is only logged.
-    if (nextStatus.origin === 'manual') {
+    // A manual result opens the dialog here unless the caller says otherwise. The
+    // shell presents an automatic offer as a notice, and an automatic failure is only logged.
+    if (nextStatus.phase === 'error' && !opensDialog) {
+        closeDialog();
+    } else if (opensDialog && (nextStatus.phase !== 'downloading' || dialogOpen.value)) {
         showUpdateDialog();
     }
 }
 
-// The owner keeps its last status for the life of the process, so a window that
-// starts later is handed a result it never asked for. A restored status fills
-// Settings and the offer notice but never opens the modal. A ready update is the
-// one restored result that must stay reachable, so it is presented as the
-// automatic offer, whose View action opens the ready dialog.
-function restoreStatus(restoredStatus: IAppUpdateStatus) {
-    status.value = restoredStatus.phase === 'downloaded'
-        ? {
-            ...restoredStatus,
-            origin: 'auto',
-        }
-        : restoredStatus;
-    activeUpdateFailure = null;
-}
-
 function showUpdateDialog() {
-    const current = status.value;
-    if (current.phase === 'available') {
-        openAvailableDialog(current.version);
-    } else if (current.phase === 'downloaded') {
-        openReadyDialog(current.version);
-    } else {
-        openStatusDialog(current, activeUpdateFailure);
+    if (status.value.phase !== 'idle') {
+        dialogOpen.value = true;
     }
 }
 
@@ -220,7 +149,8 @@ async function ensureInitialized() {
     const unsubscribe = updates.onStatus((nextStatus) => {
         statusEvents.receivedPushedStatus = true;
         initialized.value = true;
-        applyStatus(nextStatus);
+        applyStatus(nextStatus, null, nextStatus.origin === 'manual' && nextStatus.requestedHere === true);
+
     });
     if (statusUnsubscribe && statusUnsubscribe !== unsubscribe) {
         statusUnsubscribe();
@@ -230,8 +160,12 @@ async function ensureInitialized() {
     initializationPromise = (async () => {
         try {
             const currentState = await updates.getState();
-            if (!statusEvents.receivedPushedStatus) {
-                restoreStatus(currentState);
+            if (!statusEvents.receivedPushedStatus || currentState.requestedHere === true) {
+                applyStatus(currentState.phase === 'downloaded'
+                    ? {
+                        ...currentState,
+                        origin: 'auto',
+                    } : currentState, null, currentState.requestedHere === true);
             }
             initialized.value = true;
             return true;
@@ -325,7 +259,7 @@ async function deferUpdate() {
 }
 
 async function skipUpdateVersion() {
-    const version = dialog.value.version?.length ? dialog.value.version : status.value.version;
+    const version = status.value.version;
     if (!version) {
         closeDialog();
         return;
@@ -356,7 +290,7 @@ const isUpdateSupported = computed(() => {
     return isUpdatesCapabilitySupported(status.value);
 });
 
-const dialogVersion = computed(() => dialog.value.version?.length ? dialog.value.version : status.value.version);
+const dialogVersion = computed(() => status.value.version);
 
 const updateReasonKeys = {
     'check-failed': 'updates.checkFailed',
@@ -373,18 +307,25 @@ const updateReasonKeys = {
 
 export const useAppUpdates = () => {
     const { t } = useTypedI18n();
-    const presentedDialog = computed<IUpdateDialogState>(() => ({
-        ...dialog.value,
-        // Localized reads are a view; modal writes still belong to the shared dialog.
-        get open() { return dialog.value.open; },
-        set open(open: boolean) { dialog.value.open = open; },
-        message: dialog.value.phase === 'error' || dialog.value.phase === 'unsupported'
-            ? dialog.value.reason === 'feed-unavailable'
-                ? t('updates.feedUnavailable', {version: dialog.value.version ?? t('updates.unknownVersion')})
-                : t(dialog.value.reason ? updateReasonKeys[dialog.value.reason]
-                    : dialog.value.phase === 'unsupported' ? 'updates.unsupportedDescription' : 'updates.unknownError')
-            : dialog.value.message,
-    }));
+    const presentedDialog = computed<IUpdateDialogState>(() => {
+        const current = status.value;
+        return {
+            get open() { return dialogOpen.value; },
+            set open(open: boolean) { dialogOpen.value = open; },
+            kind: current.phase === 'downloaded' ? 'ready' : current.phase === 'available' ? 'available' : 'status',
+            phase: current.phase === 'idle' ? 'checking' : current.phase === 'downloaded' ? 'downloading' : current.phase,
+            version: current.version,
+            percent: current.percent,
+            reason: current.reason,
+            failure: activeUpdateFailure.value,
+            message: current.phase === 'error' || current.phase === 'unsupported'
+                ? current.reason === 'feed-unavailable'
+                    ? t('updates.feedUnavailable', {version: current.version ?? t('updates.unknownVersion')})
+                    : t(current.reason ? updateReasonKeys[current.reason]
+                        : current.phase === 'unsupported' ? 'updates.unsupportedDescription' : 'updates.unknownError')
+                : current.message,
+        };
+    });
     return {
         status,
         dialog: presentedDialog,
@@ -410,8 +351,8 @@ if (import.meta.hot) {
         }
         initializationPromise = null;
         initialized.value = false;
-        activeUpdateFailure = null;
+        activeUpdateFailure.value = null;
         status.value = { ...DEFAULT_STATUS };
-        dialog.value = { ...DEFAULT_DIALOG };
+        closeDialog();
     });
 }

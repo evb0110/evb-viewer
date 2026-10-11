@@ -3,7 +3,6 @@ import {
     BrowserWindow,
     powerMonitor,
 } from 'electron';
-import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
 import { parseDocumentRef } from '@contracts/documentRef';
 import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
@@ -113,6 +112,7 @@ import {
 import {
     configureUpdateInstallShutdown,
     initializeUpdates,
+    projectUpdateStatusForWindow,
     shutdownUpdates,
 } from '@electron/updates';
 import { getErrorMessage } from '@electron/utils/error';
@@ -739,12 +739,6 @@ configureUpdateInstallShutdown((install) => {
     shutdownCoordinator.requestGracefulQuit({ afterCleanup: install });
 });
 
-function broadcastUpdateStatus(status: IAppUpdateStatus) {
-    for (const window of getAllRegisteredAppWindows()) {
-        sendToWindow(window, UPDATES_PLATFORM_FEATURE.eventChannels.onStatus, status);
-    }
-}
-
 const allowMultipleAutomationSessions = runtimeConfig.allowMultipleAutomationSessions;
 
 function isPerformanceMode(value: unknown): value is TPerformanceMode {
@@ -774,7 +768,11 @@ void runInitSequence({
     allowMultipleAutomationSessions,
     allowOpenPaths,
     attachHostEnvironmentToWindow,
-    broadcastUpdateStatus,
+    broadcastUpdateStatus: status => {
+        for (const window of getAllRegisteredAppWindows()) {
+            sendToWindow(window, UPDATES_PLATFORM_FEATURE.eventChannels.onStatus, projectUpdateStatusForWindow(status, window.webContents.id));
+        }
+    },
     cleanupStaleAppTempNamespaces,
     cleanupStaleWorkingCopyDirectories,
     createAdditionalWindow: () => createAppWindow(),
