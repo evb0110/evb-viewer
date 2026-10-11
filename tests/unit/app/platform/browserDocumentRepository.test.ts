@@ -254,6 +254,47 @@ describe('BrowserDocumentStore source registration', () => {
         expect((await store.requireEntry(workingRef)).sourceBaseWitness).toBe(openingWitness);
     });
 
+    it.each([
+        'base validation',
+        'post-commit witness',
+    ])(
+        'refuses revoked read permission without prompting under the save lock: %s', async phase => {
+            const locks = new FakeLockManager();
+            vi.stubGlobal('navigator', {locks});
+            const bytes = Uint8Array.of(1, 2, 3);
+            const file = new File([bytes], 'permission.pdf');
+            let granted = true;
+            const promptLocks: string[] = [];
+            const handle = Object.assign(createFileSystemFileHandle({
+                name: file.name,
+                getFile: async () => file,
+            }), {
+                queryPermission: async () => granted ? 'granted' : 'prompt',
+                requestPermission: async () => {
+                    promptLocks.push(...(await locks.query()).held.map(lock => lock.name));
+                    return 'granted';
+                },
+            });
+            const store = new BrowserDocumentStore();
+            const source = await store.registerFile(file, {
+                saveHandle: handle,
+                saveKind: 'pdf',
+            });
+            const working = await store.cloneAsWorkingCopy(source);
+            await store.writeForBootstrap(working, Uint8Array.of(4, 5, 6), 'permission-test');
+            const revision = await store.getDocumentRevision(working);
+            const saving = store.runDocumentMutationWithSource(working, source, revision.token, async mutation => {
+                granted = false;
+                if (phase === 'base validation') await mutation.assertPhysicalSourceBaseCurrent();
+                else await mutation.acknowledgePhysicalSourceCommit();
+            });
+            await expect(saving).rejects.toThrow(/permission/iu);
+            expect(promptLocks).toEqual([]);
+            expect((await locks.query()).held).toEqual([]);
+            await expect(store.read(working)).resolves.toEqual(Uint8Array.of(4, 5, 6));
+        },
+    );
+
     it('serializes two saves of one physical file so the second cannot overwrite the first', async () => {
         vi.stubGlobal('navigator', {locks: new FakeLockManager()});
         const openingBytes = Uint8Array.of(37, 80, 68, 70, 1);

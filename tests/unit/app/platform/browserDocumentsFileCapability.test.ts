@@ -1275,8 +1275,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
-        // Read and write permission are granted separately, and each is reported granted from then on.
-        const grantedModes = new Set<string>();
+        // The opened source has read access; saving still needs readwrite permission.
+        const grantedModes = new Set<string>(['read']);
         const queryPermission = vi.fn(async (descriptor?: {mode?: string}) => (
             grantedModes.has(descriptor?.mode ?? '') ? 'granted' as const : 'prompt' as const
         ));
@@ -1479,7 +1479,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
-        const queryPermission = vi.fn(async () => 'prompt' as const);
+        const queryPermission = vi.fn(async (descriptor?: {mode?: string}) => (
+            descriptor?.mode === 'read' ? 'granted' as const : 'prompt' as const
+        ));
         const requestPermission = vi.fn(async () => 'denied' as const);
         const createWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
         const handle = createFileSystemFileHandle({

@@ -46,27 +46,14 @@ import {
 } from '@contracts/documentMutationErrors';
 import { parseDocumentRef } from '@contracts/documentRef';
 
-async function ensureFileHandleReadPermission(handle: FileSystemFileHandle) {
+async function assertFileHandleReadPermission(handle: FileSystemFileHandle) {
     interface IFileSystemHandlePermissionDescriptor {mode: 'read';}
 
-    const permissionHandle = handle as FileSystemFileHandle & {
-        queryPermission?: (descriptor?: IFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
-        requestPermission?: (descriptor?: IFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
-    };
+    const permissionHandle = handle as FileSystemFileHandle & {queryPermission?: (descriptor?: IFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;};
     const descriptor: IFileSystemHandlePermissionDescriptor = { mode: 'read' };
 
-    if (typeof permissionHandle.queryPermission === 'function') {
-        const currentPermission = await permissionHandle.queryPermission(descriptor);
-        if (currentPermission === 'granted') {
-            return;
-        }
-    }
-
-    if (typeof permissionHandle.requestPermission === 'function') {
-        const requestedPermission = await permissionHandle.requestPermission(descriptor);
-        if (requestedPermission === 'granted') {
-            return;
-        }
+    if (permissionHandle.queryPermission && await permissionHandle.queryPermission(descriptor) !== 'granted') {
+        throw new DOMException('Browser read permission was not granted. Save again to restore file permission.', 'NotAllowedError');
     }
 }
 
@@ -75,7 +62,7 @@ async function readFileHandleBytes(
     offset?: number,
     length?: number,
 ) {
-    await ensureFileHandleReadPermission(handle);
+    await assertFileHandleReadPermission(handle);
     const file = await handle.getFile();
     if (typeof offset === 'number' && typeof length === 'number') {
         const start = Math.max(0, offset);
@@ -97,7 +84,7 @@ async function readFileHandleBytes(
 }
 
 export async function readFileHandleMetadata(handle: FileSystemFileHandle) {
-    await ensureFileHandleReadPermission(handle);
+    await assertFileHandleReadPermission(handle);
     const file = await handle.getFile();
     return {
         size: file.size,
