@@ -3,7 +3,10 @@
 import {PDFDocument} from 'pdf-lib';
 import {browserDjvuCapability} from '@app/platform/browser-api/browserDjvuCapability';
 import {browserDurableDjvuJobs} from '@app/platform/browser-api/browserDurableDjvuJobs';
-import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {
+    browserDocumentStore,
+    getBrowserDocumentFileName,
+} from '@app/platform/browserDocumentStore';
 import type {
     IDjvuConvertResult,
     IDjvuOpenResult,
@@ -211,7 +214,7 @@ async function installBrowserCompactDjvuAcceptance() {
 
 Reflect.set(globalThis, '__evbInstallBrowserCompactDjvuAcceptance', installBrowserCompactDjvuAcceptance);
 
-let capturedImageExportBytes: Uint8Array | null = null;
+let capturedImageExportChunks: Uint8Array[] = [];
 
 // The methods sit on the prototype: the stored output keeps this handle, and
 // IndexedDB cannot clone function-valued properties.
@@ -235,7 +238,7 @@ class ImageExportSaveHandle {
     async createWritable() {
         return {
             write: async (data: BodyInit) => {
-                capturedImageExportBytes = new Uint8Array(await new Response(data).arrayBuffer());
+                capturedImageExportChunks.push(new Uint8Array(await new Response(data).arrayBuffer()));
             },
             close: async () => {},
             abort: async () => {},
@@ -243,12 +246,34 @@ class ImageExportSaveHandle {
     }
 }
 
-async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
-    const fixtureResponse = await fetch('/fixtures/bitonal-faint-pencil.djvu');
+// A multi-page TIFF arrives in several writes; the capture keeps them in order.
+function takeCapturedImageExportBytes() {
+    const chunks = capturedImageExportChunks;
+    capturedImageExportChunks = [];
+    const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return bytes;
+}
+
+// Chunked so a multi-megabyte TIFF stays under the argument limit of fromCharCode.
+function encodeBase64(bytes: Uint8Array) {
+    let binary = '';
+    for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary);
+}
+
+async function stageDjvuFixture(fixturePath: string) {
+    const fixtureResponse = await fetch(fixturePath);
     if (!fixtureResponse.ok) {
         throw new Error(`Failed to load browser DjVu fixture: ${fixtureResponse.status}`);
     }
-    const sourcePath = await browserDocumentStore.createStoredDocument(
+    return browserDocumentStore.createStoredDocument(
         'browser-djvu-image-export.djvu',
         new Uint8Array(await fixtureResponse.arrayBuffer()),
         {
@@ -258,7 +283,11 @@ async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
             saveKind: 'generic',
         },
     );
-    capturedImageExportBytes = null;
+}
+
+async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
+    const sourcePath = await stageDjvuFixture('/fixtures/bitonal-faint-pencil.djvu');
+    capturedImageExportChunks = [];
     Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle(chosenName));
     try {
         const result = await createBrowserImageExportCapability().exportPdfToImages(
@@ -267,11 +296,11 @@ async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
             requireRequestId(`browser-djvu-image-export-${chosenName}`),
             'djvu',
         );
-        const bytes = capturedImageExportBytes as Uint8Array | null;
-        if (!result.success || bytes === null) {
+        const bytes = takeCapturedImageExportBytes();
+        if (!result.success || bytes.byteLength === 0) {
             throw new Error(`Browser DjVu image export did not write ${chosenName}`);
         }
-        const decodable = await createImageBitmap(new Blob([bytes as BlobPart]))
+        const decodable = await createImageBitmap(new Blob([bytes]))
             .then((bitmap) => {
                 bitmap.close();
                 return true;
@@ -279,6 +308,8 @@ async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
         return {
             head: Array.from(bytes.slice(0, 4)),
             decodable,
+            storedName: getBrowserDocumentFileName(result.outputPaths?.[0] ?? ''),
+            bytesBase64: encodeBase64(bytes),
         };
     } finally {
         await browserDocumentStore.remove(sourcePath);
@@ -286,3 +317,30 @@ async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
 }
 
 Reflect.set(globalThis, '__evbRunBrowserDjvuImageExportAcceptance', runBrowserDjvuImageExportAcceptance);
+
+async function runBrowserDjvuMultiPageTiffExportAcceptance() {
+    // Pages 1 and 2 of this fixture are 72 and 300 DPI; the TIFF keeps each one.
+    const sourcePath = await stageDjvuFixture('/fixtures/mixed-dpi.djvu');
+    capturedImageExportChunks = [];
+    Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle('document.tiff'));
+    try {
+        const result = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
+            sourcePath,
+            [
+                requirePageNumber(1),
+                requirePageNumber(2),
+            ],
+            requireRequestId('browser-djvu-multi-page-tiff-export'),
+            'djvu',
+        );
+        const bytes = takeCapturedImageExportBytes();
+        if (!result.success || bytes.byteLength === 0) {
+            throw new Error('Browser DjVu multi-page TIFF export did not write');
+        }
+        return {bytesBase64: encodeBase64(bytes)};
+    } finally {
+        await browserDocumentStore.remove(sourcePath);
+    }
+}
+
+Reflect.set(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance', runBrowserDjvuMultiPageTiffExportAcceptance);

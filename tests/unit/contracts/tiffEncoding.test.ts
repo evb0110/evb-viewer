@@ -63,4 +63,41 @@ describe('tiff encoding helpers', () => {
         expect(secondNextIfdOffset).toBe(0);
     });
 
+    it('writes each page density into its resolution tags', () => {
+        const ifds = [
+            buildTiffImageIfd({
+                width: 1,
+                height: 1,
+                dataLength: 4,
+                dpiX: 300,
+                dpiY: 150,
+            }, 8),
+            buildTiffImageIfd({
+                width: 2,
+                height: 1,
+                dataLength: 8,
+            }, 12),
+        ];
+
+        const frames = UTIF.decode(encodeTiffIfds(ifds, UTIF));
+
+        // ResolutionUnit 2 is inches; a page without a density keeps the 72 DPI default.
+        expect(frames.map(frame => [
+            frame.t282,
+            frame.t283,
+            frame.t296,
+        ])).toEqual([
+            [
+                [300],
+                [150],
+                [2],
+            ],
+            [
+                [72],
+                [72],
+                [2],
+            ],
+        ]);
+    });
+
 });

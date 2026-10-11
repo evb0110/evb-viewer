@@ -13,7 +13,9 @@ import {
     resolve,
 } from 'node:path';
 import {build} from 'esbuild';
+import {decode as decodePng} from 'fast-png';
 import {chromium} from 'playwright';
+import UTIF, {type IUtifFrame} from 'utif';
 import {
     afterAll,
     beforeAll,
@@ -23,14 +25,94 @@ import {
 } from 'vitest';
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 
+interface IBrowserImageExportAcceptance {
+    head: number[];
+    decodable: boolean;
+    storedName: string;
+    bytesBase64: string;
+}
+
+const PNG_SIGNATURE = [
+    137,
+    80,
+    78,
+    71,
+];
+const JPEG_SIGNATURE = [
+    255,
+    216,
+    255,
+];
+const TIFF_SIGNATURE = [
+    77,
+    77,
+    0,
+    42,
+];
+const PAGE_DPI = {
+    x: 300,
+    y: 300,
+};
+const METERS_PER_INCH = 0.0254;
+
 let server: Server;
 let origin = '';
 let bundlePath = '';
 let temporaryDirectory = '';
 let djvuBytes: Buffer;
+let mixedDpiDjvuBytes: Buffer;
 let djvuScriptBytes: Buffer;
 let combineWorkerBytes: Buffer;
 let combineWasmBytes: Buffer;
+
+// Each reader decodes the saved bytes with a library or the format's own layout, not the writer's code.
+function readPngDpi(bytes: Uint8Array) {
+    const {resolution} = decodePng(bytes);
+    // A pHYs chunk with unit 1 gives pixels per metre.
+    if (resolution?.unit !== 1) {
+        return null;
+    }
+    return {
+        x: Math.round(resolution.x * METERS_PER_INCH),
+        y: Math.round(resolution.y * METERS_PER_INCH),
+    };
+}
+
+function readJpegDpi(bytes: Uint8Array) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const isJfif = view.getUint16(2) === 0xffe0 && String.fromCharCode(...bytes.subarray(6, 11)) === 'JFIF\0';
+    // The JFIF APP0 segment holds the units at byte 13 and the densities at bytes 14 and 16.
+    if (!isJfif || view.getUint8(13) !== 1) {
+        return null;
+    }
+    return {
+        x: view.getUint16(14),
+        y: view.getUint16(16),
+    };
+}
+
+function firstNumber(value: unknown) {
+    if (!Array.isArray(value)) {
+        return null;
+    }
+    const first: unknown = value[0];
+    return typeof first === 'number' ? first : null;
+}
+
+function readTiffFrameDpi(frame: IUtifFrame) {
+    // ResolutionUnit 2 means inches; UTIF stores each rational as a number.
+    if (firstNumber(frame.t296) !== 2) {
+        return null;
+    }
+    return {
+        x: firstNumber(frame.t282),
+        y: firstNumber(frame.t283),
+    };
+}
+
+function bytesOf(result: IBrowserImageExportAcceptance) {
+    return Buffer.from(result.bytesBase64, 'base64');
+}
 
 beforeAll(async () => {
     await mkdir(join(process.cwd(), '.devkit'), {recursive: true});
@@ -58,6 +140,7 @@ beforeAll(async () => {
     combineWorkerBytes = await readFile(workerPath);
     combineWasmBytes = await readFile(resolve(process.cwd(), 'public/wasm/evb-pdf-image-combine.wasm'));
     djvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+    mixedDpiDjvuBytes = await readFile(resolve(process.cwd(), 'tests/fixtures/djvu/sources/mixed-dpi.djvu'));
     djvuScriptBytes = await readFile(resolve(process.cwd(), 'public/vendor/djvujs/djvu.js'));
     server = createServer((_request, response) => {
         if (_request.url === '/browserPdfCombine.worker.ts') {
@@ -78,6 +161,11 @@ beforeAll(async () => {
         if (_request.url === '/fixtures/bitonal-faint-pencil.djvu') {
             response.writeHead(200, {'content-type': 'application/octet-stream'});
             response.end(djvuBytes);
+            return;
+        }
+        if (_request.url === '/fixtures/mixed-dpi.djvu') {
+            response.writeHead(200, {'content-type': 'application/octet-stream'});
+            response.end(mixedDpiDjvuBytes);
             return;
         }
         response.writeHead(200, {'content-type': 'text/html'});
@@ -232,30 +320,80 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 type: 'module',
             });
             await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance') === 'function');
-            const pngResult = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')('page-001.png'));
-            const jpegResult = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')('page-001.jpg'));
-            const tiffResult = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')('page-001.tif'));
-            expect(pngResult).toEqual({
-                head: [
-                    137,
-                    80,
-                    78,
-                    71,
-                ],
+            const runExport = (chosenName: string) => page.evaluate<IBrowserImageExportAcceptance, string>(
+                name => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')(name),
+                chosenName,
+            );
+            const pngResult = await runExport('page-001.png');
+            const jpegResult = await runExport('page-001.jpg');
+            const tiffResult = await runExport('page-001.tif');
+            const pngWithSpaceResult = await runExport('page-001.png ');
+            const tiffWithSpaceResult = await runExport('page-001.tif ');
+            expect(pngResult).toMatchObject({
+                head: PNG_SIGNATURE,
                 decodable: true,
+                storedName: 'page-001.png',
             });
-            expect(jpegResult.head.slice(0, 3)).toEqual([
-                255,
-                216,
-                255,
-            ]);
-            expect(jpegResult.decodable).toBe(true);
+            expect(jpegResult.head.slice(0, JPEG_SIGNATURE.length)).toEqual(JPEG_SIGNATURE);
+            expect(jpegResult).toMatchObject({
+                decodable: true,
+                storedName: 'page-001.jpg',
+            });
             // Chromium cannot decode TIFF; the big-endian header is the saved format.
-            expect(tiffResult.head).toEqual([
-                77,
-                77,
-                0,
-                42,
+            expect(tiffResult).toMatchObject({
+                head: TIFF_SIGNATURE,
+                storedName: 'page-001.tif',
+            });
+            // The trailing space of the chosen name neither changes the format nor reaches the stored name.
+            expect(pngWithSpaceResult).toMatchObject({
+                head: PNG_SIGNATURE,
+                decodable: true,
+                storedName: 'page-001.png',
+            });
+            expect(tiffWithSpaceResult).toMatchObject({
+                head: TIFF_SIGNATURE,
+                storedName: 'page-001.tif',
+            });
+            expect(readPngDpi(bytesOf(pngResult))).toEqual(PAGE_DPI);
+            expect(readJpegDpi(bytesOf(jpegResult))).toEqual(PAGE_DPI);
+            expect(UTIF.decode(bytesOf(tiffResult)).map(readTiffFrameDpi)).toEqual([PAGE_DPI]);
+        } finally {
+            await browser.close();
+        }
+    });
+
+    it('writes a multi-page DjVu TIFF whose pages keep their own density', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance') === 'function');
+            const result = await page.evaluate<{bytesBase64: string}>(
+                () => Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance')(),
+            );
+            const frames = UTIF.decode(Buffer.from(result.bytesBase64, 'base64'));
+            expect(frames.map(frame => ({
+                width: firstNumber(frame.t256),
+                height: firstNumber(frame.t257),
+                dpi: readTiffFrameDpi(frame),
+            }))).toEqual([
+                {
+                    width: 640,
+                    height: 480,
+                    dpi: {
+                        x: 72,
+                        y: 72,
+                    },
+                },
+                {
+                    width: 512,
+                    height: 512,
+                    dpi: PAGE_DPI,
+                },
             ]);
         } finally {
             await browser.close();

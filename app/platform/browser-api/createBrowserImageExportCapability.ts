@@ -38,6 +38,8 @@ import type {
     ITiffEncoderModule,
     ITiffImageDescriptor,
 } from '@pdf-core/tiffEncoding';
+import { addJpegJfifDensity } from '@pdf-core/addJpegJfifDensity';
+import { addPngPhysicalResolution } from '@pdf-core/addPngPhysicalResolution';
 import {
     createDjvuWorkerFromPath,
     getDjvuWorkerPageSizes,
@@ -601,16 +603,19 @@ async function exportBrowserDjvuPagesAsImages(
                     canceled: true as const,
                 };
             }
-            // The decoder only produces PNG; the chosen file name decides the encoding, as in the PDF export.
-            const format = resolveBrowserImageExportFormat(saveTarget.fileName);
+            // The decoder only produces PNG. The chosen name, trimmed once, decides the encoding and the stored name.
+            const chosenName = saveTarget.fileName.trim();
+            const format = resolveBrowserImageExportFormat(chosenName);
             const mimeType = resolveBrowserImageMimeType(format);
             const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
             try {
                 const response = await fetch(rendered.url);
                 if (!response.ok) throw new Error(`Failed to render DjVu page ${pageNumber}`);
                 const pngBytes = new Uint8Array(await response.arrayBuffer());
-                const bytes = format === 'png' ? pngBytes : await encodeDecodedPngAs(pngBytes, format);
-                let saveName = normalizeBrowserImageExportFileName(saveTarget.fileName, format);
+                const bytes = format === 'png'
+                    ? addPngPhysicalResolution(pngBytes, pageSize.dpi)
+                    : await encodeDecodedPngAs(pngBytes, format, pageSize.dpi);
+                let saveName = normalizeBrowserImageExportFileName(chosenName, format);
                 let saveHandle = saveTarget.handle ?? null;
                 if (saveTarget.handle) {
                     await writeBytesToHandle(saveTarget.handle, bytes);
@@ -686,10 +691,17 @@ async function decodePngToRgba(bytes: Uint8Array) {
     }
 }
 
-async function encodeDecodedPngAs(pngBytes: Uint8Array, format: Exclude<TBrowserImageExportFormat, 'png'>) {
+async function encodeDecodedPngAs(
+    pngBytes: Uint8Array,
+    format: Exclude<TBrowserImageExportFormat, 'png'>,
+    dpi: number,
+) {
     const image = await decodePngToRgba(pngBytes);
     if (format === 'tiff') {
-        return encodeMultiPageTiff([image], await loadUtifEncoder());
+        return encodeMultiPageTiff([{
+            ...image,
+            dpi,
+        }], await loadUtifEncoder());
     }
     const canvas = document.createElement('canvas');
     try {
@@ -699,7 +711,7 @@ async function encodeDecodedPngAs(pngBytes: Uint8Array, format: Exclude<TBrowser
         if (!context) throw new Error('Canvas 2D context is unavailable for DjVu JPEG export');
         context.putImageData(new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height), 0, 0);
         const jpegBlob = await canvasToBlob(canvas, resolveBrowserImageMimeType(format), 0.92);
-        return new Uint8Array(await jpegBlob.arrayBuffer());
+        return addJpegJfifDensity(new Uint8Array(await jpegBlob.arrayBuffer()), dpi);
     } finally {
         releaseCanvas(canvas);
     }
@@ -725,6 +737,7 @@ function buildDjvuTiffPageDescriptors(
     sizes: Array<{
         width: number;
         height: number;
+        dpi: number;
     }>,
     targetPages: number[],
 ) {
@@ -737,6 +750,8 @@ function buildDjvuTiffPageDescriptors(
             width: pageSize.width,
             height: pageSize.height,
             dataLength: pageSize.width * pageSize.height * 4,
+            dpiX: pageSize.dpi,
+            dpiY: pageSize.dpi,
         };
     });
 }
@@ -1128,6 +1143,7 @@ function encodeMultiPageTiff(
         rgba: Uint8Array;
         width: number;
         height: number;
+        dpi?: number;
     }>,
     encoder: ITiffEncoderModule,
 ) {
@@ -1140,6 +1156,11 @@ function encodeMultiPageTiff(
         width: page.width,
         height: page.height,
         dataLength: page.rgba.byteLength,
+        // Without a source density the encoder's 72 DPI default applies.
+        ...(page.dpi === undefined ? {} : {
+            dpiX: page.dpi,
+            dpiY: page.dpi,
+        }),
     }));
     const {
         firstDataOffset,
