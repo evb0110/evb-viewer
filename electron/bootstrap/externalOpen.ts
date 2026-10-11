@@ -427,8 +427,9 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         options.logger.warn(`Requeued ${normalizedFailedPaths.length} failed startup external open path(s)`);
     }
 
-    function queueOpenRequestFromArgs(args: string[]) {
-        const parsedPaths = collectSupportedPathsFromArgs(args);
+    function queueOpenRequestFromArgs(args: string[], workingDirectory: string) {
+        const parsedPaths = collectSupportedPathsFromArgs(args)
+            .map(filePath => resolve(workingDirectory, filePath));
         if (parsedPaths.length > 0) {
             options.logger.info(`Parsed external open paths (${parsedPaths.length}): ${parsedPaths.join(' | ')}`);
         }

@@ -26,7 +26,7 @@ interface IShutdownCoordinator {
 }
 
 interface IExternalOpenManager {
-    queueOpenRequestFromArgs(args: string[]): void;
+    queueOpenRequestFromArgs(args: string[], workingDirectory: string): void;
     requestMainWindowForExternalOpen(): void;
     scheduleFlushPendingFiles(): void;
     claimPendingOpenPaths(): Promise<string[]>;
@@ -221,11 +221,11 @@ function bootSingleInstance(options: IRunInitSequenceOptions) {
     options.onPrimaryInstanceReady();
 
     if (process.platform !== 'darwin' || allowMultipleAutomationSessions) {
-        externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1));
+        externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1), process.cwd());
     }
 
-    app.on('second-instance', (_event, commandLine) => {
-        externalOpenManager.queueOpenRequestFromArgs(commandLine.slice(1));
+    app.on('second-instance', (_event, commandLine, workingDirectory) => {
+        externalOpenManager.queueOpenRequestFromArgs(commandLine.slice(1), workingDirectory);
         externalOpenManager.requestMainWindowForExternalOpen();
     });
 }
