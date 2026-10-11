@@ -32,9 +32,17 @@ const mocks = vi.hoisted(() => ({
     readFile: vi.fn(),
     userInfo: vi.fn(),
     userDataPath: '',
+    appWindows: [] as unknown[],
+    trustedRendererUrl: 'evb-viewer://app/electron',
+    setElectronLocale: vi.fn(async () => undefined),
 }));
 
 vi.mock('electron', () => ({app: {getPath: () => mocks.userDataPath}}));
+vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: mocks.trustedRendererUrl}}}));
+vi.mock('@electron/menu', () => ({updateRecentFilesMenu: vi.fn()}));
+vi.mock('@electron/te', () => ({setElectronLocale: mocks.setElectronLocale}));
+vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: () => mocks.appWindows}));
+
 vi.mock('node:fs/promises', async (importOriginal) => {
     const actual = await importOriginal<typeof FsPromises>();
     return {
@@ -50,12 +58,29 @@ vi.mock('node:os', async (importOriginal) => {
     };
 });
 
+function createAppWindow(url: string) {
+    const send = vi.fn();
+    return {
+        send,
+        window: {
+            isDestroyed: () => false,
+            webContents: {
+                getURL: () => url,
+                isDestroyed: () => false,
+                send,
+            },
+        },
+    };
+}
+
 describe('settings single-flight loading', () => {
     const paths: string[] = [];
 
     beforeEach(async () => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.appWindows.length = 0;
+        mocks.setElectronLocale.mockReset().mockResolvedValue(undefined);
         mocks.userDataPath = await mkdtemp(join(tmpdir(), 'evb-settings-single-flight-'));
         paths.push(mocks.userDataPath);
         await writeFile(join(mocks.userDataPath, 'settings.json'), '{}');
@@ -68,6 +93,93 @@ describe('settings single-flight loading', () => {
             force: true,
             recursive: true,
         })));
+    });
+
+    it('sends a write made outside the save path to every window that shows the app', async () => {
+        const first = createAppWindow(mocks.trustedRendererUrl);
+        const second = createAppWindow(mocks.trustedRendererUrl);
+        mocks.appWindows.push(first.window, second.window);
+        const {updateSettings} = await import('@electron/settings');
+
+        await updateSettings(settings => {
+            settings.agentMcpEnabled = true;
+            return undefined;
+        });
+
+        const expected = expect.objectContaining({agentMcpEnabled: true});
+        expect(first.send).toHaveBeenCalledOnce();
+        expect(first.send).toHaveBeenCalledWith('settings:changed', expected);
+        expect(second.send).toHaveBeenCalledOnce();
+        expect(second.send).toHaveBeenCalledWith('settings:changed', expected);
+    });
+
+    it('leaves out a window that no longer shows the app', async () => {
+        const foreign = createAppWindow('https://example.com/elsewhere');
+        const app = createAppWindow(mocks.trustedRendererUrl);
+        mocks.appWindows.push(foreign.window, app.window);
+        const {updateSettings} = await import('@electron/settings');
+
+        await updateSettings(settings => {
+            settings.skippedUpdateVersion = '9.9.9';
+            return undefined;
+        });
+
+        expect(foreign.send).not.toHaveBeenCalled();
+        expect(app.send).toHaveBeenCalledWith('settings:changed', expect.objectContaining({skippedUpdateVersion: '9.9.9'}));
+    });
+
+    it('sends one broadcast for a coalesced batch of saves', async () => {
+        const window = createAppWindow(mocks.trustedRendererUrl);
+        mocks.appWindows.push(window.window);
+        const {createSettingsMainBindings} = await import('@electron/features/settings/createSettingsMainBindings');
+        const bindings = createSettingsMainBindings(async () => undefined);
+
+        const first = bindings.save({senderId: 9} as never, {authorName: 'First'});
+        const second = bindings.save({senderId: 9} as never, {locale: 'ru'});
+        await Promise.all([
+            first,
+            second,
+        ]);
+
+        expect(window.send).toHaveBeenCalledOnce();
+        expect(window.send).toHaveBeenCalledWith('settings:changed', expect.objectContaining({
+            authorName: 'First',
+            locale: 'ru',
+        }));
+    });
+
+    it('broadcasts a diagnostics withdrawal to the window that made it', async () => {
+        const window = createAppWindow(mocks.trustedRendererUrl);
+        mocks.appWindows.push(window.window);
+        const {createSettingsMainBindings} = await import('@electron/features/settings/createSettingsMainBindings');
+        const bindings = createSettingsMainBindings(async () => undefined);
+
+        await bindings.save({senderId: 10} as never, {clientDiagnosticsPreference: 'denied'});
+
+        expect(window.send).toHaveBeenCalledWith('settings:changed', expect.objectContaining({clientDiagnosticsPreference: 'denied'}));
+    });
+
+    it('does not send a write from a replaced profile to the windows of the new one', async () => {
+        const window = createAppWindow(mocks.trustedRendererUrl);
+        mocks.appWindows.push(window.window);
+        const started = deferred<undefined>();
+        const release = deferred<undefined>();
+        const settingsModule = await import('@electron/settings');
+        const update = settingsModule.updateSettings(async (settings) => {
+            started.resolve(undefined);
+            await release.promise;
+            settings.theme = 'dark';
+            return undefined;
+        });
+        await started.promise;
+        mocks.userDataPath = await mkdtemp(join(tmpdir(), 'evb-settings-broadcast-next-'));
+        paths.push(mocks.userDataPath);
+        settingsModule.resetSettingsCacheAfterUserDataPathChange();
+        release.resolve(undefined);
+
+        await update;
+
+        expect(window.send).not.toHaveBeenCalled();
     });
 
     it('shares one unresolved read and returns a distinct clone to every caller', async () => {
