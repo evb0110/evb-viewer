@@ -3013,3 +3013,76 @@ fn an_edited_evb_shape_saved_without_the_print_flag_prints_after_the_edit() {
     .unwrap();
     assert_every_page_annotation_prints(&document, page_id, 1);
 }
+
+fn embedded_shape_pdf_with_indirect_flags(stable_key: &str) -> (Document, ObjectId) {
+    let (mut document, page_id) = create_test_document();
+    let flags_id = document.add_object(Object::Integer(34));
+    let object_id = document.add_object(Object::Dictionary(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Square",
+        "Rect" => vec![20.into(), 20.into(), 100.into(), 60.into()],
+        "C" => vec![1.into(), 0.into(), 0.into()],
+        "Border" => vec![0.into(), 0.into(), 2.into()],
+        "F" => Object::Reference(flags_id),
+    }));
+    write_managed_shape_stable_key(
+        document.get_dictionary_mut(object_id).unwrap(),
+        Some(stable_key),
+    );
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(object_id)]);
+    (document, page_id)
+}
+
+fn assert_only_annotation_flags(document: &Document, expected: i64) {
+    let page_id = *document.get_pages().values().next().unwrap();
+    let annots = get_page_annots(document, page_id).unwrap();
+    assert_eq!(annots.len(), 1);
+    let dict = document
+        .get_dictionary(annots[0].as_reference().unwrap())
+        .unwrap();
+    let flags = document
+        .dereference(dict.get(b"F").unwrap())
+        .unwrap()
+        .1
+        .as_i64()
+        .unwrap();
+    assert_eq!(flags, expected, "annotation kept {flags}, expected {expected}");
+}
+
+#[test]
+fn adding_print_keeps_indirect_hidden_and_noview_flags_on_both_save_routes() {
+    let stable_key = "evb-shape:indirect-flags";
+    let shape = rectangle_shape(stable_key, "#112233");
+
+    let (mut document, _page_id) = embedded_shape_pdf_with_indirect_flags(stable_key);
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![shape.clone()],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260609123456+03'00'",
+        &mut None,
+    )
+    .unwrap();
+    assert_only_annotation_flags(&document, 38);
+
+    let (mut seed, _page_id) = embedded_shape_pdf_with_indirect_flags(stable_key);
+    let input_path = seed_shape_pdf(&mut seed, "indirect-flags-incremental");
+    let output_path = temp_pdf_path("indirect-flags-incremental-output");
+    write(&output_path, read(&input_path).unwrap()).unwrap();
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &shapes_mutation(vec![shape]),
+        "D:20260609123456+03'00'",
+    )
+    .unwrap();
+    assert_only_annotation_flags(&Document::load(&output_path).unwrap(), 38);
+}

@@ -805,33 +805,39 @@ pub(crate) fn attach_shape_appearance(dict: &mut Dictionary, appearance_ref: Obj
     let mut appearance = Dictionary::new();
     appearance.set("N", Object::Reference(appearance_ref));
     dict.set("AP", Object::Dictionary(appearance));
-    set_print_flag(dict);
+}
+
+/// The /F flags of an annotation, read through the document so an indirect
+/// reference resolves. A missing or unreadable /F reads as 0.
+fn annotation_flags(document: &impl PdfObjectSource, annotation: &Dictionary) -> i64 {
+    annotation
+        .get(b"F")
+        .ok()
+        .and_then(|flags| document.resolved(flags).ok())
+        .and_then(|flags| flags.as_i64().ok())
+        .unwrap_or(0)
 }
 
 /// The flags advanced print reads. An EVB-owned shape saved before the Print
 /// flag was written has no /F at all; it reads as printable, as the next save
 /// of it would write the flag. Any other annotation without /F keeps the 0 it
 /// always had.
-pub(crate) fn annotation_print_flags(document: &Document, annotation: &Dictionary) -> i64 {
-    match annotation.get(b"F") {
-        Ok(flags) => document
-            .dereference(flags)
-            .ok()
-            .and_then(|(_, flags)| flags.as_i64().ok())
-            .unwrap_or(0),
-        Err(_) if read_managed_shape_stable_key(annotation).is_some() => ANNOTATION_FLAG_PRINT,
-        Err(_) => 0,
+pub(crate) fn annotation_print_flags(
+    document: &impl PdfObjectSource,
+    annotation: &Dictionary,
+) -> i64 {
+    if annotation.has(b"F") {
+        annotation_flags(document, annotation)
+    } else if read_managed_shape_stable_key(annotation).is_some() {
+        ANNOTATION_FLAG_PRINT
+    } else {
+        0
     }
 }
 
-/// Adds the Print flag, so the annotation is drawn by advanced print and by
-/// other readers.
-pub(crate) fn set_print_flag(dict: &mut Dictionary) {
-    let flags = dict
-        .get(b"F")
-        .ok()
-        .and_then(|value| value.as_i64().ok())
-        .unwrap_or(0);
+/// Sets the Print flag on top of `flags`, the annotation's existing flags as
+/// `annotation_print_flags` read them, so its other bits survive.
+pub(crate) fn set_print_flag(dict: &mut Dictionary, flags: i64) {
     dict.set("F", Object::Integer(flags | ANNOTATION_FLAG_PRINT));
 }
 
@@ -846,6 +852,7 @@ pub(crate) fn update_shape_annotation_dict(
     modified_at: &str,
     existing_rect: Option<PdfRect>,
     remove_appearance: bool,
+    print_flags: i64,
 ) -> Result<bool> {
     let subtype = annotation_subtype(dict);
     if !is_supported_shape_subtype(&subtype) {
@@ -872,7 +879,7 @@ pub(crate) fn update_shape_annotation_dict(
     // EVB-owned shapes print, including ones saved before the flag was written.
     // Imported shapes keep their own flags.
     if read_managed_shape_stable_key(dict).is_some() {
-        set_print_flag(dict);
+        set_print_flag(dict, print_flags);
     }
     Ok(true)
 }
@@ -887,7 +894,7 @@ pub(crate) fn create_shape_annotation_dict(
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"Annot".to_vec()));
     dict.set("Subtype", Object::Name(subtype.as_bytes().to_vec()));
-    set_print_flag(&mut dict);
+    dict.set("F", Object::Integer(ANNOTATION_FLAG_PRINT));
     match subtype {
         "Square" | "Circle" => {
             set_rect_shape_fields(&mut dict, shape, page_view, page_rotation, None)?
@@ -1042,51 +1049,15 @@ pub(crate) fn apply_shape_annotation_decision(
     }
     if let Some(stable_key) = annotation_stable_key.as_deref() {
         if let Some(index) = state.find_by_stable_key(stable_key) {
-            let shape = state.shapes[index].clone();
-            let appearance_ref = if subtype == "ink" {
-                let appearance =
-                    build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
-                Some(document.add_object(appearance))
-            } else if uses_closed_line_appearance(&subtype, &shape) {
-                let appearance = build_closed_line_shape_appearance_stream(
-                    &shape,
-                    page.page_view,
-                    page.page_rotation,
-                )?;
-                Some(document.add_object(appearance))
-            } else {
-                None
-            };
-            let existing_rect = document
-                .get_dictionary(object_id)
-                .ok()
-                .and_then(|dict| read_shape_annotation_rect(&*document, dict));
-            let remove_appearance = subtype != "ink"
-                && shape_semantic_change(
-                    &*document,
-                    document.get_dictionary(object_id)?,
-                    &shape,
-                    page.page_view,
-                    page.page_rotation,
-                    existing_rect,
-                )?;
-            let dict = document.get_dictionary_mut(object_id)?;
-            let mut modified = update_shape_annotation_dict(
-                dict,
-                &shape,
-                page.page_view,
-                page.page_rotation,
+            return update_shape_in_document(
+                document,
+                state,
+                index,
+                object_id,
+                &subtype,
+                page,
                 modified_at,
-                existing_rect,
-                remove_appearance,
-            )?;
-            dict.set("P", Object::Reference(page.page_id));
-            if let Some(appearance_ref) = appearance_ref {
-                attach_shape_appearance(dict, appearance_ref);
-                modified = true;
-            }
-            state.consume(index);
-            return Ok(modified);
+            );
         }
         if rewrite_shape_state {
             collect_shape_annotation_refs_to_delete(
@@ -1100,53 +1071,89 @@ pub(crate) fn apply_shape_annotation_decision(
         return Ok(false);
     }
     if let Some(index) = state.find_by_annotation_id(&annotation_id) {
-        let shape = state.shapes[index].clone();
-        let appearance_ref = if subtype == "ink" {
-            let appearance =
-                build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
-            Some(document.add_object(appearance))
-        } else if uses_closed_line_appearance(&subtype, &shape) {
-            let appearance = build_closed_line_shape_appearance_stream(
-                &shape,
-                page.page_view,
-                page.page_rotation,
-            )?;
-            Some(document.add_object(appearance))
-        } else {
-            None
-        };
-        let existing_rect = document
-            .get_dictionary(object_id)
-            .ok()
-            .and_then(|dict| read_shape_annotation_rect(&*document, dict));
-        let remove_appearance = subtype != "ink"
-            && shape_semantic_change(
-                &*document,
-                document.get_dictionary(object_id)?,
-                &shape,
-                page.page_view,
-                page.page_rotation,
-                existing_rect,
-            )?;
-        let dict = document.get_dictionary_mut(object_id)?;
-        let mut modified = update_shape_annotation_dict(
-            dict,
+        return update_shape_in_document(
+            document,
+            state,
+            index,
+            object_id,
+            &subtype,
+            page,
+            modified_at,
+        );
+    }
+    Ok(false)
+}
+
+/// Rewrites a matched shape annotation in place from its state entry.
+fn update_shape_in_document(
+    document: &mut Document,
+    state: &mut ShapeConsumptionState,
+    index: usize,
+    object_id: ObjectId,
+    subtype: &str,
+    page: ShapePageContext,
+    modified_at: &str,
+) -> Result<bool> {
+    let shape = state.shapes[index].clone();
+    let appearance_ref = shape_appearance_stream(subtype, &shape, page)?
+        .map(|appearance| document.add_object(appearance));
+    let existing_rect = document
+        .get_dictionary(object_id)
+        .ok()
+        .and_then(|dict| read_shape_annotation_rect(&*document, dict));
+    let remove_appearance = subtype != "ink"
+        && shape_semantic_change(
+            &*document,
+            document.get_dictionary(object_id)?,
             &shape,
             page.page_view,
             page.page_rotation,
-            modified_at,
             existing_rect,
-            remove_appearance,
         )?;
-        dict.set("P", Object::Reference(page.page_id));
-        if let Some(appearance_ref) = appearance_ref {
-            attach_shape_appearance(dict, appearance_ref);
-            modified = true;
-        }
-        state.consume(index);
-        return Ok(modified);
+    let print_flags = annotation_print_flags(&*document, document.get_dictionary(object_id)?);
+    let dict = document.get_dictionary_mut(object_id)?;
+    let mut modified = update_shape_annotation_dict(
+        dict,
+        &shape,
+        page.page_view,
+        page.page_rotation,
+        modified_at,
+        existing_rect,
+        remove_appearance,
+        print_flags,
+    )?;
+    dict.set("P", Object::Reference(page.page_id));
+    if let Some(appearance_ref) = appearance_ref {
+        attach_shape_appearance(dict, appearance_ref);
+        set_print_flag(dict, print_flags);
+        modified = true;
     }
-    Ok(false)
+    state.consume(index);
+    Ok(modified)
+}
+
+/// The appearance stream an ink or closed-arrow line needs. The other
+/// supported subtypes are drawn from their fields and need none.
+fn shape_appearance_stream(
+    subtype: &str,
+    shape: &ShapeAnnotation,
+    page: ShapePageContext,
+) -> Result<Option<Stream>> {
+    if subtype == "ink" {
+        Ok(Some(build_ink_shape_appearance_stream(
+            shape,
+            page.page_view,
+            page.page_rotation,
+        )?))
+    } else if uses_closed_line_appearance(subtype, shape) {
+        Ok(Some(build_closed_line_shape_appearance_stream(
+            shape,
+            page.page_view,
+            page.page_rotation,
+        )?))
+    } else {
+        Ok(None)
+    }
 }
 
 pub(crate) fn apply_shape_annotation_decision_incremental(
@@ -1194,42 +1201,25 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
     if let Some(index) = shape_index {
         let shape = state.shapes[index].clone();
         incremental.opt_clone_object_to_new_document(object_id)?;
-        let appearance_ref = if subtype == "ink" {
-            let appearance =
-                build_ink_shape_appearance_stream(&shape, page.page_view, page.page_rotation)?;
-            Some(incremental.new_document.add_object(appearance))
-        } else if uses_closed_line_appearance(&subtype, &shape) {
-            let appearance = build_closed_line_shape_appearance_stream(
-                &shape,
-                page.page_view,
-                page.page_rotation,
-            )?;
-            Some(incremental.new_document.add_object(appearance))
-        } else {
-            None
-        };
-        let existing_rect = {
-            // The appended revision over the base: a `/Rect` reference the
-            // clone did not copy still resolves against the loaded original.
-            let source = AppendedRevision::new(incremental);
-            source
-                .dictionary(object_id)
-                .ok()
-                .and_then(|dict| read_shape_annotation_rect(&source, dict))
-        };
-        let remove_appearance = if subtype == "ink" {
-            false
-        } else {
-            let source = AppendedRevision::new(incremental);
-            shape_semantic_change(
+        let appearance_ref = shape_appearance_stream(&subtype, &shape, page)?
+            .map(|appearance| incremental.new_document.add_object(appearance));
+        let source = AppendedRevision::new(incremental);
+        // The appended revision over the base: a `/Rect` or `/F` reference the
+        // clone did not copy still resolves against the loaded original.
+        let existing_rect = source
+            .dictionary(object_id)
+            .ok()
+            .and_then(|dict| read_shape_annotation_rect(&source, dict));
+        let print_flags = annotation_print_flags(&source, source.dictionary(object_id)?);
+        let remove_appearance = subtype != "ink"
+            && shape_semantic_change(
                 &source,
                 source.dictionary(object_id)?,
                 &shape,
                 page.page_view,
                 page.page_rotation,
                 existing_rect,
-            )?
-        };
+            )?;
         let dict = incremental.new_document.get_dictionary_mut(object_id)?;
         let mut modified = update_shape_annotation_dict(
             dict,
@@ -1239,10 +1229,12 @@ pub(crate) fn apply_shape_annotation_decision_incremental(
             modified_at,
             existing_rect,
             remove_appearance,
+            print_flags,
         )?;
         dict.set("P", Object::Reference(page.page_id));
         if let Some(appearance_ref) = appearance_ref {
             attach_shape_appearance(dict, appearance_ref);
+            set_print_flag(dict, print_flags);
             modified = true;
         }
         state.consume(index);
@@ -1677,11 +1669,7 @@ pub(crate) fn validate_saved_shape_style(
     if (shape_stroke_width(document, dict).unwrap_or(1.0) - shape.stroke_width).abs() > 0.0001 {
         return Err("Saved shape stroke width differs from the request".into());
     }
-    let flags = dict
-        .get(b"F")
-        .ok()
-        .and_then(|value| value.as_i64().ok())
-        .unwrap_or(0);
+    let flags = annotation_flags(document, dict);
     if read_managed_shape_stable_key(dict).is_some() && flags & ANNOTATION_FLAG_PRINT == 0 {
         return Err("Saved EVB shape is not printable".into());
     }
