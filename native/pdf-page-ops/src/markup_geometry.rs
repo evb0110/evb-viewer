@@ -3,7 +3,10 @@ use super::*;
 /// The quad points of a text markup (highlight, underline, strike-out or
 /// squiggly), or `None` for any other annotation. A quad is eight numbers, so
 /// an array of any other length is malformed and is not trusted as coverage.
-fn text_markup_quad_points(annotation: &Dictionary) -> Option<Vec<f64>> {
+fn text_markup_quad_points(
+    document: &impl PdfObjectSource,
+    annotation: &Dictionary,
+) -> Option<Vec<f64>> {
     let Ok(Object::Name(subtype)) = annotation.get(b"Subtype") else {
         return None;
     };
@@ -13,17 +16,24 @@ fn text_markup_quad_points(annotation: &Dictionary) -> Option<Vec<f64>> {
     ) {
         return None;
     }
-    numbers(annotation.get(b"QuadPoints").ok())
+    numbers(document, annotation.get(b"QuadPoints").ok())
         .filter(|quads| !quads.is_empty() && quads.len() % 8 == 0)
 }
 
-fn numbers(object: Option<&Object>) -> Option<Vec<f64>> {
-    let Object::Array(values) = object? else {
+fn numbers(document: &impl PdfObjectSource, object: Option<&Object>) -> Option<Vec<f64>> {
+    let Object::Array(values) = document.resolved(object?).ok()? else {
         return None;
     };
     values
         .iter()
-        .map(|value| value.as_float().ok().map(f64::from))
+        .map(|value| {
+            document
+                .resolved(value)
+                .ok()?
+                .as_float()
+                .ok()
+                .map(f64::from)
+        })
         .collect()
 }
 
@@ -46,13 +56,14 @@ fn quad_bounds(quad: &[f64]) -> PdfRect {
 /// reader edits a text markup by its quads, so the quads decide for it; any
 /// other annotation is judged by its mapped `rect`.
 pub(crate) fn annotation_meets_view(
+    document: &impl PdfObjectSource,
     annotation: &Dictionary,
     matrix: [f64; 6],
     rect: PdfRect,
     view: PdfRect,
 ) -> bool {
     let matrix = PdfMatrix::from_values(matrix);
-    let Some(quads) = text_markup_quad_points(annotation) else {
+    let Some(quads) = text_markup_quad_points(document, annotation) else {
         return intersect_rect(rect, view).is_some();
     };
     quads.chunks_exact(8).any(|quad| {
@@ -71,7 +82,7 @@ pub(crate) fn clip_text_markup_to_view(
     annotation: &mut Dictionary,
     view: Option<PdfRect>,
 ) {
-    let (Some(view), Some(quads)) = (view, text_markup_quad_points(annotation)) else {
+    let (Some(view), Some(quads)) = (view, text_markup_quad_points(target, annotation)) else {
         return;
     };
     let mut clipped = Vec::with_capacity(quads.len());
@@ -91,7 +102,8 @@ pub(crate) fn clip_text_markup_to_view(
         "QuadPoints",
         Object::Array(clipped.into_iter().map(number_object).collect()),
     );
-    if let Some(rect) = numbers(annotation.get(b"Rect").ok()).filter(|rect| rect.len() == 4) {
+    if let Some(rect) = numbers(target, annotation.get(b"Rect").ok()).filter(|rect| rect.len() == 4)
+    {
         let clipped = PdfRect {
             x1: rect[0].clamp(view.x1, view.x2),
             y1: rect[1].clamp(view.y1, view.y2),
