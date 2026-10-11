@@ -1917,3 +1917,122 @@ fn split_pages_keeps_a_remote_link_remote_when_a_local_destination_shares_its_na
         }
     }
 }
+
+/// A legacy marker that navigates still reads as a note on its half after a
+/// split. Its named or GoTo destination must not gain a page reference, which
+/// the note recovery would follow into the page tree and read as foreign.
+#[test]
+fn split_pages_keeps_a_legacy_marker_with_navigation_a_note() {
+    for named_by_action in [false, true] {
+        let input = path("split-legacy-navigation-input", "pdf");
+        let output = path("split-legacy-navigation-output", "pdf");
+        let instructions = path("split-legacy-navigation-instructions", "json");
+        let parsed = path("split-legacy-navigation-parsed", "jsonl");
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.new_object_id();
+        let appearance = document.add_object(Stream::new(
+            dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.into(), 2.into()]},
+            Vec::new(),
+        ));
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id,
+            "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+        });
+        let target = Object::string_literal("target");
+        let navigation = if named_by_action {
+            ("A", dictionary! {"S" => "GoTo", "D" => target}.into())
+        } else {
+            ("Dest", target)
+        };
+        let root_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+            "Rect" => vec![48.9.into(), 49.into(), 51.1.into(), 51.2.into()],
+            "Contents" => Object::string_literal("Legacy marker"),
+            "AP" => dictionary! {"N" => appearance},
+            "Popup" => popup_id,
+            navigation.0 => navigation.1,
+        });
+        document
+            .get_dictionary_mut(popup_id)
+            .unwrap()
+            .set("Parent", root_id);
+        document.objects.insert(
+            page_id,
+            dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+                "Annots" => vec![Object::Reference(root_id), Object::Reference(popup_id)],
+            }
+            .into(),
+        );
+        document.objects.insert(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => 1,
+            }
+            .into(),
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "Dests" => dictionary! {
+                "target" => vec![
+                    Object::Reference(page_id),
+                    "XYZ".into(),
+                    100.into(),
+                    60.into(),
+                    0.into(),
+                ],
+            },
+        });
+        document.trailer.set("Root", catalog_id);
+        document.save(&input).unwrap();
+        write(
+            &instructions,
+            r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+        )
+        .unwrap();
+
+        run_split_pages(&input, &output, &instructions);
+
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["parse-annotations", "--input"])
+            .arg(&output)
+            .arg("--output")
+            .arg(&parsed)
+            .args(["--modified-at", "D:20261011000000Z"])
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let notes = std::fs::read_to_string(&parsed)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .flat_map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                    .as_array()
+                    .unwrap()
+                    .clone()
+            })
+            .filter(|entry| entry["contents"] == "Legacy marker")
+            .map(|entry| {
+                (
+                    entry["kind"].as_str().map(str::to_string),
+                    entry["pageIndex"].as_u64(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(notes, [(Some("note".to_string()), Some(0))]);
+        for file in [input, output, instructions, parsed] {
+            let _ = remove_file(file);
+        }
+    }
+}

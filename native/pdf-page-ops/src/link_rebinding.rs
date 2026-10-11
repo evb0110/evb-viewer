@@ -41,6 +41,16 @@ pub(crate) fn place_split_copy(
 /// that does not read as a page of the source is left as it is.
 pub(crate) fn prepare_retained(source: &Document, annotation: &mut Dictionary) -> Result<()> {
     annotation.remove(RETAINED_DESTINATION_PAGE_KEY);
+    // Only a link is retained. A note's navigation stays as it is: a page
+    // reference there makes its note recovery read the note as foreign.
+    let subtype = annotation
+        .get(b"Subtype")
+        .ok()
+        .and_then(|subtype| source.dereference(subtype).ok())
+        .and_then(|(_, subtype)| subtype.as_name().ok());
+    if subtype != Some(b"Link") {
+        return Ok(());
+    }
     let Some((page_id, explicit)) = explicit_retained_destination(source, annotation) else {
         return Ok(());
     };
