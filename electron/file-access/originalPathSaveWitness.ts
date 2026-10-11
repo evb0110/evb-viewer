@@ -1,3 +1,7 @@
+import {
+    expectationMatchesStat,
+    getExpectationStatMismatches,
+} from '@electron/file-access/originalFileExpectation';
 import type {BigIntStats} from 'node:fs';
 import {
     lstat,
@@ -38,35 +42,6 @@ export interface IOriginalPathSaveWitness {
     rebaseAfterPublish: () => Promise<void>;
 }
 
-function expectationMatchesStat(
-    expected: IWorkingCopyOriginalFileExpectation,
-    actual: BigIntStats,
-) {
-    if (getExpectationStatMismatches(expected, actual).length > 0) {
-        return false;
-    }
-
-    return expected.mtimeNs !== undefined
-        || Math.abs(Number(actual.mtimeNs) / 1_000_000 - expected.mtimeMs) < 1;
-}
-
-function getExpectationStatMismatches(
-    expected: IWorkingCopyOriginalFileExpectation,
-    actual: BigIntStats,
-) {
-    return [
-        expected.ctimeNs !== undefined && actual.ctimeNs.toString() !== expected.ctimeNs ? 'ctimeNs' : null,
-        expected.deviceId !== undefined && actual.dev.toString() !== expected.deviceId ? 'deviceId' : null,
-        !actual.isFile() ? 'fileType' : null,
-        expected.inode !== undefined && actual.ino.toString() !== expected.inode ? 'inode' : null,
-        expected.mtimeNs !== undefined && actual.mtimeNs.toString() !== expected.mtimeNs ? 'mtimeNs' : null,
-        actual.size !== BigInt(expected.size) ? 'size' : null,
-        expected.mtimeNs === undefined
-            && Math.abs(Number(actual.mtimeNs) / 1_000_000 - expected.mtimeMs) >= 1
-            ? 'mtimeMs'
-            : null,
-    ].filter((field): field is string => field !== null);
-}
 
 function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectation) {
     return expected.deviceId !== undefined

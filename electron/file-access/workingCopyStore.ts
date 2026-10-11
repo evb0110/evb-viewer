@@ -1,4 +1,10 @@
 import {
+    createOriginalFileContentFingerprint,
+    createOriginalFileExpectationFromStat,
+    expectationMatchesStat,
+    type IWorkingCopyOriginalFileExpectation,
+} from '@electron/file-access/originalFileExpectation';
+import {
     dirname,
     join,
     relative,
@@ -10,13 +16,10 @@ import {
     type BigIntStats,
 } from 'fs';
 import {spawnSync} from 'node:child_process';
-import {
-    lstat,
-    stat,
-} from 'fs/promises';
-import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
-import {readFileChunk} from '@electron/file-access/readFileChunk';
+import {stat} from 'fs/promises';
 import { createKeyedSerialQueue } from '@electron/utils/createKeyedSerialQueue';
+export {createOriginalFileExpectationFromStat} from '@electron/file-access/originalFileExpectation';
+export type {IWorkingCopyOriginalFileExpectation} from '@electron/file-access/originalFileExpectation';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
 export type TWorkingCopyBackingState =
@@ -41,15 +44,6 @@ export interface IWorkingCopyAdmissionSnapshot {
     size: bigint;
 }
 
-export interface IWorkingCopyOriginalFileExpectation {
-    contentFingerprint?: string;
-    ctimeNs?: string;
-    deviceId?: string;
-    inode?: string;
-    mtimeMs: number;
-    mtimeNs?: string;
-    size: number;
-}
 
 export interface IWorkingCopyOriginalEntry {
     admissionSnapshot?: IWorkingCopyAdmissionSnapshot;
@@ -113,7 +107,6 @@ const currentWorkingCopyByOriginalPath = new Map<string, {
 }>();
 let nextWorkingCopyRegistrationId = 0;
 const RETIRED_WORKING_COPY_TTL_MS = 10 * 60 * 1000;
-const ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 const windowsCaseSensitivityByDirectory = new Map<string, boolean | null>();
 
 interface IWindowsDirectoryLookup {
@@ -298,16 +291,6 @@ async function createOriginalFileExpectation(
     }
 }
 
-function expectationMatchesStat(expectation: IWorkingCopyOriginalFileExpectation, fileStat: BigIntStats) {
-    return fileStat.isFile()
-        && (expectation.deviceId === undefined || fileStat.dev.toString() === expectation.deviceId)
-        && (expectation.inode === undefined || fileStat.ino.toString() === expectation.inode)
-        && fileStat.size === BigInt(expectation.size)
-        && (expectation.mtimeNs === undefined
-            ? Math.abs(Number(fileStat.mtimeNs) / 1_000_000 - expectation.mtimeMs) < 1
-            : fileStat.mtimeNs.toString() === expectation.mtimeNs)
-        && (expectation.ctimeNs === undefined || fileStat.ctimeNs.toString() === expectation.ctimeNs);
-}
 
 function sameOriginalFileExpectation(
     left: IWorkingCopyOriginalFileExpectation | undefined,
@@ -333,53 +316,6 @@ function withoutOriginalFileContentFingerprint(
     return statExpectation;
 }
 
-async function createOriginalFileContentFingerprint(
-    originalPath: string,
-    expectation: IWorkingCopyOriginalFileExpectation,
-    signal?: AbortSignal,
-) {
-    try {
-        signal?.throwIfAborted();
-        const before = await lstat(originalPath, {bigint: true});
-        if (!Number.isSafeInteger(Number(before.size)) || !expectationMatchesStat(expectation, before)) {
-            return undefined;
-        }
-        const hash = createOriginalFileContentFingerprintHash(Number(before.size));
-        const buffer = Buffer.allocUnsafe(Math.max(1, Math.min(Number(before.size), ORIGINAL_CONTENT_FINGERPRINT_CHUNK_BYTES)));
-        let offset = 0;
-        while (offset < Number(before.size)) {
-            signal?.throwIfAborted();
-            const length = Math.min(buffer.byteLength, Number(before.size) - offset);
-            const bytesRead = await readFileChunk(originalPath, buffer.subarray(0, length), offset);
-            if (bytesRead <= 0) {
-                return undefined;
-            }
-            hash.update(buffer.subarray(0, bytesRead));
-            offset += bytesRead;
-        }
-        const after = await lstat(originalPath, {bigint: true});
-        signal?.throwIfAborted();
-        return expectationMatchesStat(expectation, after)
-            && expectationMatchesStat(createOriginalFileExpectationFromStat(before), after)
-            ? `sha256-full-v1:${hash.digest('hex')}`
-            : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-export function createOriginalFileExpectationFromStat(
-    originalStat: BigIntStats,
-): IWorkingCopyOriginalFileExpectation {
-    return {
-        ctimeNs: originalStat.ctimeNs.toString(),
-        deviceId: originalStat.dev.toString(),
-        inode: originalStat.ino.toString(),
-        mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
-        mtimeNs: originalStat.mtimeNs.toString(),
-        size: Number(originalStat.size),
-    };
-}
 
 function copyOriginalFileExpectation(
     expectation: IWorkingCopyOriginalFileExpectation | undefined,
