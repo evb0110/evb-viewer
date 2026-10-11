@@ -636,6 +636,50 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it('leaves no original backup when a save is cancelled while EVB fingerprints its output', async () => {
+        const controller = new AbortController();
+        let stagedHashPath = '';
+        vi.doMock('@electron/file-access/originalPathSaveWitness', async (importOriginal) => {
+            const actual = await importOriginal<typeof OriginalPathSaveWitnessModule>();
+            return {
+                ...actual,
+                hashContentFingerprintFilePath: (...args: Parameters<typeof actual.hashContentFingerprintFilePath>) => {
+                    if (args[0] === stagedHashPath) {
+                        controller.abort(new Error('save cancelled'));
+                    }
+                    return actual.hashContentFingerprintFilePath(...args);
+                },
+            };
+        });
+        try {
+            const {
+                originalPath,
+                stagedPath,
+                workingCopyPath,
+            } = await prepare('old-original', 'old-working');
+            stagedHashPath = stagedPath;
+            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                workingCopyPath,
+                originalPath,
+                reason: 'native-mutation',
+                senderId: 7,
+                signal: controller.signal,
+                captureOriginalWitness: () => capturePathSaveWitness(originalPath),
+                publishedSourcePath: stagedPath,
+                publishOriginal: () => rename(stagedPath, originalPath),
+            })).rejects.toThrow('save cancelled');
+
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            expect((await readdir(dirname(originalPath))).filter(name => name.endsWith('.bak'))).toEqual([]);
+        } finally {
+            vi.doUnmock('@electron/file-access/originalPathSaveWitness');
+        }
+    });
+
     it('restores every durable record when manifest publication fails', async () => {
         vi.doMock('@electron/file-access/workingCopyManifest', async (importOriginal) => {
             const actual = await importOriginal<typeof WorkingCopyManifestModule>();
