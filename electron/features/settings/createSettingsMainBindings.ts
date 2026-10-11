@@ -3,10 +3,7 @@ import {
     sanitizeSettings,
     type TSettingsSavePatch,
 } from '@contracts/settings';
-import {
-    SETTINGS_PLATFORM_FEATURE,
-    type ISettingsEventMap,
-} from '@contracts/settingsPlatformFeature';
+import type { SETTINGS_PLATFORM_FEATURE } from '@contracts/settingsPlatformFeature';
 import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import type { ISettingsData } from '@contracts/shared';
 import { updateRecentFilesMenu } from '@electron/menu';
@@ -18,9 +15,6 @@ import {
 } from '@electron/settings';
 import { setElectronLocale } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
-import { getAllRegisteredAppWindows } from '@electron/window/registry';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('ipc');
@@ -41,19 +35,6 @@ interface IQueuedSettingsSave {
 
 const settingsSaveQueuesBySender = new Map<number, IQueuedSettingsSave>();
 
-// Every window gets each committed write, the saving one included; a renderer
-// adopts only the keys it has no unsaved edit in.
-function broadcastCommittedSettings(settings: ISettingsData) {
-    for (const window of getAllRegisteredAppWindows()) {
-        sendPlatformEvent<ISettingsEventMap, typeof SETTINGS_PLATFORM_FEATURE.eventChannels.onChanged>(
-            window,
-            SETTINGS_PLATFORM_FEATURE.eventChannels.onChanged,
-            settings,
-            error => logger.debug(`Failed to send settings change: ${getErrorMessage(error)}`),
-        );
-    }
-}
-
 async function applySettingsSavePatch(
     settingsPayload: TSettingsSavePatch,
     shutdownAssistant: () => Promise<void>,
@@ -70,7 +51,6 @@ async function applySettingsSavePatch(
     }, diagnosticsConsentRevision === undefined
         ? {}
         : {diagnosticsConsentRevision});
-    broadcastCommittedSettings(savedSettings);
     if (shouldShutdownAssistant) {
         await shutdownAssistant();
     }

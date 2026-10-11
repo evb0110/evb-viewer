@@ -2,6 +2,7 @@ import {
     mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {deflateSync} from 'node:zlib';
 import {
@@ -28,6 +29,7 @@ import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     requireDocumentRef, type TDocumentRef,
 } from '@contracts/documentRef';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import {
@@ -639,4 +641,64 @@ describe('Settings changes reach every open window', () => {
             diagnosticsChecked: 'false',
         });
     }, 120_000);
+
+    it('shows an agent MCP switch turned off in one window in the window a tab moved to', async () => {
+        // Codex is installed on this host, and a switch-off with Codex present opens a native
+        // confirmation no E2E session can answer. Pointing every Codex lookup away from the
+        // installed copy, and HOME away from the owner's Codex configuration, lets the same
+        // capability call run without one.
+        const session = sessions.getSession();
+        const settingsPath = join(electronUserDataPath(session.name), 'settings.json');
+        const stored = await readFile(settingsPath, 'utf8').then(content => JSON.parse(content) as object, () => ({}));
+        writeFileSync(settingsPath, JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            ...stored,
+            agentMcpEnabled: true,
+        }, null, 2));
+        const isolatedHome = mkdtempSync(join(tmpdir(), 'mcp-home-'));
+        onTestFinished(() => rmSync(isolatedHome, {
+            recursive: true,
+            force: true,
+        }));
+        await sessions.restart({
+            clean: false,
+            extraEnv: {
+                EVB_E2E_OPEN_DIALOG_PATH: replacementDialogPath,
+                HOME: isolatedHome,
+                PATH: '/usr/bin:/bin',
+                SHELL: join(isolatedHome, 'no-shell'),
+                CODEX_CLI_PATH: join(isolatedHome, 'no-codex'),
+            },
+        });
+        const restarted = sessions.getSession();
+        const source = restarted.page;
+        const appTempDirectory = electronAppTempDirPath(restarted.name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'settings-mcp-')));
+        const fixture = join(outputDirectory, 'settings-mcp.pdf');
+        await createTwelvePageFixture(fixture);
+        await openPdfInApp(source, fixture);
+        await waitForPdfLoaded(source);
+        const destination = await moveTabToNewWindow(source);
+
+        const mcpPrimaryButton = '.settings-agent-card:not(.settings-agent-card--stack) .settings-agent-actions button';
+        const readMcpPrimaryLabel = (page: Page) => page.$eval(mcpPrimaryButton, element => element.textContent?.trim() ?? '');
+        await openSettingsView(destination, 'en');
+        await destination.waitForFunction((selector: string, label: string) => (
+            document.querySelector(selector)?.textContent?.trim() === label
+        ), {timeout: 30_000}, mcpPrimaryButton, LOCALE_MESSAGES.en.settings.agentMcpRepair);
+
+        // The Settings switch cannot send this request headless: with Codex missing, an enabled
+        // integration shows Repair, and that button opens an install dialog. This calls the
+        // capability the switch calls, from the window the user acts in.
+        const result = await source.evaluate(() => window.electronAPI!.agent!.setMcpIntegrationEnabled(false));
+        expect(result).toMatchObject({ok: true});
+        expect(JSON.parse(await readFile(settingsPath, 'utf8'))).toMatchObject({agentMcpEnabled: false});
+
+        // A missed broadcast leaves the moved window on Repair; the assertion names what it shows.
+        await destination.waitForFunction((selector: string, label: string) => (
+            document.querySelector(selector)?.textContent?.trim() === label
+        ), {timeout: 15_000}, mcpPrimaryButton, LOCALE_MESSAGES.en.settings.agentMcpEnable).catch(() => undefined);
+        expect(await readMcpPrimaryLabel(destination)).toBe(LOCALE_MESSAGES.en.settings.agentMcpEnable);
+    }, 240_000);
 });

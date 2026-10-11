@@ -871,6 +871,11 @@ onMounted(() => {
     }
 });
 
+// The MCP status comes from main, so a switch saved in another window is read again here.
+watch(() => settings.value.agentMcpEnabled, () => {
+    void refreshAgentMcpStatus();
+});
+
 watch(() => settings.value.assistantPanelEnabled, (enabled) => {
     if (!isDesktopRuntime.value || assistantPanelPreferenceSave) {
         return;
