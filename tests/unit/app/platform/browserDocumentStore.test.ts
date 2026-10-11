@@ -709,6 +709,21 @@ describe('BrowserDocumentStore', () => {
         await expect(store.exists(sourceRef)).resolves.toBe(false);
     });
 
+    it('removes a handle-backed source that is in Recent Files', async () => {
+        const handle = createFileSystemFileHandle({
+            name: 'saved.pdf',
+            getFile: vi.fn(async () => new File([Uint8Array.of(7, 8)], 'saved.pdf')),
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'saved.pdf', Uint8Array.of(7, 8), {saveHandle: handle});
+        await store.assignSaveTarget(sourceRef, 'saved.pdf', 'pdf', handle);
+        await store.touchRecentFile(sourceRef);
+
+        await store.remove(sourceRef);
+
+        await expect(store.exists(sourceRef)).resolves.toBe(false);
+    });
+
     it('keeps a source while a working copy still depends on it', async () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument(

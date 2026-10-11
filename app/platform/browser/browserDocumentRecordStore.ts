@@ -420,15 +420,14 @@ export class BrowserDocumentRecordStore {
     }
 
     public async remove(ref: string) {
-        await this.runRefMutation(ref, () => this.removeUnlocked(ref));
+        await this.runRefMutation(ref, () => this.removeDocumentRecordUnlocked(ref));
+        // Recent-file cleanup re-enters this ref's mutation queue, so it runs
+        // after the queue is released. A ref that was in Recent Files would
+        // otherwise wait on the queue entry that is waiting for it.
+        await this.removeRecentFile(ref);
     }
 
     protected onDocumentRemoved(_ref: string) {}
-
-    private async removeUnlocked(ref: string) {
-        await this.removeDocumentRecordUnlocked(ref);
-        await this.removeRecentFile(ref);
-    }
 
     /** Removes a document record while its caller owns the mutation queue. */
     protected async removeDocumentRecordUnlocked(ref: string) {
@@ -472,7 +471,7 @@ export class BrowserDocumentRecordStore {
         }
 
         if (entry.kind === 'working') {
-            await this.removeUnlocked(ref);
+            await this.removeDocumentRecordUnlocked(ref);
             return true;
         }
 
@@ -488,7 +487,7 @@ export class BrowserDocumentRecordStore {
             return false;
         }
 
-        await this.removeUnlocked(ref);
+        await this.removeDocumentRecordUnlocked(ref);
         return true;
     }
 
