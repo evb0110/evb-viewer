@@ -756,6 +756,79 @@ describe('workingCopy', () => {
         });
     });
 
+    it('keeps historical proof available while an unchanged registration refreshes', async () => {
+        setPlatform('win32');
+        const originalPath = join(tempRoot, 'refresh-proof-original.pdf');
+        const workingPath = join(tempRoot, 'refresh-proof-working.pdf');
+        writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 65));
+        writeFileSync(workingPath, 'accepted-unsaved-work');
+        const {
+            createOriginalFileExpectationFromStat, getWorkingCopyOriginalFileExpectation, refreshWorkingCopyOriginalFileExpectation, setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {hashContentFingerprintFilePath} = await import('@electron/file-access/originalPathSnapshot');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const info = statSync(originalPath, {bigint: true});
+        const expected = {
+            ...createOriginalFileExpectationFromStat(info),
+            contentFingerprint: await hashContentFingerprintFilePath(originalPath, info.size),
+        };
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {
+            backingState: 'eager',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: expected,
+        });
+        const chunks = await import('@electron/file-access/readFileChunk');
+        const read = chunks.readFileChunk;
+        const release = deferred<undefined>();
+        const blocked = vi.spyOn(chunks, 'readFileChunk').mockImplementation(async (...args) => {
+            if (args[0] === originalPath && args[1].length === 1024 * 1024) await release.promise;
+            return read(...args);
+        });
+        try {
+            await refreshWorkingCopyOriginalFileExpectation(workingPath, 7);
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBe(expected.contentFingerprint);
+            release.resolve(undefined);
+            await expect(captureOriginalPathSaveWitness(workingPath, originalPath, 7)).resolves.not.toBeNull();
+        } finally {
+            release.resolve(undefined);
+            blocked.mockRestore();
+        }
+    });
+
+    it('waits for a new refresh proof before completing registration', async () => {
+        setPlatform('win32');
+        const originalPath = join(tempRoot, 'pending-refresh-original.pdf');
+        const workingPath = join(tempRoot, 'pending-refresh-working.pdf');
+        writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 65));
+        writeFileSync(workingPath, 'accepted-unsaved-work');
+        const {
+            getWorkingCopyOriginalFileExpectation, refreshWorkingCopyOriginalFileExpectation, setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {backingState: 'eager'});
+        writeFileSync(originalPath, Buffer.alloc(2 * 1024 * 1024, 66));
+        const chunks = await import('@electron/file-access/readFileChunk');
+        const read = chunks.readFileChunk;
+        const started = deferred<undefined>();
+        const release = deferred<undefined>();
+        const blocked = vi.spyOn(chunks, 'readFileChunk').mockImplementation(async (...args) => {
+            if (args[0] === originalPath && args[1].length === 1024 * 1024) {
+                started.resolve(undefined);
+                await release.promise;
+            }
+            return read(...args);
+        });
+        try {
+            const refreshed = refreshWorkingCopyOriginalFileExpectation(workingPath, 7);
+            await started.promise;
+            release.resolve(undefined);
+            expect(await refreshed).toBe(true);
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toMatch(/^sha256-full-v1:[0-9a-f]{64}$/u);
+        } finally {
+            release.resolve(undefined);
+            blocked.mockRestore();
+        }
+    });
+
     it('captures a full content fingerprint above 64 MiB', async () => {
         setPlatform('win32');
         const {

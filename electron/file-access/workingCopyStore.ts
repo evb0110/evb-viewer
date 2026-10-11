@@ -202,8 +202,7 @@ export function normalizePathForLookup(filePath: string) {
     if (isWindowsPathLike(filePath)) {
         const resolvedWindowsPath = normalizeResolvedWindowsPath(filePath);
         try {
-            // Native realpath resolves ordinary Windows case-insensitive aliases while
-            // retaining distinct spellings in a case-sensitive directory.
+            // Native realpath preserves case-sensitive spellings while resolving Windows aliases.
             const realPath = normalizeResolvedWindowsPath(realpathSync.native(resolvedWindowsPath));
             const directory = resolveWindowsDirectoryLookup(win32.dirname(realPath));
             return normalizeWindowsPathCase(realPath, directory.caseSensitive);
@@ -592,7 +591,7 @@ export async function setWorkingCopyOriginalPath(
         delete entry.originalFileExpectationAbortController;
         return;
     }
-    captureOriginalFileContentFingerprint(entry, workingPath, expectation, expectationAbortController);
+    await captureOriginalFileContentFingerprint(entry, workingPath, expectation, expectationAbortController);
 }
 
 function applyOriginalFileExpectation(
@@ -622,7 +621,7 @@ function captureOriginalFileContentFingerprint(
         delete entry.originalFileExpectationAbortController;
         return;
     }
-    void createOriginalFileContentFingerprint(entry.originalPath, expectation, controller.signal)
+    return createOriginalFileContentFingerprint(entry.originalPath, expectation, controller.signal)
         .then(contentFingerprint => {
             const activeEntry = workingCopyMap.get(workingPath);
             if (
@@ -630,7 +629,6 @@ function captureOriginalFileContentFingerprint(
                 || controller.signal.aborted
                 || activeEntry !== entry
                 || activeEntry.originalFileExpectationAbortController !== controller
-                || !isSameWorkingCopyEntry(activeEntry, entry)
                 || !sameOriginalFileExpectation(activeEntry.originalFileExpectation, expectation)
             ) {
                 return;
@@ -640,7 +638,6 @@ function captureOriginalFileContentFingerprint(
                 contentFingerprint,
             };
         })
-        .catch(() => undefined)
         .finally(() => {
             if (entry.originalFileExpectationAbortController === controller) {
                 delete entry.originalFileExpectationAbortController;
@@ -962,9 +959,7 @@ export function transitionWorkingCopyBackingState(
         const originalFileExpectation = copyOriginalFileExpectation(options.originalFileExpectation);
         if (originalFileExpectation) {
             activeEntry.originalFileExpectation = originalFileExpectation;
-            const controller = new AbortController();
-            activeEntry.originalFileExpectationAbortController = controller;
-            captureOriginalFileContentFingerprint(activeEntry, workingPath, originalFileExpectation, controller);
+            delete activeEntry.originalFileExpectationAbortController;
         }
     }
     if (options.sourceBackingErrorCode === null) {
@@ -1042,11 +1037,15 @@ export async function refreshWorkingCopyOriginalFileExpectation(
         return false;
     }
     if (expectation) {
+        if (sameOriginalFileExpectation(currentEntry.originalFileExpectation, expectation)
+            && currentEntry.originalFileExpectation?.contentFingerprint) {
+            expectation.contentFingerprint = currentEntry.originalFileExpectation.contentFingerprint;
+        }
         currentEntry.originalFileExpectation = expectation;
-        captureOriginalFileContentFingerprint(currentEntry, workingPath, expectation, controller);
+        await captureOriginalFileContentFingerprint(currentEntry, workingPath, expectation, controller);
     } else {
         delete currentEntry.originalFileExpectation;
         delete currentEntry.originalFileExpectationAbortController;
     }
-    return true;
+    return workingCopyMap.get(workingPath) === currentEntry && !controller.signal.aborted;
 }

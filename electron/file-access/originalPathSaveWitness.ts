@@ -243,14 +243,6 @@ export async function captureOriginalPathSaveWitness(
                     return null;
                 }
             }
-            if (
-                expectationStatMatches
-                && process.platform === 'win32'
-                && expected.contentFingerprint !== undefined
-                && !contentFingerprintVerified
-            ) {
-                return null;
-            }
             if (!expectationStatMatches && !contentFingerprintVerified) {
                 const restored = await restoreAppPublishedOriginalExpectation(
                     workingPath,
