@@ -2,9 +2,7 @@
 
 use super::*;
 
-/// Keep foreign FreeText fields in page coordinates. A supported simple source
-/// font is retained for ASCII text; other encodings use the editor's Unicode
-/// shaping and embedded font, while background, border and RD remain foreign.
+/// Synthesize foreign FreeText in PDF space; an empty text area retains its colors.
 pub(super) fn missing_free_text_appearance(
     document: &mut Document,
     annotation: &Dictionary,
@@ -130,166 +128,165 @@ pub(super) fn missing_free_text_appearance(
         x2: inner.x2 - 2.0 * width,
         y2: inner.y2 - 2.0 * width,
     };
-    let geometry = print_text_geometry(
+    let color_operator = match color.len() {
+        1 => "g",
+        3 => "rg",
+        _ => "k",
+    };
+    if let Ok(geometry) = print_text_geometry(
         document,
         annotation,
         text_rect,
         resolve_page_rotation(document, page_id)?,
-    )?;
-    if let Some((font, advances)) = source_font {
-        resources.set("Font", Dictionary::from_iter([("PrintText", font)]));
-        let color_operator = match color.len() {
-            1 => "g",
-            3 => "rg",
-            _ => "k",
-        };
-        content.push_str(&format!(
-            "q {} cm 0 0 {} {} re W n BT {} {color_operator} /PrintText {size} Tf\n",
-            format_operands(&geometry.matrix),
-            geometry.width,
-            geometry.height,
-            format_operands(&color)
-        ));
-        for (index, line) in
-            crate::text_box_font::layout_simple(&text, geometry.width, size, &advances)
-                .iter()
-                .enumerate()
-        {
-            let text = line
-                .text
-                .replace('\\', "\\\\")
-                .replace('(', "\\(")
-                .replace(')', "\\)");
+    ) {
+        if let Some((font, advances)) = source_font {
+            resources.set("Font", Dictionary::from_iter([("PrintText", font)]));
             content.push_str(&format!(
-                "1 0 0 1 {} {} Tm ({text}) Tj\n",
-                0,
-                geometry.height - size - index as f64 * size * 1.2
+                "q {} cm 0 0 {} {} re W n BT {} {color_operator} /PrintText {size} Tf\n",
+                format_operands(&geometry.matrix),
+                geometry.width,
+                geometry.height,
+                format_operands(&color)
             ));
-        }
-        content.push_str("ET Q\n");
-    } else {
-        let mut programs = Vec::new();
-        for fonts in &font_resources {
-            // The DA font wins when it has this run's glyphs. Other embedded
-            // resources precede the portable fallbacks, never host fonts.
-            for (_, font) in fonts
-                .iter()
-                .filter(|(name, _)| *name == &font_name)
-                .chain(fonts.iter().filter(|(name, _)| *name != &font_name))
+            for (index, line) in
+                crate::text_box_font::layout_simple(&text, geometry.width, size, &advances)
+                    .iter()
+                    .enumerate()
             {
-                let program = (|| -> Result<Vec<u8>> {
-                    let mut font = document.dereference(font)?.1.as_dict()?;
-                    if let Ok(descendants) = font.get(b"DescendantFonts") {
-                        font = document
-                            .dereference(
-                                document
-                                    .dereference(descendants)?
-                                    .1
-                                    .as_array()?
-                                    .first()
-                                    .ok_or("No descendant font")?,
-                            )?
+                let text = line
+                    .text
+                    .replace('\\', "\\\\")
+                    .replace('(', "\\(")
+                    .replace(')', "\\)");
+                content.push_str(&format!(
+                    "1 0 0 1 0 {} Tm ({text}) Tj\n",
+                    geometry.height - size - index as f64 * size * 1.2
+                ));
+            }
+            content.push_str("ET Q\n");
+        } else {
+            let mut programs = Vec::new();
+            for fonts in &font_resources {
+                // The DA font wins when it has this run's glyphs. Other embedded
+                // resources precede the portable fallbacks, never host fonts.
+                for (_, font) in fonts
+                    .iter()
+                    .filter(|(name, _)| *name == &font_name)
+                    .chain(fonts.iter().filter(|(name, _)| *name != &font_name))
+                {
+                    let program = (|| -> Result<Vec<u8>> {
+                        let mut font = document.dereference(font)?.1.as_dict()?;
+                        if let Ok(descendants) = font.get(b"DescendantFonts") {
+                            font = document
+                                .dereference(
+                                    document
+                                        .dereference(descendants)?
+                                        .1
+                                        .as_array()?
+                                        .first()
+                                        .ok_or("No descendant font")?,
+                                )?
+                                .1
+                                .as_dict()?;
+                        }
+                        let descriptor = document
+                            .dereference(font.get(b"FontDescriptor")?)?
                             .1
                             .as_dict()?;
-                    }
-                    let descriptor = document
-                        .dereference(font.get(b"FontDescriptor")?)?
-                        .1
-                        .as_dict()?;
-                    let stream = document
-                        .dereference(descriptor.get(b"FontFile2")?)?
-                        .1
-                        .as_stream()?;
-                    let bytes = crate::decompressed_stream_with_limit(stream, 16 * 1024 * 1024)?;
-                    use skrifa::{raw::TableProvider, MetadataProvider};
-                    let face = skrifa::FontRef::from_index(&bytes, 0)?;
-                    let metrics = face.metrics(
-                        skrifa::instance::Size::unscaled(),
-                        skrifa::instance::LocationRef::default(),
-                    );
-                    if face.glyf().is_err() || metrics.bounds.is_none() || metrics.units_per_em == 0
-                    {
-                        return Err("Unusable print font program".into());
-                    }
-                    Ok(bytes)
-                })();
-                if let Ok(program) = program {
-                    if !programs.contains(&program) {
-                        programs.push(program);
+                        let stream = document
+                            .dereference(descriptor.get(b"FontFile2")?)?
+                            .1
+                            .as_stream()?;
+                        let bytes =
+                            crate::decompressed_stream_with_limit(stream, 16 * 1024 * 1024)?;
+                        use skrifa::{raw::TableProvider, MetadataProvider};
+                        let face = skrifa::FontRef::from_index(&bytes, 0)?;
+                        let metrics = face.metrics(
+                            skrifa::instance::Size::unscaled(),
+                            skrifa::instance::LocationRef::default(),
+                        );
+                        if face.glyf().is_err()
+                            || metrics.bounds.is_none()
+                            || metrics.units_per_em == 0
+                        {
+                            return Err("Unusable print font program".into());
+                        }
+                        Ok(bytes)
+                    })();
+                    if let Ok(program) = program {
+                        if !programs.contains(&program) {
+                            programs.push(program);
+                        }
                     }
                 }
             }
-        }
-        programs.push(crate::text_box_font::FONT.to_vec());
-        programs.push(
-            include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf").to_vec(),
-        );
-        let programs: Vec<_> = programs.iter().map(Vec::as_slice).collect();
-        let padding = crate::text_box_font::PADDING_X * size;
-        let width = (geometry.width - 2.0 * padding).max(0.0);
-        let lines = crate::text_box_font::layout_with_fonts(&text, width, size, &programs);
-        let mut fonts = Dictionary::new();
-        for index in lines
-            .iter()
-            .flat_map(|l| &l.glyphs)
-            .map(|g| g.font)
-            .collect::<std::collections::BTreeSet<_>>()
-        {
-            let reference = if programs[index] == crate::text_box_font::FONT {
-                *font_ref.get_or_insert_with(|| {
-                    crate::text_box_font::existing_font(document)
-                        .unwrap_or_else(|| crate::text_box_font::embed_font(document))
-                })
-            } else {
-                crate::text_box_font::embed_font_program(
-                    document,
-                    programs[index],
-                    &format!("PrintFont{index}"),
-                    false,
-                )
-            };
-            fonts.set(format!("PrintFont{index}"), reference);
-        }
-        let color_operator = match color.len() {
-            1 => "g",
-            3 => "rg",
-            _ => "k",
-        };
-        content.push_str(&format!(
-            "q {} cm 0 0 {} {} re W n BT {} {color_operator}\n",
-            format_operands(&geometry.matrix),
-            geometry.width,
-            geometry.height,
-            format_operands(&color)
-        ));
-        for (index, line) in lines.iter().enumerate() {
-            let left = padding
-                + if line.rtl {
-                    (width - line.width).max(0.0)
+            programs.push(crate::text_box_font::FONT.to_vec());
+            programs.push(
+                include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf")
+                    .to_vec(),
+            );
+            let programs: Vec<_> = programs.iter().map(Vec::as_slice).collect();
+            let padding = crate::text_box_font::PADDING_X * size;
+            let width = (geometry.width - 2.0 * padding).max(0.0);
+            let lines = crate::text_box_font::layout_with_fonts(&text, width, size, &programs);
+            let mut fonts = Dictionary::new();
+            for index in lines
+                .iter()
+                .flat_map(|l| &l.glyphs)
+                .map(|g| g.font)
+                .collect::<std::collections::BTreeSet<_>>()
+            {
+                let reference = if programs[index] == crate::text_box_font::FONT {
+                    *font_ref.get_or_insert_with(|| {
+                        crate::text_box_font::existing_font(document)
+                            .unwrap_or_else(|| crate::text_box_font::embed_font(document))
+                    })
                 } else {
-                    0.0
+                    crate::text_box_font::embed_font_program(
+                        document,
+                        programs[index],
+                        &format!("PrintFont{index}"),
+                        false,
+                    )
                 };
-            let baseline = geometry.height
-                - crate::text_box_font::baseline_from_top(size)
-                - index as f64 * crate::text_box_font::LINE_HEIGHT * size;
-            content.push_str(&format!(
-                "/Span << /ActualText <{}> >> BDC\n",
-                crate::text_box_font::unicode_hex(&line.text, true)
-            ));
-            for glyph in &line.glyphs {
-                content.push_str(&format!(
-                    "/PrintFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
-                    glyph.font,
-                    size,
-                    left + glyph.x,
-                    baseline + glyph.y,
-                    glyph.id
-                ));
+                fonts.set(format!("PrintFont{index}"), reference);
             }
-            content.push_str("EMC\n");
+            content.push_str(&format!(
+                "q {} cm 0 0 {} {} re W n BT {} {color_operator}\n",
+                format_operands(&geometry.matrix),
+                geometry.width,
+                geometry.height,
+                format_operands(&color)
+            ));
+            for (index, line) in lines.iter().enumerate() {
+                let left = padding
+                    + if line.rtl {
+                        (width - line.width).max(0.0)
+                    } else {
+                        0.0
+                    };
+                let baseline = geometry.height
+                    - crate::text_box_font::baseline_from_top(size)
+                    - index as f64 * crate::text_box_font::LINE_HEIGHT * size;
+                content.push_str(&format!(
+                    "/Span << /ActualText <{}> >> BDC\n",
+                    crate::text_box_font::unicode_hex(&line.text, true)
+                ));
+                for glyph in &line.glyphs {
+                    content.push_str(&format!(
+                        "/PrintFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
+                        glyph.font,
+                        size,
+                        left + glyph.x,
+                        baseline + glyph.y,
+                        glyph.id
+                    ));
+                }
+                content.push_str("EMC\n");
+            }
+            content.push_str("ET Q\n");
+            resources.set("Font", fonts);
         }
-        content.push_str("ET Q\n");
-        resources.set("Font", fonts);
     }
     Ok(document.add_object(Stream::new(lopdf::dictionary! {"Type"=>"XObject", "Subtype"=>"Form", "BBox"=>rect_object(rect), "Resources"=>resources},content.into_bytes())))
 }

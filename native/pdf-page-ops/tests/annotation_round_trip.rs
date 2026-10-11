@@ -1963,6 +1963,48 @@ fn print_freetext_partial_fonts_preserve_joining_and_pointed_words() {
 }
 
 #[test]
+fn print_freetext_collapsed_text_keeps_background_and_border_colors() {
+    let temp = TempPaths::new("print-collapsed-freetext-colors");
+    let printed = temp.root.join("printed.pdf");
+    for font in [None, Some("Courier")] {
+        for width in [30, 60] {
+            write_print_text_pdf(&temp.pdf, "ABC", font, 0, 0, [100, 500, 300, 620], 20);
+            let mut document = Document::load(&temp.pdf).unwrap();
+            let annotation = document.get_dictionary_mut((4, 0)).unwrap();
+            annotation.set("C", vec![0.into(), 1.into(), 0.into()]);
+            annotation.set("DA", Object::string_literal("/Helv 20 Tf 1 0 0 rg"));
+            annotation.set("BS", lopdf::dictionary! {"W"=>width});
+            document.save(&temp.pdf).unwrap();
+            print_annotation_pdf(&temp.pdf, &printed);
+            let pixels = poppler_pixels(&printed);
+            let red = pixels
+                .chunks_exact(3)
+                .filter(|p| p[0] > 200 && p[1] < 100 && p[2] < 100)
+                .count();
+            let green = pixels
+                .chunks_exact(3)
+                .filter(|p| p[1] > 200 && p[0] < 100 && p[2] < 100)
+                .count();
+            assert!(
+                red > 15_000,
+                "red DA border, font={font:?}, width={width}, red={red}"
+            );
+            if width == 30 {
+                assert!(
+                    green > 8_000,
+                    "green interior, font={font:?}, green={green}"
+                );
+                let center = &pixels[(282 * 596 + 200) * 3..(282 * 596 + 200) * 3 + 3];
+                assert!(
+                    center[1] > 200 && center[0] < 100 && center[2] < 100,
+                    "center stays green: {center:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn print_freetext_missing_fonts_use_pdf_rotation_without_editor_metadata() {
     let temp = TempPaths::new("print-text-pdf-rotation");
     let printed = temp.root.join("printed.pdf");
