@@ -42,13 +42,17 @@ import {
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { isRecord } from '@contracts/runtimeGuards';
-import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
+    getScanCleanupPageOverride,
+    SCAN_CLEANUP_OUTPUT_HALVES,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import type {TScanCleanupOutputHalf} from '@contracts/scan-cleanup/domain';
 import {
     resolveScanCleanupOutputPlacement,
     usesScanCleanupInkAlignment,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {
-    resolveScanCleanupPlacementAnchorFromSummary,
+    resolveScanCleanupSheetAnchorsFromSummary,
     resolveScanCleanupSheetHeightPoints,
 } from '@evb/scan-cleanup/core/placementAnchors';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
@@ -1216,11 +1220,8 @@ function resolveBatchPlacementAnchors(
             const scale = summary.referenceHeightPoints > 0 && sheetHeightPoints > 0
                 ? sheetHeightPoints / summary.referenceHeightPoints
                 : 1;
-            for (const half of [
-                'full',
-                'left',
-                'right',
-            ] as const) {
+            const inkTops: Partial<Record<TScanCleanupOutputHalf, number>> = {};
+            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 if (resolved[half] !== undefined) continue;
                 if (resolveScanCleanupOutputPlacement(
                     baseRequest.options.pageAlignment,
@@ -1232,11 +1233,9 @@ function resolveBatchPlacementAnchors(
                 const contentBox = pageOverride.manualContentBoxes?.[half]
                     ?? evidence?.outputs[half]?.contentBox;
                 if (contentBox === undefined) continue;
-                resolved[half] = resolveScanCleanupPlacementAnchorFromSummary(
-                    summary,
-                    contentBox.yNormalized * scale,
-                );
+                inkTops[half] = contentBox.yNormalized * scale;
             }
+            Object.assign(resolved, resolveScanCleanupSheetAnchorsFromSummary(summary, inkTops));
         }
         if (Object.keys(resolved).length > 0) {
             anchorsByPage[key] = resolved;

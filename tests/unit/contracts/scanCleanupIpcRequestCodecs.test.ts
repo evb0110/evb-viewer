@@ -425,6 +425,7 @@ describe('scan-cleanup IPC request codecs', () => {
                 startNormalized: 0.1,
                 endNormalized: 0.101,
                 valueNormalized: 0.1005,
+                size: 1,
             }],
             samples: [
                 {

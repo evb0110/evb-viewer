@@ -28,6 +28,7 @@ const clusterSchema = v.pipe(v.strictObject({
     startNormalized: normalized,
     endNormalized: normalized,
     valueNormalized: normalized,
+    size: v.pipe(v.number(), v.safeInteger(), v.minValue(1)),
 }), v.check(cluster => cluster.endNormalized >= cluster.startNormalized
     && cluster.valueNormalized >= cluster.startNormalized
     && cluster.valueNormalized <= cluster.endNormalized));
