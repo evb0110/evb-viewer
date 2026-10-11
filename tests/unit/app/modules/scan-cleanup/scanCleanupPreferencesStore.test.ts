@@ -260,6 +260,41 @@ describe('scan cleanup renderer preference store', () => {
         secondStoreModule.resetScanCleanupPreferencesStore();
     });
 
+    it('keeps a revert made while an earlier global write is in flight', async () => {
+        const {
+            filePath, store,
+        } = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const writeSettings = capability.value.updateSettings.getMockImplementation()!;
+        let releaseWrite!: () => void;
+        let writeStarted!: () => void;
+        const started = new Promise<void>(resolve => { writeStarted = resolve; });
+        const gate = new Promise<void>(resolve => { releaseWrite = resolve; });
+        capability.value.updateSettings.mockImplementationOnce(async request => {
+            writeStarted();
+            await gate;
+            return writeSettings(request);
+        });
+        const preferences = getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        preferences.readingOrder = 'rtl';
+        await nextTick();
+        const flush = flushScanCleanupPreferencesStore();
+        await started;
+        preferences.readingOrder = 'ltr';
+        await nextTick();
+        releaseWrite();
+        await flush;
+        await flushScanCleanupPreferencesStore();
+
+        expect(preferences.readingOrder).toBe('ltr');
+        expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('ltr');
+        resetScanCleanupPreferencesStore();
+        expect(getScanCleanupPreferencesStore().readingOrder).toBe('ltr');
+        await whenScanCleanupPreferencesReady();
+        expect(getScanCleanupPreferencesStore().readingOrder).toBe('ltr');
+    });
+
     it('warns when a desktop document patch has no authoritative source hash', async () => {
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();

@@ -70,10 +70,7 @@ let acknowledgedPreferences: IScanCleanupGlobalPreferences | null = null;
 let observedPreferences: IScanCleanupGlobalPreferences | null = null;
 let unsubscribeCommittedGlobalPreferences: (() => void) | null = null;
 
-const pendingGlobalFields = new Map<keyof IScanCleanupGlobalPreferences, {
-    value: unknown;
-    generation: number
-}>();
+const pendingGlobalFields = new Map<keyof IScanCleanupGlobalPreferences, {value: unknown;}>();
 interface IPendingDocumentUpdate {
     request: IScanCleanupSettingsUpdateRequest;
     token: IScanCleanupDocumentPersistenceToken;
@@ -359,7 +356,6 @@ function queueRemoteUpdate(
         });
     }
     const queuedRequest = request;
-    const queuedPreferencesRevision = preferencesRevision;
     let committed = false;
     const queuedWrite = remoteWriteQueue.then(async () => {
         const updateSettings = currentScanCleanupCapability().updateSettings;
@@ -416,7 +412,7 @@ function queueRemoteUpdate(
                     intent,
                 ] of pendingGlobalFields) {
                     const sentValue = (queuedRequest as {settingsPatch: IScanCleanupGlobalPreferencePatch}).settingsPatch[key];
-                    if (intent.generation === queuedPreferencesRevision && isEqual(intent.value, sentValue)) {
+                    if (isEqual(intent.value, sentValue) || isEqual(intent.value, acknowledgedPreferences?.[key])) {
                         pendingGlobalFields.delete(key);
                     }
                 }
@@ -499,14 +495,7 @@ function scheduleScanCleanupPreferencesPersistence(value: IScanCleanupGlobalPref
         pendingPreferencesRevision += 1;
     }
     for (const key of changedKeys) {
-        if (isEqual(acknowledgedPreferences?.[key], value[key])) {
-            pendingGlobalFields.delete(key);
-        } else {
-            pendingGlobalFields.set(key, {
-                value: cloneScanCleanupPreferenceValue(value[key]),
-                generation: pendingPreferencesRevision,
-            });
-        }
+        pendingGlobalFields.set(key, {value: cloneScanCleanupPreferenceValue(value[key])});
     }
     observedPreferences = cloneScanCleanupPreferenceValue(value);
     pendingPreferences = cloneScanCleanupPreferenceValue(value);
