@@ -9,28 +9,17 @@ import {
     ZOOM_MODE_SCHEMA as zoomModeSchema,
 } from '@contracts/recentReadingView';
 import {parseEpochMs} from '@contracts/timestamps';
-import {parsePageIndex} from '@contracts/pageNumbers';
-import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import {PDF_PAGE_LABEL_STYLE_VALUES} from '@contracts/pdfPageLabels';
 
 const editRevisionSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
-const bookmarkRecoveryEntrySchema: v.GenericSchema<unknown, IPdfBookmarkEntry> = v.lazy(() => v.object({
-    title: v.string(),
-    pageIndex: v.nullable(v.pipe(v.number(), v.check(value => parsePageIndex(value) !== null), v.transform(value => parsePageIndex(value)!))),
-    pageYRatio: v.exactOptional(v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)))),
-    namedDest: v.nullable(v.string()),
-    bold: v.boolean(),
-    italic: v.boolean(),
-    color: v.nullable(v.string()),
-    items: v.array(bookmarkRecoveryEntrySchema),
-}));
 
 /** Metadata travels in the existing identity-bound document recovery artifact. */
 export const workspaceMetadataRecoverySchema = v.object({
     bookmarks: v.optional(v.object({
         revision: editRevisionSchema,
         dirty: v.literal(true),
-        items: v.array(bookmarkRecoveryEntrySchema),
+        items: v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA),
     })),
     pageLabels: v.optional(v.object({
         revision: editRevisionSchema,
