@@ -52,6 +52,30 @@ fn quad_bounds(quad: &[f64]) -> PdfRect {
     }
 }
 
+/// The bounds a split admits an annotation by: its Rect, or for a text markup
+/// without one, the bounds of its quads.
+pub(crate) fn annotation_bounds(
+    document: &impl PdfObjectSource,
+    annotation: &Dictionary,
+) -> Option<PdfRect> {
+    read_pdf_rect_from_dict(document, annotation).or_else(|| {
+        let quads = text_markup_quad_points(document, annotation)?;
+        let coordinate = |axis: usize| quads.iter().skip(axis).step_by(2).copied();
+        Some(PdfRect {
+            x1: coordinate(0).fold(f64::INFINITY, f64::min),
+            y1: coordinate(1).fold(f64::INFINITY, f64::min),
+            x2: coordinate(0).fold(f64::NEG_INFINITY, f64::max),
+            y2: coordinate(1).fold(f64::NEG_INFINITY, f64::max),
+        })
+    })
+}
+
+/// Whether a split moves an annotation's geometry: it has a Rect or quads, and
+/// a Rect-less text markup still has its quads moved.
+pub(crate) fn annotation_has_geometry(annotation: &Dictionary) -> bool {
+    annotation.has(b"Rect") || annotation.has(b"QuadPoints")
+}
+
 /// Whether an annotation, mapped by `matrix`, keeps any area on `view`. A
 /// reader edits a text markup by its quads, so the quads decide for it; any
 /// other annotation is judged by its mapped `rect`.

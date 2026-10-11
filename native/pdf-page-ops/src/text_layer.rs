@@ -1207,7 +1207,7 @@ fn clone_object_graph(
                 depth + 1,
             )?;
             if let Ok(annotation) = cloned.as_dict_mut() {
-                if annotation.has(b"Subtype") && annotation.has(b"Rect") {
+                if annotation.has(b"Subtype") && annotation_has_geometry(annotation) {
                     transform(target, annotation)?;
                 }
             }
@@ -1880,7 +1880,7 @@ fn append_source_annotations(
                 }
                 owner = next;
             }
-            if read_pdf_rect_from_dict(source, owner).is_some_and(|rect| {
+            if annotation_bounds(source, owner).is_some_and(|rect| {
                 let rect = TextMatrix::from_values(matrix).bounds(rect);
                 if matches!(subtype, Some(b"Text" | b"Popup"))
                     || is_free_text_note_marker(source, owner, source_view, source_rotation)

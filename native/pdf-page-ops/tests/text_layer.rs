@@ -2766,6 +2766,69 @@ fn overlay_admits_a_highlight_by_its_indirect_quads_not_its_rect() {
     }
 }
 
+#[test]
+fn overlay_places_a_highlight_without_a_rect_by_its_quads() {
+    let source = path("markup-no-rect-source", "pdf");
+    let input = path("markup-no-rect-input", "pdf");
+    let output = path("markup-no-rect-output", "pdf");
+    let instructions = path("markup-no-rect-instructions", "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page = document.get_pages()[&1];
+    let annotation = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Highlight", "P" => page,
+        "QuadPoints" => vec![
+            40.into(), 55.into(), 70.into(), 55.into(), 40.into(), 45.into(), 70.into(), 45.into(),
+        ],
+        "C" => vec![1.into(), 0.into(), 0.into()], "F" => 4,
+        "Contents" => "no rect",
+    });
+    document
+        .get_dictionary_mut(page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(annotation)]);
+    document.save(&source).unwrap();
+    save_half_pages(&input, 2);
+    write(
+        &instructions,
+        serde_json::to_vec(&serde_json::json!({"pages":[
+            {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,5,0],"filterToOutputPage":true},
+            {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"filterToOutputPage":true},
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    // The left half keeps the highlight at its moved quads; the right half is
+    // off the quads' x 40..70 span after its shift, so it is not copied there.
+    let saved = Document::load(&output).unwrap();
+    let annotations = |page: u32| {
+        saved
+            .get_dictionary(saved.get_pages()[&page])
+            .unwrap()
+            .get(b"Annots")
+            .map(|annots| annots.as_array().unwrap().clone())
+            .unwrap_or_default()
+    };
+    let left = annotations(1);
+    assert_eq!(left.len(), 1);
+    let left = saved
+        .get_dictionary(left[0].as_reference().unwrap())
+        .unwrap();
+    assert_eq!(
+        real_numbers(left.get(b"QuadPoints").unwrap()),
+        [45.0, 55.0, 75.0, 55.0, 45.0, 45.0, 75.0, 45.0]
+    );
+    assert!(annotations(2).is_empty());
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
 fn real_numbers(object: &Object) -> Vec<f64> {
     object
         .as_array()
