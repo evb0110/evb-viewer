@@ -97,6 +97,27 @@ describe('native PDF text-box mutation contracts', () => {
             .toThrow('64 KiB UTF-8');
     });
 
+    it.each([
+        'א'.repeat(256),
+        'ع'.repeat(256),
+        `${'界'.repeat(170)}ab`,
+    ])(
+        'budgets Unicode text-box identities at 512 UTF-8 bytes',
+        (stableKey) => {
+            expect(new TextEncoder().encode(stableKey)).toHaveLength(512);
+            expect(normalizePdfNativeMutationSet({textBoxes: [{
+                ...textBox,
+                stableKey,
+            }]}, 'mutations')
+                .textBoxes?.[0]?.stableKey).toBe(stableKey);
+            expect(() => normalizePdfNativeMutationSet({textBoxes: [{
+                ...textBox,
+                stableKey: `${stableKey}a`,
+            }]}, 'mutations'))
+                .toThrow('512 UTF-8 bytes');
+        },
+    );
+
     it('rejects a payload that supplies both text-box keys', () => {
         expect(() => normalizePdfNativeMutationSet({
             textBoxes: [textBox],

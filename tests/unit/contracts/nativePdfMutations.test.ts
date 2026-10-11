@@ -153,6 +153,204 @@ describe('native PDF mutation contracts', () => {
 
     it.each([
         [
+            'Hebrew',
+            'א'.repeat(1_024),
+        ],
+        [
+            'Arabic',
+            'ع'.repeat(1_024),
+        ],
+        [
+            'CJK',
+            `${'界'.repeat(682)}ab`,
+        ],
+    ])('budgets %s report identities in UTF-8 bytes', (_language, annotationId) => {
+        const binding = {
+            annotationId,
+            pdfRef: '700 0 R',
+        };
+        expect(new TextEncoder().encode(annotationId)).toHaveLength(2_048);
+        expect(normalizePdfNativeAnnotationIdentityBindings([binding])).toEqual([binding]);
+        expect(() => normalizePdfNativeAnnotationIdentityBindings([{
+            ...binding,
+            annotationId: `${annotationId}a`,
+        }])).toThrow('2048 UTF-8 bytes');
+    });
+
+    it('refuses the 3200-shape Unicode probe at mutation admission', () => {
+        const identity = `evb-shape:${'é'.repeat(1_100)}`;
+        expect(new TextEncoder().encode(identity)).toHaveLength(2_210);
+        expect(() => normalizePdfNativeMutationSet({shapes: {
+            totalPages: 1,
+            rewriteShapeState: true,
+            shapes: Array.from({length: 3_200}, (_, index) => ({
+                ...validShape,
+                stableKey: index === 3_199
+                    ? identity
+                    : `evb-shape:${index.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`,
+            })),
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        }}, 'mutations')).toThrow('mutations.shapes.shapes[3199].stableKey must contain at most 2048 UTF-8 bytes');
+    });
+
+    it.each([
+        {
+            family: 'shape stable key',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...validShape,
+                    stableKey: identity,
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }}),
+        },
+        {
+            family: 'shape fallback identity',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...validShape,
+                    annotationId: identity,
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }}),
+        },
+        {
+            family: 'shape id',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [{
+                    ...validShape,
+                    id: identity,
+                }],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [],
+            }}),
+        },
+        {
+            family: 'deleted shape identity',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [],
+                deletedAnnotationIds: [identity],
+                deletedStableKeys: [],
+            }}),
+        },
+        {
+            family: 'deleted shape stable key',
+            payload: (identity: string) => ({shapes: {
+                totalPages: 1,
+                rewriteShapeState: true,
+                shapes: [],
+                deletedAnnotationIds: [],
+                deletedStableKeys: [identity],
+            }}),
+        },
+        {
+            family: 'note stable key',
+            payload: (identity: string) => ({freeTextNotes: [{
+                ...validFreeTextNote,
+                stableKey: identity,
+            }]}),
+        },
+        {
+            family: 'markup app identity',
+            payload: (identity: string) => ({markup: {hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect: validFreeTextNote.markerRect,
+                source: 'editor',
+                appAnnotationId: identity,
+            }]}}),
+        },
+        {
+            family: 'markup annotation identity',
+            payload: (identity: string) => ({markup: {hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect: validFreeTextNote.markerRect,
+                annotationId: identity,
+            }]}}),
+        },
+        {
+            family: 'markup id',
+            payload: (identity: string) => ({markup: {hints: [{
+                subtype: 'Highlight',
+                pageIndex: 0,
+                markerRect: validFreeTextNote.markerRect,
+                id: identity,
+            }]}}),
+        },
+        {
+            family: 'image stable key',
+            payload: (identity: string) => ({placedImages: [{
+                ...validImage,
+                stableKey: identity,
+            }]}),
+        },
+        {
+            family: 'image annotation identity',
+            payload: (identity: string) => ({placedImages: [{
+                ...validImage,
+                annotationId: identity,
+            }]}),
+        },
+        {
+            family: 'image recovery stable key',
+            payload: (identity: string) => ({placedImageGeometryUpdates: [{
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                stableKey: identity,
+            }]}),
+        },
+        {
+            family: 'image geometry annotation identity',
+            payload: (identity: string) => ({placedImageGeometryUpdates: [{
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.2,
+                annotationId: identity,
+            }]}),
+        },
+    ])('budgets $family at mutation admission in UTF-8 bytes', ({payload}) => {
+        for (const identity of [
+            'א'.repeat(1_024),
+            'ع'.repeat(1_024),
+            `${'界'.repeat(682)}ab`,
+        ]) {
+            expect(new TextEncoder().encode(identity)).toHaveLength(2_048);
+            expect(() => normalizePdfNativeMutationSet(payload(identity), 'mutations')).not.toThrow();
+            expect(() => normalizePdfNativeMutationSet(payload(`${identity}a`), 'mutations')).toThrow('2048 UTF-8 bytes');
+        }
+    });
+
+    it('preserves absent image geometry identity fields', () => {
+        const normalized = normalizePdfNativeMutationSet({placedImageGeometryUpdates: [{
+            pageIndex: 0,
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.2,
+        }]}, 'mutations');
+        expect(normalized.placedImageGeometryUpdates?.[0]).not.toHaveProperty('annotationId');
+        expect(normalized.placedImageGeometryUpdates?.[0]).not.toHaveProperty('stableKey');
+    });
+
+    it.each([
+        [
             'non-array',
             {
                 annotationId: 'app-annotation-1',
