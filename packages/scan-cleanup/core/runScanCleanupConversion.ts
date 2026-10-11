@@ -3,7 +3,6 @@
 import {constants as fsConstants} from 'fs';
 import {
     access,
-    appendFile,
     copyFile,
     link,
     open,
@@ -96,10 +95,7 @@ import {
     serializeLegacyScanCleanupCompactManifest,
     serializeScanCleanupCompactManifest,
 } from '@evb/scan-cleanup/core/compactManifest';
-import {
-    buildScanCleanupTextLayerPlanFromPageSizeMap,
-    inspectScanCleanupSourceTextOmission,
-} from '@evb/scan-cleanup/core/sourceTextLayer';
+import {buildScanCleanupTextLayerPlanFromPageSizeMap} from '@evb/scan-cleanup/core/sourceTextLayer';
 import {
     buildScanCleanupStampBuildIds,
     hashScanCleanupNativeBinarySha256s,
@@ -181,16 +177,19 @@ import {
 import {
     assembleWithCompactSourcePages,
     type IRenderedCleanupOutputPage,
+    overlayScanCleanupTextLayer,
     resolveCompactSourcePreservation,
     resolveFullSourcePagePreservation,
     sourceMrcForegroundPdfMatrix,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
     appendJsonLine,
+    collectSourceText,
+    inspectSkippedScanCleanupSourceText,
+    type IScanCleanupSourceTextSink,
     mergeScanCleanupPdfPathSidecar,
     readJsonLines,
 } from '@evb/scan-cleanup/core/streamingSidecars';
-export {mergeScanCleanupPdfPathSidecar};
 export type {
     IRunScanCleanupPipelineDependencies,
     IRunScanCleanupPipelineRequest,
@@ -1194,7 +1193,8 @@ async function runStreamingScanCleanupConversion({
     options,
     provenance,
     onRecoveryPending,
-}: Omit<IScanCleanupBatchExecution, 'pageSizeStore' | 'sourceTextPagesPath'> & {
+    sourceText,
+}: Omit<IScanCleanupBatchExecution, 'pageSizeStore'> & {
     pageCount: number;
     geometrySidecarPath: string;
     detectionResultStore?: NonNullable<IRunScanCleanupPipelineRequest['detectionResultStore']>;
@@ -1295,8 +1295,6 @@ async function runStreamingScanCleanupConversion({
     }
     const batchOutputsPath = join(scratch, 'scan-cleanup-batch-outputs.jsonl');
     const batchSummariesPath = join(scratch, 'scan-cleanup-batch-summaries.jsonl');
-    const sourceTextPagesPath = join(scratch, 'source-text-omission-pages.txt');
-    await writeFile(sourceTextPagesPath, '');
     const outputHandle = await open(batchOutputsPath, 'w');
     const summaryHandle = await open(batchSummariesPath, 'w');
     const completedPageNumbers = new Set<number>();
@@ -1337,6 +1335,7 @@ async function runStreamingScanCleanupConversion({
                 provenance,
                 ...buildBoundedDetectionRequestFields(request, batchDetectionResults, batchPageNumbers),
             };
+            sourceText.outputPageOffset = summary.outputPages;
             const childSummary = await executeScanCleanupBatch({
                 request: childRequest,
                 paths,
@@ -1354,7 +1353,7 @@ async function runStreamingScanCleanupConversion({
                 dpiDetails: boundedDpiSource,
                 documentCanvas,
                 options,
-                sourceTextPagesPath,
+                sourceText,
                 onRecoveryPending,
                 emitProgress: (_stage, _completedUnits, _totalUnits, completedPages) => {
                     if (completedPages !== undefined) {
@@ -1422,17 +1421,6 @@ async function runStreamingScanCleanupConversion({
         // event. Do not attach an empty page list, which the progress schema
         // correctly rejects as inconsistent with completedUnits.
         emitProgress('assembling', summary.outputPages, summary.outputPages);
-        if ((await stat(sourceTextPagesPath)).size > 0 && paths.pdfPageOpsBinary !== undefined) {
-            summary.sourceTextOmission = await inspectScanCleanupSourceTextOmission({
-                pdfPath: preparedPdfPath,
-                pagesPath: sourceTextPagesPath,
-                pdfPageOpsBinary: paths.pdfPageOpsBinary,
-                qpdfBinary: paths.qpdfBinary,
-                signal,
-                runCommand: dependencies.runCommand,
-                log,
-            });
-        }
         const [
             sourceFile,
             outputFile,
@@ -1919,6 +1907,11 @@ export async function runScanCleanupConversion(
             const droppedEvent = resolveScanCleanupDroppedMatchWarningEventFromAccumulator(documentCanvasAccumulator);
             if (droppedEvent) warnEvent(droppedEvent);
         }
+        const sourceText: IScanCleanupSourceTextSink = {
+            outputPageOffset: 0,
+            pages: [],
+            skippedNonAffine: [],
+        };
         if (largeStreamingRun) {
             if (geometrySidecarPath === null) {
                 throw new Error('Scan cleanup streaming run has no geometry sidecar');
@@ -1955,6 +1948,7 @@ export async function runScanCleanupConversion(
                 documentCanvas,
                 options,
                 provenance,
+                sourceText,
                 onRecoveryPending: retainScratchUntilRecovery,
             });
         } else {
@@ -1976,9 +1970,25 @@ export async function runScanCleanupConversion(
                 dpiDetails,
                 documentCanvas,
                 options,
+                sourceText,
                 onRecoveryPending: retainScratchUntilRecovery,
             });
         }
+        // One overlay over the merged output: a link may name another batch's page.
+        await overlayScanCleanupTextLayer(
+            sourceText.pages, paths, prepared.pdfPath, stagedPdfPath, scratch, signal, log, dependencies,
+            retainScratchUntilRecovery,
+        );
+        summary.sourceTextOmission = await inspectSkippedScanCleanupSourceText({
+            skippedNonAffine: sourceText.skippedNonAffine,
+            pdfPath: prepared.pdfPath,
+            scratch,
+            pdfPageOpsBinary: paths.pdfPageOpsBinary,
+            qpdfBinary: paths.qpdfBinary,
+            signal,
+            runCommand: dependencies.runCommand,
+            log,
+        });
         if (largeStreamingRun) {
             await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         }
@@ -2036,7 +2046,7 @@ interface IScanCleanupBatchExecution {
     documentCanvas: TScanCleanupDocumentCanvas | null;
     options: IRunScanCleanupPipelineRequest['options'];
     onRecoveryPending: (recovery: Promise<boolean>) => Promise<void>;
-    sourceTextPagesPath?: string;
+    sourceText: IScanCleanupSourceTextSink;
 }
 
 // Executes an admitted page batch in the job's scratch. The caller owns geometry,
@@ -2044,7 +2054,7 @@ interface IScanCleanupBatchExecution {
 async function executeScanCleanupBatch({
     request, paths, signal, policy, log, dependencies, emitProgress, pageNumbers,
     documentPageCount, preparedPdfPath, stagedPdfPath, scratch, summary,
-    pageSizeStore, dpiDetails, documentCanvas, options, onRecoveryPending, sourceTextPagesPath,
+    pageSizeStore, dpiDetails, documentCanvas, options, onRecoveryPending, sourceText,
 }: IScanCleanupBatchExecution): Promise<TScanCleanupSummary> {
     const pageCount = pageNumbers.length;
     const requirePublishedRaster = dependencies.requirePublishedRaster ?? requirePublishedRasterFile;
@@ -3200,26 +3210,13 @@ async function executeScanCleanupBatch({
         textLayerPlan,
         onRecoveryPending,
     );
+    collectSourceText(sourceText, textLayerPlan);
     if (textLayerPlan.skippedNonAffine.length > 0) {
         log(
             'debug',
             'Scan cleanup skipped source text on pages without safe affine geometry: '
             + describePageNumbers(textLayerPlan.skippedNonAffine),
         );
-        const pagesPath = sourceTextPagesPath ?? join(scratch, 'source-text-omission-pages.txt');
-        const writePages = sourceTextPagesPath === undefined ? writeFile : appendFile;
-        await writePages(pagesPath, `${textLayerPlan.skippedNonAffine.join('\n')}\n`);
-        if (sourceTextPagesPath === undefined && paths.pdfPageOpsBinary !== undefined) {
-            summary.sourceTextOmission = await inspectScanCleanupSourceTextOmission({
-                pdfPath: preparedPdfPath,
-                pagesPath,
-                pdfPageOpsBinary: paths.pdfPageOpsBinary,
-                qpdfBinary: paths.qpdfBinary,
-                signal,
-                runCommand: dependencies.runCommand,
-                log,
-            });
-        }
     }
     const [
         sourceFile,

@@ -470,16 +470,4 @@ export async function assembleWithCompactSourcePages(
             `Scan cleanup retained the original compact image layers for ${String(preservedPages.length)} automatic no-raster-change page(s)`,
         );
     }
-    await overlayScanCleanupTextLayer(
-        textLayerPlan.pages,
-        paths,
-        preparedPdfPath,
-        stagedPdfPath,
-        scratch,
-        signal,
-        log,
-        dependencies,
-        onTerminationProof,
-    );
-
 }

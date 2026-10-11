@@ -41,7 +41,6 @@ import {
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {createFileBackedScanCleanupResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {
-    mergeScanCleanupPdfPathSidecar,
     readDetectionResultsForPageNumbers,
     runScanCleanupConversion,
     validateScanCleanupBatchSummarySidecar,
@@ -49,6 +48,7 @@ import {
     type IRunScanCleanupPipelineDependencies,
     type IScanCleanupWorkerPaths,
 } from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {mergeScanCleanupPdfPathSidecar} from '@evb/scan-cleanup/core/streamingSidecars';
 import type {ScanCleanupStreamingEvidenceError} from '@evb/scan-cleanup/core/errors';
 import type {
     IScanCleanupDetectionResultStore,
@@ -269,6 +269,32 @@ function outputMetadata() {
         },
         warnings: [],
         warningEvents: [],
+    };
+}
+
+// The text layer places words only through a forward transform.
+function textOutputMetadata() {
+    return {
+        ...outputMetadata(),
+        forwardTransform: {matrix: [
+            [
+                1,
+                0,
+                0,
+            ],
+            [
+                0,
+                1,
+                0,
+            ],
+            [
+                0,
+                0,
+                1,
+            ],
+        ]},
+        inputWidthPx: 1,
+        inputHeightPx: 1,
     };
 }
 
@@ -1307,6 +1333,166 @@ describe('scan-cleanup-core conversion coverage', () => {
             .split('\n');
         expect(sidecarLines).toHaveLength(2);
         expect(sourceRasterCalls).toHaveBeenCalledTimes(documentPageCount);
+    });
+
+    it('overlays source text once over the merged document, so a link can cross a batch boundary', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-streamed-overlay-test-'));
+        roots.push(root);
+        const sourcePdfPath = join(root, 'source.pdf');
+        const outputPdfPath = join(root, 'output.pdf');
+        await writeFile(sourcePdfPath, '%PDF-streamed-overlay-source');
+        const documentPageCount = SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1;
+        const templates = {
+            ppm: join(root, 'template.ppm'),
+            composite: join(root, 'template-composite.bin'),
+            outputMetadata: join(root, 'template-output-metadata.json'),
+            pageMetadata: join(root, 'template-page-metadata.json'),
+        };
+        await Promise.all([
+            writeFile(templates.ppm, PPM),
+            writeFile(templates.composite, 'composite'),
+            writeFile(templates.outputMetadata, JSON.stringify(textOutputMetadata())),
+            writeFile(templates.pageMetadata, JSON.stringify(pageMetadata())),
+        ]);
+        const pageNumbers = Array.from({length: documentPageCount}, (_, index) => index + 1);
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: documentPageCount,
+            getPage: vi.fn(async pageNumber => pageGeometry(pageNumber)),
+            readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) => Array.from(
+                {length: lastPageNumberExclusive - firstPageNumber},
+                (_, index) => pageGeometry(firstPageNumber + index),
+            )),
+            forEachChunk: vi.fn(async onChunk => {
+                await onChunk({
+                    pageCount: documentPageCount,
+                    chunkIndex: 0,
+                    firstPageNumber: 1,
+                    offset: 0,
+                    byteLength: 0,
+                    pages: pageNumbers.map(pageNumber => pageGeometry(pageNumber)),
+                });
+            }),
+            close: vi.fn(async () => undefined),
+        };
+        const renderPagePpm = vi.fn(async (
+            _paths: Pick<IScanCleanupWorkerPaths, 'pdftoppmBinary'>,
+            _log: TScanCleanupLog,
+            _pageNumber: number,
+            _source: string,
+            outputPath: string,
+        ) => {
+            await link(templates.ppm, outputPath);
+        });
+        const runSidecar = vi.fn(async (
+            _binaryPath,
+            manifestPath,
+            _signal,
+            _log,
+            onProgress,
+        ) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                outputs: Array<{
+                    metadataPath: string;
+                    outputPath: string;
+                }>;
+            }>};
+            for (const [
+                index,
+                page,
+            ] of manifest.pages.entries()) {
+                const output = page.outputs[0]!;
+                await link(templates.composite, output.outputPath);
+                await link(templates.outputMetadata, output.metadataPath);
+                await link(templates.pageMetadata, page.pageMetadataPath);
+                onProgress({
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: index + 1,
+                });
+            }
+        });
+        // Each overlay run reports the output pages its instructions name.
+        const overlayOutputPages: number[][] = [];
+        const runCommand = vi.fn(async (_command: string, args: string[]) => {
+            const visibility = await rasterTextVisibilityResult(args);
+            if (visibility) return visibility;
+            if (args[0] === '--check') {
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            }
+            if (args[0] === '--empty') {
+                // qpdf merges batch outputs into the path after `--`, the last argument.
+                await writeFile(args.at(-1)!, '%PDF-1.7\n%%EOF\n');
+            }
+            if (args[0] === 'overlay-text') {
+                const instructions = JSON.parse(await readFile(args[args.indexOf('--instructions-file') + 1]!, 'utf8')) as {pages: Array<{outputPageIndex: number}>;};
+                overlayOutputPages.push(instructions.pages.map(page => page.outputPageIndex));
+            }
+            const outputIndex = args.indexOf('--output');
+            if (outputIndex >= 0) {
+                await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
+            }
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        const dependencies: IRunScanCleanupPipelineDependencies = {
+            getPageCount: vi.fn(async () => documentPageCount),
+            getPageSizeStore: vi.fn(async () => pageSizeStore),
+            detectSourceDpi: vi.fn(async () => ({
+                detected: true,
+                documentDpi: 72,
+                getPageRaster: () => ({
+                    dpi: 72,
+                    width: 1,
+                    height: 1,
+                }),
+            })),
+            renderPage: vi.fn(),
+            renderPagePpm,
+            runSidecar,
+            runCommand,
+            getAvailableScratchBytes: vi.fn(async () => null),
+            hashNativeBinary: vi.fn(async () => 'a'.repeat(64)),
+        };
+
+        const summary = await runScanCleanupConversion(
+            {
+                sourcePdfPath,
+                outputPdfPath,
+                options,
+                sourcePageNumbers: pageNumbers,
+            },
+            {
+                ...paths(root),
+                pdfimagesBinary: '/pdfimages',
+            },
+            new AbortController().signal,
+            () => undefined,
+            policy,
+            vi.fn<TScanCleanupLog>(),
+            dependencies,
+        );
+
+        expect(summary).toMatchObject({
+            inputPages: documentPageCount,
+            outputPages: documentPageCount,
+        });
+        // The first batch holds output page 0 and the second holds the last
+        // page; only one overlay run sees both, so a link between them keeps
+        // its destination.
+        expect(overlayOutputPages).toHaveLength(1);
+        expect(overlayOutputPages[0]).toEqual(expect.arrayContaining([
+            0,
+            SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+        ]));
     });
 
     it('runs the bounded PPM handoff and publishes a color output', async () => {

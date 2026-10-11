@@ -2,15 +2,23 @@ import {createReadStream} from 'fs';
 import {
     copyFile,
     open,
+    writeFile,
 } from 'fs/promises';
 import {join} from 'path';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {getErrorMessage} from '@contracts/getErrorMessage';
+import type {IScanCleanupTextLayerInstruction} from '@evb/scan-cleanup/core/compactManifest';
 import {ScanCleanupStreamingEvidenceError} from '@evb/scan-cleanup/core/errors';
+import {
+    inspectScanCleanupSourceTextOmission,
+    type IScanCleanupTextLayerPlan,
+} from '@evb/scan-cleanup/core/sourceTextLayer';
 import type {
     IRunScanCleanupPipelineDependencies,
     TScanCleanupLog,
+    TScanCleanupRunCommand,
 } from '@evb/scan-cleanup/core/types';
+import type {TScanCleanupSummary} from '@contracts/scan-cleanup/electronApiScanCleanup';
 
 type TJsonlFileHandle = Awaited<ReturnType<typeof open>>;
 
@@ -179,4 +187,51 @@ export async function mergeScanCleanupPdfPathSidecar(
             getErrorMessage(error),
         );
     }
+}
+
+/**
+ * Source text one conversion run gathers from its batches. A batch numbers its
+ * output pages from zero, so `outputPageOffset` shifts them past the batches
+ * before it; one overlay over the merged document then resolves every link.
+ */
+export interface IScanCleanupSourceTextSink {
+    outputPageOffset: number;
+    pages: IScanCleanupTextLayerInstruction[];
+    skippedNonAffine: number[];
+}
+
+export function collectSourceText(sink: IScanCleanupSourceTextSink, plan: IScanCleanupTextLayerPlan) {
+    sink.pages.push(...plan.pages.map(page => ({
+        ...page,
+        outputPageIndex: page.outputPageIndex + sink.outputPageOffset,
+    })));
+    sink.skippedNonAffine.push(...plan.skippedNonAffine);
+}
+
+/**
+ * Inspects the source pages no overlay could place. The pages file is the
+ * native inspection's input, so nothing is written when every page was placed.
+ */
+export async function inspectSkippedScanCleanupSourceText(input: {
+    skippedNonAffine: readonly number[];
+    pdfPath: string;
+    scratch: string;
+    pdfPageOpsBinary: string | undefined;
+    qpdfBinary: string;
+    signal: AbortSignal;
+    runCommand: TScanCleanupRunCommand;
+    log: TScanCleanupLog;
+}): Promise<TScanCleanupSummary['sourceTextOmission']> {
+    if (input.skippedNonAffine.length === 0 || input.pdfPageOpsBinary === undefined) return undefined;
+    const pagesPath = join(input.scratch, 'source-text-omission-pages.txt');
+    await writeFile(pagesPath, `${input.skippedNonAffine.join('\n')}\n`);
+    return inspectScanCleanupSourceTextOmission({
+        pdfPath: input.pdfPath,
+        pagesPath,
+        pdfPageOpsBinary: input.pdfPageOpsBinary,
+        qpdfBinary: input.qpdfBinary,
+        signal: input.signal,
+        runCommand: input.runCommand,
+        log: input.log,
+    });
 }
