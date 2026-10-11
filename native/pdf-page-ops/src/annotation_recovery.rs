@@ -83,7 +83,7 @@ pub(crate) fn capture_note_recovery(
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-fn inspect_recovery_object(
+pub(crate) fn inspect_recovery_object(
     object: &Object,
     depth: usize,
     budget: &mut usize,

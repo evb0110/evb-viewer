@@ -16,11 +16,11 @@ pub(crate) fn materialize_annotation_appearance_streams(
         return Ok(());
     };
 
-    let (stamp_refs, note_groups) = {
+    let (stamp_refs, streams) = {
         let document = AppendedRevision::new(incremental);
         (
             managed_stamp_stream_refs(&document)?,
-            note_appearance_groups(&document)?,
+            note_appearance_streams(&document)?,
         )
     };
 
@@ -42,77 +42,54 @@ pub(crate) fn materialize_annotation_appearance_streams(
         }
     }
 
-    let streams: Vec<(usize, ObjectId, usize)> = note_groups
-        .iter()
-        .enumerate()
-        .flat_map(|(group, streams)| {
-            streams
-                .iter()
-                .map(move |(object_id, declared)| (group, *object_id, *declared))
-        })
-        .collect();
-    // Each appearance keeps its own budget and stops at its first stream that
-    // cannot be read, so the rest of it stays foreign.
-    let mut appearances = vec![(MAX_STAMP_APPEARANCE_STREAM_BYTES, false); note_groups.len()];
     let mut start = 0;
     while start < streams.len() && remaining > 0 {
         let end = batch_end(&streams, start);
-        let requested: Vec<ObjectId> = streams[start..end]
-            .iter()
-            .filter(|(_, _, declared)| *declared <= MAX_STAMP_APPEARANCE_STREAM_BYTES)
-            .map(|(_, object_id, _)| *object_id)
-            .collect();
-        // A failed run leaves every appearance in it foreign, as one
-        // unreadable stream would.
-        let mut bytes_by_object =
-            read_qpdf_stream_batch(input_path, qpdf_path, &requested).unwrap_or_default();
-        for (group, object_id, _) in &streams[start..end] {
-            let (appearance_remaining, stopped) = &mut appearances[*group];
-            if *stopped {
-                continue;
-            }
-            // An earlier appearance loaded this shared stream and charged it.
-            if !incremental.unavailable_base_streams.contains(object_id) {
-                continue;
-            }
-            let max_bytes = (*appearance_remaining).min(remaining);
-            let Some(bytes) = bytes_by_object
-                .remove(object_id)
-                .filter(|bytes| max_bytes > 0 && bytes.len() <= max_bytes)
-            else {
-                *stopped = true;
+        let requested: Vec<ObjectId> = streams[start..end].iter().map(|(id, _)| *id).collect();
+        // A run that fails is read one stream at a time, so only the streams
+        // qpdf cannot read alone stay unread, and only their notes stay foreign.
+        let mut bytes_by_object = read_qpdf_stream_batch(input_path, qpdf_path, &requested)
+            .unwrap_or_else(|_| {
+                requested
+                    .iter()
+                    .filter_map(|object_id| {
+                        let bytes = read_qpdf_stream_bounded(
+                            input_path,
+                            qpdf_path,
+                            *object_id,
+                            MAX_STAMP_APPEARANCE_STREAM_BYTES,
+                        )
+                        .ok()?;
+                        Some((*object_id, bytes))
+                    })
+                    .collect()
+            });
+        for (object_id, _) in &streams[start..end] {
+            let Some(bytes) = bytes_by_object.remove(object_id) else {
                 continue;
             };
             let size = bytes.len();
-            if incremental
-                .set_base_stream_bytes(*object_id, bytes)
-                .is_err()
+            if size <= remaining.min(MAX_STAMP_APPEARANCE_STREAM_BYTES)
+                && incremental.set_base_stream_bytes(*object_id, bytes).is_ok()
             {
-                *stopped = true;
-                continue;
+                remaining -= size;
             }
-            *appearance_remaining -= size;
-            remaining -= size;
         }
         start = end;
     }
     Ok(())
 }
 
-/// The next qpdf run's streams: a contiguous span whose declared sizes fit
-/// one run's byte and object budgets. A stream declared above the
-/// per-appearance limit is never requested, so its appearance stops there.
-fn batch_end(streams: &[(usize, ObjectId, usize)], start: usize) -> usize {
+/// The next qpdf run's streams: a contiguous span whose costs fit one run's
+/// byte and object budgets. Every listed stream fits a run on its own.
+fn batch_end(streams: &[(ObjectId, usize)], start: usize) -> usize {
     let mut end = start;
     let mut batch_bytes = 0;
-    while end < streams.len() && end - start < MAX_BATCH_OBJECTS {
-        let declared = streams[end].2;
-        if declared <= MAX_STAMP_APPEARANCE_STREAM_BYTES {
-            if batch_bytes + declared > MAX_BATCH_RAW_BYTES {
-                break;
-            }
-            batch_bytes += declared;
-        }
+    while end < streams.len()
+        && end - start < MAX_BATCH_OBJECTS
+        && batch_bytes + streams[end].1 <= MAX_BATCH_RAW_BYTES
+    {
+        batch_bytes += streams[end].1;
         end += 1;
     }
     end
@@ -174,12 +151,12 @@ fn managed_stamp_stream_refs(document: &impl PdfObjectSource) -> Result<Vec<(Obj
     Ok(stream_refs)
 }
 
-/// One group per note-thread appearance: the note's, its popup's and each
-/// reply's normal appearance, following the same `/IRT` and `/Popup` links
-/// that parsing and note recovery follow. A group lists the unread streams
-/// its appearance draws on, with each stream's declared size. Every group walks
-/// its complete dependencies, so a stream shared by two appearances is listed in both.
-fn note_appearance_groups(document: &impl PdfObjectSource) -> Result<Vec<Vec<(ObjectId, usize)>>> {
+/// The unread streams the notes' normal appearances draw on, each once, in
+/// first-seen order, with its cost in a qpdf run. Each note-thread appearance
+/// walks its complete dependencies along the `/IRT` and `/Popup` links that
+/// parsing follows. An appearance whose streams exceed the recovery budget adds
+/// none, while a stream it shares still serves the others.
+fn note_appearance_streams(document: &impl PdfObjectSource) -> Result<Vec<(ObjectId, usize)>> {
     let mut page_annotations = Vec::new();
     for page_id in document.page_ids().into_values() {
         for annotation in get_page_annots(document, page_id)? {
@@ -200,7 +177,7 @@ fn note_appearance_groups(document: &impl PdfObjectSource) -> Result<Vec<Vec<(Ob
         }
     }
 
-    let mut groups = Vec::new();
+    let mut streams = Vec::new();
     for note_id in &page_annotations {
         let Ok(note) = document.dictionary(*note_id) else {
             continue;
@@ -220,8 +197,12 @@ fn note_appearance_groups(document: &impl PdfObjectSource) -> Result<Vec<Vec<(Ob
             };
             for appearance_id in note_appearance_stream_refs(document, member) {
                 let group = unread_appearance_streams(document, appearance_id);
-                if !group.is_empty() {
-                    groups.push(group);
+                let bytes = group
+                    .iter()
+                    .map(|(_, cost)| *cost)
+                    .fold(0, usize::saturating_add);
+                if bytes <= MAX_STAMP_APPEARANCE_STREAM_BYTES {
+                    streams.extend(group);
                 }
             }
             if let Some(popup) = annotation_related_ref(member, b"Popup") {
@@ -230,7 +211,9 @@ fn note_appearance_groups(document: &impl PdfObjectSource) -> Result<Vec<Vec<(Ob
             thread.extend(replies.get(&member_id).into_iter().flatten().copied());
         }
     }
-    Ok(groups)
+    let mut listed = HashSet::new();
+    streams.retain(|(object_id, _)| listed.insert(*object_id));
+    Ok(streams)
 }
 
 /// The unread streams an appearance reaches through its dictionaries, which
@@ -258,7 +241,7 @@ fn unread_appearance_streams(
         let dict = match object {
             Object::Stream(stream) => {
                 if is_unread_base_stream(document, stream) {
-                    streams.push((object_id, declared_stream_bytes(document, stream)));
+                    streams.push((object_id, stream_run_bytes(document, stream)));
                 }
                 &stream.dict
             }
@@ -273,17 +256,29 @@ fn unread_appearance_streams(
     streams
 }
 
-/// The length a stream declares, which sizes its share of a qpdf run. A length
-/// that is missing or unusable counts as the largest appearance stream.
-fn declared_stream_bytes(document: &impl PdfObjectSource, stream: &Stream) -> usize {
-    stream
+/// The bytes a stream costs in a qpdf run: its declared length, plus the
+/// dictionary qpdf serializes beside it, which note recovery budgets too. A
+/// length that is missing or unusable counts as the largest appearance stream,
+/// and a dictionary over the recovery budget costs more than any run can hold.
+fn stream_run_bytes(document: &impl PdfObjectSource, stream: &Stream) -> usize {
+    let length = stream
         .dict
         .get(b"Length")
         .ok()
         .and_then(|length| document.resolved(length).ok())
         .and_then(|length| length.as_i64().ok())
         .and_then(|length| usize::try_from(length).ok())
-        .unwrap_or(MAX_STAMP_APPEARANCE_STREAM_BYTES)
+        .unwrap_or(MAX_STAMP_APPEARANCE_STREAM_BYTES);
+    let mut dictionary_bytes = 0;
+    match inspect_recovery_object(
+        &Object::Dictionary(stream.dict.clone()),
+        0,
+        &mut dictionary_bytes,
+        &mut |_| {},
+    ) {
+        Ok(()) => length.saturating_add(dictionary_bytes),
+        Err(_) => usize::MAX,
+    }
 }
 
 fn is_page_tree_dictionary(dict: &Dictionary) -> bool {
