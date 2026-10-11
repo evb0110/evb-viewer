@@ -260,5 +260,10 @@ const repeatParagraphs = computed(() => {
     .inner {
         animation: none;
     }
+
+    /* Keep the delay that spares a quick page the flash; drop the fade. */
+    .is-deferred {
+        animation-timing-function: step-start;
+    }
 }
 </style>
