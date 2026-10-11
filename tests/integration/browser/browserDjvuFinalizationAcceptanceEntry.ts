@@ -121,7 +121,7 @@ async function runBrowserDjvuFinalizationAcceptance() {
 
 Reflect.set(globalThis, '__evbRunBrowserDjvuFinalizationAcceptance', runBrowserDjvuFinalizationAcceptance);
 
-async function installBrowserCompactDjvuAcceptance() {
+async function installBrowserCompactDjvuAcceptance(documentCount = 1) {
     const fixtureBytes = new Uint8Array(await (await fetch('/fixtures/bitonal-faint-pencil.djvu')).arrayBuffer());
     const sourcePath = await browserDocumentStore.createStoredDocument('compact.djvu', fixtureBytes, {
         mimeType: 'image/vnd.djvu',
@@ -161,56 +161,68 @@ async function installBrowserCompactDjvuAcceptance() {
     }, 'convert');
     Reflect.set(globalThis, 'WebAssembly', undefined);
 
-    const jobId = requireJobId('browser-compact-finalization');
-    const requestId = requireRequestId('browser-compact-finalization');
-    document.body.innerHTML = '<button id="compact-export">Export compact PDF</button><button id="compact-cancel">Cancel</button><output id="compact-status">Ready</output>';
-    const status = document.querySelector('#compact-status')!;
-    document.querySelector('#compact-cancel')!.addEventListener('click', (event) => {
-        if (!event.isTrusted) {
-            throw new Error('Compact cancellation requires trusted input');
-        }
-        void browserDjvuCapability.cancel(jobId);
-    });
-    document.querySelector('#compact-export')!.addEventListener('click', (event) => {
-        if (!event.isTrusted) {
-            throw new Error('Compact export requires trusted input');
-        }
-        status.textContent = 'Converting';
-        const stop = browserDjvuCapability.onConvertComplete((result) => {
-            if (result.requestId !== requestId) {
-                return;
-            }
-            stop();
-            void (async () => {
-                try {
-                    const bytes = await browserDocumentStore.read(outputPath);
-                    const pdf = result.success ? await PDFDocument.load(bytes) : null;
-                    Reflect.set(globalThis, '__evbBrowserCompactDjvuAcceptanceResult', {
-                        success: result.success,
-                        expected: result.expected,
-                        error: result.error,
-                        terminalStatus: browserDurableDjvuJobs.getState(jobId)?.status,
-                        outputBytes: bytes.byteLength,
-                        generatedPdfHeader: new TextDecoder().decode(bytes.slice(0, 5)),
-                        pageSizes: pdf?.getPages().map(page => page.getSize()),
-                        referenceMatches: bytes.byteLength === reference.byteLength
-                            && bytes.every((value, index) => value === reference[index]),
-                    });
-                    status.textContent = result.success ? 'Completed' : 'Canceled';
-                } finally {
-                    browserDurableDjvuJobs.clearForTests();
-                    await browserDocumentStore.remove(outputPath);
-                    await browserDocumentStore.remove(sourcePath);
-                }
-            })();
+    document.body.innerHTML = '';
+    let finished = 0;
+    for (let index = 0; index < documentCount; index += 1) {
+        const suffix = index === 0 ? '' : '-other';
+        const jobId = requireJobId(`browser-compact-finalization${suffix}`);
+        const requestId = requireRequestId(`browser-compact-finalization${suffix}`);
+        const documentSource = index === 0 ? sourcePath : await browserDocumentStore.createStoredDocument('other.djvu', fixtureBytes.slice(), {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+            retention: 'transient',
+            saveKind: 'generic',
         });
-        void browserDjvuCapability.startConvertToPdf(sourcePath, outputPath, {
-            jobId,
-            requestId,
-            pdfStrategy: 'compact-djvu-aware',
-            preserveBookmarks: false,
+        const documentOutput = index === 0 ? outputPath : await browserDocumentStore.createStoredDocument('other.pdf', new Uint8Array(), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            saveKind: 'pdf',
         });
-    });
+        document.body.insertAdjacentHTML('beforeend', `<button id="compact-export${suffix}">Export compact PDF${suffix}</button><button id="compact-cancel${suffix}">Cancel${suffix}</button><output id="compact-status${suffix}">Ready</output>`);
+        const status = document.querySelector(`#compact-status${suffix}`)!;
+        document.querySelector(`#compact-cancel${suffix}`)!.addEventListener('click', (event) => {
+            if (!event.isTrusted) throw new Error('Compact cancellation requires trusted input');
+            void browserDjvuCapability.cancel(jobId);
+        });
+        document.querySelector(`#compact-export${suffix}`)!.addEventListener('click', (event) => {
+            if (!event.isTrusted) throw new Error('Compact export requires trusted input');
+            status.textContent = 'Converting';
+            const stop = browserDjvuCapability.onConvertComplete((result) => {
+                if (result.requestId !== requestId) return;
+                stop();
+                void (async () => {
+                    try {
+                        const bytes = await browserDocumentStore.read(documentOutput);
+                        const pdf = result.success ? await PDFDocument.load(bytes) : null;
+                        Reflect.set(globalThis, `__evbBrowserCompactDjvuAcceptanceResult${suffix}`, {
+                            success: result.success,
+                            expected: result.expected,
+                            error: result.error,
+                            terminalStatus: browserDurableDjvuJobs.getState(jobId)?.status,
+                            outputBytes: bytes.byteLength,
+                            generatedPdfHeader: new TextDecoder().decode(bytes.slice(0, 5)),
+                            pageSizes: pdf?.getPages().map(page => page.getSize()),
+                            referenceMatches: bytes.byteLength === reference.byteLength
+                                && bytes.every((value, offset) => value === reference[offset]),
+                        });
+                        status.textContent = result.success ? 'Completed' : 'Canceled';
+                    } finally {
+                        finished += 1;
+                        if (finished === documentCount) browserDurableDjvuJobs.clearForTests();
+                        await browserDocumentStore.remove(documentOutput);
+                        await browserDocumentStore.remove(documentSource);
+                    }
+                })();
+            });
+            void browserDjvuCapability.startConvertToPdf(documentSource, documentOutput, {
+                jobId,
+                requestId,
+                pdfStrategy: 'compact-djvu-aware',
+                preserveBookmarks: false,
+            });
+        });
+    }
 }
 
 Reflect.set(globalThis, '__evbInstallBrowserCompactDjvuAcceptance', installBrowserCompactDjvuAcceptance);

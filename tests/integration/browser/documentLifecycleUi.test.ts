@@ -3811,6 +3811,73 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    it('keeps known PDF regex hits when another document cancels its search', async () => {
+        const browser = await chromium.launch({headless: true});
+        const releaseWorker = Promise.withResolvers<undefined>();
+        try {
+            const page = await browser.newPage();
+            page.on('console', message => {
+                if (message.text().startsWith('Search ')) console.info(message.text());
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            const bytes = [...readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'))];
+            await page.evaluate(`(async () => {
+                const {browserDocumentStore} = await import('/_nuxt/platform/browserDocumentStore.ts');
+                const {createBrowserSearchCapability} = await import('/_nuxt/platform/browser-api/createBrowserSearchCapability.ts');
+                const {capability} = createBrowserSearchCapability();
+                const refs = [];
+                for (const name of ['first.pdf', 'other.pdf']) refs.push(await browserDocumentStore.createStoredDocument(name, Uint8Array.from(${JSON.stringify(bytes)}), {
+                    mimeType: 'application/pdf', kind: 'source', retention: 'transient', saveKind: 'pdf',
+                }));
+                const control = await capability.run(refs[1], 'First');
+                if (!control.results.some(hit => hit.excerpt.match === 'First')) throw new Error('PDF text control did not contain First');
+                window.__searchPosted = 0;
+                const post = Worker.prototype.postMessage;
+                Worker.prototype.postMessage = function(message, options) {
+                    if (message.type === 'matchPageText') {
+                        window.__searchPosted += 1;
+                        console.info('Search admission', JSON.stringify(message.payload));
+                        this.addEventListener('message', event => console.info('Search reply', JSON.stringify(event.data)));
+                    }
+                    return post.call(this, message, options);
+                };
+                const controls = document.createElement('div');
+                controls.style.cssText = 'position:fixed;left:16px;top:16px;z-index:2147483647;background:white;color:black;padding:8px';
+                controls.innerHTML = '<button id="search-first">Search first PDF</button><button id="search-other">Search other PDF</button><button id="search-cancel-first">Cancel first search</button><output id="search-first-result">Ready</output><output id="search-other-result">Ready</output>';
+                document.body.prepend(controls);
+                refs.forEach((ref, index) => {
+                    const name = index === 0 ? 'first' : 'other';
+                    const requestId = 'core4-search-' + name;
+                    const output = controls.querySelector('#search-' + name + '-result');
+                    controls.querySelector('#search-' + name).addEventListener('click', event => {
+                        if (!event.isTrusted) throw new Error('Search requires trusted input');
+                        output.textContent = 'Searching';
+                        void capability.run(ref, 'Fir(st)', {requestId, useRegex: true}).then(result => {
+                            output.textContent = result.results.map(hit => hit.excerpt.match).join(' | ') || 'No results';
+                        }, error => { output.textContent = error.message; });
+                    });
+                });
+                controls.querySelector('#search-cancel-first').addEventListener('click', event => {
+                    if (!event.isTrusted) throw new Error('Cancel requires trusted input');
+                    void capability.cancel('core4-search-first');
+                });
+            })()`);
+            await page.route(url => url.pathname.includes('browserSearch.worker'), async route => {
+                await releaseWorker.promise;
+                await route.continue().catch(() => undefined);
+            });
+            await page.locator('#search-first').click();
+            await page.locator('#search-other').click();
+            await page.waitForFunction(() => Reflect.get(window, '__searchPosted') === 2);
+            await page.locator('#search-cancel-first').click();
+            releaseWorker.resolve(undefined);
+            await expect.poll(() => page.locator('#search-other-result').textContent(), {timeout: 30_000}).toContain('First');
+        } finally {
+            releaseWorker.resolve(undefined);
+            await browser.close();
+        }
+    }, 120_000);
+
     // #937: identical lines down a page are separate search text, so each
     // copy is a result with its own box on the page.
     it('finds every copy of a line repeated down the page', async () => {

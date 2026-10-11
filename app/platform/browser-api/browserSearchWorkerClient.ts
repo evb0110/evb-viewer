@@ -118,6 +118,7 @@ function decodeSearchWorkerResult<K extends TBrowserSearchWorkerRequestType>(
 }
 
 function settleSearchWorkerResponse(
+    client: BrowserWorkerClient<IPendingWorkerRequest>,
     pendingWorkerRequests: Map<number, IPendingWorkerRequest>,
     response: unknown,
     scheduleIdleWorkerTermination: () => void,
@@ -135,9 +136,9 @@ function settleSearchWorkerResponse(
     if (v.is(BROWSER_SEARCH_WORKER_STARTED_RESPONSE_SCHEMA, response)) {
         const matchTimeoutMs = pending.matchTimeoutMs;
         if (matchTimeoutMs !== undefined) {
-            browserSearchWorkerClient.restartRequestTimeout(
+            client.restartRequestTimeout(
                 responseId,
-                () => createMatchTimeoutError(matchTimeoutMs),
+                () => createMatchTimeoutError(client, matchTimeoutMs),
                 matchTimeoutMs,
             );
         }
@@ -179,11 +180,11 @@ function settleSearchWorkerResponse(
     scheduleIdleWorkerTermination();
 }
 
-function createMatchTimeoutError(timeoutMs: number) {
+function createMatchTimeoutError(client: BrowserWorkerClient<IPendingWorkerRequest>, timeoutMs: number) {
     const timeoutError = reportWorkerFailure(new BrowserSearchWorkerTimeoutError(
         `Browser search worker match timed out after ${timeoutMs}ms`,
     ));
-    browserSearchWorkerClient.resetWorker(timeoutError);
+    client.resetWorker(timeoutError);
     return timeoutError;
 }
 
@@ -191,26 +192,32 @@ export function canUseBrowserSearchWorker() {
     return canUseBrowserWorker();
 }
 
-const browserSearchWorkerClient = new BrowserWorkerClient<IPendingWorkerRequest>({
-    idleTtlMs: BROWSER_SEARCH_WORKER_IDLE_TTL_MS,
-    requestTimeoutMs: BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS,
-    createWorker: () => {
-        try {
-            return new Worker(
-                new URL('./browserSearch.worker.ts', import.meta.url),
-                { type: 'module' },
-            );
-        } catch (error) {
-            throw reportWorkerFailure(new BrowserSearchWorkerUnavailableError(
-                getErrorMessage(error),
-            ));
-        }
-    },
-    createError: event => reportWorkerFailure(new BrowserSearchWorkerRequestError(
-        event.error instanceof Error ? getErrorMessage(event.error) : event.message,
-    )),
-    handleMessage: settleSearchWorkerResponse,
-});
+function createBrowserSearchWorkerClient() {
+    const client = new BrowserWorkerClient<IPendingWorkerRequest>({
+        idleTtlMs: BROWSER_SEARCH_WORKER_IDLE_TTL_MS,
+        requestTimeoutMs: BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS,
+        createWorker: () => {
+            try {
+                return new Worker(
+                    new URL('./browserSearch.worker.ts', import.meta.url),
+                    { type: 'module' },
+                );
+            } catch (error) {
+                throw reportWorkerFailure(new BrowserSearchWorkerUnavailableError(
+                    getErrorMessage(error),
+                ));
+            }
+        },
+        createError: event => reportWorkerFailure(new BrowserSearchWorkerRequestError(
+            event.error instanceof Error ? getErrorMessage(event.error) : event.message,
+        )),
+        handleMessage: (...args) => settleSearchWorkerResponse(client, ...args),
+    });
+    return client;
+}
+
+const browserSearchWorkerClient = createBrowserSearchWorkerClient();
+const requestClients = new Map<number, BrowserWorkerClient<IPendingWorkerRequest>>();
 
 export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
     type: K,
@@ -220,17 +227,23 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
     requestId: number;
     promise: Promise<IBrowserSearchWorkerResultMap[K]>;
 } {
+    // Keep the hot idle worker, but never put interruptible CPU requests in
+    // another request's termination domain.
+    const client = browserSearchWorkerClient.pendingRequests.size === 0
+        ? browserSearchWorkerClient
+        : createBrowserSearchWorkerClient();
     const request = {
         id: browserSearchWorkerClient.createRequestId(),
         type,
         payload,
     } as IBrowserSearchWorkerRequest<K>;
 
-    const worker = browserSearchWorkerClient.getWorker();
+    const worker = client.getWorker();
+    requestClients.set(request.id, client);
 
     const promise =
         new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
-            browserSearchWorkerClient.registerPendingRequest(request.id, {
+            client.registerPendingRequest(request.id, {
                 requestType: type,
                 ...(options.matchTimeoutMs === undefined ? {} : {matchTimeoutMs: options.matchTimeoutMs}),
                 resolveData: (value) => {
@@ -249,7 +262,7 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
             try {
                 worker.postMessage(request);
             } catch (error) {
-                browserSearchWorkerClient.cancelPendingRequest(
+                client.cancelPendingRequest(
                     request.id,
                     reportWorkerFailure(new BrowserSearchWorkerRequestError(getErrorMessage(error))),
                 );
@@ -258,7 +271,10 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
 
     return {
         requestId: request.id,
-        promise,
+        promise: promise.finally(() => {
+            requestClients.delete(request.id);
+            if (client !== browserSearchWorkerClient) client.resetWorker();
+        }),
     };
 }
 
@@ -272,7 +288,7 @@ export function cancelBrowserSearchWorkerRequest(
     options: {resetWorker?: boolean} = {},
 ) {
     const cancelError = new Error('ERR_BROWSER_SEARCH_CANCELED');
-    browserSearchWorkerClient.cancelPendingRequest(
+    requestClients.get(requestId)?.cancelPendingRequest(
         requestId,
         cancelError,
         options.resetWorker

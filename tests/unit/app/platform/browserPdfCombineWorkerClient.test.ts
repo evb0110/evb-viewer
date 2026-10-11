@@ -413,6 +413,41 @@ describe('browserPdfCombineWorkerClient', () => {
         expect({failure: error.failure}.failure).toBe(failureReceipt);
     });
 
+    it('returns the other document output after canceling a concurrent combine', async () => {
+        const posted: Array<{
+            worker: FakeWorker;
+            id: number;
+            type: string
+        }> = [];
+        FakeWorker.responder = (worker, request) => posted.push({
+            worker,
+            ...request,
+        });
+        const {runBrowserPdfCombineWorkerRequest} = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
+        const controller = new AbortController();
+        const first = runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: 'first.pdf',
+            data: new Uint8Array([1]),
+        }]}, controller.signal);
+        const firstOutcome = first.catch(error => error as Error);
+        const second = runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: 'second.pdf',
+            data: new Uint8Array([2]),
+        }]});
+        const secondOutcome = second.catch(error => error as Error);
+        controller.abort(new DOMException('Canceled first document', 'AbortError'));
+        const data = new TextEncoder().encode('%PDF-second-document');
+        posted[1]!.worker.dispatchMessage({
+            id: posted[1]!.id,
+            type: posted[1]!.type,
+            ok: true,
+            data,
+        });
+        expect(await firstOutcome).toMatchObject({name: 'AbortError'});
+        expect(await secondOutcome).toEqual({data});
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
     it('terminates active work when the request is aborted', async () => {
         FakeWorker.responder = () => undefined;
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');

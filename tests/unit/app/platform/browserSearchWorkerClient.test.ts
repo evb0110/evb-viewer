@@ -267,7 +267,7 @@ describe('browserSearchWorkerClient', () => {
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
-    it('bounds a match from the worker start signal and then terminates the shared worker', async () => {
+    it('bounds a match from its start signal without losing another document hits', async () => {
         vi.useFakeTimers();
         FakeWorker.responder = () => {};
         const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
@@ -283,7 +283,9 @@ describe('browserSearchWorkerClient', () => {
             },
             maxMatches: 2,
         }, {matchTimeoutMs: 25});
+        const matchWorker = FakeWorker.lastInstance!;
         const siblingRequest = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('sibling'));
+        const siblingWorker = FakeWorker.lastInstance!;
         let matchSettled = false;
         void matchRequest.promise.catch(() => undefined).finally(() => {
             matchSettled = true;
@@ -295,19 +297,32 @@ describe('browserSearchWorkerClient', () => {
         expect(matchSettled).toBe(false);
         expect(terminateSpy).not.toHaveBeenCalled();
 
-        FakeWorker.lastInstance?.dispatchMessage({
+        matchWorker.dispatchMessage({
             id: matchRequest.requestId,
             started: true,
         });
         const matchFailure = expect(matchRequest.promise)
             .rejects.toMatchObject({name: 'BrowserSearchWorkerTimeoutError'});
-        const siblingFailure = expect(siblingRequest.promise)
-            .rejects.toMatchObject({name: 'BrowserSearchWorkerTimeoutError'});
+        const siblingResult = {
+            matches: [{
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 7,
+            }],
+            truncated: false,
+            matchCount: 1,
+            matchingMs: 0,
+        };
         await vi.advanceTimersByTimeAsync(25);
 
         await matchFailure;
-        await siblingFailure;
-        expect(terminateSpy).toHaveBeenCalledOnce();
+        siblingWorker.dispatchMessage({
+            id: siblingRequest.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data: siblingResult,
+        });
+        await expect(siblingRequest.promise).resolves.toEqual(siblingResult);
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 
@@ -423,9 +438,8 @@ describe('browserSearchWorkerClient', () => {
         });
     });
 
-    it('keeps other in-flight jobs alive when canceling one shared-worker request', async () => {
+    it('keeps other in-flight jobs alive when canceling one request', async () => {
         FakeWorker.responder = () => {};
-        const terminateSpy = vi.spyOn(FakeWorker.prototype, 'terminate');
         const {
             createBrowserSearchWorkerRequest,
             cancelBrowserSearchWorkerRequest,
@@ -455,7 +469,67 @@ describe('browserSearchWorkerClient', () => {
             matchCount: 0,
             matchingMs: 0,
         });
-        expect(terminateSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns known hits after another document terminates its running regex', async () => {
+        FakeWorker.responder = () => {};
+        const {
+            createBrowserSearchWorkerRequest, cancelBrowserSearchWorkerRequest,
+        } = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const first = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('first'));
+        const firstOutcome = first.promise.catch(error => error as Error);
+        const second = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('other'));
+        const secondOutcome = second.promise.catch(error => error as Error);
+        const worker = FakeWorker.lastInstance!;
+        cancelBrowserSearchWorkerRequest(first.requestId, {resetWorker: true});
+        const data = {
+            matches: [{
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+            matchCount: 1,
+            matchingMs: 0,
+        };
+        worker.dispatchMessage({
+            id: second.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data,
+        });
+        expect(await firstOutcome).toMatchObject({message: 'ERR_BROWSER_SEARCH_CANCELED'});
+        expect(await secondOutcome).toEqual(data);
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
+    it('rejects a failed concurrent submission without losing the other search', async () => {
+        let firstWorker: FakeWorker | undefined;
+        FakeWorker.responder = worker => {
+            if (!firstWorker) firstWorker = worker;
+            else throw new Error('Second search could not be posted');
+        };
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const first = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('first'));
+        const second = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('other'));
+        await expect(second.promise).rejects.toThrow('Second search could not be posted');
+        const data = {
+            matches: [{
+                pageMatchIndex: 0,
+                startOffset: 0,
+                endOffset: 5,
+            }],
+            truncated: false,
+            matchCount: 1,
+            matchingMs: 0,
+        };
+        firstWorker!.dispatchMessage({
+            id: first.requestId,
+            type: 'matchPageText',
+            ok: true,
+            data,
+        });
+        await expect(first.promise).resolves.toEqual(data);
     });
 
     it('does not create a worker when canceling an unknown request', async () => {

@@ -602,4 +602,60 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         }
     });
 
+    it('keeps the other compact DjVu export intact after Cancel in one document', async () => {
+        const browser = await chromium.launch({headless: true});
+        const releaseWasm = Promise.withResolvers<undefined>();
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance') === 'function');
+            await page.evaluate(async () => {
+                await Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance')(2);
+                // Hold the real encoding endpoint at its WASM fetch; count only
+                // admitted requests to make the overlap deterministic.
+                Reflect.set(globalThis, '__compactPosted', 0);
+                const post = Worker.prototype.postMessage;
+                Worker.prototype.postMessage = function(message, options) {
+                    if (message.type === 'combinePdfs') Reflect.set(globalThis, '__compactPosted', Reflect.get(globalThis, '__compactPosted') + 1);
+                    return post.call(this, message, Array.isArray(options) ? {transfer: options} : options);
+                };
+            });
+            await page.route('**/wasm/evb-pdf-image-combine.wasm', async route => {
+                await releaseWasm.promise;
+                await route.continue().catch(() => undefined);
+            });
+            await page.locator('#compact-export').click();
+            await page.locator('#compact-export-other').click();
+            await page.waitForFunction(() => Reflect.get(globalThis, '__compactPosted') === 2);
+            await page.locator('#compact-cancel').click();
+            await expect.poll(() => page.locator('#compact-status').textContent()).toBe('Canceled');
+            releaseWasm.resolve(undefined);
+            await expect.poll(() => page.locator('#compact-status-other').textContent(), {timeout: 30_000}).toBe('Completed');
+            const result = await page.evaluate(() => Reflect.get(globalThis, '__evbBrowserCompactDjvuAcceptanceResult-other'));
+            expect(result).toMatchObject({
+                success: true,
+                terminalStatus: 'completed',
+                generatedPdfHeader: '%PDF-',
+                referenceMatches: true,
+                pageSizes: [
+                    {
+                        width: 122.88,
+                        height: 122.88,
+                    },
+                    {
+                        width: 122.88,
+                        height: 122.88,
+                    },
+                ],
+            });
+            expect(result.outputBytes).toBeGreaterThan(0);
+        } finally {
+            releaseWasm.resolve(undefined);
+            await browser.close();
+        }
+    }, 90_000);
 });
