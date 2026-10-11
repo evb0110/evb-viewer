@@ -547,11 +547,16 @@ export function scanCleanupRasterRetention(
         }
         return true;
     };
+    // One owner decides whether a released raster is dropped. A page lease
+    // (releaseRaster) keeps it while the document has any pin left. An
+    // eviction (evictRaster) is the owner giving up its own slot, so only
+    // pins held by other owners keep it.
     const releasePageLease = async (
         document: IRetainedDocument,
         pageNumber: number,
         dpi: number,
         claimId: string | undefined,
+        evicting: boolean,
     ) => {
         const key = createScanCleanupRasterKey(document, pageNumber, dpi);
         if (claimId !== undefined) {
@@ -603,7 +608,8 @@ export function scanCleanupRasterRetention(
         // A page claim is a read/use lease, not a cache eviction request.
         // Keep the retained raster available while its document is still
         // owned by another active operation.
-        if (claimId !== undefined && document.pinned > 0 && !document.removeWhenIdle) {
+        const ownPins = evicting && claimId !== undefined ? (document.claims.get(claimId) ?? 0) : 0;
+        if (claimId !== undefined && document.pinned - ownPins > 0 && !document.removeWhenIdle) {
             return;
         }
         forget(key, raster);
@@ -647,7 +653,15 @@ export function scanCleanupRasterRetention(
             dpi: number,
             claimId?: string,
         ) {
-            return releasePageLease(document, pageNumber, dpi, claimId);
+            return releasePageLease(document, pageNumber, dpi, claimId, false);
+        },
+        evictRaster(
+            document: IRetainedDocument,
+            pageNumber: number,
+            dpi: number,
+            claimId?: string,
+        ) {
+            return releasePageLease(document, pageNumber, dpi, claimId, true);
         },
         claimRaster(document, pageNumber, dpi, claimId) {
             if ((document.claims.get(claimId) ?? 0) === 0 || document.removeWhenIdle

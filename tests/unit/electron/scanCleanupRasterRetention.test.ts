@@ -977,11 +977,11 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
     deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
     const previewSidecar = deps.runSidecar;
     const pageOneAdopted = Promise.withResolvers<undefined>();
-    const pageOneReleased = Promise.withResolvers<undefined>();
+    const pageOneHeld = Promise.withResolvers<undefined>();
     // The await further down is what reports a failed handover; this only
     // stops an early one from being seen as an unhandled rejection before
     // that await exists.
-    void pageOneReleased.promise.catch(() => undefined);
+    void pageOneHeld.promise.catch(() => undefined);
     let observedWindow: number | undefined;
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress, options) => {
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
@@ -1020,19 +1020,19 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
                     classification: 'single-uncut-page',
                     confidence: 0.8,
                 });
+                if (pageNumber === 1) {
+                    // Hand the run over to a preview of the page detection
+                    // just staged while detection still holds it; only then
+                    // release the input so the window needs that slot back.
+                    pageOneHeld.resolve(undefined);
+                    await pageOneAdopted.promise;
+                }
                 await onProgress({
                     stage: 'page-input-released',
                     completedPages: pageNumber,
                     totalPages: pageCount,
                     pageNumber,
                 });
-                if (pageNumber === 1) {
-                    // Hand the run over to a preview of the page detection
-                    // just staged, then keep going so the window needs that
-                    // slot back.
-                    pageOneReleased.resolve(undefined);
-                    await pageOneAdopted.promise;
-                }
             }
             for (const page of manifest.pages) {
                 await onProgress({
@@ -1049,7 +1049,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
             // see: without this the analysis dies and the test blocks on a
             // promise nothing will ever settle. Settling it after the
             // handover already happened is a no-op.
-            pageOneReleased.reject(error);
+            pageOneHeld.reject(error);
             throw error;
         }
     });
@@ -1061,7 +1061,7 @@ export async function scenarioKeepsAStagedRasterAPreviewAdoptedWhileDetectionRec
     // preview runs, and those are not what this assertion is about.
     const pageOneRenders = () => vi.mocked(deps.renderPage).mock.calls
         .filter(call => call[2] === 1).length;
-    await pageOneReleased.promise;
+    await pageOneHeld.promise;
     let adopted: string[] = [];
     try {
         const renderedBeforePreview = pageOneRenders();
@@ -1230,6 +1230,36 @@ export async function scenarioProtectsPageReleaseAcrossOwnerClaimsAndHeldReads()
     await retention.release(document, 'owner-2');
     await retention.dispose();
     expect(existsSync(retained.path)).toBe(false);
+}
+
+export async function scenarioEvictsEachStagedRasterWhenItsOwnerIsTheOnlyHolder(): Promise<void> {
+    const {
+        dir, deps,
+    } = await previewDependencies();
+    const retention = scanCleanupRasterRetention(deps);
+    const document = await retention.openDocument({
+        sourcePdfPath: join(dir, 'source.pdf'),
+        documentRevision: 'revision-1',
+    }, 'detection-owner');
+    const pageCount = 300;
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+        const scratchPath = await retention.rasterScratchPath(document, pageNumber, 150);
+        await writeFile(scratchPath, PNG);
+        await retention.retain({
+            document,
+            dpi: 150,
+            height: 1,
+            pageNumber,
+            scratchPath,
+            sizeBytes: PNG.byteLength,
+            width: 1,
+        }, 'detection-owner');
+        await retention.evictRaster(document, pageNumber, 150, 'detection-owner');
+        expect((await retention.retainedPaths(document, [pageNumber], 150)).size).toBe(0);
+    }
+    expect(await readdir(await document.dir)).toEqual([]);
+    await retention.release(document, 'detection-owner');
+    await retention.dispose();
 }
 
 export async function scenarioProtectsDetectionClaimFromUnscopedInvalidation(): Promise<void> {
@@ -1586,6 +1616,10 @@ describe('scanCleanupRasterRetentionTest', () => {
         [
             'protect a detection claim from unscoped invalidation',
             scenarioProtectsDetectionClaimFromUnscopedInvalidation,
+        ],
+        [
+            'evict each staged raster when its owner is the only holder',
+            scenarioEvictsEachStagedRasterWhenItsOwnerIsTheOnlyHolder,
         ],
         [
             'preserve another owner during canceled publication',
