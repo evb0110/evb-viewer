@@ -7324,6 +7324,67 @@ mod tests {
     }
 
     #[test]
+    fn ink_conservation_restores_print_block_inside_the_edge_band() {
+        // A 14x60 block of print in the edge band is owned ink, not scanner
+        // shadow: cleanup removed it, so the guard must restore it.
+        let mut ownership = BinaryImage::new(400, 400);
+        let mut block = BinaryImage::new(400, 400);
+        for y in 100..160 {
+            for x in 2..16 {
+                ownership.set(x, y, true);
+                block.set(x, y, true);
+            }
+        }
+        let mut warnings = Vec::new();
+
+        let (published, conserved) = conserve_page_ink(
+            block,
+            BinaryImage::new(400, 400),
+            Some(&ownership),
+            2,
+            PageHalf::Right,
+            &mut warnings,
+        );
+
+        assert!(conserved);
+        assert_eq!(published.count_black(), 14 * 60);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+    }
+
+    #[test]
+    fn ink_conservation_does_not_restore_text_read_from_a_wide_scanner_shadow() {
+        // Scanner shadow too wide to be a rail, with text the text mask claims
+        // inside it at the edge band. The claimed pixels are shadow read as
+        // text, and cleanup removed them with the shadow.
+        let mut shadow = BinaryImage::new(400, 400);
+        let mut ownership = BinaryImage::new(400, 400);
+        for y in 20..320 {
+            for x in 370..400 {
+                shadow.set(x, y, true);
+            }
+        }
+        for y in 100..140 {
+            for x in 384..400 {
+                ownership.set(x, y, true);
+            }
+        }
+        let mut warnings = Vec::new();
+
+        let (published, conserved) = conserve_page_ink(
+            shadow,
+            BinaryImage::new(400, 400),
+            Some(&ownership),
+            2,
+            PageHalf::Right,
+            &mut warnings,
+        );
+
+        assert!(!conserved);
+        assert_eq!(published.count_black(), 0);
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
     fn ink_conservation_does_not_demand_that_a_scanner_rail_be_kept() {
         let (ownership, conservative) = owned_page_fixture(100..300);
         let mut cleaned = conservative.clone();
@@ -7653,6 +7714,74 @@ mod tests {
             300.0,
         );
         assert_eq!(filtered.count_black(), solid.count_black());
+    }
+
+    #[test]
+    fn full_page_rail_removal_leaves_the_print_stub_beside_it() {
+        let height = 200;
+        let split = fold_test_split(400, height);
+        let region = Rect::new(0.0, 0.0, 400.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(400, height);
+        let mut text = BinaryImage::new(400, height);
+        for y in 20..60 {
+            for x in 2..4 {
+                binary.set(x, y, true);
+            }
+        }
+        for y in 30..33 {
+            for x in 4..6 {
+                binary.set(x, y, true);
+                text.set(x, y, true);
+            }
+        }
+
+        let kept = filter_fold_edge_fragments(
+            &binary,
+            None,
+            Some(&text),
+            None,
+            PageHalf::Full,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+
+        assert_eq!(kept.count_black(), 6, "the print stub beside the rail was removed");
+        assert!((30..33).all(|y| kept.get(4, y) && kept.get(5, y)));
+    }
+
+    #[test]
+    fn full_page_rail_is_found_when_the_mapped_page_overshoots_the_right_edge() {
+        let height = 300;
+        let split = fold_test_split(400, height);
+        let region = Rect::new(0.0, 0.0, 403.0, height as f64);
+        let plan = fold_test_plan(region);
+        let mut binary = BinaryImage::new(400, height);
+        for y in 100..121 {
+            for x in 398..400 {
+                binary.set(x, y, true);
+            }
+        }
+
+        let kept = filter_fold_edge_fragments(
+            &binary,
+            None,
+            None,
+            None,
+            PageHalf::Full,
+            &split,
+            region,
+            &plan,
+            None,
+            false,
+            300.0,
+        );
+
+        assert_eq!(kept.count_black(), 0, "the right-edge rail survived a page overshoot");
     }
 
     #[test]

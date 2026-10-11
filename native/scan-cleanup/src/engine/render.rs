@@ -1364,8 +1364,7 @@ fn conserve_page_ink(
     let Some(ownership) = ownership else {
         return (cleaned, false);
     };
-    let supported = owned_ink_pixels(&conservative, ownership);
-    let surviving = owned_ink_pixels(&cleaned, ownership);
+    let (supported, surviving) = owned_ink_pixels(&conservative, &cleaned, ownership);
     let minimum = owned_ink_minimum(conservative.width(), conservative.height());
     if supported < minimum {
         return (cleaned, false);

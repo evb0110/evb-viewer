@@ -2,7 +2,7 @@
 //! scanner shadow or rail, not page content.
 
 use crate::edge_artifacts::side_edge_rails;
-use scan_primitives::{BinaryImage, Component, ComponentMap, GrayImage};
+use scan_primitives::{BinaryImage, Component, ComponentMap, GrayImage, Rect};
 
 /// Width of the leaf edge band that carries the fold shadow and the scanner
 /// rail rather than page content. Page margins are wider than this at any scan
@@ -16,14 +16,47 @@ pub(crate) fn in_leaf_interior(x: usize, width: usize) -> bool {
     x >= band && x + band < width
 }
 
-/// Printed matter never sits in the edge band, so a text line that reaches the
-/// band owns only scanner shadow there. That ink is not owned page ink:
-/// counting it would make the guard restore the shadow cleanup removed.
-pub(crate) fn owned_ink_pixels(binary: &BinaryImage, ownership: &BinaryImage) -> usize {
-    let width = binary.width();
-    let interior =
-        BinaryImage::from_fn_parallel(width, binary.height(), |x, _| in_leaf_interior(x, width));
-    binary.and(ownership).and(&interior).count_black()
+/// Owned ink in the conservative and the cleaned rendition, minus the ink the
+/// edge pass classifies as shadow or rail. Shadow is excluded by two tests: a
+/// rail, and shadow the text mask claims in the band. Scanner shadow reaches
+/// the text mask in the band, so that ink is not page content: counting it
+/// would make the guard restore the shadow cleanup removed.
+pub(crate) fn owned_ink_pixels(
+    conservative: &BinaryImage,
+    cleaned: &BinaryImage,
+    ownership: &BinaryImage,
+) -> (usize, usize) {
+    let edge_removed = rail_removal(conservative, None, [None, Some(ownership), None])
+        .or(&shadow_read_as_text(conservative, ownership));
+    let count = |binary: &BinaryImage| binary.and(ownership).subtract(&edge_removed).count_black();
+    (count(conservative), count(cleaned))
+}
+
+/// Band ink of a component that is mostly unowned dark ink. Scanner shadow the
+/// text mask claims there is shadow read as text: its owned pixels sit inside
+/// a component of shadow, while print in the band stands alone. Only band
+/// pixels are marked, so owned print inside the interior still counts.
+fn shadow_read_as_text(conservative: &BinaryImage, ownership: &BinaryImage) -> BinaryImage {
+    let (width, height) = (conservative.width(), conservative.height());
+    let components = ComponentMap::from_binary(conservative);
+    let labels = components.components().len() + 1;
+    let (mut owned, mut unowned) = (vec![0usize; labels], vec![0usize; labels]);
+    for y in 0..height {
+        for x in 0..width {
+            let label = components.label_at(x, y) as usize;
+            if label != 0 {
+                if ownership.get(x, y) {
+                    owned[label] += 1;
+                } else {
+                    unowned[label] += 1;
+                }
+            }
+        }
+    }
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        let label = components.label_at(x, y) as usize;
+        label != 0 && !in_leaf_interior(x, width) && unowned[label] > owned[label]
+    })
 }
 
 /// The scanner strip down a side edge: a side-edge rail more than two strokes
@@ -49,6 +82,95 @@ pub(crate) fn whiten_unkept(
             if strip.get(x, y) || (!keep.get(x, y) && !picture_owned) {
                 gray.set(x, y, 255);
             }
+        }
+    }
+}
+
+/// Clamps a mapped page rectangle to the raster on every side. A deskewed
+/// page can map a few pixels past any raster edge.
+fn clamp_to_raster(page: Rect, width: usize, height: usize) -> Rect {
+    let (left, top) = (page.x.max(0.0), page.y.max(0.0));
+    let right = page.right().min(width as f64);
+    let bottom = page.bottom().min(height as f64);
+    Rect::new(left, top, right - left, bottom - top)
+}
+
+/// The pixels the edge pass removes from `binary` within `page` (the whole
+/// raster when `None`): each side-edge rail that carries no print inside the
+/// interior. A rail's own columns go: in each row, the columns from the
+/// raster-edge side as wide as the rail. Its other unowned pixels go too. Print
+/// the masks own, stuck to the rail beyond its columns, stays.
+pub(crate) fn rail_removal(
+    binary: &BinaryImage,
+    page: Option<Rect>,
+    masks: [Option<&BinaryImage>; 3],
+) -> BinaryImage {
+    let (width, height) = (binary.width(), binary.height());
+    let page = page.map(|page| clamp_to_raster(page, width, height));
+    let rails = ComponentMap::from_binary(&side_edge_rails(binary, page).0);
+    let owned = masks
+        .into_iter()
+        .flatten()
+        .fold(BinaryImage::new(width, height), |owned, mask| {
+            owned.or(mask)
+        });
+    let mut body = BinaryImage::new(width, height);
+    let removable: Vec<bool> = std::iter::once(false)
+        .chain(rails.components().iter().map(|component| {
+            let removable = !touches_interior_print(&rails, component, masks, width);
+            if removable {
+                mark_rail_body(&rails, component, &mut body);
+            }
+            removable
+        }))
+        .collect();
+    BinaryImage::from_fn_parallel(width, height, |x, y| {
+        let label = rails.label_at(x, y) as usize;
+        label != 0 && removable[label] && (!owned.get(x, y) || body.get(x, y))
+    })
+}
+
+/// The first and last column of `component` in row `y`.
+fn row_extent(
+    components: &ComponentMap,
+    component: &Component,
+    y: usize,
+) -> Option<(usize, usize)> {
+    let mut extent: Option<(usize, usize)> = None;
+    for x in component.left..=component.right {
+        if components.label_at(x, y) == component.label {
+            extent = Some((extent.map_or(x, |(first, _)| first), x));
+        }
+    }
+    extent
+}
+
+/// Marks `component`'s own columns in `removed`: in each row, the columns from
+/// the raster-edge side, as wide as the rail's 90th-percentile row span. A stub
+/// of print that meets the rail in a few rows is wider than the rail there and
+/// is left standing.
+fn mark_rail_body(components: &ComponentMap, component: &Component, removed: &mut BinaryImage) {
+    let width = removed.width();
+    let from_left = component.left <= width - 1 - component.right;
+    let rows: Vec<(usize, (usize, usize))> = (component.top..=component.bottom)
+        .filter_map(|y| row_extent(components, component, y).map(|extent| (y, extent)))
+        .collect();
+    let mut spans: Vec<usize> = rows
+        .iter()
+        .map(|(_, (first, last))| last + 1 - first)
+        .collect();
+    spans.sort_unstable();
+    let Some(&thickness) = spans.get(spans.len() * 9 / 10) else {
+        return;
+    };
+    for (y, (first, last)) in rows {
+        let columns = if from_left {
+            first..(first + thickness).min(last + 1)
+        } else {
+            (last + 1).saturating_sub(thickness).max(first)..last + 1
+        };
+        for x in columns.filter(|&x| components.label_at(x, y) == component.label) {
+            removed.set(x, y, true);
         }
     }
 }
