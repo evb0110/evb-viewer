@@ -689,3 +689,67 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         await expectImportedCanonicalKinds(session.page);
     }, ACCEPTANCE_TIMEOUT_MS);
 });
+
+
+describe('Electron E2E - annotated raster readiness', () => {
+    it('waits for foreign annotation pixels before acknowledging a cold-page render', async () => {
+        const {page} = sessionFixture.getSession();
+        // Authored by PyMuPDF 1.28.2's add_stamp_annot/update writer, with a
+        // red Approved appearance. It is foreign to the canonical editor.
+        const fixture = resolve('tests/fixtures/electron/reader-approved-stamp.pdf');
+        await page.evaluate(() => {
+            const ready = new Promise<{
+                created: boolean;
+                red: number
+            }>((resolve, reject) => {
+                const observer = new MutationObserver(() => {
+                    const api = window.__evbTestApi;
+                    const workspace = api?.getActiveWorkspaceHandle();
+                    const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                    const status = api?.readActiveWorkspaceStateValues(['annotationCommentsStatus']).annotationCommentsStatus;
+                    if (!workspace || status !== 'ready' || chassis?.dataset.viewportLifecycle !== 'ready'
+                        || !document.querySelector('.page_container[data-page="1"] canvas')) return;
+                    observer.disconnect();
+                    // This public action awaits the page's raster before creating
+                    // its shape. Read the foreign appearance at that acknowledgement.
+                    void workspace.runAgentAction('annotation.create_shape', {
+                        page: 1,
+                        shape: 'rectangle',
+                        x: 0.1,
+                        y: 0.8,
+                        width: 0.08,
+                        height: 0.06,
+                    }).then((result) => {
+                        const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] canvas');
+                        const pixels = canvas?.getContext('2d', {willReadFrequently: true})
+                            ?.getImageData(0, 0, canvas.width, canvas.height).data;
+                        let red = 0;
+                        for (let offset = 0; pixels && offset < pixels.length; offset += 4) {
+                            if (pixels[offset]! > 140 && pixels[offset + 1]! < 110
+                                && pixels[offset + 2]! < 110 && pixels[offset + 3]! > 100) red += 1;
+                        }
+                        resolve({
+                            created: result.created === true,
+                            red,
+                        });
+                    }, reject);
+                });
+                observer.observe(document.body, {
+                    subtree: true,
+                    attributes: true,
+                    childList: true,
+                });
+            });
+            Reflect.set(window, '__annotatedRasterReady', ready);
+        });
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        const atRenderReady = await page.evaluate(async () => await Reflect.get(window, '__annotatedRasterReady') as {
+            created: boolean;
+            red: number
+        });
+        console.log('cold annotated render acknowledgement', atRenderReady);
+        expect(atRenderReady.created).toBe(true);
+        expect(atRenderReady.red).toBeGreaterThan(0);
+    }, ACCEPTANCE_TIMEOUT_MS);
+});
