@@ -112,11 +112,8 @@ fn visit_tiff_pdf_pages_from_reader<R: Read + Seek>(
         let (width, height) = decoder.dimensions()?;
         assert_pixel_limit(width, height, max_pixels)?;
         let orientation = read_tiff_orientation(&mut decoder);
-        let (dpi_x, dpi_y) = match read_tiff_dpi_axes(&mut decoder) {
-            Some((dpi_x, dpi_y)) if swaps_tiff_axes(orientation) => (dpi_y, dpi_x), // rotated frame
-            Some(axes) => axes,
-            None => default_dpi.map_or((DEFAULT_DPI, DEFAULT_DPI), |dpi| (dpi, dpi)),
-        };
+        let (dpi_x, dpi_y) = read_tiff_dpi_axes(&mut decoder)
+            .unwrap_or_else(|| default_dpi.map_or((DEFAULT_DPI, DEFAULT_DPI), |dpi| (dpi, dpi)));
         let color_type = decoder.colortype()?;
         let page = if color_type == TiffColorType::Gray(1) {
             let image = orient_tiff_bilevel(
@@ -267,9 +264,10 @@ fn orient_tiff_pixels(
     Ok((oriented_width, oriented_height, oriented))
 }
 
-/// Horizontal and vertical DPI; an axis without a resolution that rounds to
-/// at least 1 DPI takes the other axis's value.
+/// Horizontal and vertical DPI of the frame as displayed; an axis without a
+/// resolution that rounds to at least 1 DPI takes the other axis's value.
 fn read_tiff_dpi_axes<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<(u32, u32)> {
+    let orientation = read_tiff_orientation(decoder);
     let mut resolution = |tag| {
         decoder
             .find_tag(tag)
@@ -301,6 +299,7 @@ fn read_tiff_dpi_axes<R: Read + Seek>(decoder: &mut Decoder<R>) -> Option<(u32, 
     ) {
         (0, 0) => None,
         (0, dpi) | (dpi, 0) => Some((dpi, dpi)),
+        (dpi_x, dpi_y) if swaps_tiff_axes(orientation) => Some((dpi_y, dpi_x)), // rotated frame
         axes => Some(axes),
     }
 }

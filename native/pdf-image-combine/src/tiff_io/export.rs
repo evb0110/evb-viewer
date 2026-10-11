@@ -15,7 +15,7 @@ use tiff::{
     ColorType as TiffColorType,
 };
 
-use super::read_tiff_dpi_axes;
+use super::{orient_tiff_pixels, read_tiff_dpi_axes, read_tiff_orientation};
 use crate::{
     image::assert_pixel_limit,
     netpbm::{is_rgb_data_grayscale, read_netpbm_file},
@@ -40,6 +40,28 @@ enum TiffExportSamples {
 }
 
 impl TiffExportSamples {
+    /// The samples as the frame is displayed with `orientation`, and the
+    /// frame's displayed width and height.
+    fn oriented(self, width: u32, height: u32, orientation: u16) -> Result<(u32, u32, Self)> {
+        Ok(match self {
+            Self::Gray(pixels) => {
+                let (width, height, pixels) =
+                    orient_tiff_pixels(pixels, width, height, 1, orientation)?;
+                (width, height, Self::Gray(pixels))
+            }
+            Self::Rgb(pixels) => {
+                let (width, height, pixels) =
+                    orient_tiff_pixels(pixels, width, height, 3, orientation)?;
+                (width, height, Self::Rgb(pixels))
+            }
+            Self::Rgba(pixels) => {
+                let (width, height, pixels) =
+                    orient_tiff_pixels(pixels, width, height, 4, orientation)?;
+                (width, height, Self::Rgba(pixels))
+            }
+        })
+    }
+
     fn from_rgb(mut rgb: Vec<u8>, pixel_count: usize) -> Self {
         if !is_rgb_data_grayscale(&rgb, pixel_count) {
             return Self::Rgb(rgb);
@@ -133,10 +155,12 @@ fn read_first_tiff_export_page(mut file: File, max_pixels: u64) -> Result<TiffEx
     let mut decoder = Decoder::new(BufReader::new(file))?;
     let (width, height) = decoder.dimensions()?;
     assert_pixel_limit(width, height, max_pixels)?;
+    let orientation = read_tiff_orientation(&mut decoder);
     let (dpi_x, dpi_y) = read_tiff_dpi_axes(&mut decoder).unwrap_or((DEFAULT_DPI, DEFAULT_DPI));
     let color_type = decoder.colortype()?;
     let decoded = decoder.read_image()?;
-    let samples = build_tiff_export_samples(width, height, color_type, decoded)?;
+    let (width, height, samples) = build_tiff_export_samples(width, height, color_type, decoded)?
+        .oriented(width, height, orientation)?;
 
     Ok(TiffExportPage {
         width,

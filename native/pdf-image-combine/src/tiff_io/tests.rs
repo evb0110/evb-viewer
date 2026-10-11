@@ -143,10 +143,14 @@ fn export_keeps_each_axis_resolution_of_unequal_tiff_pages() {
     let rgb: Vec<u8> = (0..600 * 600).flat_map(|i| [i as u8, 64, 32]).collect();
     fs::write(
         &gray_path,
-        tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], 1),
+        tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], 600, 600, 1),
     )
     .unwrap();
-    fs::write(&rgb_path, tiff_with_axes::<colortype::RGB8>(&rgb, 1)).unwrap();
+    fs::write(
+        &rgb_path,
+        tiff_with_axes::<colortype::RGB8>(&rgb, 600, 600, 1),
+    )
+    .unwrap();
 
     combine_tiff_pages(
         &[gray_path.clone(), rgb_path.clone()],
@@ -178,7 +182,7 @@ fn explicit_export_dpi_sets_both_axes() {
     let output_path = temp_tiff_path("export-dpi-output");
     fs::write(
         &input_path,
-        tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], 1),
+        tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], 600, 600, 1),
     )
     .unwrap();
 
@@ -396,8 +400,9 @@ fn unequal_axis_resolution_sizes_gray_and_rgb_pages_per_axis() {
         (1, "/MediaBox [0 0 144.0000 288.0000]"),
         (6, "/MediaBox [0 0 288.0000 144.0000]"),
     ] {
-        let gray = tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], orientation);
-        let rgb = tiff_with_axes::<colortype::RGB8>(&vec![128; 600 * 600 * 3], orientation);
+        let gray = tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], 600, 600, orientation);
+        let rgb =
+            tiff_with_axes::<colortype::RGB8>(&vec![128; 600 * 600 * 3], 600, 600, orientation);
         for data in [gray, rgb] {
             let pdf = crate::write_pdf(
                 Vec::new(),
@@ -429,10 +434,15 @@ fn unequal_axis_resolution_sizes_gray_and_rgb_pages_per_axis() {
     }
 }
 
-fn tiff_with_axes<C: ColorType<Inner = u8>>(pixels: &[u8], orientation: u16) -> Vec<u8> {
+fn tiff_with_axes<C: ColorType<Inner = u8>>(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    orientation: u16,
+) -> Vec<u8> {
     let mut bytes = std::io::Cursor::new(Vec::new());
     let mut encoder = TiffEncoder::new(&mut bytes).unwrap();
-    let mut image = encoder.new_image::<C>(600, 600).unwrap();
+    let mut image = encoder.new_image::<C>(width, height).unwrap();
     image.resolution_unit(ResolutionUnit::Inch);
     image.x_resolution(Rational { n: 300, d: 1 });
     image.y_resolution(Rational { n: 150, d: 1 });
@@ -442,6 +452,74 @@ fn tiff_with_axes<C: ColorType<Inner = u8>>(pixels: &[u8], orientation: u16) -> 
         .unwrap();
     image.write_data(pixels).unwrap();
     bytes.into_inner()
+}
+
+#[test]
+fn export_displays_gray_and_rgb_frames_in_each_orientation() {
+    // The source frame is 3 x 2 pixels at 300 x 150 dpi, numbered 1 to 6 by
+    // row. `order` lists those numbers as the displayed frame shows them.
+    // Orientations 5 to 8 turn the frame sideways: a 2 x 3 page at 150 x 300 dpi.
+    let cases = [
+        (1, 3, 2, vec![1, 2, 3, 4, 5, 6]),
+        (2, 3, 2, vec![3, 2, 1, 6, 5, 4]),
+        (3, 3, 2, vec![6, 5, 4, 3, 2, 1]),
+        (4, 3, 2, vec![4, 5, 6, 1, 2, 3]),
+        (5, 2, 3, vec![1, 4, 2, 5, 3, 6]),
+        (6, 2, 3, vec![4, 1, 5, 2, 6, 3]),
+        (7, 2, 3, vec![6, 3, 5, 2, 4, 1]),
+        (8, 2, 3, vec![3, 6, 2, 5, 1, 4]),
+    ];
+    for (orientation, width, height, order) in cases {
+        let (dpi_x, dpi_y) = if (5..=8).contains(&orientation) {
+            (150.0, 300.0)
+        } else {
+            (300.0, 150.0)
+        };
+        let gray: Vec<u8> = (1..=6).collect();
+        let rgb: Vec<u8> = gray.iter().flat_map(|&v| [v, 2 * v, 3 * v]).collect();
+        let expected_rgb: Vec<u8> = order.iter().flat_map(|&v| [v, 2 * v, 3 * v]).collect();
+        for (color_type, source, expected) in [
+            (TiffColorType::Gray(8), gray, order),
+            (TiffColorType::RGB(8), rgb, expected_rgb),
+        ] {
+            let input_path = temp_tiff_path("export-orientation-input");
+            let output_path = temp_tiff_path("export-orientation-output");
+            let input = match color_type {
+                TiffColorType::RGB(8) => {
+                    tiff_with_axes::<colortype::RGB8>(&source, 3, 2, orientation)
+                }
+                _ => tiff_with_axes::<colortype::Gray8>(&source, 3, 2, orientation),
+            };
+            fs::write(&input_path, input).unwrap();
+            combine_tiff_pages(
+                std::slice::from_ref(&input_path),
+                &output_path,
+                1_000_000,
+                10,
+                None,
+            )
+            .unwrap();
+
+            let mut decoder =
+                Decoder::new(BufReader::new(File::open(&output_path).unwrap())).unwrap();
+            assert_eq!(
+                decoder.dimensions().unwrap(),
+                (width, height),
+                "orientation {orientation} {color_type:?}"
+            );
+            assert_eq!(decoder.colortype().unwrap(), color_type);
+            assert_eq!(
+                decode_u8(decoder.read_image().unwrap()),
+                expected,
+                "orientation {orientation} {color_type:?}"
+            );
+            assert_eq!(read_resolution_tag(&mut decoder, Tag::XResolution), dpi_x);
+            assert_eq!(read_resolution_tag(&mut decoder, Tag::YResolution), dpi_y);
+
+            let _ = fs::remove_file(input_path);
+            let _ = fs::remove_file(output_path);
+        }
+    }
 }
 
 #[test]
