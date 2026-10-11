@@ -4,18 +4,6 @@ use crate::annotation_threads::transform_split_annotations;
 use crate::split_pages::validate_content_transform;
 use lopdf::dictionary;
 
-fn set_page_box(page: &mut Dictionary, key: &str, rect: PdfRect) {
-    page.set(
-        key,
-        Object::Array(vec![
-            number_object(rect.x1),
-            number_object(rect.y1),
-            number_object(rect.x2),
-            number_object(rect.y2),
-        ]),
-    );
-}
-
 fn apply_content_transform_incremental(
     base: &Document,
     target: &mut Document,
@@ -100,8 +88,8 @@ pub(crate) fn build_split_output(
                 &mut page,
                 output_instruction.content_transform,
             )?;
-            set_page_box(&mut page, "MediaBox", crop);
-            set_page_box(&mut page, "CropBox", crop);
+            page.set("MediaBox", rect_object(crop));
+            page.set("CropBox", rect_object(crop));
             page.remove(b"BleedBox");
             page.remove(b"TrimBox");
             page.remove(b"ArtBox");
@@ -150,6 +138,16 @@ pub(crate) fn build_split_output(
         target.set_object(page.id, page.page);
     }
     target.set_object(catalog_id, Object::Dictionary(catalog));
+    if matches!(instructions.catalog, SplitCatalog::Assembly) {
+        let previous = target.trailer.remove(b"Prev");
+        target.trailer = dictionary! {"Root" => catalog_id};
+        if let Some(previous) = previous {
+            target.trailer.set("Prev", previous);
+            // Explicit nulls stop readers inheriting Info/ID from an old trailer.
+            target.trailer.set("Info", Object::Null);
+            target.trailer.set("ID", Object::Null);
+        }
+    }
     stamp_split_info(source, target, instructions)?;
     Ok(())
 }

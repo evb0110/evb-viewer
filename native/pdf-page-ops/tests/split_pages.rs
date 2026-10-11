@@ -2721,3 +2721,103 @@ fn split_pages_assembly_interleave_preserves_optional_content_pixels() {
         let _ = remove_file(file);
     }
 }
+
+fn write_review_large_source(input: &Path) {
+    let mut source = review_catalog_source();
+    let mut bytes = Vec::new();
+    source.save_to(&mut bytes).unwrap();
+    let previous = Document::load_mem(&bytes).unwrap().xref_start;
+    let id = source.max_id + 1;
+    let mut file = sparse_file::create_sparse_file(input);
+    file.write_all(&bytes).unwrap();
+    file.write_all(b"\n").unwrap();
+    let offset = file.stream_position().unwrap();
+    writeln!(file, "{id} 0 obj\n<</Length 537919488>>\nstream").unwrap();
+    file.seek(SeekFrom::Current(513 * 1024 * 1024)).unwrap();
+    file.write_all(b"\nendstream\nendobj\n").unwrap();
+    let xref = file.stream_position().unwrap();
+    write!(file, "xref\n{id} 1\n{offset:010} 00000 n \ntrailer\n<</Size {}/Root 1 0 R/Info 12 0 R/ID[<0123456789abcdef0123456789abcdef><fedcba9876543210fedcba9876543210>]/Prev {previous}>>\nstartxref\n{xref}\n%%EOF\n", id + 1).unwrap();
+}
+
+#[test]
+fn split_pages_assembly_trailer_policy_is_identical_across_the_size_boundary() {
+    for large in [false, true] {
+        for stamp in [false, true] {
+            let input = path("review-trailer-input", "pdf");
+            let output = path("review-trailer-output", "pdf");
+            let instructions = path("review-trailer-instructions", "json");
+            if large {
+                write_review_large_source(&input);
+            } else {
+                review_catalog_source().save(&input).unwrap();
+            }
+            let mut value = serde_json::json!({"catalog": "assembly", "pages": [{"sourcePageIndex": 0,
+                "rotationQuarterTurns": 0, "outputs": [{"cropRect": {"x": 0, "y": 0, "width": 200, "height": 120}}]}]});
+            if stamp {
+                value["provenanceStampHex"] = "54455354".into();
+            }
+            write(&instructions, value.to_string()).unwrap();
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .args(["split-pages", "--qpdf"])
+                .arg(qpdf_path())
+                .arg("--input")
+                .arg(&input)
+                .arg("--output")
+                .arg(&output)
+                .arg("--instructions-file")
+                .arg(&instructions)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let json = Command::new(qpdf_path())
+                .args(["--json", "--json-stream-data=none", "--json-key=qpdf"])
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                json.status.success(),
+                "{}",
+                String::from_utf8_lossy(&json.stderr)
+            );
+            let json: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+            let objects = &json["qpdf"][1];
+            let trailer = &objects["trailer"]["value"];
+            assert!(
+                trailer["/ID"].is_null(),
+                "assembly must not inherit source ID (large={large}, stamp={stamp}): {trailer}"
+            );
+            if stamp {
+                let id = trailer["/Info"].as_str().unwrap();
+                let info = &objects[format!("obj:{id}")]["value"];
+                assert_eq!(
+                    info.as_object().unwrap().len(),
+                    1,
+                    "assembly Info is stamp-only: {info}"
+                );
+                assert_eq!(info["/EVBScanCleanup"], "u:54455354");
+            } else {
+                assert!(
+                    trailer["/Info"].is_null(),
+                    "unstamped assembly must not inherit source Info: {trailer}"
+                );
+            }
+            let check = Command::new(qpdf_path())
+                .arg("--check")
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                check.status.success(),
+                "{}",
+                String::from_utf8_lossy(&check.stderr)
+            );
+            for file in [input, output, instructions] {
+                let _ = remove_file(file);
+            }
+        }
+    }
+}

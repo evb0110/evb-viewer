@@ -15,24 +15,6 @@ pub(crate) enum SplitCatalog {
     Assembly,
 }
 
-/// The trailer a split writes. A source trailer keeps the source's Info and /ID.
-/// The assembly trailer names only the root, so qpdf generates the output /ID
-/// and the split's provenance stamp is its only Info.
-pub(crate) fn split_trailer(
-    source: &Document,
-    catalog_id: ObjectId,
-    kind: SplitCatalog,
-) -> Dictionary {
-    match kind {
-        SplitCatalog::Source => source.trailer.clone(),
-        SplitCatalog::Assembly => {
-            let mut trailer = Dictionary::new();
-            trailer.set("Root", catalog_id);
-            trailer
-        }
-    }
-}
-
 /// The catalog a split page tree writes, with its page tree set to `pages_id`.
 /// The source catalog keeps outlines, names, viewer preferences, metadata and
 /// optional content. Optional content whose graph is incomplete or lacks valid

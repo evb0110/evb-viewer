@@ -337,8 +337,7 @@ pub(crate) fn split_pages(
 ) -> Result<()> {
     let mut document = Document::with_version(source.version.clone());
     document.max_id = source.max_id;
-    let catalog_id = source.trailer.get(b"Root")?.as_reference()?;
-    document.trailer = split_trailer(&source, catalog_id, instructions.catalog);
+    document.trailer = source.trailer.clone();
     crate::split_output::build_split_output(&source, &mut document, instructions)?;
     for (id, object) in std::mem::take(&mut source.objects) {
         document.objects.entry(id).or_insert(object);
