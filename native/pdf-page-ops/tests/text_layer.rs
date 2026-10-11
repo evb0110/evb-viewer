@@ -2630,6 +2630,77 @@ fn overlay_clips_a_seam_highlight_appearance_without_rescaling_its_marks() {
     }
 }
 
+#[test]
+fn overlay_keeps_a_highlight_whose_quad_array_is_malformed() {
+    for quads in [
+        vec![40, 55, 70, 55],
+        vec![40, 55, 70, 55, 40, 45, 70, 45, 999],
+    ] {
+        let source = path("markup-malformed-source", "pdf");
+        let input = path("markup-malformed-input", "pdf");
+        let output = path("markup-malformed-output", "pdf");
+        let instructions = path("markup-malformed-instructions", "json");
+        let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+        let page = document.get_pages()[&1];
+        let annotation = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Highlight", "P" => page,
+            "Rect" => vec![40.into(), 45.into(), 70.into(), 55.into()],
+            "QuadPoints" => quads.iter().map(|&value| Object::Integer(value)).collect::<Vec<_>>(),
+            "C" => vec![1.into(), 0.into(), 0.into()], "F" => 4,
+            "Contents" => "malformed quads",
+        });
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(annotation)]);
+        document.save(&source).unwrap();
+        save_empty_pages(&input, 1);
+        write(
+            &instructions,
+            serde_json::to_vec(&serde_json::json!({"pages":[{
+                "sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],
+                "filterToOutputPage":true,
+            }]}))
+            .unwrap(),
+        )
+        .unwrap();
+        let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        // Readers ignore a quad array that is not whole quads, but the saved
+        // annotation keeps its data: the Rect admits it and its quads stay as read.
+        let saved = Document::load(&output).unwrap();
+        let annotations = saved
+            .get_dictionary(saved.get_pages()[&1])
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(annotations.len(), 1);
+        let annotation = saved
+            .get_dictionary(annotations[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(
+            annotation.get(b"Subtype").unwrap().as_name().unwrap(),
+            b"Highlight"
+        );
+        assert_eq!(
+            real_numbers(annotation.get(b"QuadPoints").unwrap()),
+            quads
+                .iter()
+                .map(|&value| f64::from(value as i32))
+                .collect::<Vec<_>>()
+        );
+        for file in [source, input, output, instructions] {
+            remove_file(file).unwrap();
+        }
+    }
+}
+
 fn real_numbers(object: &Object) -> Vec<f64> {
     object
         .as_array()

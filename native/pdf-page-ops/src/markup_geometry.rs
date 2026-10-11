@@ -1,7 +1,8 @@
 use super::*;
 
 /// The quad points of a text markup (highlight, underline, strike-out or
-/// squiggly), or `None` for any other annotation.
+/// squiggly), or `None` for any other annotation. A quad is eight numbers, so
+/// an array of any other length is malformed and is not trusted as coverage.
 fn text_markup_quad_points(annotation: &Dictionary) -> Option<Vec<f64>> {
     let Ok(Object::Name(subtype)) = annotation.get(b"Subtype") else {
         return None;
@@ -13,6 +14,7 @@ fn text_markup_quad_points(annotation: &Dictionary) -> Option<Vec<f64>> {
         return None;
     }
     numbers(annotation.get(b"QuadPoints").ok())
+        .filter(|quads| !quads.is_empty() && quads.len() % 8 == 0)
 }
 
 fn numbers(object: Option<&Object>) -> Option<Vec<f64>> {
