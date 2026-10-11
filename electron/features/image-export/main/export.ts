@@ -62,7 +62,10 @@ import {
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {
+    aggregateErrorsKeepingUnprovenTermination,
+    getUnprovenNativeTerminationDetail,
+} from '@electron/utils/nativeTerminationProof';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
     type TManagedScratchPrefix,
@@ -524,7 +527,7 @@ export async function rollbackStagedFilePublications(ledger: IStagedFilePublicat
         const backupMessage = retainedBackups.length > 0
             ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
             : '';
-        throw new AggregateError(rollbackFailures, `Image export rollback failed.${backupMessage}`);
+        throw aggregateErrorsKeepingUnprovenTermination(rollbackFailures, `Image export rollback failed.${backupMessage}`);
     }
     ledger.promotedFiles.length = 0;
     ledger.backupPaths.length = 0;
@@ -618,7 +621,7 @@ export async function promoteStagedFiles(
             const backupMessage = retainedBackups.length > 0
                 ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
                 : '';
-            throw new AggregateError([
+            throw aggregateErrorsKeepingUnprovenTermination([
                 error,
                 ...rollbackFailures,
             ], `Image export promotion failed: ${primaryMessage}.${backupMessage}`);

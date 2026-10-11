@@ -23,7 +23,11 @@ import {
 import type * as FsPromises from 'fs/promises';
 import type * as WorkerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
-import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {
+    aggregateErrorsKeepingUnprovenTermination,
+    getUnprovenNativeTerminationDetail,
+    markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
 import { decode as decodePng } from 'fast-png';
 import { readImageDpi } from '@electron/image/imageDpi';
 import {
@@ -1420,6 +1424,49 @@ describe('image export', () => {
 
         expect(await readFile(targetPath, 'utf8')).toBe('original');
         expect(existsSync(`${targetPath}.tmp`)).toBe(false);
+    });
+
+    it('keeps an unproven native termination on the promotion error when a backup is retained', async () => {
+        const targetPath = join(tempDir, 'unproven-promotion.png');
+        const stagedPath = join(tempDir, 'unproven-promotion.staged');
+        await writeFile(targetPath, 'original');
+        await writeFile(stagedPath, 'replacement');
+        mocks.atomicReplace.mockRejectedValue(markUnprovenNativeTermination(
+            new Error('replacement writer is still running'),
+            'replacement writer was not proven dead',
+        ));
+
+        const failure = await promoteStagedFiles([{
+            stagedPath,
+            targetPath,
+            targetExisted: true,
+        }]).catch((error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(AggregateError);
+        expect(getUnprovenNativeTerminationDetail(failure)).toBe('replacement writer was not proven dead');
+        expect(await readFile(targetPath, 'utf8')).toBe('original');
+    });
+
+    it('keeps the first unproven termination among the errors an export wraps', () => {
+        const rollbackFailure = new Error('restore failed');
+        const firstWriter = markUnprovenNativeTermination(new Error('first writer'), 'first writer still alive');
+        const secondWriter = markUnprovenNativeTermination(new Error('second writer'), 'second writer still alive');
+
+        const combined = aggregateErrorsKeepingUnprovenTermination([
+            rollbackFailure,
+            firstWriter,
+            secondWriter,
+        ], 'export failed');
+
+        expect(combined).toBeInstanceOf(AggregateError);
+        expect(combined.message).toBe('export failed');
+        expect(combined.errors).toEqual([
+            rollbackFailure,
+            firstWriter,
+            secondWriter,
+        ]);
+        expect(getUnprovenNativeTerminationDetail(combined)).toBe('first writer still alive');
+        expect(getUnprovenNativeTerminationDetail(aggregateErrorsKeepingUnprovenTermination([rollbackFailure], 'export failed'))).toBeUndefined();
     });
 
     it('renders a real PDF through the export service and decodes every long-name page output', async () => {
