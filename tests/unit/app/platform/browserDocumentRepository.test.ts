@@ -461,6 +461,38 @@ describe('BrowserDocumentStore source registration', () => {
         expect((await store.requireEntry(retryRef)).memoryOnly).toBe(false);
     });
 
+    it('reopens a retained source after acquiring read permission outside the save lock', async () => {
+        const locks = new FakeLockManager();
+        vi.stubGlobal('navigator', {locks});
+        const bytes = Uint8Array.of(37, 80, 68, 70);
+        const file = new File([bytes], 'recent.pdf', {lastModified: 100});
+        let permission: PermissionState = 'granted';
+        const handle = Object.assign(createFileSystemFileHandle({
+            name: file.name,
+            getFile: vi.fn(async () => file),
+        }), {
+            queryPermission: vi.fn(async () => permission),
+            requestPermission: vi.fn(async () => {
+                expect((await locks.query()).held).not.toEqual(expect.arrayContaining([expect.objectContaining({name: 'evb-viewer:browser-physical-save'})]));
+                permission = 'granted';
+                return permission;
+            }),
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.registerFile(file, {
+            saveHandle: handle,
+            saveKind: 'pdf',
+        });
+        await store.touchRecentFile(ref);
+        permission = 'prompt';
+
+        const reopened = await store.refreshSourceVersionIfChanged(ref);
+        const working = await store.cloneAsWorkingCopy(reopened);
+
+        await expect(store.read(working)).resolves.toEqual(bytes);
+        expect(handle.requestPermission).toHaveBeenCalledExactlyOnceWith({mode: 'read'});
+    });
+
     it('fences live lease lifecycle transitions through the repository owner', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(

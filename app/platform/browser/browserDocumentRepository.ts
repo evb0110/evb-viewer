@@ -328,6 +328,15 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         if (!entry.saveHandle || (!entry.sourceWitness && entry.storageMode !== 'handle')) {
             return ref;
         }
+        // Explicit Recent Files reopen may ask; save-time reads remain nonprompting.
+        const handle = entry.saveHandle as FileSystemFileHandle & {
+            queryPermission?: (descriptor: {mode: 'read'}) => Promise<PermissionState>;
+            requestPermission?: (descriptor: {mode: 'read'}) => Promise<PermissionState>;
+        };
+        if (handle.queryPermission && await handle.queryPermission({mode: 'read'}) !== 'granted'
+            && await handle.requestPermission?.({mode: 'read'}) !== 'granted') {
+            throw new DOMException('Open the file again to restore read permission.', 'NotAllowedError');
+        }
         const metadata = await readFileHandleMetadata(entry.saveHandle);
         const contentToken = await createBrowserFileContentWitness(metadata.file);
         const openingWitness = entry.sourceBaseWitness ?? entry.contentToken;
