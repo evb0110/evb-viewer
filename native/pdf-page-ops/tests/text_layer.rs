@@ -5055,132 +5055,6 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
         let _ = remove_file(file);
     }
 }
-
-/// A note with a reply, on a preserved page, keeps its reply through the qpdf
-/// interleave that assembles compact cleanup. qpdf copies a listed annotation
-/// again when a reply or popup names it, so the overlay must repair those
-/// references to the listed copies before the note is read.
-#[test]
-fn overlay_text_keeps_a_preserved_note_reply_through_the_interleave() {
-    let source = path("preserved-thread-source", "pdf");
-    let split_instructions = path("preserved-thread-split", "json");
-    let split = path("preserved-thread-split-output", "pdf");
-    let raster = path("preserved-thread-raster", "pdf");
-    let assembled = path("preserved-thread-assembled", "pdf");
-    let instructions = path("preserved-thread-instructions", "json");
-    let output = path("preserved-thread-output", "pdf");
-    let parsed = path("preserved-thread-parsed", "jsonl");
-
-    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
-    let page_id = document.get_pages()[&1];
-    let root = document.add_object(dictionary! {
-        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
-        "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
-        "Contents" => Object::string_literal("Thread root"),
-    });
-    let reply = document.add_object(dictionary! {
-        "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root,
-        "Rect" => vec![45.into(), 45.into(), 55.into(), 55.into()],
-        "Contents" => Object::string_literal("Thread reply"),
-    });
-    let popup = document.add_object(dictionary! {
-        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root,
-        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
-    });
-    document
-        .get_dictionary_mut(root)
-        .unwrap()
-        .set("Popup", popup);
-    document
-        .get_dictionary_mut(page_id)
-        .unwrap()
-        .set("Annots", vec![root.into(), reply.into(), popup.into()]);
-    document.save(&source).unwrap();
-    write(
-        &split_instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}}]}]}"#,
-    )
-    .unwrap();
-    run_split_pages(&source, &split, &split_instructions);
-    save_empty_pages(&raster, 1);
-    let interleave = Command::new(qpdf_path())
-        .arg(&raster)
-        .args(["--coalesce-contents", "--pages"])
-        .arg(&split)
-        .arg("1")
-        .arg(&raster)
-        .arg("1")
-        .arg("--")
-        .arg(&assembled)
-        .output()
-        .unwrap();
-    assert!(
-        interleave.status.success(),
-        "{}",
-        String::from_utf8_lossy(&interleave.stderr)
-    );
-    write(
-        &instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true}]}"#,
-    )
-    .unwrap();
-
-    let result = run_overlay_text(&assembled, &source, &output, &instructions);
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let parse = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
-        .args(["parse-annotations", "--input"])
-        .arg(&output)
-        .arg("--output")
-        .arg(&parsed)
-        .args(["--modified-at", "D:20261011000000Z"])
-        .output()
-        .unwrap();
-    assert!(
-        parse.status.success(),
-        "{}",
-        String::from_utf8_lossy(&parse.stderr)
-    );
-    let entries = fs::read_to_string(&parsed)
-        .unwrap()
-        .lines()
-        .skip(1)
-        .flat_map(|line| {
-            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
-                .as_array()
-                .unwrap()
-                .clone()
-        })
-        .collect::<Vec<_>>();
-    let note = entries
-        .iter()
-        .find(|entry| entry["contents"] == "Thread root")
-        .expect("the preserved note is read");
-    assert_eq!(note["kind"], "note");
-    let replies = note["replies"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|reply| reply["contents"].as_str().unwrap().to_string())
-        .collect::<Vec<_>>();
-    assert_eq!(replies, ["Thread reply"]);
-    for file in [
-        source,
-        split_instructions,
-        split,
-        raster,
-        assembled,
-        instructions,
-        output,
-        parsed,
-    ] {
-        let _ = remove_file(file);
-    }
-}
-
 /// The note shapes that review34 found losing their replies in the qpdf
 /// interleave: identical bodies, indirect /M, /Contents and /NM, an /AP stream.
 #[derive(Clone, Copy)]
@@ -5264,8 +5138,15 @@ fn save_note_thread_source(path: &Path, shape: NoteShape) {
 /// The compact cleanup of one preserved source page, assembled as the
 /// scan-cleanup product does it: split-pages, then the qpdf interleave with the
 /// split as the primary input, then the overlay that rebinds retained links.
-/// A raster page follows the preserved page when `with_raster` is set.
-fn assemble_compact_cleanup(source: &Path, label: &str, with_raster: bool) -> std::path::PathBuf {
+/// A raster page follows the preserved page when `with_raster` is set. When
+/// `copied_text_page` is set, that raster page also has its source page's text
+/// and annotations copied over it, as a text layer does.
+fn assemble_compact_cleanup(
+    source: &Path,
+    label: &str,
+    with_raster: bool,
+    copied_text_page: bool,
+) -> std::path::PathBuf {
     let split_instructions = path(&format!("{label}-split"), "json");
     write(
         &split_instructions,
@@ -5291,9 +5172,16 @@ fn assemble_compact_cleanup(source: &Path, label: &str, with_raster: bool) -> st
         String::from_utf8_lossy(&interleave.stderr)
     );
     let instructions = path(&format!("{label}-instructions"), "json");
+    let copied_page = if copied_text_page {
+        r#",{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}"#
+    } else {
+        ""
+    };
     write(
         &instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true}]}"#,
+        format!(
+            r#"{{"pages":[{{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true}}{copied_page}]}}"#
+        ),
     )
     .unwrap();
     let output = path(&format!("{label}-output"), "pdf");
@@ -5322,8 +5210,8 @@ fn assemble_compact_cleanup(source: &Path, label: &str, with_raster: bool) -> st
     output
 }
 
-/// Each note with the contents of its replies, read the way a reader does.
-fn note_threads(pdf: &Path, label: &str) -> Vec<(String, Vec<String>)> {
+/// Each note with its page and the contents of its replies, read the way a reader does.
+fn note_threads(pdf: &Path, label: &str) -> Vec<(u64, String, Vec<String>)> {
     let parsed = path(&format!("{label}-threads"), "jsonl");
     let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args(["parse-annotations", "--input"])
@@ -5360,7 +5248,11 @@ fn note_threads(pdf: &Path, label: &str) -> Vec<(String, Vec<String>)> {
                 .iter()
                 .map(|reply| reply["contents"].as_str().unwrap_or("").to_string())
                 .collect::<Vec<_>>();
-            (note["contents"].as_str().unwrap_or("").to_string(), replies)
+            (
+                note["pageIndex"].as_u64().unwrap(),
+                note["contents"].as_str().unwrap_or("").to_string(),
+                replies,
+            )
         })
         .collect::<Vec<_>>();
     threads.sort();
@@ -5373,10 +5265,12 @@ fn assert_compact_cleanup_keeps_note_replies(label: &str, shape: NoteShape, with
     save_note_thread_source(&source, shape);
     let source_threads = note_threads(&source, &format!("{label}-source"));
     assert!(
-        source_threads.iter().all(|(_, replies)| replies.len() == 1),
+        source_threads
+            .iter()
+            .all(|(_, _, replies)| replies.len() == 1),
         "the source gives each note one reply: {source_threads:?}"
     );
-    let output = assemble_compact_cleanup(&source, label, with_raster);
+    let output = assemble_compact_cleanup(&source, label, with_raster, false);
     assert_eq!(note_threads(&output, label), source_threads);
 }
 
@@ -5421,4 +5315,54 @@ fn compact_cleanup_keeps_the_reply_of_a_note_with_an_appearance() {
 #[test]
 fn all_preserved_compact_cleanup_keeps_each_note_reply() {
     assert_compact_cleanup_keeps_note_replies("reply-all-preserved", NoteShape::Identical, false);
+}
+
+/// Two pages each hold a note with the same body. The reply on page 1 names the
+/// page-2 note as its root, so it must not be attached to page 1's own note.
+/// Cross-page threads are otherwise unchanged by this fix.
+fn save_cross_page_thread_source(path: &Path) {
+    let mut document = save_pages(path, (0..2).map(|_| None), Dictionary::new());
+    let pages = document.get_pages();
+    let (first_page, second_page) = (pages[&1], pages[&2]);
+    let unrelated = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => first_page,
+        "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
+        "Contents" => Object::string_literal("same body"),
+    });
+    let target = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => second_page,
+        "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
+        "Contents" => Object::string_literal("same body"),
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => first_page, "IRT" => target,
+        "Rect" => vec![45.into(), 45.into(), 55.into(), 55.into()],
+        "Contents" => Object::string_literal("reply intended for page 2"),
+    });
+    document
+        .get_dictionary_mut(first_page)
+        .unwrap()
+        .set("Annots", vec![unrelated.into(), reply.into()]);
+    document
+        .get_dictionary_mut(second_page)
+        .unwrap()
+        .set("Annots", vec![target.into()]);
+    document.save(path).unwrap();
+}
+
+#[test]
+fn compact_cleanup_does_not_attach_a_cross_page_reply_to_a_same_body_note() {
+    let source = path("cross-page-source", "pdf");
+    save_cross_page_thread_source(&source);
+    let output = assemble_compact_cleanup(&source, "cross-page", true, true);
+    let threads = note_threads(&output, "cross-page");
+    let page_one_replies = threads
+        .iter()
+        .filter(|(page, _, _)| *page == 0)
+        .flat_map(|(_, _, replies)| replies)
+        .collect::<Vec<_>>();
+    assert!(
+        page_one_replies.is_empty(),
+        "a reply for the page-2 note attached to page 1's same-body note: {threads:?}"
+    );
 }
