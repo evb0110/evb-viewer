@@ -739,14 +739,10 @@ pub(crate) fn write_overlay_text_layers_path(
     instructions: &TextLayerFile,
     qpdf_path: Option<&Path>,
 ) -> Result<()> {
-    write_overlay_text_layer_copies(
-        input_path,
-        source_path,
-        output_path,
-        instructions,
-        qpdf_path,
-    )?;
-    rebind_retained_destinations(output_path, instructions, qpdf_path)
+    with_staged_incremental_output(input_path, output_path, |staged| {
+        write_overlay_text_layer_copies(input_path, source_path, staged, instructions, qpdf_path)?;
+        rebind_retained_destinations(staged, instructions, qpdf_path)
+    })
 }
 
 fn write_overlay_text_layer_copies(

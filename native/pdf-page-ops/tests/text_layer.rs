@@ -4551,3 +4551,89 @@ fn overlay_leaves_a_foreign_note_where_it_is_on_any_output_page() {
         }
     }
 }
+
+/// A retained destination that the output refuses leaves the output's bytes
+/// as they were. The copy and the rebinding publish together, so a refused
+/// rebinding cannot leave the copied pages behind. The refused link names a
+/// page that two preserved halves both show, which is ambiguous.
+#[test]
+fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
+    let source = path("retained-refusal-source", "pdf");
+    let split_instructions = path("retained-refusal-split", "json");
+    let split = path("retained-refusal-split-output", "pdf");
+    let raster = path("retained-refusal-raster", "pdf");
+    let assembled = path("retained-refusal-assembled", "pdf");
+    let instructions = path("retained-refusal-instructions", "json");
+    let output = path("retained-refusal-output", "pdf");
+
+    let mut document = save_two_pages(&source, [Vec::new(), Vec::new()], Dictionary::new());
+    let first_page = document.get_pages()[&1];
+    let link = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Link", "P" => first_page,
+        "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
+        "Dest" => vec![first_page.into(), "Fit".into()],
+    });
+    document
+        .get_dictionary_mut(first_page)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(link)]);
+    document.save(&source).unwrap();
+    write(
+        &split_instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+    run_split_pages(&source, &split, &split_instructions);
+    save_empty_pages(&raster, 1);
+    let interleave = Command::new(qpdf_path())
+        .arg(&raster)
+        .args(["--coalesce-contents", "--pages"])
+        .arg(&split)
+        .arg("1-2")
+        .arg(&raster)
+        .arg("1")
+        .arg("--")
+        .arg(&assembled)
+        .output()
+        .unwrap();
+    assert!(
+        interleave.status.success(),
+        "{}",
+        String::from_utf8_lossy(&interleave.stderr)
+    );
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true},{"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,-100,0],"linkOnly":true},{"sourcePageIndex":1,"outputPageIndex":2,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    // A separate output and an input that is also the output: both keep their bytes.
+    fs::copy(&assembled, &output).unwrap();
+    write(
+        &output,
+        b"existing output must survive a refused retained destination",
+    )
+    .unwrap();
+    let separate_before = fs::read(&output).unwrap();
+    let refused = run_overlay_text(&assembled, &source, &output, &instructions);
+    assert!(!refused.status.success());
+    assert_eq!(fs::read(&output).unwrap(), separate_before);
+
+    fs::copy(&assembled, &output).unwrap();
+    let same_path_before = fs::read(&output).unwrap();
+    let refused = run_overlay_text(&output, &source, &output, &instructions);
+    assert!(!refused.status.success());
+    assert_eq!(fs::read(&output).unwrap(), same_path_before);
+
+    for file in [
+        source,
+        split_instructions,
+        split,
+        raster,
+        assembled,
+        instructions,
+        output,
+    ] {
+        let _ = remove_file(file);
+    }
+}

@@ -185,12 +185,10 @@ pub(crate) fn rebind_retained_destinations(
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
     let revision_bytes = build_incremental_revision(&mut incremental)?;
     let expected_object_ids = collect_incremental_append_object_ids(&incremental);
-    with_staged_incremental_output(output_path, output_path, |staged_output_path| {
-        write_incremental_revision(
-            staged_output_path,
-            &incremental,
-            &revision_bytes,
-            &expected_object_ids,
-        )
-    })
+    write_incremental_revision(
+        output_path,
+        &incremental,
+        &revision_bytes,
+        &expected_object_ids,
+    )
 }
