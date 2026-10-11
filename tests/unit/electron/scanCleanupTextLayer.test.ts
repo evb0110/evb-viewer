@@ -439,6 +439,42 @@ describe('scan-cleanup source text layer', () => {
         });
     });
 
+    it('maps a link into a preserved page through the transform its content was placed with', () => {
+        const preserved = {
+            ...output(),
+            preservedSource: {
+                reason: 'auto-color-compact-layered-no-raster-change' as const,
+                sourcePageIndex: 0,
+                rotationQuarterTurns: 0,
+                cropRect: {
+                    x: 0,
+                    y: 0,
+                    width: 200,
+                    height: 120,
+                },
+                contentTransform: {
+                    scale: 0.5,
+                    translateX: 10,
+                    translateY: 20,
+                },
+            },
+        };
+
+        expect(buildScanCleanupTextLayerPlan([preserved], [pageSize]).pages).toEqual([{
+            sourcePageIndex: 0,
+            outputPageIndex: 0,
+            matrix: [
+                0.5,
+                0,
+                0,
+                0.5,
+                10,
+                20,
+            ],
+            linkOnly: true,
+        }]);
+    });
+
     it('builds the same plan from geometry materialized by a bounded child', () => {
         const outputs = [output()];
 

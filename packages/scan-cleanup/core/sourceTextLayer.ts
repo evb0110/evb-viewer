@@ -297,25 +297,25 @@ export function resolveScanCleanupTextLayerInstruction(
 }
 
 /**
- * Every output page that comes from a source page is a link target, whether or
- * not it copies text. A preserved page is its source page unchanged, so its
- * geometry is the identity; a page without affine geometry names no coordinates.
+ * Every output page from a source page is a link target. A preserved page is
+ * its source placed by its content transform; other pages name no coordinates.
  */
 function linkOnlyTextLayerInstruction(
     output: IRenderedCleanupOutputPage,
     outputPageIndex: number,
     unmappedGeometry: boolean,
 ): IScanCleanupTextLayerInstruction {
+    const transform = output.preservedSource?.contentTransform;
     return {
         sourcePageIndex: output.sourcePageNumber - 1,
         outputPageIndex,
         matrix: [
-            1,
+            transform?.scale ?? 1,
             0,
             0,
-            1,
-            0,
-            0,
+            transform?.scale ?? 1,
+            transform?.translateX ?? 0,
+            transform?.translateY ?? 0,
         ],
         linkOnly: true,
         ...(unmappedGeometry ? {unmappedGeometry: true} : {}),
