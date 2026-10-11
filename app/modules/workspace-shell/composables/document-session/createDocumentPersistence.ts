@@ -246,7 +246,7 @@ export function createDocumentPersistence(
         channel: string,
         phase: string,
         reason: IPdfPersistFailure['reason'],
-        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause'>,
+        detail: Pick<IPdfPersistFailure, 'message' | 'validation' | 'cause' | 'keptFilePath'>,
     ): IPdfPersistFailure {
         return {
             channel,
@@ -391,6 +391,7 @@ export function createDocumentPersistence(
                 operation: 'saveFileStructured',
                 phase: 'publish-original',
                 reason: result.reason,
+                ...(result.keptFilePath === undefined ? {} : {keptFilePath: result.keptFilePath}),
                 ...(result.message === undefined ? {} : {message: result.message}),
                 ...(result.validation === undefined ? {} : {validation: result.validation}),
             };
@@ -1057,6 +1058,7 @@ export function createDocumentPersistence(
                                 cause: result.error,
                             } : {}),
                             validation: result.validation,
+                            ...(result.keptFilePath === undefined ? {} : {keptFilePath: result.keptFilePath}),
                         },
                     )),
                     ...(result.error?.code === 'too-large' ? {nativeRefusalCode: 'too-large' as const} : {}),

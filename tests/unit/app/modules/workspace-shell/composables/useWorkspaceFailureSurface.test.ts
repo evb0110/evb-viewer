@@ -13,6 +13,7 @@ import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/pub
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { SerializableError } from '@contracts/serializableError';
 import {formatFailurePresentationCopy} from '@app/composables/useFailureToast';
+import EN_MESSAGES from '@i18n-app/messages/en';
 import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 import * as v from 'valibot';
 import {
@@ -21,7 +22,9 @@ import {
 } from '@contracts/documentsPlatformFeatureSchemas';
 
 const toastAddMock = vi.fn();
-vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, params?: {path: string}) => key === 'errors.file.originalSavedOtherKept'
+    ? EN_MESSAGES.errors.file.originalSavedOtherKept.replace('{path}', params?.path ?? '')
+    : key})}));
 vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
 const { useWorkspaceFailureSurface } = await import(
@@ -48,8 +51,7 @@ function expectedAnnotationReport(
     };
 }
 
-// The composable resolves both globals on every call, so the stubs have to
-// outlive each test and are dropped once for the file.
+// The toast stub outlives each test and is dropped once for the file.
 afterAll(() => {
     vi.unstubAllGlobals();
 });
@@ -254,6 +256,50 @@ describe('useWorkspaceFailureSurface', () => {
         toast.actions[0].onClick();
         expect(destination).toBe('saved-as.pdf');
         expect(surface.hasSaveFailure.value).toBe(true);
+    });
+
+    it.each([
+        'structured',
+        'native',
+    ] as const)('identifies the kept external version after a late %s conflict', channel => {
+        const keptFilePath = '/documents/report.pdf.evb-transition-123.bak';
+        const message = `EVB saved your edits. The other version was kept at ${keptFilePath}.`;
+        const result = channel === 'structured'
+            ? v.parse(documentSaveResult, {
+                ok: false,
+                reason: 'original-changed',
+                externalWriteCommitted: true,
+                keptFilePath,
+                message,
+            })
+            : v.parse(nativeSaveResult, {
+                applied: false,
+                reason: 'original-changed',
+                validation: null,
+                keptFilePath,
+            });
+        if (!('reason' in result) || !result.reason || !('keptFilePath' in result)) throw new Error('The late conflict lost its kept path');
+        const surface = useWorkspaceFailureSurface();
+        let destination = '';
+        surface.reportSaveFailure('late-original-change', 'persist-rejected', undefined, undefined, {
+            channel,
+            operation: 'persist',
+            phase: 'publish-original',
+            reason: result.reason,
+            keptFilePath: result.keptFilePath,
+            message,
+        }, () => {destination = 'saved-as.pdf';});
+
+        expect(surface.saveFailurePresentation.value?.description).toBe(message);
+        const toast = toastAddMock.mock.calls[0]?.[0];
+        expect(toast.description).toEqual(toastDescriptionContaining(message));
+        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual([
+            'toolbar.saveAs',
+            'errors.runtime.copy',
+        ]);
+        toast.actions[0].onClick();
+        expect(destination).toBe('saved-as.pdf');
+        expect(formatFailurePresentationCopy(surface.saveFailurePresentation.value!)).toContain(keptFilePath);
     });
 
     it('keeps a genuine write failure separate from a changed original', () => {

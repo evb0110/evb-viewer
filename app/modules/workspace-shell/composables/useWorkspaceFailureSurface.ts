@@ -96,7 +96,9 @@ export const useWorkspaceFailureSurface = () => {
 
     function describeSaveFailure(reason: TWorkspaceSaveFailureReason, persistence?: IPdfPersistFailure) {
         if (persistence?.reason === 'original-changed') {
-            return t('errors.save.originalChanged');
+            return persistence.keptFilePath
+                ? t('errors.file.originalSavedOtherKept', {path: persistence.keptFilePath})
+                : t('errors.save.originalChanged');
         }
         const message = persistence?.message ?? '';
         if (/EACCES|EPERM|EBUSY|permission denied|access (?:is )?denied|os error (?:5|13)/iu.test(message)) {
@@ -253,15 +255,6 @@ export const useWorkspaceFailureSurface = () => {
         return presentation;
     }
 
-    function presentCopyFeedback(copied: boolean) {
-        toast.add({
-            color: copied ? 'success' : 'error',
-            title: copied
-                ? t('errors.file.pdfjsAssetRepairCopied')
-                : t('errors.file.pdfjsAssetRepairCopyFailed'),
-        });
-    }
-
     /** A failed load's description, with the repair command when PDF.js assets do not match. */
     function describeOpenFailure(error: unknown) {
         const presentation = describeDocumentOpenFailure(error, t);
@@ -273,7 +266,10 @@ export const useWorkspaceFailureSurface = () => {
             actions: [{
                 label: t('errors.file.pdfjsAssetRepairAction'),
                 onClick: () => {
-                    void copyTextToClipboard('pnpm install --frozen-lockfile').then(presentCopyFeedback);
+                    void copyTextToClipboard('pnpm install --frozen-lockfile').then(copied => toast.add({
+                        color: copied ? 'success' : 'error',
+                        title: t(copied ? 'errors.file.pdfjsAssetRepairCopied' : 'errors.file.pdfjsAssetRepairCopyFailed'),
+                    }));
                 },
             }],
         };

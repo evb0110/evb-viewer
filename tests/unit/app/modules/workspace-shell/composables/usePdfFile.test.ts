@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {
+    IDocumentsFileIoCapability,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {requirePdfDateString} from '@contracts/pdfDateString';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -41,7 +44,7 @@ const electronApi = createElectronPlatformApiFixture({
         readFile: mocks.read,
         readFileRange: mocks.readRange,
         repairPdf: mocks.repair,
-        saveFileStructured: vi.fn(async () => ({
+        saveFileStructured: vi.fn<IDocumentsFileIoCapability['saveFileStructured']>(async () => ({
             ok: true as const,
             externalWriteCommitted: true,
             workingCopyRefreshed: true,
@@ -222,13 +225,17 @@ describe('usePdfFile façade', () => {
         expect(file.error.value).toBeNull();
     });
 
-    it('retains the changed-original cause without clearing the document or its edits', async () => {
+    it.each([
+        undefined,
+        '/documents/original.pdf.evb-transition-native.bak',
+    ])('retains a native changed-original failure and kept path %s without clearing edits', async (keptFilePath) => {
         const file = createFacade();
         await file.openFile(pdfResult('changed-original'));
         mocks.nativeApply.mockResolvedValueOnce({
             applied: false,
             validation: null,
             reason: 'original-changed',
+            ...(keptFilePath ? {keptFilePath} : {}),
         });
         const originalPath = file.originalPath.value;
         const workingPath = file.workingCopyPath.value;
@@ -244,12 +251,43 @@ describe('usePdfFile façade', () => {
             expectedWorkingPath: workingPath,
         })).resolves.toMatchObject({
             success: false,
-            failure: {reason: 'original-changed'},
+            failure: {
+                reason: 'original-changed',
+                ...(keptFilePath ? {keptFilePath} : {}),
+            },
         });
         expect(file.originalPath.value).toBe(originalPath);
         expect(file.workingCopyPath.value).toBe(workingPath);
         expect(file.isDirty.value).toBe(true);
         expect(file.error.value).toBeNull();
+    });
+
+    it.each([
+        undefined,
+        '/documents/original.pdf.evb-transition-structured.bak',
+    ])('retains a structured changed-original failure and kept path %s without clearing edits', async (keptFilePath) => {
+        const file = createFacade();
+        await file.openFile(pdfResult('structured-conflict'));
+        file.isDirty.value = true;
+        vi.spyOn(electronApi.documentFiles, 'saveFileStructured').mockResolvedValueOnce({
+            ok: false,
+            reason: 'original-changed',
+            externalWriteCommitted: Boolean(keptFilePath),
+            ...(keptFilePath ? {keptFilePath} : {}),
+        });
+
+        await expect(file.saveWorkingCopy()).resolves.toMatchObject({
+            success: false,
+            failure: {
+                reason: 'original-changed',
+                ...(keptFilePath ? {keptFilePath} : {}),
+            },
+        });
+        expect(file.originalPath.value).toBe('/structured-conflict.pdf');
+        expect(file.workingCopyPath.value).toBe('/tmp/structured-conflict.pdf');
+        expect(file.isDirty.value).toBe(true);
+        expect(file.error.value).toBeNull();
+        vi.restoreAllMocks();
     });
 
     it('rejects an empty PDF before it can claim the document session', async () => {
