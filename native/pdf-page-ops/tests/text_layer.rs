@@ -3,7 +3,7 @@ mod external_tool;
 #[path = "../../test-support/sparse_file.rs"]
 mod sparse_file;
 
-use lopdf::{dictionary, Dictionary, Document, Object, Stream};
+use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use std::{
     env,
     fs::{self, remove_file, write, File},
@@ -82,6 +82,23 @@ fn save_half_pages(path: &Path, count: usize) {
     document.save(path).unwrap();
 }
 
+fn run_split_pages(input: &Path, output: &Path, instructions: &Path) {
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["split-pages", "--input"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .arg("--instructions-file")
+        .arg(instructions)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
 fn run_overlay_text(
     input: &Path,
     source: &Path,
@@ -155,7 +172,7 @@ fn write_sparse_linked_source(
     page_count: usize,
     ocr_source_page_index: Option<usize>,
     malformed_source_page_index: Option<usize>,
-    link: Option<(usize, usize)>,
+    link: Option<(usize, usize, LinkTarget)>,
 ) -> u64 {
     const SPARSE_UNREFERENCED_BYTES: u64 = 600 * 1024 * 1024;
     let first_page_object = 3;
@@ -168,7 +185,22 @@ fn write_sparse_linked_source(
     let mut offsets = vec![0_u64; sparse_object + 1];
     let mut file = sparse_file::create_sparse_file(path);
     file.write_all(b"%PDF-1.4\n%\x80\x81\x82\x83\n").unwrap();
-    write_raw_object(&mut file, &mut offsets, 1, b"<</Type/Catalog/Pages 2 0 R>>");
+    // A named link's target is defined in the catalog, where `--empty` drops it.
+    let target_page = |to: usize| format!("[{} 0 R/XYZ 0 120 0]", first_page_object + to);
+    let catalog = match link {
+        Some((_, to, LinkTarget::LegacyNamed)) => {
+            format!(
+                "<</Type/Catalog/Pages 2 0 R/Dests<</target{}>>>>",
+                target_page(to)
+            )
+        }
+        Some((_, to, LinkTarget::TreeNamed)) => format!(
+            "<</Type/Catalog/Pages 2 0 R/Names<</Dests<</Names[(target){}]>>>>>>",
+            target_page(to)
+        ),
+        _ => "<</Type/Catalog/Pages 2 0 R>>".to_owned(),
+    };
+    write_raw_object(&mut file, &mut offsets, 1, catalog.as_bytes());
     let kids = (first_page_object..=last_page_object)
         .map(|object| format!("{object} 0 R"))
         .collect::<Vec<_>>()
@@ -184,10 +216,14 @@ fn write_sparse_linked_source(
             empty_content_object
         };
         let annots = match link {
-            Some((from, to)) if from == page_index => format!(
-                "/Annots[<</Type/Annot/Subtype/Link/Rect[2 2 40 20]/Border[0 0 0]/Dest[{} 0 R/XYZ 0 120 0]>>]",
-                first_page_object + to,
-            ),
+            Some((from, to, kind)) if from == page_index => {
+                let destination = match kind {
+                    LinkTarget::Explicit => format!("/Dest{}", target_page(to)),
+                    LinkTarget::Action => format!("/A<</S/GoTo/D{}>>", target_page(to)),
+                    LinkTarget::LegacyNamed | LinkTarget::TreeNamed => "/Dest(target)".to_owned(),
+                };
+                format!("/Annots[<</Type/Annot/Subtype/Link/Rect[2 2 40 20]/Border[0 0 0]{destination}>>]")
+            }
             _ => String::new(),
         };
         let page = format!(
@@ -1169,6 +1205,16 @@ fn overlay_text_extracts_a_high_index_page_from_a_sparse_source_above_the_byte_b
 
 #[test]
 fn overlay_text_keeps_a_link_across_source_subsets_above_the_byte_budget() {
+    for kind in [
+        LinkTarget::Explicit,
+        LinkTarget::LegacyNamed,
+        LinkTarget::TreeNamed,
+    ] {
+        assert_link_survives_source_subsets(kind);
+    }
+}
+
+fn assert_link_survives_source_subsets(kind: LinkTarget) {
     const LINK_SOURCE_PAGE_INDEX: usize = 0;
     const LINK_TARGET_PAGE_INDEX: usize = 1_234;
     let source = path("large-source-cross-subset-link", "pdf");
@@ -1180,7 +1226,7 @@ fn overlay_text_keeps_a_link_across_source_subsets_above_the_byte_budget() {
         1_235,
         Some(LINK_TARGET_PAGE_INDEX),
         None,
-        Some((LINK_SOURCE_PAGE_INDEX, LINK_TARGET_PAGE_INDEX)),
+        Some((LINK_SOURCE_PAGE_INDEX, LINK_TARGET_PAGE_INDEX, kind)),
     );
     assert!(source_len > 512 * 1024 * 1024);
     save_empty_pages(&input, 66);
@@ -2007,6 +2053,115 @@ fn overlay_resolves_named_destinations_to_the_output_page_they_name() {
         for file in [source, input, output, instructions] {
             let _ = remove_file(file);
         }
+    }
+}
+
+/// Two pages that link to each other. Each link names the point (100, 60) on
+/// the other page.
+fn save_retained_link_source(path: &Path) {
+    let mut document = save_two_pages(path, [Vec::new(), Vec::new()], Dictionary::new());
+    let pages = document.get_pages().into_values().collect::<Vec<_>>();
+    for (from, to) in [(0, 1), (1, 0)] {
+        let link = dictionary! {
+            "Type" => "Annot", "Subtype" => "Link", "P" => pages[from],
+            "Rect" => vec![20.into(), 20.into(), 80.into(), 40.into()],
+            "Dest" => vec![pages[to].into(), "XYZ".into(), 100.into(), 60.into(), 0.into()],
+        };
+        let link_id = document.add_object(link);
+        document
+            .get_dictionary_mut(pages[from])
+            .unwrap()
+            .set("Annots", vec![Object::Reference(link_id)]);
+    }
+    document.save(path).unwrap();
+}
+
+/// A preserved page is split with a scale and translation, then interleaved
+/// with a blank copied page the way compact cleanup assembles its output. Its
+/// retained link names the output page the plan gives its target, at the same
+/// point. A link from the copied page into the preserved page lands at the point
+/// the preserved page's scaled content puts there.
+#[test]
+fn overlay_rebinds_a_link_a_preserved_page_retains_to_its_output_page() {
+    let source = path("retained-link-source", "pdf");
+    let split_instructions = path("retained-link-split", "json");
+    let split = path("retained-link-split-output", "pdf");
+    let raster = path("retained-link-raster", "pdf");
+    let assembled = path("retained-link-assembled", "pdf");
+    let instructions = path("retained-link-instructions", "json");
+    let output = path("retained-link-output", "pdf");
+    save_retained_link_source(&source);
+    write(
+        &split_instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":0.5,"translateX":10,"translateY":20}}]}]}"#,
+    )
+    .unwrap();
+    run_split_pages(&source, &split, &split_instructions);
+    save_empty_pages(&raster, 1);
+    let interleave = Command::new(qpdf_path())
+        .arg(&raster)
+        .args(["--coalesce-contents", "--pages"])
+        .arg(&split)
+        .arg("1")
+        .arg(&raster)
+        .arg("1")
+        .arg("--")
+        .arg(&assembled)
+        .output()
+        .unwrap();
+    assert!(
+        interleave.status.success(),
+        "{}",
+        String::from_utf8_lossy(&interleave.stderr)
+    );
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[0.5,0,0,0.5,10,20],"linkOnly":true},{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&assembled, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    let pages = saved.get_pages().into_values().collect::<Vec<_>>();
+    let link_on = |page: ObjectId| {
+        let annots = saved
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let link = saved
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        assert!(!link.has(b"EVBDestinationPage"));
+        link.get(b"Dest").unwrap().as_array().unwrap().clone()
+    };
+    // The preserved page's own link: the target page is an identity copy.
+    let outgoing = link_on(pages[0]);
+    assert_eq!(outgoing[0].as_reference().unwrap(), pages[1]);
+    assert_eq!(outgoing[2].as_float().unwrap(), 100.0);
+    assert_eq!(outgoing[3].as_float().unwrap(), 60.0);
+    // The copied page's link into the preserved page, through its transform.
+    let incoming = link_on(pages[1]);
+    assert_eq!(incoming[0].as_reference().unwrap(), pages[0]);
+    assert_eq!(incoming[2].as_float().unwrap(), 60.0);
+    assert_eq!(incoming[3].as_float().unwrap(), 50.0);
+    for file in [
+        source,
+        split_instructions,
+        split,
+        raster,
+        assembled,
+        instructions,
+        output,
+    ] {
+        let _ = remove_file(file);
     }
 }
 

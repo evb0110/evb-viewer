@@ -1,4 +1,5 @@
 use super::*;
+use crate::internal_destinations::{remap_internal_destination, resolve_destination};
 use evb_native_support::output::AtomicOutput;
 use std::{
     path::Path,
@@ -327,10 +328,13 @@ impl<'a> OverlayDestinations<'a> {
     }
 
     /// The pages a subset extracts for its copied pages: those pages plus every
-    /// page their links name, so each link resolves inside the subset.
-    fn subset_pages(&self, pages: &[usize]) -> Result<Vec<usize>> {
+    /// page their links name, so each link resolves inside the subset. A link
+    /// that names its target also carries the name, since `--empty` drops the
+    /// catalog that defines it.
+    fn subset_pages(&self, pages: &[usize]) -> Result<OverlaySubset> {
         let resolver = PageTreeResolver::new(self.probe)?;
         let mut subset = pages.to_vec();
+        let mut named = Vec::new();
         for &page in pages {
             let page_id =
                 resolver.page_id(self.probe, overlay_page_number(page, "sourcePageIndex")?)?;
@@ -347,21 +351,77 @@ impl<'a> OverlayDestinations<'a> {
                 let Some(destination) = annotation_destination(self.probe, annotation) else {
                     continue;
                 };
-                let Some(array) =
-                    crate::internal_destinations::resolve_destination(self.probe, &destination)?
-                else {
+                let Some(array) = resolve_destination(self.probe, &destination)? else {
                     continue;
                 };
                 let target = array.first().and_then(|object| object.as_reference().ok());
                 if let Some(&index) = target.and_then(|id| self.page_index_by_id.get(&id)) {
                     subset.push(index);
+                    if let Object::Name(name) | Object::String(name, _) = &destination {
+                        let rest = array[1..]
+                            .iter()
+                            .map(|object| {
+                                self.probe
+                                    .dereference(object)
+                                    .map(|(_, value)| value.clone())
+                            })
+                            .collect::<std::result::Result<Vec<_>, _>>();
+                        if let Ok(rest) = rest {
+                            named.push(NamedDestination {
+                                name: name.clone(),
+                                page_index: index,
+                                rest,
+                            });
+                        }
+                    }
                 }
             }
         }
         subset.sort_unstable();
         subset.dedup();
-        Ok(subset)
+        Ok(OverlaySubset {
+            pages: subset,
+            named,
+        })
     }
+}
+
+/// A named destination that a subset's links resolve. The subset's catalog
+/// does not define the name, so the subset defines it as an explicit array.
+struct NamedDestination {
+    name: Vec<u8>,
+    /// The target page's index in the source document.
+    page_index: usize,
+    /// The destination array after its page, with indirect values resolved.
+    rest: Vec<Object>,
+}
+
+struct OverlaySubset {
+    pages: Vec<usize>,
+    named: Vec<NamedDestination>,
+}
+
+/// Defines the subset's named destinations in its catalog, each on the
+/// subset's copy of its target page.
+fn carry_named_destinations(source: &mut Document, subset: &OverlaySubset) -> Result<()> {
+    if subset.named.is_empty() {
+        return Ok(());
+    }
+    let resolver = PageTreeResolver::new(source)?;
+    let mut dests = Dictionary::new();
+    for named in &subset.named {
+        let local = subset
+            .pages
+            .binary_search(&named.page_index)
+            .map_err(|_| "overlay-text named destination target is outside its source subset")?;
+        let page = resolver.page_id(source, overlay_page_number(local, "sourcePageIndex")?)?;
+        let mut array = vec![Object::Reference(page)];
+        array.extend(named.rest.iter().cloned());
+        dests.set(named.name.clone(), Object::Array(array));
+    }
+    let root = source.trailer.get(b"Root")?.as_reference()?;
+    source.get_dictionary_mut(root)?.set("Dests", dests);
+    Ok(())
 }
 
 fn referenced_source_pages(instructions: &TextLayerFile) -> Result<Vec<usize>> {
@@ -541,13 +601,13 @@ fn try_write_overlay_source_batch(
     batch_id: usize,
     destinations: &OverlayDestinations,
 ) -> std::result::Result<(), OverlaySourceBatchFailure> {
-    let subset_pages = destinations
+    let subset = destinations
         .subset_pages(pages)
         .map_err(OverlaySourceBatchFailure::Failed)?;
     let subset_path =
-        extract_overlay_source_batch(source_path, qpdf_path, &subset_pages, temp_dir, batch_id)?;
+        extract_overlay_source_batch(source_path, qpdf_path, &subset.pages, temp_dir, batch_id)?;
     let result = (|| {
-        let source = match load_pdf_path(&subset_path) {
+        let mut source = match load_pdf_path(&subset_path) {
             Ok(source) => source,
             Err(error) => {
                 let error = classify_pdf_load_error(
@@ -566,8 +626,10 @@ fn try_write_overlay_source_batch(
             "Encrypted source PDFs are not supported by native page ops",
         )
         .map_err(OverlaySourceBatchFailure::Failed)?;
+        carry_named_destinations(&mut source, &subset)
+            .map_err(OverlaySourceBatchFailure::Failed)?;
         let batch_instructions =
-            rebase_overlay_source_instructions(instructions, &subset_pages, pages)
+            rebase_overlay_source_instructions(instructions, &subset.pages, pages)
                 .map_err(OverlaySourceBatchFailure::Failed)?;
         let mut incremental =
             load_incremental_pdf_path(output_path, Some(qpdf_path)).map_err(|error| {
@@ -670,7 +732,191 @@ fn write_overlay_source_batch_with_split(
     }
 }
 
+/// The page-index key that a retained annotation carries until the overlay
+/// rebinds its destination. It is removed when the destination is rebound.
+const RETAINED_DESTINATION_PAGE_KEY: &[u8] = b"EVBDestinationPage";
+
+/// Readies a split copy of a source annotation: its retained destination, then
+/// its note placement on the output page.
+pub(crate) fn place_split_copy(
+    target: &mut Document,
+    annotation: &mut Dictionary,
+    source: &Document,
+    note_copy: &crate::note_placement::NoteCopy,
+) -> Result<()> {
+    prepare_retained(source, annotation)?;
+    crate::note_placement::place_note_copy(target, annotation, Some(source), note_copy)
+}
+
+/// Readies an annotation that a preserved page retains. Its destination names a
+/// source page object, which the split output holds but qpdf renumbers when it
+/// interleaves the page. The destination becomes explicit, and the source page
+/// index travels with the annotation until the overlay rebinds it. A destination
+/// that does not read as a page of the source is left as it is.
+pub(crate) fn prepare_retained(source: &Document, annotation: &mut Dictionary) -> Result<()> {
+    annotation.remove(RETAINED_DESTINATION_PAGE_KEY);
+    let Some((page_id, explicit)) = explicit_retained_destination(source, annotation) else {
+        return Ok(());
+    };
+    let Some(index) = source
+        .get_pages()
+        .into_iter()
+        .find_map(|(number, id)| (id == page_id).then_some(number as usize - 1))
+    else {
+        return Ok(());
+    };
+    if annotation.get(b"Dest").is_err() {
+        annotation.remove(b"A");
+    }
+    annotation.set("Dest", Object::Array(explicit));
+    annotation.set(RETAINED_DESTINATION_PAGE_KEY, index as i64);
+    Ok(())
+}
+
+/// The annotation's destination as an explicit array, with its page reference
+/// and resolved values, when it names a page object.
+fn explicit_retained_destination(
+    source: &Document,
+    annotation: &Dictionary,
+) -> Option<(ObjectId, Vec<Object>)> {
+    let destination = annotation_destination(source, annotation)?;
+    let array = resolve_destination(source, &destination).ok()??;
+    let page_id = array.first()?.as_reference().ok()?;
+    let mut explicit = vec![Object::Reference(page_id)];
+    for value in &array[1..] {
+        explicit.push(source.dereference(value).ok()?.1.clone());
+    }
+    Some((page_id, explicit))
+}
+
+/// The output plan over the output document. A retained destination names its
+/// source page by a stand-in id per source index, which the remapper compares
+/// but never reads.
+fn output_plan_pages<'a>(
+    output: &Document,
+    instructions: &'a TextLayerFile,
+) -> Result<Vec<OverlayPage<'a>>> {
+    let resolver = PageTreeResolver::new(output)?;
+    instructions
+        .pages
+        .iter()
+        .map(|instruction| {
+            let target_number =
+                overlay_page_number(instruction.output_page_index, "outputPageIndex")?;
+            let target = resolver.page_id(output, target_number)?;
+            Ok((
+                source_key(instruction.source_page_index)?,
+                target,
+                instruction,
+                resolve_page_view(output, target)?,
+            ))
+        })
+        .collect()
+}
+
+fn source_key(source_page_index: usize) -> Result<ObjectId> {
+    Ok((
+        overlay_page_number(source_page_index, "sourcePageIndex")?,
+        0,
+    ))
+}
+
+/// Rebinds the destinations that preserved pages retain against the final
+/// output plan. A destination on a page the output does not show loses only
+/// its destination; the annotation and its appearance stay.
+fn rebind_retained_destinations(
+    output_path: &Path,
+    instructions: &TextLayerFile,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    if !instructions
+        .pages
+        .iter()
+        .any(|instruction| instruction.link_only)
+    {
+        return Ok(());
+    }
+    let mut incremental = load_incremental_pdf_path(output_path, qpdf_path)
+        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
+    let output = incremental.get_prev_documents();
+    let pages = output_plan_pages(output, instructions)?;
+    let mut rebound = Vec::new();
+    for page in pages.iter().filter(|page| page.2.link_only) {
+        let Ok(annots) = output.get_dictionary(page.1)?.get(b"Annots") else {
+            continue;
+        };
+        for entry in output.dereference(annots)?.1.as_array()? {
+            let Ok(annotation_id) = entry.as_reference() else {
+                continue;
+            };
+            let mut annotation = output.get_dictionary(annotation_id)?.clone();
+            let Some(index) = annotation.remove(RETAINED_DESTINATION_PAGE_KEY) else {
+                continue;
+            };
+            let index = usize::try_from(index.as_i64()?)
+                .map_err(|_| "overlay-text retained destination page is invalid")?;
+            if let Some(mut array) = annotation
+                .get(b"Dest")
+                .ok()
+                .and_then(|dest| dest.as_array().ok())
+                .cloned()
+            {
+                if let Some(first) = array.first_mut() {
+                    *first = Object::Reference(source_key(index)?);
+                }
+                match remap_internal_destination(output, &Object::Array(array), &pages)? {
+                    Some(destination) => annotation.set("Dest", destination),
+                    None => {
+                        annotation.remove(b"Dest");
+                    }
+                }
+            }
+            rebound.push((annotation_id, annotation));
+        }
+    }
+    if rebound.is_empty() {
+        return Ok(());
+    }
+    for (annotation_id, annotation) in rebound {
+        incremental
+            .new_document
+            .set_object(annotation_id, Object::Dictionary(annotation));
+    }
+    incremental.new_document.version = incremental.get_prev_documents().version.clone();
+    let revision_bytes = build_incremental_revision(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    with_staged_incremental_output(output_path, output_path, |staged_output_path| {
+        write_incremental_revision(
+            staged_output_path,
+            &incremental,
+            &revision_bytes,
+            &expected_object_ids,
+        )
+    })
+}
+
 pub(crate) fn write_overlay_text_layers_path(
+    input_path: &Path,
+    source_path: &Path,
+    output_path: &Path,
+    instructions: &TextLayerFile,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    write_overlay_text_layer_copies(
+        input_path,
+        source_path,
+        output_path,
+        instructions,
+        qpdf_path,
+    )?;
+    rebind_retained_destinations(output_path, instructions, qpdf_path)
+}
+
+fn write_overlay_text_layer_copies(
     input_path: &Path,
     source_path: &Path,
     output_path: &Path,
