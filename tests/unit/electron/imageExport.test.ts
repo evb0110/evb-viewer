@@ -23,6 +23,7 @@ import {
 import type * as FsPromises from 'fs/promises';
 import type * as WorkerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import { decode as decodePng } from 'fast-png';
 import { readImageDpi } from '@electron/image/imageDpi';
 import {
@@ -1602,6 +1603,64 @@ describe('image export', () => {
             expect.stringMatching(/page-1\.ppm$/u),
         ], expect.objectContaining({commandLabel: 'evb-pdf-image-combine(ppm-to-png)'}));
         expect(await readFile(outputPath, 'utf8')).toBe('native-png');
+    });
+
+    it('does not replace an unproven native PNG writer with JavaScript output', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        mocks.nativeImageCombinePath = '/native/evb-pdf-image-combine';
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+            if (command !== mocks.nativeImageCombinePath) {
+                return defaultRunCommand(command, args, options);
+            }
+            const outputPath = args[args.indexOf('--output') + 1];
+            if (typeof outputPath !== 'string') {
+                throw new Error('Expected native image combiner output path');
+            }
+            // The encoder timed out and its tree was not proven dead, so it
+            // may still be writing the PNG the JavaScript encoder would reuse.
+            await writeFile(outputPath, 'late-native-png');
+            throw markUnprovenNativeTermination(
+                new Error('evb-pdf-image-combine(ppm-to-png) timed out'),
+                'evb-pdf-image-combine(ppm-to-png) process tree was not proven dead',
+            );
+        });
+
+        const outputPath = join(tempDir, 'unproven.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath))
+            .rejects
+            .toThrow('timed out');
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
+    it('falls back to JavaScript PNG encoding after a native encoder failure that was proven dead', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        mocks.nativeImageCombinePath = '/native/evb-pdf-image-combine';
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: unknown) => {
+            if (command !== mocks.nativeImageCombinePath) {
+                return defaultRunCommand(command, args, options);
+            }
+            throw new Error('evb-pdf-image-combine(ppm-to-png) exited with status 1');
+        });
+
+        const outputPath = join(tempDir, 'proven-failure.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+        expectSinglePixelPng(new Uint8Array(await readFile(outputPath)), [
+            1,
+            0,
+            0,
+        ]);
     });
 
     it('rejects oversized rendered PPM fallback output before reading it into memory', async () => {

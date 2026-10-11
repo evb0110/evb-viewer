@@ -62,6 +62,7 @@ import {
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getErrorMessage } from '@electron/utils/error';
+import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
     type TManagedScratchPrefix,
@@ -345,6 +346,9 @@ async function tryConvertRenderedPpmToPngNative(
         await unlink(sourcePath).catch(() => undefined);
         return true;
     } catch (error) {
+        // A child not proven dead may still write pngPath or read sourcePath, so
+        // the fallback must not start beside it. The scratch owner keeps both.
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
         logger.debug(`Native PPM-to-PNG conversion failed, falling back to JS encoder: ${getErrorMessage(error)}`);
         await rm(pngPath, {force: true}).catch(() => undefined);
         return false;
