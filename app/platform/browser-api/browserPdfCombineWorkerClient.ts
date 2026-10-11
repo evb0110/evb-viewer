@@ -14,6 +14,7 @@ import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrows
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {
     BrowserWorkerClient,
+    BrowserWorkerRequestOwner,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
@@ -148,7 +149,7 @@ function createBrowserPdfCombineWorkerClient() {
     });
 }
 
-const browserPdfCombineWorkerClient = createBrowserPdfCombineWorkerClient();
+const browserPdfCombineWorkerOwner = new BrowserWorkerRequestOwner(createBrowserPdfCombineWorkerClient);
 
 export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCombineWorkerRequestType>(
     type: K,
@@ -160,64 +161,48 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
             ? signal.reason
             : new DOMException('PDF combine was canceled.', 'AbortError');
     }
-    // Synchronous WASM can only be stopped by terminating its worker. A
-    // concurrent request therefore needs its own cancellation domain.
-    const client = browserPdfCombineWorkerClient.pendingRequests.size === 0
-        ? browserPdfCombineWorkerClient
-        : createBrowserPdfCombineWorkerClient();
     const request: IBrowserPdfCombineWorkerRequest<K> = {
-        id: browserPdfCombineWorkerClient.createRequestId(),
+        id: browserPdfCombineWorkerOwner.createRequestId(),
         type,
         payload,
     } as IBrowserPdfCombineWorkerRequest<K>;
 
-    const worker = client.getWorker();
-
+    const abort = () => browserPdfCombineWorkerOwner.cancel(
+        request.id,
+        signal?.reason instanceof Error
+            ? signal.reason
+            : new DOMException('PDF combine was canceled.', 'AbortError'),
+    );
+    signal?.addEventListener('abort', abort, {once: true});
     try {
-        return await new Promise<IBrowserPdfCombineWorkerResultMap[K]>((resolve, reject) => {
-            const abort = () => {
-                const error = signal?.reason instanceof Error
-                    ? signal.reason
-                    : new DOMException('PDF combine was canceled.', 'AbortError');
-                client.cancelPendingRequest(request.id, error, {
-                    resetWorker: true,
-                    resetError: error,
-                });
-            };
-            client.registerPendingRequest(request.id, {
-                requestType: type,
-                resolveData: (value) => {
-                    const result = v.safeParse(BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS[type], {data: value}, {abortEarly: true});
-                    if (!result.success) {
-                        return false;
-                    }
-                    signal?.removeEventListener('abort', abort);
-                    resolve(result.output);
-                    return true;
-                },
-                reject: (error) => {
-                    signal?.removeEventListener('abort', abort);
-                    reject(reportWorkerFailure(error));
-                },
-            }, () => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
-                `Browser PDF combine worker request timed out after ${BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS}ms`,
-            )));
-            signal?.addEventListener('abort', abort, {once: true});
-
-            try {
-                const workerRequest = buildWorkerRequestWithTransfers(
-                    request,
-                );
-                worker.postMessage(workerRequest.request, workerRequest.transfer);
-            } catch (error) {
-                client.cancelPendingRequest(
-                    request.id,
-                    reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),
-                );
-            }
+        return await browserPdfCombineWorkerOwner.run(request.id, client => {
+            const worker = client.getWorker();
+            return new Promise<IBrowserPdfCombineWorkerResultMap[K]>((resolve, reject) => {
+                client.registerPendingRequest(request.id, {
+                    requestType: type,
+                    resolveData: (value) => {
+                        const result = v.safeParse(BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS[type], {data: value}, {abortEarly: true});
+                        if (!result.success) return false;
+                        resolve(result.output);
+                        return true;
+                    },
+                    reject: error => reject(reportWorkerFailure(error)),
+                }, () => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
+                    `Browser PDF combine worker request timed out after ${BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS}ms`,
+                )));
+                try {
+                    const workerRequest = buildWorkerRequestWithTransfers(request);
+                    worker.postMessage(workerRequest.request, workerRequest.transfer);
+                } catch (error) {
+                    client.cancelPendingRequest(
+                        request.id,
+                        reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),
+                    );
+                }
+            });
         });
     } finally {
-        if (client !== browserPdfCombineWorkerClient) client.resetWorker();
+        signal?.removeEventListener('abort', abort);
     }
 }
 

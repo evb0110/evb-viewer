@@ -19,6 +19,7 @@ vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureRep
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
+    public static instances: FakeWorker[] = [];
     public static responder: ((worker: FakeWorker, request: {
         id: number;
         type: string;
@@ -37,6 +38,7 @@ class FakeWorker {
         _options?: WorkerOptions,
     ) {
         FakeWorker.lastInstance = this;
+        FakeWorker.instances.push(this);
     }
 
     public addEventListener(
@@ -128,9 +130,11 @@ describe('browserPdfCombineWorkerClient', () => {
         vi.unstubAllGlobals();
         vi.useRealTimers();
         FakeWorker.lastInstance = null;
+        FakeWorker.instances = [];
         FakeWorker.responder = null;
         failureReporter.capture.mockClear();
         vi.stubGlobal('window', {});
+        vi.stubGlobal('navigator', {hardwareConcurrency: 4});
         vi.stubGlobal('Worker', FakeWorker);
     });
 
@@ -464,4 +468,50 @@ describe('browserPdfCombineWorkerClient', () => {
         expect(terminateSpy).toHaveBeenCalled();
         expect(failureReporter.capture).not.toHaveBeenCalled();
     });
+    it('bounds combines and cancels waiting input without transferring its bytes', async () => {
+        const posted: Array<{
+            worker: FakeWorker;
+            id: number;
+            type: string
+        }> = [];
+        FakeWorker.responder = (worker, request) => posted.push({
+            worker,
+            ...request,
+        });
+        const {runBrowserPdfCombineWorkerRequest} = await import('@app/platform/browser-api/browserPdfCombineWorkerClient');
+        const controller = new AbortController();
+        const waitingBytes = new Uint8Array([
+            7,
+            8,
+            9,
+        ]);
+        const requests = Array.from({length: 8}, (_, index) => runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [{
+            fileName: `${index}.pdf`,
+            data: index === 7 ? waitingBytes : new Uint8Array([index]),
+        }]}, index === 7 ? controller.signal : undefined));
+        const rejected = expect(requests[7]).rejects.toMatchObject({name: 'AbortError'});
+        controller.abort();
+        await rejected;
+        const peak = FakeWorker.instances.length;
+        const data = new TextEncoder().encode('%PDF-independent-result');
+        for (let index = 0; index < 7; index += 1) {
+            const request = posted[index]!;
+            request.worker.dispatchMessage({
+                id: request.id,
+                type: request.type,
+                ok: true,
+                data,
+            });
+            await expect(requests[index]).resolves.toEqual({data});
+        }
+        expect(peak).toBeLessThanOrEqual(2);
+        expect(posted).toHaveLength(7);
+        expect(waitingBytes).toEqual(new Uint8Array([
+            7,
+            8,
+            9,
+        ]));
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
 });

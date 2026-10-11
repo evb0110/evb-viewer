@@ -16,6 +16,7 @@ import {SEARCH_REGEX_MAX_EXECUTION_MS} from '@contracts/search';
 import {SearchRegexLimitError} from '@pdf-core';
 import {
     BrowserWorkerClient,
+    BrowserWorkerRequestOwner,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
@@ -216,8 +217,7 @@ function createBrowserSearchWorkerClient() {
     return client;
 }
 
-const browserSearchWorkerClient = createBrowserSearchWorkerClient();
-const requestClients = new Map<number, BrowserWorkerClient<IPendingWorkerRequest>>();
+const browserSearchWorkerOwner = new BrowserWorkerRequestOwner(createBrowserSearchWorkerClient);
 
 export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType>(
     type: K,
@@ -227,22 +227,15 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
     requestId: number;
     promise: Promise<IBrowserSearchWorkerResultMap[K]>;
 } {
-    // Keep the hot idle worker, but never put interruptible CPU requests in
-    // another request's termination domain.
-    const client = browserSearchWorkerClient.pendingRequests.size === 0
-        ? browserSearchWorkerClient
-        : createBrowserSearchWorkerClient();
     const request = {
-        id: browserSearchWorkerClient.createRequestId(),
+        id: browserSearchWorkerOwner.createRequestId(),
         type,
         payload,
     } as IBrowserSearchWorkerRequest<K>;
 
-    const worker = client.getWorker();
-    requestClients.set(request.id, client);
-
-    const promise =
-        new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
+    const promise = browserSearchWorkerOwner.run(request.id, client => {
+        const worker = client.getWorker();
+        return new Promise<IBrowserSearchWorkerResultMap[K]>((resolve, reject) => {
             client.registerPendingRequest(request.id, {
                 requestType: type,
                 ...(options.matchTimeoutMs === undefined ? {} : {matchTimeoutMs: options.matchTimeoutMs}),
@@ -268,34 +261,18 @@ export function createBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerR
                 );
             }
         });
+    });
 
     return {
         requestId: request.id,
-        promise: promise.finally(() => {
-            requestClients.delete(request.id);
-            if (client !== browserSearchWorkerClient) client.resetWorker();
-        }),
+        promise,
     };
 }
 
-/**
- * The worker answers a match synchronously, so a cancel cannot interrupt it
- * there: the request is settled here, and `resetWorker` terminates a worker
- * that is still running a long regular expression.
- */
+/** Canceling an admitted synchronous match terminates only its worker. */
 export function cancelBrowserSearchWorkerRequest(
     requestId: number,
-    options: {resetWorker?: boolean} = {},
+    _options: {resetWorker?: boolean} = {},
 ) {
-    const cancelError = new Error('ERR_BROWSER_SEARCH_CANCELED');
-    requestClients.get(requestId)?.cancelPendingRequest(
-        requestId,
-        cancelError,
-        options.resetWorker
-            ? {
-                resetWorker: true,
-                resetError: cancelError,
-            }
-            : {},
-    );
+    browserSearchWorkerOwner.cancel(requestId, new Error('ERR_BROWSER_SEARCH_CANCELED'));
 }
