@@ -119,9 +119,10 @@ const {
     OriginalPathSaveConflictError,
 } = await import('@electron/file-access/originalPathSnapshot');
 
-async function captureExpectation(path: string) {
+async function captureExpectation(path: string, fullProof = process.platform === 'win32') {
     const fileStat = await stat(path, {bigint: true});
     return {
+        ...(fullProof ? {contentFingerprint: await hashContentFingerprintFilePath(path, fileStat.size)} : {}),
         ctimeNs: fileStat.ctimeNs.toString(),
         deviceId: fileStat.dev.toString(),
         inode: fileStat.ino.toString(),
@@ -155,7 +156,7 @@ describe('originalPathSaveBaseMatches', () => {
         });
     });
 
-    it('matches an unchanged original from its stat witness', async () => {
+    it('matches an unchanged original from its platform admission witness', async () => {
         const originalPath = join(tempDir, 'original.pdf');
         await writeFile(originalPath, Buffer.from('base'));
         mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
@@ -170,7 +171,7 @@ describe('originalPathSaveBaseMatches', () => {
     ])('requires admitted content proof for identity-only churn: %s', async (scenario) => {
         const originalPath = join(tempDir, 'network-original.pdf');
         await writeFile(originalPath, Buffer.alloc(1024 * 1024, 65));
-        const expected = await captureExpectation(originalPath);
+        const expected = await captureExpectation(originalPath, false);
         const contentFingerprint = await hashContentFingerprintFilePath(originalPath, BigInt(expected.size));
         if (scenario === 'changed') {
             const handle = await open(originalPath, 'r+');
@@ -189,7 +190,8 @@ describe('originalPathSaveBaseMatches', () => {
         });
         mocks.identityChurnPath = originalPath;
         const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
-        expect(witness !== null).toBe(scenario === 'unchanged');
+        // Windows requires stable identity throughout its fresh capture.
+        expect(witness !== null).toBe(scenario === 'unchanged' && process.platform !== 'win32');
         await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12))
             .resolves.toBe(scenario === 'unchanged');
         if (witness) {
@@ -263,7 +265,7 @@ describe('originalPathSaveBaseMatches', () => {
     it.each([
         false,
         true,
-    ])('proves full replacement content during comparison, edited=%s', async edited => {
+    ])(`checks replacements during ${process.platform === 'win32' ? 'fresh capture' : 'admitted comparison'}, edited=%s`, async edited => {
         const originalPath = join(tempDir, 'original.pdf');
         const bytes = Buffer.alloc(256 * 1024, 7);
         await writeFile(originalPath, bytes);
@@ -278,11 +280,11 @@ describe('originalPathSaveBaseMatches', () => {
         mocks.mutateDuringWitnessPath = originalPath;
         mocks.mutateDuringWitnessReplacementPath = join(tempDir, 'during-comparison.pdf');
         mocks.mutateDuringWitnessByte = edited ? 70_000 : -1;
-        mocks.mutateDuringWitnessCtime = BigInt(expected.ctimeNs);
+        mocks.mutateDuringWitnessCtime = process.platform === 'win32' ? null : BigInt(expected.ctimeNs);
 
         const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
         expect((await stat(originalPath, {bigint: true})).ino).not.toBe(BigInt(expected.inode));
-        if (edited) expect(witness).toBeNull();
+        if (edited || process.platform === 'win32') expect(witness).toBeNull();
         else {
             expect(witness).not.toBeNull();
             await expect(witness!.assertCurrent()).resolves.toBeUndefined();
@@ -294,7 +296,7 @@ describe('originalPathSaveBaseMatches', () => {
         const originalPath = join(tempDir, 'original.pdf');
         const replacementPath = join(tempDir, 'replacement.pdf');
         await writeFile(originalPath, Buffer.from('base'));
-        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath));
+        mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(await captureExpectation(originalPath, false));
         await writeFile(replacementPath, Buffer.from('base'));
         await rm(originalPath);
         const {rename} = await import('fs/promises');
@@ -647,7 +649,7 @@ describe('captureOriginalPathSaveWitness rebase', () => {
         const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
         expect(witness).not.toBeNull();
 
-        await chmod(originalPath, 0o600);
+        await utimes(originalPath, 1700000000, 1700000000);
 
         await expect(witness!.rebaseOnUnchangedContent()).rejects.toBeInstanceOf(OriginalPathSaveConflictError);
     });
