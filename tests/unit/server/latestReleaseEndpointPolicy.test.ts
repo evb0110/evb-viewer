@@ -52,13 +52,12 @@ describe('latest release endpoint policy', () => {
         const setHeader = vi.fn();
         const setCookie = vi.fn();
         const fetch = vi.fn(async () => [release]);
-        // The Windows ARM64 installer is attached after promotion, so the
-        // mirror answers for it only once the supplemental workflow has
-        // copied it.
+        // The mirror holds the x64 installer but not the ARM64 one yet, as
+        // after a partly repaired transfer, so only the x64 link is offered.
         const probedMirrorUrls: string[] = [];
         const mirrorProbe = vi.fn(async (url: string) => {
             probedMirrorUrls.push(url);
-            return {ok: false};
+            return {ok: url.endsWith('/EVB-Viewer-2.0.0-x64.exe')};
         });
         vi.stubGlobal('fetch', mirrorProbe);
         vi.stubGlobal('defineEventHandler', (handler: unknown) => handler);
@@ -109,10 +108,13 @@ describe('latest release endpoint policy', () => {
             .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.exe');
         expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBeUndefined();
         expect(fetch).toHaveBeenCalledTimes(1);
-        expect(probedMirrorUrls).toEqual(['https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe']);
+        expect(probedMirrorUrls).toEqual([
+            'https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.exe',
+            'https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe',
+        ]);
     });
 
-    it('offers mirror downloads for supplemental installers the mirror already holds', async () => {
+    it('offers a mirror link only for installers whose mirror object answers', async () => {
         const fetch = vi.fn(async () => [release]);
         const mirrorProbe = vi.fn(async () => ({ok: true}));
         vi.stubGlobal('defineEventHandler', (handler: unknown) => handler);
@@ -146,8 +148,8 @@ describe('latest release endpoint policy', () => {
         expect(responseAssets.find(asset => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl)
             .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe');
         expect(repeated.assets).toEqual(response.assets);
-        // An immutable object that answered once is not probed again.
-        expect(mirrorProbe).toHaveBeenCalledTimes(1);
+        // Each installer is probed once; an object that answered is not probed again.
+        expect(mirrorProbe).toHaveBeenCalledTimes(2);
     });
 
     it('omits the mirror link instead of failing when the mirror cannot answer', async () => {
@@ -181,11 +183,13 @@ describe('latest release endpoint policy', () => {
 
             const responseAssets = response.assets as Array<{
                 name: string;
+                downloadUrl: string;
                 mirrorDownloadUrl?: string
             }>;
-            expect(responseAssets.find(asset => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl)
-                .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.exe');
+            expect(responseAssets.find(asset => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl).toBeUndefined();
             expect(responseAssets.find(asset => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBeUndefined();
+            expect(responseAssets.find(asset => asset.name.endsWith('x64.exe'))?.downloadUrl)
+                .toBe('https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-x64.exe');
             expect(consoleWarn).toHaveBeenCalledWith(
                 'Unable to probe the release mirror',
                 expect.objectContaining({outcome: 'mirror-link-omitted'}),
