@@ -1,5 +1,6 @@
 use super::*;
 use crate::annotation_threads::transform_page_annotations;
+use crate::link_rebinding::page_index_by_id;
 use evb_native_support::output::AtomicOutput;
 use lopdf::dictionary;
 use std::path::Path;
@@ -349,6 +350,7 @@ fn apply_content_transform_incremental(
     page: &mut Dictionary,
     transform: Option<SplitContentTransform>,
     crop: PdfRect,
+    page_index: &HashMap<ObjectId, usize>,
 ) -> Result<()> {
     let transform = transform.map(validate_content_transform).transpose()?;
     if let Some(transform) = transform {
@@ -370,7 +372,16 @@ fn apply_content_transform_incremental(
             Object::Array(streams.into_iter().map(Object::Reference).collect()),
         );
     }
-    transform_page_annotations(base, target, source_page_id, page_id, page, transform, crop)
+    transform_page_annotations(
+        base,
+        target,
+        source_page_id,
+        page_id,
+        page,
+        transform,
+        crop,
+        page_index,
+    )
 }
 
 const MAX_OC_GRAPH_DEPTH: usize = 64;
@@ -542,6 +553,7 @@ pub(crate) fn split_pages(
     output_path: &Path,
 ) -> Result<()> {
     let source_pages = source.get_pages();
+    let page_index = page_index_by_id(&source_pages);
     // The output takes only new objects, numbered above the source's, and the
     // source objects join it at the end. Reads come from `source` throughout,
     // which is what the shared incremental helpers expect of a base document.
@@ -573,6 +585,7 @@ pub(crate) fn split_pages(
                 &mut page,
                 output_instruction.content_transform,
                 crop,
+                &page_index,
             )?;
             set_page_box(&mut page, "MediaBox", crop);
             set_page_box(&mut page, "CropBox", crop);
@@ -678,6 +691,7 @@ pub(crate) fn split_pages_incremental(
     instructions: &SplitPagesFile,
 ) -> Result<()> {
     let source_pages = incremental.previous_document.get_pages();
+    let page_index = page_index_by_id(&source_pages);
     let pages_id = incremental.new_document.new_object_id();
     let mut output_page_ids = Vec::new();
 
@@ -705,6 +719,7 @@ pub(crate) fn split_pages_incremental(
                 &mut page,
                 output_instruction.content_transform,
                 crop,
+                &page_index,
             )?;
             set_page_box(&mut page, "MediaBox", crop);
             set_page_box(&mut page, "CropBox", crop);
