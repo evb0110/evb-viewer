@@ -324,6 +324,60 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it('keeps the admitted baseline when the original changes during backup creation', async () => {
+        const fs = await import('node:fs/promises');
+        let originalPath = '';
+        let edited = false;
+        const editBeforeBackup = async (source: string, destination: string) => {
+            if (!edited && source === originalPath && destination.includes('.evb-transition-')) {
+                edited = true;
+                const handle = await fs.open(originalPath, 'r+');
+                await handle.write('EXTERNAL-EDIT', 262144);
+                await handle.close();
+                await fs.utimes(originalPath, 1700000000, 1700000000);
+            }
+        };
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            copyFile: async (...args: Parameters<typeof fs.copyFile>) => {
+                await editBeforeBackup(String(args[0]), String(args[1]));
+                return fs.copyFile(...args);
+            },
+            link: async (...args: Parameters<typeof fs.link>) => {
+                await editBeforeBackup(String(args[0]), String(args[1]));
+                return fs.link(...args);
+            },
+        }));
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        try {
+            const fixture = await prepare('old-original', 'accepted-unsaved-work');
+            originalPath = fixture.originalPath;
+            await writeFile(originalPath, Buffer.alloc(2 * 1024 * 1024, 65));
+            await fs.utimes(originalPath, 1700000000, 1700000000);
+            const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+            await refreshWorkingCopyOriginalFileExpectation(fixture.workingCopyPath, 7);
+            const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                ...fixture,
+                publishedSourcePath: fixture.stagedPath,
+                senderId: 7,
+                reason: 'save-sync',
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, originalPath, 7),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, originalPath, {
+                    ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                    ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                }),
+            })).resolves.toBeNull();
+            expect(edited).toBe(true);
+            expect((await readFile(originalPath)).subarray(262144, 262157).toString()).toBe('EXTERNAL-EDIT');
+            expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+    });
+
     it('keeps the original pathname on a volume without hard links', async () => {
         const fs = await import('node:fs/promises');
         vi.doMock('fs/promises', () => ({
