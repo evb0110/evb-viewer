@@ -22,9 +22,12 @@ import {
     WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import {
+    loadRecordAvailability,
     mutateBrowserTransferAuthority,
+    persistRecord,
     type IBrowserTransferAuthorityRecord,
 } from '@app/platform/browser/browserDocumentIdb';
+import {toPersistedDocumentRecord} from '@app/platform/browser/browserDocumentRecords';
 import {saveBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -923,6 +926,38 @@ describe('BrowserDocumentStore', () => {
 
         const second = new BrowserDocumentStore();
         await expect(second.exists(sourceRef)).resolves.toBe(false);
+    });
+
+    it('keeps a source whose pending chunk generation is still being written during detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await createStoredPdf(store, 'pending-chunks.pdf', Uint8Array.of(9));
+        const record = toPersistedDocumentRecord((await loadRecordAvailability(ref)).value);
+        await persistRecord({
+            ...record!,
+            pendingChunkGeneration: 'pending-generation',
+            pendingChunkUpdatedAt: Date.now(),
+        });
+
+        await expect(store.cleanupDetachedDocument(ref)).resolves.toBe(false);
+        await expect(store.exists(ref)).resolves.toBe(true);
+    });
+
+    it('keeps a source that has a pending load in this store during detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await createStoredPdf(store, 'pending-load.pdf', Uint8Array.of(10));
+        (await store.requireEntry(ref)).pendingLoad = Promise.resolve();
+
+        await expect(store.cleanupDetachedDocument(ref)).resolves.toBe(false);
+        await expect(store.exists(ref)).resolves.toBe(true);
+    });
+
+    it('keeps a source that an in-flight transfer backs through detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'transfer-source.pdf', Uint8Array.of(11));
+        await mutateBrowserTransferAuthority('source-in-flight', () => createPendingTransferAuthority('source-in-flight', sourceRef));
+
+        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
+        await expect(store.exists(sourceRef)).resolves.toBe(true);
     });
 
     it('keeps a source when its dependent working copy cannot be read during detached cleanup', async () => {
