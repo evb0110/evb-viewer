@@ -61,11 +61,8 @@ function getOcrRequestKey(senderId: number, requestId: string) {
 
 function beginOcrRequest(
     context: TOcrOperationContext,
-    requestId: string | undefined,
+    requestId: string,
 ) {
-    if (requestId === undefined) {
-        return undefined;
-    }
     const request: IOcrRequest = {
         senderId: context.senderId,
         requestId,
@@ -152,7 +149,7 @@ export async function handleResolveDocumentTextCatalog(
     pageCount?: number,
     requestId?: string,
 ) {
-    const request = beginOcrRequest(context, requestId);
+    const request = requestId === undefined ? undefined : beginOcrRequest(context, requestId);
     try {
         const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
         request?.controller.signal.throwIfAborted();
@@ -180,7 +177,7 @@ export async function handleResolveDocumentTextCatalogWindow(
     pageCount?: number,
     requestId?: string,
 ) {
-    const request = beginOcrRequest(context, requestId);
+    const request = requestId === undefined ? undefined : beginOcrRequest(context, requestId);
     try {
         const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
         request?.controller.signal.throwIfAborted();
@@ -287,13 +284,18 @@ async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContents
     return managedSourcePdfPath;
 }
 
-async function validateOcrPersistenceSourcePdfPath(sourcePdfPath: string, senderWebContentsId: number) {
+async function validateOcrPersistenceSourcePdfPath(
+    sourcePdfPath: string,
+    senderWebContentsId: number,
+    signal: AbortSignal,
+) {
     let materializedSourcePdfPath: string;
     try {
         materializedSourcePdfPath = (
             await ensureWorkingCopyMaterialized(sourcePdfPath, {
                 ownerWebContentsId: senderWebContentsId,
                 reason: 'ocr-persist',
+                signal,
             })
         ).physicalWorkingCopyPath;
     } catch (error) {
@@ -313,6 +315,7 @@ export async function handleOcrCreateSearchablePdf(
     renderDpiOrOptionsPayload?: unknown,
 ): Promise<IOcrJobStartResult> {
     let jobId = parseJobId(requestIdPayload) ?? createJobId('ocr');
+    let request: IOcrRequest | undefined;
 
     try {
         const payload = validateCreateSearchablePdfPayload(
@@ -323,9 +326,13 @@ export async function handleOcrCreateSearchablePdf(
         );
 
         jobId = requireJobId(payload.requestId);
+        // Registered before the working copy is prepared, so a cancel during
+        // that wait stops it; the job itself exists only after preparation.
+        request = beginOcrRequest(context, payload.requestId);
         const validatedSourcePdfPath = await validateOcrPersistenceSourcePdfPath(
             payload.sourcePdfPath,
             context.senderId,
+            request.controller.signal,
         );
         const result = await handleOcrCreateSearchablePdfAsync(
             context,
@@ -333,6 +340,7 @@ export async function handleOcrCreateSearchablePdf(
             payload.pages,
             payload.requestId,
             payload.options,
+            request.controller.signal,
         );
 
         if (!result.started && result.error) {
@@ -360,6 +368,8 @@ export async function handleOcrCreateSearchablePdf(
             error: envelope.message,
             errorEnvelope: envelope,
         };
+    } finally {
+        finishOcrRequest(request);
     }
 }
 

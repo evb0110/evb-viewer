@@ -268,6 +268,7 @@ export async function handleOcrCreateSearchablePdfAsync(
     pages: TOcrPdfPageSelection,
     requestId: TRequestId,
     options: IOcrSearchablePdfOptions = {},
+    cancellation?: AbortSignal,
 ): Promise<IOcrQueueStartResult> {
     log.debug(`OCR requested: sourcePdfPath=${sourcePdfPath}, pages=${getOcrPageSelectionCount(pages)}, reqId=${requestId}, dpi=${options.renderDpi ?? 'default'}, profile=${options.qualityProfile ?? 'balanced'}, preprocessing=${options.preprocessingMode ?? 'off'}`);
     if (context.sender.isDestroyed()) {
@@ -275,6 +276,10 @@ export async function handleOcrCreateSearchablePdfAsync(
     }
     try {
         const documentRevision = await getWorkingCopyRevision(sourcePdfPath, context.senderId);
+        // A cancel that arrived while the revision was read has no job to stop yet.
+        if (cancellation?.aborted) {
+            return createOcrQueueFailure(requestId, 'OCR job was cancelled before it started');
+        }
         const projection = {
             supersessionPolicy: options.supersessionPolicy ?? 'missing-only',
             replaceAllAcknowledged: options.replaceAllAcknowledged === true,
