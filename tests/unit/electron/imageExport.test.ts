@@ -24,6 +24,7 @@ import type * as FsPromises from 'fs/promises';
 import type * as WorkerTask from '@electron/utils/workerTask';
 import * as utifModule from 'utif';
 import { decode as decodePng } from 'fast-png';
+import { readImageDpi } from '@electron/image/imageDpi';
 import {
     afterEach,
     beforeEach,
@@ -280,6 +281,17 @@ function computePdftoppmRasterSize(args: string[]): IRenderedRasterSize {
         width: Math.ceil((mocks.pageWidthPts * effectiveDpi) / 72),
         height: Math.ceil((mocks.pageHeightPts * effectiveDpi) / 72),
     };
+}
+
+function pngChunkTypes(bytes: Uint8Array) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const types: string[] = [];
+    for (let offset = 8; offset + 8 <= bytes.byteLength;) {
+        const length = view.getUint32(offset, false);
+        types.push(String.fromCharCode(...bytes.subarray(offset + 4, offset + 8)));
+        offset += 12 + length;
+    }
+    return types;
 }
 
 function expectSinglePixelPng(bytes: Uint8Array, rgb: [number, number, number]) {
@@ -1544,6 +1556,26 @@ describe('image export', () => {
         const pdftoppmCall = mocks.runCommand.mock.calls.find(([command]) => command === '/mock/pdftoppm');
         expect(pdftoppmCall?.[1]).not.toContain('-png');
         expectSinglePixelPng(new Uint8Array(await readFile(outputPath)), [
+            1,
+            0,
+            0,
+        ]);
+    });
+
+    it('writes fallback PNG density before the first image data chunk', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+
+        const outputPath = join(tempDir, 'density.png');
+
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        const bytes = new Uint8Array(await readFile(outputPath));
+        const chunkTypes = pngChunkTypes(bytes);
+        expect(chunkTypes.indexOf('pHYs')).toBeGreaterThan(0);
+        expect(chunkTypes.indexOf('pHYs')).toBeLessThan(chunkTypes.indexOf('IDAT'));
+        expect(readImageDpi(bytes, '.png')).toBe(300);
+        expectSinglePixelPng(bytes, [
             1,
             0,
             0,
