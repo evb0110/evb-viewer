@@ -16,6 +16,7 @@ import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
     BrowserFileWriteOutcomeError,
+    ensureFileHandleWritePermission,
     pickSaveTarget,
     saveBytesToPickerOrDownload,
     writeDocumentRefToHandle,
@@ -76,6 +77,12 @@ export async function saveWorkingBytesToSource(
         });
     if (pickedTarget.canceled) {
         return false;
+    }
+    // A stored handle may need its write permission re-granted, which shows a
+    // browser prompt. Ask before the origin-wide save lock, so the prompt does
+    // not hold up other windows' saves. The base check still runs inside it.
+    if (pickedTarget.handle) {
+        await ensureFileHandleWritePermission(pickedTarget.handle);
     }
     let externalWriteCommitted: boolean | null = false;
 
@@ -222,6 +229,11 @@ export async function savePdfAsFromWorkingCopy(
 
     if (saveResult.canceled) {
         return null;
+    }
+    // Same as saveWorkingBytesToSource: the permission prompt runs before the
+    // origin-wide save lock, the base check runs inside it.
+    if (saveResult.handle) {
+        await ensureFileHandleWritePermission(saveResult.handle);
     }
     let externalWriteCommitted: boolean | null = false;
     let savedSourceRef: TDocumentRef | null;

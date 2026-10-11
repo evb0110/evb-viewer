@@ -22,6 +22,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
 }));
 
 const filePickerMock = vi.hoisted(() => ({
+    ensureFileHandleWritePermission: vi.fn(),
     pickSaveTarget: vi.fn(),
     saveBytesToPickerOrDownload: vi.fn(),
     writeDocumentRefToHandle: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
     BrowserFileWriteOutcomeError: class BrowserFileWriteOutcomeError extends Error {
         public readonly externalWriteCommitted = null;
     },
+    ensureFileHandleWritePermission: (...args: unknown[]) => filePickerMock.ensureFileHandleWritePermission(...args),
     pickSaveTarget: (...args: unknown[]) => filePickerMock.pickSaveTarget(...args),
     saveBytesToPickerOrDownload: (...args: unknown[]) => filePickerMock.saveBytesToPickerOrDownload(...args),
     writeDocumentRefToHandle: (...args: unknown[]) => filePickerMock.writeDocumentRefToHandle(...args),
@@ -69,6 +71,7 @@ describe('browserSaveTargets', () => {
         browserDocumentStoreMock.write.mockResolvedValue(true);
         browserDocumentStoreMock.assignSaveTarget.mockResolvedValue(undefined);
         browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);
+        filePickerMock.ensureFileHandleWritePermission.mockResolvedValue(undefined);
         filePickerMock.pickSaveTarget.mockResolvedValue({
             canceled: false,
             fileName: 'source.pdf',
@@ -138,6 +141,26 @@ describe('browserSaveTargets', () => {
                 externalWriteCommitted: false,
                 validation: null,
             });
+    });
+
+    it('stops a stored handle save at a denied write permission before the save lock', async () => {
+        browserDocumentStoreMock.getSaveTarget.mockResolvedValue({
+            saveName: 'source.pdf',
+            saveKind: 'pdf',
+            saveHandle: {kind: 'file'},
+        });
+        filePickerMock.ensureFileHandleWritePermission.mockRejectedValueOnce(new Error('write permission denied'));
+        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
+
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
+            .resolves
+            .toMatchObject({
+                ok: false,
+                reason: 'write-failed',
+                message: 'write permission denied',
+                externalWriteCommitted: false,
+            });
+        expect(browserDocumentStoreMock.runDocumentMutationWithSource).not.toHaveBeenCalled();
     });
 
     it('returns write-failed when the browser write path throws', async () => {

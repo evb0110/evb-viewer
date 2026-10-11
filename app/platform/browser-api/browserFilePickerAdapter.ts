@@ -148,7 +148,7 @@ async function closeBrowserFileWritable(
     }
 }
 
-async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
+export async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
     const permissionHandle = handle as TPermissionCapableFileHandle;
     const descriptor = { mode: 'readwrite' as const };
     const queryPermission = permissionHandle.queryPermission?.bind(permissionHandle);
