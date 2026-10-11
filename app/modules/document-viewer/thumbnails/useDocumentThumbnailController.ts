@@ -4,7 +4,6 @@ import type {
     IDocumentRenderLease,
 } from '@app/modules/document-viewer/source/documentPageSource';
 import {
-    DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
     DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT,
     DocumentThumbnailLayout,
     resolveDocumentThumbnailAspectRatio,
@@ -127,7 +126,6 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     const viewportRevision = ref(0);
     const isVisible = ref(false);
     const cssWidth = ref(MIN_CSS_WIDTH);
-    const slotAspectRatio = ref(DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO);
     let slotShapeRequest: AbortController | null = null;
     const outputScale = ref(resolveThumbnailOutputScale(window.devicePixelRatio));
     const viewportWritePort = createDocumentViewportWritePort();
@@ -397,12 +395,12 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     function updateLayoutGeometry(
         nextWidth: number,
         nextItemChromeHeight: number,
-        nextAspectRatio = slotAspectRatio.value,
+        nextAspectRatio = layout.slotAspectRatio,
     ) {
         if (
             nextWidth === cssWidth.value
             && nextItemChromeHeight === itemChromeHeight.value
-            && nextAspectRatio === slotAspectRatio.value
+            && nextAspectRatio === layout.slotAspectRatio
         ) {
             return;
         }
@@ -411,7 +409,6 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             ?? readCurrentAnchor();
         cssWidth.value = nextWidth;
         itemChromeHeight.value = nextItemChromeHeight;
-        slotAspectRatio.value = nextAspectRatio;
         layout.reset({
             aspectRatio: nextAspectRatio,
             itemChromeHeight: nextItemChromeHeight,
@@ -666,7 +663,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             page += 1
         ) pages.add(page);
         return [...pages].sort((left, right) => left - right).map(pageNumber => ({
-            aspectRatio: String(1 / slotAspectRatio.value),
+            aspectRatio: String(1 / layout.slotAspectRatio),
             height: layout.getPageHeight(pageNumber),
             pageNumber,
             top: layout.getPageTopInScrollSegment(pageNumber, activeScrollSegmentIndex.value),
@@ -698,7 +695,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         const steps = Math.floor((getActiveScrollSegment().height - cover + stride) / stride);
         return steps < 1 ? null : {
             '--document-thumbnail-slot-cover': `${String(cover)}px`,
-            '--document-thumbnail-slot-height': `${String(cssWidth.value * slotAspectRatio.value)}px`,
+            '--document-thumbnail-slot-height': `${String(cssWidth.value * layout.slotAspectRatio)}px`,
             '--document-thumbnail-slot-steps': String(steps),
             '--document-thumbnail-slot-stride': `${String(stride)}px`,
             '--document-thumbnail-slot-width': `${String(cssWidth.value)}px`,

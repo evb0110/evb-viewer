@@ -4944,10 +4944,16 @@ describe('Electron E2E - Viewer Smoke', () => {
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await ensureSidebarOpen(session.page);
         await openDocumentSidebarTab(session.page, 'Pages');
-        await waitForFunctionInPage(session.page, () => Boolean(document.querySelector(
-            '.editor-pane.is-active [data-thumbnail-page="1"] .document-thumbnail-list__canvas-host canvas',
-        )), {timeout: 15_000});
-
+        // The slot takes the document's shape once its pages are measured;
+        // on the portrait slot this wait runs out.
+        await waitForFunctionInPage(session.page, () => {
+            const frame = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-thumbnail-page="1"] [data-document-thumbnail-frame]',
+            );
+            if (!frame?.querySelector('canvas')) return false;
+            const rect = frame.getBoundingClientRect();
+            return Math.abs(rect.width / rect.height - 793 / 566) < 0.1;
+        }, {timeout: 15_000});
         const slot = await session.page.evaluate(() => {
             const frame = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active [data-thumbnail-page="1"] [data-document-thumbnail-frame]',

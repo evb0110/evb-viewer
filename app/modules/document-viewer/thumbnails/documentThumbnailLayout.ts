@@ -55,6 +55,10 @@ export class DocumentThumbnailLayout {
         ));
     }
 
+    get slotAspectRatio() {
+        return this.aspectRatio;
+    }
+
     get stride() {
         return this.rowHeight + this.itemGap;
     }
