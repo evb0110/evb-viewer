@@ -55,12 +55,14 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
         .collect::<Vec<_>>();
 
     // A fold crease breaks into short line fragments stacked along one column,
-    // and each fragment can pass as a standalone mark. Line-shaped fragments
+    // and each fragment can pass as a standalone mark. Faint line fragments
     // whose column run exceeds maximum_height are one crease, not marks, but
-    // only while they are faint: a crease is shading, and printed rules are
-    // dark, so a dashed or cut rule keeps its print. Glyph shapes (numerals are
-    // at most about 3:1) never count as lines, so stacked numerals keep their
-    // standalone mark.
+    // only when that column also holds a fragment at least half as tall as
+    // maximum_height. Measured creases include such a long fragment (275-280 px
+    // on a 2184 px page), while stacked light strokes are all short. Dark rules
+    // keep their print because only faint fragments are exempt. Glyph shapes
+    // (numerals are at most about 3:1) never count as lines, so stacked numerals
+    // keep their standalone mark.
     let is_line = |component: &Component| {
         let width = component.right - component.left + 1;
         let height = component.bottom - component.top + 1;
@@ -85,14 +87,21 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
         }
         4 * luminance_sum >= 3 * usize::from(paper) * area
     };
-    let column_run_height = |component: &Component| {
+    let column_line_heights = |component: &Component| {
         candidates
             .iter()
             .filter(|other| {
                 is_line(other) && other.left <= component.right && component.left <= other.right
             })
             .map(|other| other.bottom - other.top + 1)
-            .sum::<usize>()
+            .collect::<Vec<_>>()
+    };
+    let is_crease_fragment = |component: &Component| {
+        is_line(component) && is_faint(component) && {
+            let heights = column_line_heights(component);
+            heights.iter().sum::<usize>() > maximum_height
+                && heights.iter().any(|&height| height >= maximum_height / 2)
+        }
     };
 
     // Preserve larger standalone marks and short aligned text. Isolated
@@ -104,9 +113,7 @@ pub(crate) fn has_coherent_edge_structure(image: &GrayImage) -> bool {
             && component.area >= minimum_area.saturating_mul(2)
             && width.saturating_mul(8) >= height
             && height.saturating_mul(8) >= width
-            && (!is_line(component)
-                || column_run_height(component) <= maximum_height
-                || !is_faint(component))
+            && !is_crease_fragment(component)
     }) {
         return true;
     }
@@ -211,6 +218,21 @@ mod tests {
     }
 
     #[test]
+    fn a_column_of_light_tally_strokes_is_not_a_blank_candidate() {
+        // Fourteen light upright strokes stacked at 40 px pitch: faint and
+        // column-stacked like a crease, but no fragment is long.
+        let mut gray = GrayImage::new(620, 877, 232);
+        for index in 0..14 {
+            let top = 60 + index * 40;
+            fill(&mut gray, 300, top, 302, top + 16, 190);
+        }
+        assert!(
+            !is_blank_scan_candidate(&gray, None),
+            "light tally strokes were erased as a fold crease",
+        );
+    }
+
+    #[test]
     fn a_fold_crease_broken_into_line_fragments_is_a_blank_candidate() {
         let mut gray = GrayImage::new(620, 877, 236);
         for index in 0..8 {
@@ -220,6 +242,8 @@ mod tests {
                 }
             }
         }
+        // Measured creases also carry one long fragment, about a seventh of the page.
+        fill(&mut gray, 300, 560, 304, 680, 206);
         assert!(
             is_blank_scan_candidate(&gray, None),
             "a fold crease was read as structure",
