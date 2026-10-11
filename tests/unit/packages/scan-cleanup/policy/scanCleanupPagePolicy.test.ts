@@ -156,6 +156,32 @@ describe('scan cleanup page overrides', () => {
         expect(getScanCleanupPageOverride(excludedDefaults, requirePageNumber(1)).excluded).toBe(true);
     });
 
+    it('keeps an empty collection that clears a nonempty all-pages value, but drops empty ones that match', () => {
+        const inheritedBoxes = createScanCleanupPageOverride({manualContentBoxes: {full: {
+            xNormalized: 0.1,
+            yNormalized: 0.1,
+            widthNormalized: 0.8,
+            heightNormalized: 0.8,
+            rotationDegrees: 0,
+        }}});
+        const overrides = {};
+        attachScanCleanupPageOverrideDefaults(overrides, inheritedBoxes);
+        setScanCleanupPageOverride(overrides, requirePageNumber(3), createScanCleanupPageOverride({manualContentBoxes: {}}));
+        setScanCleanupPageOverride(overrides, requirePageNumber(4), createScanCleanupPageOverride());
+        expect(Object.keys(overrides)).toEqual([
+            '3',
+            '4',
+        ]);
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(3)).manualContentBoxes ?? {}).toEqual({});
+        expect(getScanCleanupPageOverride(overrides, requirePageNumber(5)).manualContentBoxes)
+            .toEqual(inheritedBoxes.manualContentBoxes);
+
+        const emptyDefaults = {};
+        attachScanCleanupPageOverrideDefaults(emptyDefaults, createScanCleanupPageOverride({manualContentBoxes: {}}));
+        setScanCleanupPageOverride(emptyDefaults, requirePageNumber(2), createScanCleanupPageOverride());
+        expect(emptyDefaults).toEqual({});
+    });
+
     it('preserves and resets a per-page manual deskew angle', () => {
         const overrides = {};
         setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({manualSkewDegrees: -2.3}));

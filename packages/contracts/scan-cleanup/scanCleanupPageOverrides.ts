@@ -41,8 +41,8 @@ export function createScanCleanupPageOverride(
         ...DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
         ...scalarValues,
         ...(manualSkewDegrees === undefined ? {} : {manualSkewDegrees}),
-        ...(manualContentBoxes ? {manualContentBoxes: {...manualContentBoxes}} : {}),
-        ...(manualZones ? {manualZones: {
+        ...(Object.keys(manualContentBoxes ?? {}).length > 0 ? {manualContentBoxes: {...manualContentBoxes}} : {}),
+        ...(manualZones && manualZones.picture.length + manualZones.fill.length > 0 ? {manualZones: {
             picture: manualZones.picture.map(zone => ({
                 layer: zone.layer,
                 polygon: {
@@ -59,7 +59,7 @@ export function createScanCleanupPageOverride(
         ...(marginsMm && (!documentMargins || !areScanCleanupMarginsMmEqual(marginsMm, documentMargins))
             ? {marginsMm: {...marginsMm}}
             : {}),
-        ...(placementOverrides ? {placementOverrides: {...placementOverrides}} : {}),
+        ...(Object.keys(placementOverrides ?? {}).length > 0 ? {placementOverrides: {...placementOverrides}} : {}),
     };
 }
 
@@ -107,9 +107,8 @@ export function getScanCleanupPageOverride(
         : createScanCleanupPageOverride(explicit);
 }
 
-// The one rule for "differs from what the page inherits": a page whose value equals
-// the all-pages defaults is redundant, so the sparse map drops it and the
-// customized markers do not show it.
+// The one rule for "differs from what the page inherits": a page whose normalized value
+// (empty collections omitted) equals the all-pages defaults is redundant and not customized.
 export function isScanCleanupPageOverrideInherited(
     overrides: TScanCleanupPageOverrides,
     value: IScanCleanupPageOverride,

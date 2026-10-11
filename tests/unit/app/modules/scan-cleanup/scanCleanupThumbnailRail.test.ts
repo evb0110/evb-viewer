@@ -32,6 +32,7 @@ import {
     resolveScanCleanupSelection,
     type TScanCleanupSelectionIntent,
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
+import {updateScanCleanupPageOverrideRotation} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -1018,6 +1019,21 @@ describe('ScanCleanupThumbnailRail', () => {
         const matches = mountRail({overrides});
         expect(pageRow(matches.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
             .not.toContain('is-customized');
+    });
+
+    it('clears customization after rotating a page back to its inherited value', () => {
+        const overrides: TScanCleanupPageOverrides = {};
+        // The rotation reset leaves empty collections behind; they resolve like omitted fields.
+        const rotatedBack = updateScanCleanupPageOverrideRotation(createScanCleanupPageOverride({rotationDegrees: 90}), 0);
+        expect(rotatedBack.manualZones).toEqual({
+            picture: [],
+            fill: [],
+        });
+        setScanCleanupPageOverride(overrides, requirePageNumber(2), rotatedBack);
+        const harness = mountRail({overrides});
+        expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
+            .not.toContain('is-customized');
+        expect(overrides).toEqual({});
     });
 
     it('shows effective fixed and lossless modes in the status line', async () => {
