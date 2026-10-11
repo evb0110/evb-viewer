@@ -1,10 +1,11 @@
-import {execFileSync} from 'node:child_process';
 import {
-    mkdtempSync, writeFileSync,
+    copyFileSync, mkdtempSync,
 } from 'node:fs';
 import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {
     describe, expect, it, onTestFinished,
 } from 'vitest';
@@ -18,52 +19,8 @@ import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObse
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
 
-const TALL_PAGE_HEIGHT = 4000;
-const SHORT_PAGE_HEIGHT = 400;
-const PAGE_WIDTH = 1200;
-
-/** Two DjVu pages: a tall page 1 and a short page 2, both one black rule for content. */
-function createTallThenShortDjvu(directory: string) {
-    const pageFiles = [
-        [
-            'tall',
-            TALL_PAGE_HEIGHT,
-        ],
-        [
-            'short',
-            SHORT_PAGE_HEIGHT,
-        ],
-    ].map(([
-        name,
-        height,
-    ]) => {
-        const rowBytes = Math.ceil(PAGE_WIDTH / 8);
-        const bitmap = Buffer.alloc(rowBytes * Number(height), 0);
-        for (let row = 40; row < 60; row += 1) {
-            bitmap.fill(0xff, row * rowBytes, row * rowBytes + rowBytes);
-        }
-        const pbm = join(directory, `${String(name)}.pbm`);
-        const djvu = join(directory, `${String(name)}.djvu`);
-        writeFileSync(pbm, Buffer.concat([
-            Buffer.from(`P4\n${PAGE_WIDTH} ${String(height)}\n`, 'ascii'),
-            bitmap,
-        ]));
-        execFileSync('cjb2', [
-            '-dpi',
-            '150',
-            pbm,
-            djvu,
-        ], {stdio: 'pipe'});
-        return djvu;
-    });
-    const output = join(directory, 'tall-then-short.djvu');
-    execFileSync('djvm', [
-        '-create',
-        output,
-        ...pageFiles,
-    ], {stdio: 'pipe'});
-    return output;
-}
+/** Two DjVu pages: a tall page 1 (1200x4000) and a short page 2 (1200x400), each one black rule. */
+const TALL_THEN_SHORT_DJVU = resolve(process.cwd(), 'tests', 'fixtures', 'electron', 'djvu-fixtures', 'tall-then-short.djvu');
 
 /** Page 1 and 2 as the DjVu page-source renderer lays them out, in the scroll container's coordinates. */
 async function readPageGeometry(page: Page) {
@@ -103,7 +60,8 @@ describe('Electron E2E - DjVu visible page indicator', () => {
             recursive: true,
             force: true,
         }));
-        const djvuPath = createTallThenShortDjvu(directory);
+        const djvuPath = join(directory, 'tall-then-short.djvu');
+        copyFileSync(TALL_THEN_SHORT_DJVU, djvuPath);
         const {page} = sessions.getSession();
         await openDjvuInApp(page, djvuPath);
         await waitForDjvuLoaded(page);
