@@ -219,17 +219,14 @@ fn restore_source_catalog(
     instructions: &TextLayerFile,
     qpdf_path: Option<&Path>,
 ) -> Result<bool> {
+    let previous = &output.previous_document;
     let mut source = load_incremental_pdf_path(source_path, qpdf_path)?.previous_document;
-    let output_pages = output_plan_pages(&output.previous_document, instructions)?;
+    let output_pages = output_plan_pages(previous, instructions)?;
     if source.catalog()?.has(b"StructTreeRoot") {
         println!("{}", serde_json::json!({"accessibilityTagsRemoved": true}));
     }
-    let annotations = rebind_output_threads(
-        &source,
-        &output.previous_document,
-        &mut output.new_document,
-        &output_pages,
-    )?;
+    let annotations =
+        rebind_output_threads(&source, previous, &mut output.new_document, &output_pages)?;
     let resolver = PageTreeResolver::new(&source)?;
     let mut navigation = Document::with_version(source.version.clone());
     navigation.max_id = source.max_id;
@@ -303,31 +300,29 @@ fn restore_source_catalog(
         &|_, _| Ok(()),
         0,
     )?;
-    for copies in mapped_annotations.values() {
-        for (_, mapped) in copies {
-            let mut annotation = navigation.get_dictionary(*mapped)?.clone();
-            if annotation.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Widget") {
-                continue;
-            }
-            if let Ok(parent) = annotation.get(b"Parent").and_then(Object::as_reference) {
-                annotation.set(
-                    "Parent",
-                    *identities
-                        .get(&parent)
-                        .ok_or("overlay-text form parent was not imported")?,
-                );
-            }
-            output
-                .new_document
-                .set_object(identities[mapped], annotation);
+    for (_, mapped) in mapped_annotations.values().flatten() {
+        let mut annotation = navigation.get_dictionary(*mapped)?.clone();
+        let subtype = annotation
+            .get(b"Subtype")
+            .ok()
+            .and_then(|value| previous.resolved(value).ok());
+        if subtype.and_then(|value| value.as_name().ok()) != Some(b"Widget") {
+            continue;
         }
+        if let Ok(parent) = annotation.get(b"Parent").and_then(Object::as_reference) {
+            annotation.set(
+                "Parent",
+                *identities
+                    .get(&parent)
+                    .ok_or("overlay-text form parent was not imported")?,
+            );
+        }
+        output
+            .new_document
+            .set_object(identities[mapped], annotation);
     }
-    let root = output
-        .previous_document
-        .trailer
-        .get(b"Root")?
-        .as_reference()?;
-    let mut final_catalog = output.previous_document.get_dictionary(root)?.clone();
+    let root = previous.trailer.get(b"Root")?.as_reference()?;
+    let mut final_catalog = previous.get_dictionary(root)?.clone();
     for (key, value) in catalog.as_dict()?.iter() {
         final_catalog.set(key.clone(), value.clone());
     }

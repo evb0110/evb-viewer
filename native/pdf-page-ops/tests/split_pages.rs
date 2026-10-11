@@ -3587,3 +3587,61 @@ fn r9_compact_links_follow_the_catalog_selection_policy() {
     }
 }
 
+#[test]
+fn r9_indirect_raster_widgets_keep_their_final_field_parents() {
+    for indirect in [false, true] {
+        let mut source = review_catalog_source();
+        let fields = [source.new_object_id(), source.new_object_id()];
+        let subtype = if indirect {
+            Object::Reference(source.add_object(Object::Name(b"Widget".to_vec())))
+        } else {
+            "Widget".into()
+        };
+        let mut kids = [Vec::new(), Vec::new()];
+        for (index, page) in [(3, 0), (4, 0), (5, 0)].into_iter().enumerate() {
+            let mut annots = Vec::new();
+            for (n, field) in fields.iter().enumerate() {
+                let widget = source.add_object(dictionary! {"Type"=>"Annot","Subtype"=>subtype.clone(),"P"=>page,"Parent"=>*field,
+                    "Rect"=>vec![20.into(),20.into(),40.into(),40.into()],"AS"=>["A","B","C"][index]});
+                kids[n].push(Object::Reference(widget));
+                annots.push(Object::Reference(widget));
+            }
+            source
+                .get_dictionary_mut(page)
+                .unwrap()
+                .set("Annots", annots);
+        }
+        source.set_object(fields[0],dictionary! {"FT"=>"Btn","T"=>Object::string_literal("radio"),"Ff"=>32768,"Kids"=>kids[0].clone(),
+            "Opt"=>vec![Object::string_literal("Option A"),Object::string_literal("Option B"),Object::string_literal("Option C")]});
+        source.set_object(
+            fields[1],
+            dictionary! {"FT"=>"Tx","T"=>Object::string_literal("text"),"Kids"=>kids[1].clone()},
+        );
+        source.catalog_mut().unwrap().set("AcroForm",dictionary! {"Fields"=>fields.iter().copied().map(Object::Reference).collect::<Vec<_>>()});
+        let saved = r9_compact(&mut source, &[(2, true, 0, 200), (0, false, 0, 200)]);
+        let form = saved
+            .catalog()
+            .unwrap()
+            .get(b"AcroForm")
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let fields = form.get(b"Fields").unwrap().as_array().unwrap();
+        for page in 1..=2 {
+            let annotations = split_page_annotations(&saved, page);
+            assert_eq!(annotations.len(), 2);
+            for (id, widget) in annotations {
+                let parent = widget.get(b"Parent").unwrap().as_reference().unwrap();
+                assert!(fields.contains(&Object::Reference(parent)));
+                let kids = saved
+                    .get_dictionary(parent)
+                    .unwrap()
+                    .get(b"Kids")
+                    .unwrap()
+                    .as_array()
+                    .unwrap();
+                assert!(kids.contains(&Object::Reference(id)));
+            }
+        }
+    }
+}
