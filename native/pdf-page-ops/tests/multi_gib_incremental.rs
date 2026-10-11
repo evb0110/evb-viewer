@@ -443,6 +443,10 @@ fn parsed_annotation_kinds(pdf: &Path) -> Vec<(u64, String)> {
 }
 
 fn parsed_annotation_entries(pdf: &Path) -> Vec<Value> {
+    parsed_annotation_entries_with_qpdf(pdf, &qpdf_path())
+}
+
+fn parsed_annotation_entries_with_qpdf(pdf: &Path, qpdf: &Path) -> Vec<Value> {
     let sidecar = temp_path("annotation-parse", "ndjson");
     let _cleanup = TempFiles(vec![sidecar.clone()]);
     let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
@@ -451,7 +455,7 @@ fn parsed_annotation_entries(pdf: &Path) -> Vec<Value> {
         .arg("--output")
         .arg(&sidecar)
         .arg("--qpdf")
-        .arg(qpdf_path())
+        .arg(qpdf)
         .args(["--modified-at", "D:20261009120000Z"])
         .output()
         .unwrap();
@@ -1206,6 +1210,74 @@ fn note_with_a_reply_and_a_popup_parses_as_a_note_above_the_structural_ceiling()
         assert_eq!(replies.len(), 1, "{}", pdf.display());
         assert_eq!(replies[0]["objectNumber"], 8, "{}", pdf.display());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn two_hundred_notes_above_the_structural_ceiling_read_their_appearances_in_one_qpdf_run() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let large = temp_path("note-batch-large", "pdf");
+    let wrapper = temp_path("note-batch-qpdf", "sh");
+    let log = temp_path("note-batch-qpdf", "log");
+    let _cleanup = TempFiles(vec![large.clone(), wrapper.clone(), log.clone()]);
+    // Each note's normal appearance is an unread stream above the structural
+    // ceiling. The parse must read them together, not spawn qpdf per note.
+    let mut objects = Vec::new();
+    for note in 0..200_u32 {
+        // A 20 by 10 grid of 10-point cells on the 200 by 100 page.
+        let x = (note % 20) * 10;
+        let y = (note / 20) * 10;
+        let appearance = 6 + 2 * note;
+        objects.push(format!(
+            "<</Type/Annot/Subtype/Text/Rect[{x} {y} {} {}]/Contents(Note {note})/T(Reader)/NM(note-{note})/Name/Comment/M(D:20260101000000Z)/P 3 0 R/AP<</N {appearance} 0 R>>>>",
+            x + 10,
+            y + 10
+        )
+        .into_bytes());
+        objects.push(
+            b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream"
+                .to_vec(),
+        );
+    }
+    let object_bodies: Vec<&[u8]> = objects.iter().map(Vec::as_slice).collect();
+    let annotations: Vec<u32> = (0..200).map(|note| 5 + 2 * note).collect();
+    write_scanned_annotation_pdf(
+        &large,
+        STRUCTURAL_LOADER_STREAM_BYTES,
+        &object_bodies,
+        &annotations,
+    );
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\necho run >> '{}'\nexec '{}' \"$@\"\n",
+            log.display(),
+            qpdf_path().display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let entries = parsed_annotation_entries_with_qpdf(&large, &wrapper);
+    let kinds: Vec<(u64, String)> = entries
+        .iter()
+        .map(|entry| {
+            (
+                entry["objectNumber"].as_u64().unwrap(),
+                entry["kind"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    let expected: Vec<(u64, String)> = (0..200_u64)
+        .map(|note| (5 + 2 * note, "note".to_string()))
+        .collect();
+    assert_eq!(kinds, expected);
+    // The structural load and one batch read; the per-note spawns of the
+    // previous reader made more than two hundred runs.
+    let runs = fs::read_to_string(&log).unwrap().lines().count();
+    assert!(runs <= 3, "qpdf ran {runs} times for 200 notes");
 }
 
 #[test]

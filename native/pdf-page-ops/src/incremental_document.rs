@@ -49,7 +49,7 @@ pub(crate) struct IncrementalDocument {
     previous_len: u64,
     previous_last_byte: Option<u8>,
     pub(crate) previous_document: Document,
-    unavailable_base_streams: HashSet<ObjectId>,
+    pub(crate) unavailable_base_streams: HashSet<ObjectId>,
     /// Present only when qpdf's page-tree walk supplied the physical page order
     /// for a rotation-only path load. That path intentionally retains only the
     /// touched page dictionaries and their inherited-attribute ancestors.
@@ -144,13 +144,7 @@ impl IncrementalDocument {
             return Ok(());
         }
         let bytes = read_qpdf_stream_bounded(path, qpdf_path, object_id, max_bytes)?;
-        let stream = self
-            .previous_document
-            .get_object_mut(object_id)?
-            .as_stream_mut()?;
-        stream.set_content(bytes);
-        self.unavailable_base_streams.remove(&object_id);
-        Ok(())
+        self.set_base_stream_bytes(object_id, bytes)
     }
 
     /// A text-box save reuses EVB's embedded font only when the font's
@@ -1042,17 +1036,12 @@ where
                     qpdf_object_with_mode(value, self.allow_legacy_encoding)
                         .map_err(de::Error::custom)?
                 } else if let Some(stream) = envelope.get("stream") {
-                    let dict = stream.get("dict").ok_or_else(|| {
-                        de::Error::custom(format!(
-                            "qpdf stream object {} {} is missing its dictionary",
-                            object_id.0, object_id.1
-                        ))
-                    })?;
-                    unavailable_base_streams.insert(object_id);
-                    Object::Stream(Stream::with_position(
-                        qpdf_dictionary(dict).map_err(de::Error::custom)?,
-                        0,
-                    ))
+                    let (stream, is_unread) =
+                        qpdf_stream_from_json(stream, object_id).map_err(de::Error::custom)?;
+                    if is_unread {
+                        unavailable_base_streams.insert(object_id);
+                    }
+                    Object::Stream(stream)
                 } else if self.allow_legacy_encoding {
                     let is_stream = envelope
                         .as_object()
@@ -1116,7 +1105,7 @@ fn qpdf_value_retained_cost(value: &Value, element_limit: usize) -> Option<usize
     Some(estimated_bytes)
 }
 
-fn parse_qpdf_structure(
+pub(crate) fn parse_qpdf_structure(
     path: &Path,
     source_pdf_path: Option<&Path>,
 ) -> Result<(Document, HashSet<ObjectId>)> {
@@ -1262,7 +1251,7 @@ fn parse_qpdf_reference(value: &str) -> Option<ObjectId> {
     (parts.next() == Some("R") && parts.next().is_none()).then_some((object_number, generation))
 }
 
-fn qpdf_dictionary(value: &Value) -> Result<Dictionary> {
+pub(crate) fn qpdf_dictionary(value: &Value) -> Result<Dictionary> {
     qpdf_dictionary_with_mode(value, false)
 }
 
