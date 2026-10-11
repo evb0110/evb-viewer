@@ -202,11 +202,6 @@ describe('scan cleanup ink placement', () => {
         const versoTopMm = readInkTopMm(outputPath, 1, join(opened.sourceDirectory, 'verso'));
         const rectoTopMm = readInkTopMm(outputPath, 2, join(opened.sourceDirectory, 'recto'));
         const scannedApartMm = (LEAF_INK_TOPS_PX[1]! - LEAF_INK_TOPS_PX[0]!) / PX_PER_MM;
-        console.log('scan-cleanup-ink-placement-tops-mm', JSON.stringify({
-            versoTopMm,
-            rectoTopMm,
-            scannedApartMm,
-        }));
         expect(Math.abs(rectoTopMm - versoTopMm)).toBeLessThanOrEqual(scannedApartMm);
     }, 300_000);
 
@@ -243,10 +238,6 @@ describe('scan cleanup ink placement', () => {
             left: readInkTopMm(outputPath, 1, join(opened.sourceDirectory, 'verso')),
             right: readInkTopMm(outputPath, 2, join(opened.sourceDirectory, 'recto')),
         };
-        console.log('scan-cleanup-ink-placement-spread-mm', JSON.stringify({
-            previewTopsMm,
-            printedTopsMm,
-        }));
         expect(previewTopsMm.left).toBeCloseTo(printedTopsMm.left, 0);
         expect(previewTopsMm.right).toBeCloseTo(printedTopsMm.right, 0);
     }, 300_000);
