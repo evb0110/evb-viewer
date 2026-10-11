@@ -52,26 +52,17 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
     let systemShutdownForceTimer: NodeJS.Timeout | null = null;
 
     function clearGracefulQuitForceTimer() {
-        if (!gracefulQuitForceTimer) {
-            return;
-        }
-        clearTimeout(gracefulQuitForceTimer);
+        clearTimeout(gracefulQuitForceTimer ?? undefined);
         gracefulQuitForceTimer = null;
     }
 
     function clearSystemShutdownForceTimer() {
-        if (!systemShutdownForceTimer) {
-            return;
-        }
-        clearTimeout(systemShutdownForceTimer);
+        clearTimeout(systemShutdownForceTimer ?? undefined);
         systemShutdownForceTimer = null;
     }
 
     function clearFatalShutdownForceTimer() {
-        if (!fatalShutdownForceTimer) {
-            return;
-        }
-        clearTimeout(fatalShutdownForceTimer);
+        clearTimeout(fatalShutdownForceTimer ?? undefined);
         fatalShutdownForceTimer = null;
     }
 
@@ -227,10 +218,17 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                 shutdownContext.preserveRecoveryState = true;
                 shutdownContext.reason = 'fatal';
             }
-            shutdownPromise ??= startShutdown({
-                preserveRecoveryState: true,
-                reason: 'fatal',
-            }, false);
+            // A held quit skips its checkpoint, log and cleanup phases. Run them
+            // once it settles, on the context the fatal reason just upgraded.
+            const heldContext = shutdownContext?.retryablePreservationFailure === true ? shutdownContext : null;
+            if (heldContext && shutdownPromise) {
+                shutdownPromise = shutdownPromise.then(() => performCleanup(heldContext, false));
+            } else {
+                shutdownPromise ??= startShutdown({
+                    preserveRecoveryState: true,
+                    reason: 'fatal',
+                }, false);
+            }
             void shutdownPromise.finally(() => {
                 clearFatalShutdownForceTimer();
                 clearSystemShutdownForceTimer();
