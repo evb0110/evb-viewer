@@ -1792,6 +1792,7 @@ export default {
             'rotate': 'Échec de la rotation des pages',
             'insert': 'Échec de l’insertion des pages',
             'insertFile': 'Échec de l’insertion des pages depuis le fichier',
+            'dropCancelled': 'Le dépôt a été annulé car les pages ont changé. Vous pouvez déposer les fichiers à nouveau.',
             'reorder': 'Échec de la réorganisation des pages',
             'crop': 'Échec du recadrage des pages',
             'removeCrop': 'Échec de la suppression du recadrage',

@@ -1781,6 +1781,7 @@ export default {
             'rotate': 'Seiten konnten nicht gedreht werden',
             'insert': 'Seiten konnten nicht eingefügt werden',
             'insertFile': 'Seiten aus Datei konnten nicht eingefügt werden',
+            'dropCancelled': 'Das Ablegen wurde abgebrochen, weil sich die Seiten geändert haben. Sie können die Dateien erneut ablegen.',
             'reorder': 'Seiten konnten nicht neu angeordnet werden',
             'crop': 'Seiten konnten nicht zugeschnitten werden',
             'removeCrop': 'Zuschnitt konnte nicht entfernt werden',

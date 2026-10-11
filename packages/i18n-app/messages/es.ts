@@ -1781,6 +1781,7 @@ export default {
             'rotate': 'No se pudieron girar las páginas',
             'insert': 'No se pudieron insertar las páginas',
             'insertFile': 'No se pudieron insertar las páginas desde el archivo',
+            'dropCancelled': 'Se canceló la inserción porque las páginas cambiaron. Puedes volver a arrastrar los archivos.',
             'reorder': 'No se pudieron reordenar las páginas',
             'crop': 'No se pudieron recortar las páginas',
             'removeCrop': 'No se pudo quitar el recorte',

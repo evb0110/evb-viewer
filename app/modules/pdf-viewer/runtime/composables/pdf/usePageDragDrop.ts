@@ -1,9 +1,6 @@
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { TDocumentRef } from '@contracts/documentRef';
-import {
-    createStaleRevisionError, getDocumentMutationErrorPayload,
-} from '@contracts/documentMutationErrors';
 import type {
     IPageMoveRangeSegment,
     TPageSelection,
@@ -679,7 +676,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             presentNoticeToast({
                 tone: 'warning',
                 title: t('errors.pageOps.insertFile'),
-                description: getDocumentMutationErrorPayload(createStaleRevisionError({}))?.message ?? '',
+                description: t('errors.pageOps.dropCancelled'),
             });
             return;
         }

@@ -10,6 +10,7 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import {LOCALE_MESSAGES} from '@i18n-app';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
 import { requireDocumentRef } from '@contracts/documentRef';
 import {
@@ -26,6 +27,8 @@ vi.mock('vue', async () => ({
     onUnmounted: vi.fn(),
 }));
 
+const localeTranslator = vi.hoisted(() => ({translate: (key: string): string => key}));
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => localeTranslator.translate(key)})}));
 const toastAddMock = vi.fn();
 
 function createDropEvent(paths: string[]) {
@@ -93,6 +96,7 @@ function createDragEventTarget() {
 describe('usePageDragDrop', () => {
     beforeEach(() => {
         toastAddMock.mockClear();
+        localeTranslator.translate = key => key;
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
         vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
     });
@@ -128,7 +132,42 @@ describe('usePageDragDrop', () => {
         await drop;
         expect(onExternalFileDrop).not.toHaveBeenCalled();
         expect(cleanupFile).toHaveBeenCalledWith('/docs/insert.pdf');
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: 'Document changed while this edit was being prepared'}));
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: 'errors.pageOps.dropCancelled'}));
+    });
+
+    it.each(Object.entries(LOCALE_MESSAGES))('explains a cancelled drop using the %s catalog', async (_locale, messages) => {
+        localeTranslator.translate = key => {
+            const value = key.split('.').reduce<unknown>((current, part) => (
+                current && typeof current === 'object' ? Reflect.get(current, part) : undefined
+            ), messages);
+            return typeof value === 'string' ? value : key;
+        };
+        let finishRegistration!: (paths: Array<ReturnType<typeof requireDocumentRef>>) => void;
+        vi.stubGlobal('window', {
+            ...globalThis,
+            electronAPI: createElectronPlatformApiFixture({
+                documentPicker: {registerFilesForOpen: () => new Promise(resolve => {finishRegistration = resolve;})},
+                documentWorkingCopy: {cleanupFile: async () => {}},
+            }),
+        });
+        let source = {};
+        const dragDrop = usePageDragDrop({
+            containerRef: ref(null),
+            totalPages: ref(4),
+            getDocumentSource: () => source,
+            onReorder: vi.fn(),
+            onExternalFileDrop: vi.fn(),
+        });
+        const pending = dragDrop.handleExternalDrop(createDropEvent(['/docs/insert.pdf']));
+        source = {};
+        finishRegistration([requireDocumentRef('/docs/insert.pdf')]);
+        await pending;
+        const expected = localeTranslator.translate('errors.pageOps.dropCancelled');
+        expect(expected).not.toBe('errors.pageOps.dropCancelled');
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+            title: localeTranslator.translate('errors.pageOps.insertFile'),
+            description: expected,
+        }));
     });
 
     it('registers external dropped paths through the split picker capability', async () => {

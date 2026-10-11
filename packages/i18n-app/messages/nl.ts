@@ -1781,6 +1781,7 @@ export default {
             'rotate': 'Kan pagina\'s niet draaien',
             'insert': 'Kan pagina\'s niet invoegen',
             'insertFile': 'Kan pagina\'s uit bestand niet invoegen',
+            'dropCancelled': 'Het neerzetten is geannuleerd omdat de pagina’s zijn gewijzigd. Je kunt de bestanden opnieuw neerzetten.',
             'reorder': 'Kan pagina\'s niet herordenen',
             'crop': 'Pagina\'s bijsnijden mislukt',
             'removeCrop': 'Bijsnijden kon niet worden verwijderd',

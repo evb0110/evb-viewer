@@ -1792,6 +1792,7 @@ export default {
             'rotate': 'Falha ao girar páginas',
             'insert': 'Falha ao inserir páginas',
             'insertFile': 'Falha ao inserir páginas do arquivo',
+            'dropCancelled': 'A ação de soltar os arquivos foi cancelada porque as páginas mudaram. Você pode arrastar os arquivos novamente.',
             'reorder': 'Falha ao reordenar páginas',
             'crop': 'Falha ao recortar páginas',
             'removeCrop': 'Falha ao remover o recorte',

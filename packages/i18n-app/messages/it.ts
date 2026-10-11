@@ -1781,6 +1781,7 @@ export default {
             'rotate': 'Impossibile ruotare le pagine',
             'insert': 'Impossibile inserire le pagine',
             'insertFile': 'Impossibile inserire le pagine dal file',
+            'dropCancelled': 'Il trascinamento è stato annullato perché le pagine sono cambiate. Puoi trascinare di nuovo i file.',
             'reorder': 'Impossibile riordinare le pagine',
             'crop': 'Impossibile ritagliare le pagine',
             'removeCrop': 'Impossibile rimuovere il ritaglio',

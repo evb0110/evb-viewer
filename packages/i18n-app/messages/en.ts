@@ -1781,6 +1781,7 @@ export default {
             'rotate': 'Failed to rotate pages',
             'insert': 'Failed to insert pages',
             'insertFile': 'Failed to insert pages from file',
+            'dropCancelled': 'The drop was cancelled because the pages changed. You can drop the files again.',
             'reorder': 'Failed to reorder pages',
             'crop': 'Failed to crop pages',
             'removeCrop': 'Failed to remove crop',
