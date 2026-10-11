@@ -1884,6 +1884,84 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
         "one visible replacement, keeping surrounding text"
     );
 }
+// Limit the document font's Unicode cmap to one letter while retaining its
+// original glyph outlines and shaping tables, just like a retained-GID subset.
+fn partial_print_font(program: &[u8], character: char) -> Vec<u8> {
+    use skrifa::MetadataProvider;
+    let face = skrifa::FontRef::from_index(program, 0).unwrap();
+    let glyph = face.charmap().map(character).unwrap().to_u32();
+    let mut bytes = program.to_vec();
+    let count = u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize;
+    let record = (0..count)
+        .map(|i| 12 + i * 16)
+        .find(|i| &bytes[*i..*i + 4] == b"cmap")
+        .unwrap();
+    let mut cmap = vec![0, 0, 0, 1, 0, 3, 0, 10, 0, 0, 0, 12, 0, 12, 0, 0];
+    for value in [28, 0, 1, character as u32, character as u32, glyph] {
+        cmap.extend(value.to_be_bytes());
+    }
+    let checksum = cmap.chunks_exact(4).fold(0u32, |sum, word| {
+        sum.wrapping_add(u32::from_be_bytes(word.try_into().unwrap()))
+    });
+    while !bytes.len().is_multiple_of(4) {
+        bytes.push(0);
+    }
+    let offset = bytes.len() as u32;
+    bytes[record + 4..record + 8].copy_from_slice(&checksum.to_be_bytes());
+    bytes[record + 8..record + 12].copy_from_slice(&offset.to_be_bytes());
+    bytes[record + 12..record + 16].copy_from_slice(&(cmap.len() as u32).to_be_bytes());
+    bytes.extend(cmap);
+    let head = (0..count)
+        .map(|i| 12 + i * 16)
+        .find(|i| &bytes[*i..*i + 4] == b"head")
+        .unwrap();
+    let head = u32::from_be_bytes(bytes[head + 8..head + 12].try_into().unwrap()) as usize;
+    bytes[head + 8..head + 12].fill(0);
+    let checksum = bytes.chunks_exact(4).fold(0u32, |sum, word| {
+        sum.wrapping_add(u32::from_be_bytes(word.try_into().unwrap()))
+    });
+    bytes[head + 8..head + 12].copy_from_slice(&0xb1b0afbau32.wrapping_sub(checksum).to_be_bytes());
+    bytes
+}
+
+#[test]
+fn print_freetext_partial_fonts_preserve_joining_and_pointed_words() {
+    let temp = TempPaths::new("print-partial-font-joining");
+    let printed = temp.root.join("printed.pdf");
+    let dejavu = include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf").as_slice();
+    let syriac =
+        include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf").as_slice();
+    for (text, character, program) in [
+        ("بسم", 'ب', dejavu),
+        ("ܒܫܒ", 'ܒ', syriac),
+        ("שָׁלוֹם", 'ש', dejavu),
+    ] {
+        write_print_text_pdf(&temp.pdf, text, None, 0, 0, [70, 430, 540, 760], 32);
+        print_annotation_pdf(&temp.pdf, &printed);
+        let complete = poppler_pixels(&printed);
+        assert!(poppler_ink_pixels(&printed) > 300);
+        let mut document = Document::load(&temp.pdf).unwrap();
+        let program = document.add_object(lopdf::Stream::new(
+            lopdf::dictionary! {},
+            partial_print_font(program, character),
+        ));
+        let descriptor = document.add_object(lopdf::dictionary! {"Type"=>"FontDescriptor", "FontName"=>"Partial", "FontFile2"=>program});
+        let descendant = document.add_object(lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"CIDFontType2", "BaseFont"=>"Partial", "CIDSystemInfo"=>lopdf::dictionary! {"Registry"=>Object::string_literal("Adobe"), "Ordering"=>Object::string_literal("Identity"), "Supplement"=>0}, "FontDescriptor"=>descriptor, "CIDToGIDMap"=>"Identity"});
+        let font = document.add_object(lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"Type0", "BaseFont"=>"Partial", "Encoding"=>"Identity-H", "DescendantFonts"=>vec![Object::Reference(descendant)]});
+        let page = document.get_pages()[&1];
+        document.get_dictionary_mut(page).unwrap().set(
+            "Resources",
+            lopdf::dictionary! {"Font"=>lopdf::dictionary! {"Helv"=>font}},
+        );
+        document.save(&temp.pdf).unwrap();
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert!(
+            poppler_pixels(&printed) == complete,
+            "partial document font must not split {text}"
+        );
+    }
+}
+
 #[test]
 fn print_freetext_missing_fonts_use_pdf_rotation_without_editor_metadata() {
     let temp = TempPaths::new("print-text-pdf-rotation");

@@ -98,38 +98,40 @@ fn shape_line(
             scripts.reverse();
         }
         for script in scripts {
-            // Keep grapheme clusters together, so combining marks and joining
-            // scripts use one glyph-capable font. Shape in bidi visual order.
+            // Select one font for the whole word, including joining controls
+            // and marks. Partial document fonts must not split shaping context.
             let mut font_runs: Vec<(usize, String)> = Vec::new();
-            for cluster in text[script].graphemes(true) {
+            for sequence in text[script].split_inclusive(char::is_whitespace) {
+                let sequence: String = sequence
+                    .chars()
+                    .map(|c| {
+                        if fonts
+                            .iter()
+                            .any(|(_, face)| invisible(c) || face.charmap().map(c).is_some())
+                        {
+                            c
+                        } else {
+                            '�'
+                        }
+                    })
+                    .collect();
                 let supported = fonts.iter().position(|(_, face)| {
-                    cluster
+                    sequence
                         .chars()
                         .all(|c| invisible(c) || face.charmap().map(c).is_some())
                 });
-                let characters: Vec<_> = supported.map_or_else(
-                    || {
-                        cluster
-                            .chars()
-                            .map(|c| {
-                                fonts
-                                    .iter()
-                                    .position(|(_, face)| {
-                                        invisible(c) || face.charmap().map(c).is_some()
-                                    })
-                                    .map_or((replacement_font, "�".to_string()), |i| {
-                                        (i, c.to_string())
-                                    })
-                            })
-                            .collect()
-                    },
-                    |index| vec![(index, cluster.to_string())],
-                );
-                for (index, fragment) in characters {
+                for character in sequence.chars() {
+                    let index = supported.or_else(|| {
+                        fonts.iter().position(|(_, face)| {
+                            invisible(character) || face.charmap().map(character).is_some()
+                        })
+                    });
+                    let (index, character) =
+                        index.map_or((replacement_font, '�'), |i| (i, character));
                     if let Some((_, run)) = font_runs.last_mut().filter(|(i, _)| *i == index) {
-                        run.push_str(&fragment);
+                        run.push(character);
                     } else {
-                        font_runs.push((index, fragment));
+                        font_runs.push((index, character.to_string()));
                     }
                 }
             }
