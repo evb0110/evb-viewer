@@ -3955,10 +3955,16 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
-    it.each([{
-        label: 'literal without workers',
-        fragmented: false,
-    }])('reconciles search highlight text: $label', async ({fragmented}) => {
+    it.each([
+        {
+            label: 'literal without workers',
+            fragmented: false,
+        },
+        {
+            label: 'later fragmented window',
+            fragmented: true,
+        },
+    ])('reconciles search highlight text: $label', async ({fragmented}) => {
         const browser = await chromium.launch({headless: true});
         const evidenceDir = resolve(process.cwd(), `.devkit/search-highlight-regressions/${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});

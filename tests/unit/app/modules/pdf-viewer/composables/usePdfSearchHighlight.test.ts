@@ -392,6 +392,53 @@ describe('usePdfSearchHighlight', () => {
 });
 
 describe('pdfSearchHighlightDom text-layer mapping', () => {
+    it('paints a fragmented occurrence from a later result window', async () => {
+        const layer = document.createElement('div');
+        const items = [
+            'needle',
+            '\n',
+            ...'needle',
+        ];
+        const spans = items.map(text => {
+            const span = document.createElement('span');
+            span.textContent = text;
+            layer.append(span);
+            return span;
+        });
+        registerTextLayerTextMapping(layer, {
+            textDivs: spans,
+            textContentItemsStr: items,
+        });
+        const highlight = usePdfSearchHighlight();
+        highlight.highlightPage(layer, {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'needle',
+            searchOptions: {
+                useRegex: true,
+                matchCase: false,
+                wholeWord: false,
+            },
+            matches: [{
+                start: 7,
+                end: 13,
+                matchIndex: 1,
+                pageMatchIndex: 1,
+            }],
+        }, {
+            pageIndex: requirePageIndex(0),
+            startOffset: 7,
+            endOffset: 13,
+            matchIndex: 1,
+            pageMatchIndex: 1,
+        });
+        await expect.poll(() => [...layer.querySelectorAll('.pdf-search-highlight--current')]
+            .map(element => element.textContent).join('')).toBe('needle');
+        expect(spans[0]?.querySelector('.pdf-search-highlight')).toBeNull();
+        expect(layer.textContent).toBe('needle\nneedle');
+        highlight.clearHighlights(layer);
+    });
+
     it('reconciles a literal highlight when matching workers are unavailable', async () => {
         vi.mocked(matchBrowserSearchPageWindowInWorker).mockRejectedValueOnce(new Error('Worker unavailable'));
         const layer = document.createElement('div');

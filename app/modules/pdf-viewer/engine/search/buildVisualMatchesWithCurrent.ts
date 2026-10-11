@@ -170,10 +170,7 @@ export async function reconcileVisualMatchesWithCurrent(
 ): Promise<IHighlightMatchRange[]> {
     if (pageMatches.matches.length === 0) return [];
     const contiguous = assembleSearchablePageText([{text: layerText}]);
-    if (pageMatches.pageText && pageMatches.pageText === contiguous.text) {
-        return buildVisualMatchesWithCurrent(pageMatches, currentMatch, layerText, contiguous);
-    }
-    if (!pageMatches.searchQuery || pageMatches.pageText && pageMatches.pageText === assembledLayerText.text) {
+    if (!pageMatches.searchQuery || pageMatches.pageText === contiguous.text || pageMatches.pageText === assembledLayerText.text) {
         return buildVisualMatchesWithCurrent(pageMatches, currentMatch, layerText, assembledLayerText);
     }
     const ordinals = pageMatches.matches.map((match, index) => match.pageMatchIndex ?? index);
@@ -190,10 +187,10 @@ export async function reconcileVisualMatchesWithCurrent(
         : matchPdfSearchPageWindow(assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal);
     let assembled = assembledLayerText;
     let result = await matchLayer(assembled);
-    // Positioned glyphs sometimes form words only in the contiguous assembly.
-    if (assembled.text !== contiguous.text && !result.truncated && result.matchCount !== pageMatches.matches.length) {
+    const coverage = (candidate: typeof result) => ordinals.filter(ordinal => candidate.matches.some(match => match.pageMatchIndex === ordinal)).length;
+    if (assembled.text !== contiguous.text && coverage(result) < ordinals.length) {
         const contiguousResult = await matchLayer(contiguous);
-        if (result.matchCount === 0 || !contiguousResult.truncated && contiguousResult.matchCount === pageMatches.matches.length) {
+        if (coverage(contiguousResult) > coverage(result)) {
             assembled = contiguous;
             result = contiguousResult;
         }
