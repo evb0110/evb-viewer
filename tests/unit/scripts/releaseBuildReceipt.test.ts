@@ -91,6 +91,70 @@ describe('release strict-build receipts', () => {
         }
     });
 
+    it('rebuilds when compiled configuration or a required output changes under unchanged source', () => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-config-'));
+        const receiptPath = path.join(projectRoot, '.devkit', 'receipt.json');
+        const outputPath = path.join(projectRoot, 'dist-electron', 'main.js');
+        writeFileSync(path.join(projectRoot, 'source.ts'), 'export const value = 1;\n');
+        mkdirSync(path.dirname(outputPath), {recursive: true});
+        writeFileSync(outputPath, 'built-output\n');
+        const baseEnv = {
+            EVB_APP_VERSION: '1.2.3',
+            NODE_ENV: 'production',
+            SENTRY_AUTH_TOKEN: 'auth-token-a',
+            SENTRY_BROWSER_DSN: 'browser-dsn-a',
+            SENTRY_DESKTOP_DSN: 'desktop-dsn-a',
+        };
+        const optionsFor = (env: Record<string, string>) => ({
+            env,
+            inputFiles: ['source.ts'],
+            outputPaths: ['dist-electron'],
+            projectRoot,
+            runCommand: fakeToolchain,
+        });
+        try {
+            writeReleaseBuildReceipt(receiptPath, optionsFor(baseEnv));
+            expect(validateReleaseBuildReceipt(receiptPath, optionsFor(baseEnv))).toMatchObject({valid: true});
+
+            for (const {
+                name, value,
+            } of [
+                    {
+                        name: 'EVB_APP_VERSION',
+                        value: '1.2.4',
+                    },
+                    {
+                        name: 'SENTRY_AUTH_TOKEN',
+                        value: 'auth-token-b',
+                    },
+                    {
+                        name: 'SENTRY_BROWSER_DSN',
+                        value: 'browser-dsn-b',
+                    },
+                    {
+                        name: 'SENTRY_DESKTOP_DSN',
+                        value: 'desktop-dsn-b',
+                    },
+                ]) {
+                expect(validateReleaseBuildReceipt(receiptPath, optionsFor({
+                    ...baseEnv,
+                    [name]: value,
+                }))).toEqual({
+                    reason: 'inputs-changed',
+                    valid: false,
+                });
+            }
+
+            rmSync(outputPath);
+            expect(validateReleaseBuildReceipt(receiptPath, optionsFor(baseEnv))).toMatchObject({valid: false});
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('keeps DSNs and database URLs out of the recorded build environment', () => {
         const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-secrets-'));
         writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({version: '1.2.3'}));

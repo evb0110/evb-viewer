@@ -1,17 +1,9 @@
 import { getCliErrorMessage } from './lib/cli-error.mjs';
+import { spawn } from 'node:child_process';
 import {
-    execFileSync,
-    spawn,
-} from 'node:child_process';
-import {
-    copyFileSync,
     mkdirSync,
-    mkdtempSync,
-    readFileSync,
-    rmSync,
     writeFileSync,
 } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {
     fileURLToPath,
@@ -71,72 +63,6 @@ export function getStrictBuildEnv(env = process.env) {
 }
 
 export const STRICT_BUILD_SCRIPT_NAME = 'build:desktop';
-const strictBuildStampPath = path.join(projectRoot, '.devkit', 'cache', 'build', 'strict.txt');
-
-/**
- * The tree `git add --all` would record for the working copy, so any content
- * edit, including a second edit to an already-dirty file, changes the stamp.
- * @param {string} [root]
- * @returns {string}
- */
-export function getStrictBuildStamp(root = projectRoot) {
-    const indexDir = mkdtempSync(path.join(os.tmpdir(), 'evb-strict-stamp-'));
-    const env = {
-        ...process.env,
-        GIT_INDEX_FILE: path.join(indexDir, 'index'),
-    };
-    try {
-        // A copy of the real index keeps stat data, so only changed files are rehashed.
-        copyFileSync(execFileSync('git', [
-            'rev-parse',
-            '--path-format=absolute',
-            '--git-path',
-            'index',
-        ], {
-            cwd: root,
-            encoding: 'utf8',
-        }).trim(), env.GIT_INDEX_FILE);
-        execFileSync('git', [
-            'add',
-            '--all',
-        ], {
-            cwd: root,
-            env,
-        });
-        return execFileSync('git', ['write-tree'], {
-            cwd: root,
-            env,
-            encoding: 'utf8',
-        }).trim();
-    } finally {
-        rmSync(indexDir, {
-            force: true,
-            recursive: true,
-        });
-    }
-}
-
-/** @param {string} [root] */
-export function writeStrictBuildStamp(root = projectRoot) {
-    const stampPath = root === projectRoot
-        ? strictBuildStampPath
-        : path.join(root, '.devkit', 'cache', 'build', 'strict.txt');
-    mkdirSync(path.dirname(stampPath), {recursive: true});
-    writeFileSync(stampPath, getStrictBuildStamp(root));
-}
-
-/** @param {string} [root] @returns {boolean} */
-export function isStrictBuildStampFresh(root = projectRoot) {
-    const stampPath = root === projectRoot
-        ? strictBuildStampPath
-        : path.join(root, '.devkit', 'cache', 'build', 'strict.txt');
-    try {
-        return readFileSync(stampPath, 'utf8') === getStrictBuildStamp(root);
-    } catch {
-        return false;
-    }
-}
-
 const COLLAPSED_WARNING_PATTERNS = [/\b(?:WARN|\[warn\])\s+\[plugin @tailwindcss\/vite:generate:build\] Sourcemap is likely to be incorrect: a plugin \(@tailwindcss\/vite:generate:build\) was used to transform files, but didn't generate a sourcemap for the transformation\. Consult the plugin documentation for help(?: \(x\d+\))?$/u];
 
 /** @param {string} line @returns {boolean} */
@@ -292,8 +218,6 @@ async function main() {
         'scripts/check-build-warnings.mjs',
         '.tmp/build.log',
     ], { preserveExistingBuildLog: true });
-    writeStrictBuildStamp();
-    process.stdout.write(`Recorded strict-build stamp at ${strictBuildStampPath}.\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

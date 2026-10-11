@@ -50,8 +50,10 @@ const BUILD_ENVIRONMENT_KEYS = [
     'RUSTFLAGS',
     'TARGET_ARCH',
     'npm_config_arch',
+    'EVB_APP_VERSION',
     'EVB_NATIVE_TARGET_ARCH',
     'EVB_NATIVE_TARGET_PLATFORM',
+    'EVB_NUXT_COMPATIBILITY_VERSION',
     'EVB_RELEASE_TARGET_ARCH',
     'EVB_RELEASE_TARGET_PLATFORM',
     'EVB_RELEASE_TARGET_DIST',
@@ -60,6 +62,14 @@ const BUILD_ENVIRONMENT_KEYS = [
 const BUILD_ENVIRONMENT_PREFIXES = [
     'NUXT_',
     'VITE_',
+];
+// Secrets that change compiled output (the Sentry DSNs are baked into the
+// bundles; the auth token decides whether source maps are emitted). The contract
+// records a SHA-256 of each value: a change rebuilds, and no secret is stored.
+const BUILD_SECRET_ENVIRONMENT_KEYS = [
+    'SENTRY_AUTH_TOKEN',
+    'SENTRY_BROWSER_DSN',
+    'SENTRY_DESKTOP_DSN',
 ];
 const SENSITIVE_BUILD_ENVIRONMENT_KEY = /(?:AUTH|CREDENTIAL|DATABASE|DSN|ENDPOINT|KEY|PASSWORD|PRIVATE|SECRET|TOKEN)/iu;
 
@@ -146,12 +156,20 @@ export function getReleaseBuildInputFiles({
 
 /** @param {NodeJS.ProcessEnv} env */
 function buildEnvironment(env) {
-    return Object.fromEntries(Object.entries(env)
+    const plain = Object.fromEntries(Object.entries(env)
         .filter(([key]) => (
             BUILD_ENVIRONMENT_KEYS.includes(key)
             || BUILD_ENVIRONMENT_PREFIXES.some(prefix => key.startsWith(prefix))
         ) && !SENSITIVE_BUILD_ENVIRONMENT_KEY.test(key))
         .sort(([left], [right]) => left.localeCompare(right, 'en')));
+    const digests = Object.fromEntries(BUILD_SECRET_ENVIRONMENT_KEYS.map(key => [
+        `${key}_SHA256`,
+        createHash('sha256').update(env[key]?.trim() ?? '').digest('hex'),
+    ]));
+    return {
+        ...plain,
+        ...digests,
+    };
 }
 
 /** @param {TCommandRunner} runCommand */
