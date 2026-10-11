@@ -391,18 +391,16 @@ export async function atomicReplace(
         markActiveWorkingCopyMutationCommitStarted();
     }
 
-    if (options.destinationBackupPath !== undefined) {
+    if (options.destinationBackupPath !== undefined
+        && (await stat(options.destinationBackupPath)).nlink > 1) {
         const backupPath = options.destinationBackupPath;
         assertNoSymlinkPathSegments(backupPath);
         await options.assertDestinationCurrent?.();
         if (shouldDeferMutationCommitStarted) markActiveWorkingCopyMutationCommitStarted();
-        // The prepared backup may share this inode. Remove that name before
-        // moving the actual destination into the journal's owned backup slot.
+        // Only a linked backup proves this volume supports exclusive publication.
         await unlink(backupPath);
         await rename(dst, backupPath);
         await fsyncPath(backupPath);
-        // Publish into the vacated name exclusively. A concurrent replacement
-        // wins instead of being overwritten; the journal retains displaced bytes.
         await link(srcTemp, dst);
         await unlink(srcTemp);
         await fsyncParentDirectory(dst);

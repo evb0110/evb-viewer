@@ -320,6 +320,35 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it('keeps the original pathname on a volume without hard links', async () => {
+        const fs = await import('node:fs/promises');
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            link: async () => { throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'}); },
+        }));
+        try {
+            const fixture = await prepare('old-original', 'accepted-unsaved-work');
+            const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+            await expect(transitionOriginalAndWorkingCopyRevision({
+                ...fixture,
+                publishedSourcePath: fixture.stagedPath,
+                senderId: 7,
+                reason: 'save-sync',
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, fixture.originalPath, {
+                    ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                    ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                }),
+            })).resolves.toMatchObject({contentRevision: 2});
+            expect(await readFile(fixture.originalPath, 'utf8')).toBe('new-committed-pdf');
+            expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('new-committed-pdf');
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+    });
+
     it('stops proof reads promptly when save is cancelled and retains both revisions', async () => {
         const fixture = await prepare('old-original', 'accepted-unsaved-work');
         const bytes = Buffer.alloc(4 * 1024 * 1024, 65);
