@@ -119,5 +119,6 @@ Viewer core means `app/modules/pdf-viewer`, `app/modules/document-viewer`,
 three agents may change viewer core at once, each on a disjoint file set that
 one integrating agent assigns (AGENTS.md, Concurrency); without such an
 integrator, one viewer-core change is active at a time. Integration is
-exclusive from fetch through push: fetch, rebase, run the affected real-app lane on the rebased
-candidate, push. If `main` moves in between, rebase and revalidate.
+exclusive from updating the branch through the merge: update it from `origin/main` as
+`land-pr` describes, run the affected real-app lane on the result, merge. If `main` moves
+in between, update and revalidate.
