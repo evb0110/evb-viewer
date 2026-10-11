@@ -1123,7 +1123,7 @@ fn normalize_greek_micro_sign_in_operations(operations: &mut [ContentOperation])
     }
 }
 
-fn clone_object_graph(
+pub(crate) fn clone_object_graph(
     source: &Document,
     target: &mut Document,
     object: &Object,

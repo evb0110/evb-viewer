@@ -314,9 +314,8 @@ export async function overlayScanCleanupTextLayer(
     dependencies: IRunScanCleanupPipelineDependencies,
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
-    // Preserved pages keep links that only the overlay rebinds; skipped pages have no annotations.
-    const overlayPages = pages.filter(page => page.linkOnly !== true || page.unmappedGeometry !== true);
-    if (overlayPages.length === 0) {
+    // Every output participates in the final catalog map, including non-affine rasters.
+    if (pages.length === 0) {
         return false;
     }
     if (paths.pdfPageOpsBinary === undefined || isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)) {
@@ -350,7 +349,7 @@ export async function overlayScanCleanupTextLayer(
     await rename(textLayerPdfPath, stagedPdfPath);
     log(
         'debug',
-        `Scan cleanup retained source text and annotations on ${String(overlayPages.length)} output page(s)`,
+        `Scan cleanup retained source text and annotations on ${String(pages.length)} output page(s)`,
     );
     return true;
 }

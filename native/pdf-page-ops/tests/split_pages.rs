@@ -2172,7 +2172,9 @@ fn split_pages_assembly_keeps_page_dependencies_and_stamp_only_info() {
     assert_eq!(
         split_catalog_keys(&split),
         vec![
+            b"Names".to_vec(),
             b"OCProperties".to_vec(),
+            b"Outlines".to_vec(),
             b"PageLabels".to_vec(),
             b"Pages".to_vec(),
             b"Type".to_vec()
@@ -2310,124 +2312,132 @@ fn split_pages_removed_reply_target_keeps_text_without_an_unlisted_clone() {
 
 #[test]
 fn split_pages_labels_and_navigation_follow_the_output_page_mapping() {
-    for order in [&[2, 0][..], &[2, 0, 2][..]] {
-        let split = review_split(&mut review_catalog_source(), order, false, false);
-        let catalog = split.catalog().unwrap();
-        let labels = split
-            .dereference(catalog.get(b"PageLabels").unwrap())
-            .unwrap()
-            .1
-            .as_dict()
-            .unwrap();
-        let nums = split
-            .dereference(labels.get(b"Nums").unwrap())
-            .unwrap()
-            .1
-            .as_array()
-            .unwrap();
-        let prefixes = nums
-            .chunks_exact(2)
-            .map(|pair| {
-                split
-                    .dereference(&pair[1])
-                    .unwrap()
-                    .1
-                    .as_dict()
-                    .unwrap()
-                    .get(b"P")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_vec()
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            prefixes,
-            order
+    for assembly in [false, true] {
+        for order in [&[2, 0][..], &[2, 0, 2][..]] {
+            let split = review_split(&mut review_catalog_source(), order, assembly, true);
+            let catalog = split.catalog().unwrap();
+            let labels = split
+                .dereference(catalog.get(b"PageLabels").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let nums = split
+                .dereference(labels.get(b"Nums").unwrap())
+                .unwrap()
+                .1
+                .as_array()
+                .unwrap();
+            let prefixes = nums
+                .chunks_exact(2)
+                .map(|pair| {
+                    split
+                        .dereference(&pair[1])
+                        .unwrap()
+                        .1
+                        .as_dict()
+                        .unwrap()
+                        .get(b"P")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .to_vec()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                prefixes,
+                order
+                    .iter()
+                    .map(
+                        |index| [b"one".to_vec(), b"two".to_vec(), b"three".to_vec()][*index]
+                            .clone()
+                    )
+                    .collect::<Vec<_>>()
+            );
+            let names = split
+                .dereference(catalog.get(b"Names").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let dests = split
+                .dereference(names.get(b"Dests").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let names = split
+                .dereference(dests.get(b"Names").unwrap())
+                .unwrap()
+                .1
+                .as_array()
+                .unwrap();
+            let destinations = names
+                .chunks_exact(2)
+                .map(|pair| {
+                    (
+                        pair[0].as_str().unwrap().to_vec(),
+                        pair[1].as_array().unwrap()[0].as_reference().unwrap(),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>();
+            let pages = split.get_pages();
+            assert_eq!(destinations[b"third".as_slice()], pages[&1]);
+            assert_eq!(destinations[b"first".as_slice()], pages[&2]);
+            assert!(!destinations.contains_key(b"removed".as_slice()));
+            let legacy = split
+                .dereference(catalog.get(b"Dests").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            assert!(!legacy.has(b"legacy"));
+            let outlines = split
+                .dereference(catalog.get(b"Outlines").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let first = split
+                .dereference(outlines.get(b"First").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            assert_eq!(
+                first.get(b"Dest").unwrap().as_array().unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+                pages[&2]
+            );
+            let removed = split
+                .dereference(outlines.get(b"Last").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            assert_eq!(removed.get(b"Title").unwrap().as_str().unwrap(), b"removed");
+            assert!(
+                !removed.has(b"Dest"),
+                "retain the heading and children, but neutralize a discarded target"
+            );
+            if assembly {
+                continue;
+            }
+            let annotations = split_page_annotations(&split, 2);
+            let link = annotations
                 .iter()
-                .map(|index| [b"one".to_vec(), b"two".to_vec(), b"three".to_vec()][*index].clone())
-                .collect::<Vec<_>>()
-        );
-        let names = split
-            .dereference(catalog.get(b"Names").unwrap())
-            .unwrap()
-            .1
-            .as_dict()
-            .unwrap();
-        let dests = split
-            .dereference(names.get(b"Dests").unwrap())
-            .unwrap()
-            .1
-            .as_dict()
-            .unwrap();
-        let names = split
-            .dereference(dests.get(b"Names").unwrap())
-            .unwrap()
-            .1
-            .as_array()
-            .unwrap();
-        let destinations = names
-            .chunks_exact(2)
-            .map(|pair| {
-                (
-                    pair[0].as_str().unwrap().to_vec(),
-                    pair[1].as_array().unwrap()[0].as_reference().unwrap(),
-                )
-            })
-            .collect::<std::collections::HashMap<_, _>>();
-        let pages = split.get_pages();
-        assert_eq!(destinations[b"third".as_slice()], pages[&1]);
-        assert_eq!(destinations[b"first".as_slice()], pages[&2]);
-        assert!(!destinations.contains_key(b"removed".as_slice()));
-        let legacy = split
-            .dereference(catalog.get(b"Dests").unwrap())
-            .unwrap()
-            .1
-            .as_dict()
-            .unwrap();
-        assert!(!legacy.has(b"legacy"));
-        let outlines = split
-            .dereference(catalog.get(b"Outlines").unwrap())
-            .unwrap()
-            .1
-            .as_dict()
-            .unwrap();
-        let first = split
-            .dereference(outlines.get(b"First").unwrap())
-            .unwrap()
-            .1
-            .as_dict()
-            .unwrap();
-        assert_eq!(
-            first.get(b"Dest").unwrap().as_array().unwrap()[0]
-                .as_reference()
-                .unwrap(),
-            pages[&2]
-        );
-        let removed = split
-            .dereference(outlines.get(b"Last").unwrap())
-            .unwrap()
-            .1
-            .as_dict()
-            .unwrap();
-        assert_eq!(removed.get(b"Title").unwrap().as_str().unwrap(), b"removed");
-        assert!(
-            !removed.has(b"Dest"),
-            "retain the heading and children, but neutralize a discarded target"
-        );
-        let annotations = split_page_annotations(&split, 2);
-        let link = annotations
-            .iter()
-            .find(|(_, annotation)| {
-                annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Link")
-            })
-            .unwrap();
-        assert_eq!(
-            link.1.get(b"Dest").unwrap().as_array().unwrap()[0]
-                .as_reference()
-                .unwrap(),
-            pages[&1]
-        );
+                .find(|(_, annotation)| {
+                    annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Link")
+                })
+                .unwrap();
+            assert_eq!(
+                link.1.get(b"Dest").unwrap().as_array().unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+                pages[&1]
+            );
+        }
     }
 }
 
@@ -2816,6 +2826,189 @@ fn split_pages_assembly_trailer_policy_is_identical_across_the_size_boundary() {
                 String::from_utf8_lossy(&check.stderr)
             );
             for file in [input, output, instructions] {
+                let _ = remove_file(file);
+            }
+        }
+    }
+}
+/// Compact assembly replaces raster pages before the final overlay. Catalog
+/// destinations must name those listed pages, including at the byte boundary.
+#[test]
+fn compact_catalog_follows_raster_replacements_at_every_size() {
+    for large in [false, true] {
+        for preserved in [false, true] {
+            let input = path("compact-catalog-source", "pdf");
+            let raster = path("compact-catalog-raster", "pdf");
+            let primary = path("compact-catalog-primary", "pdf");
+            let assembled = path("compact-catalog-assembled", "pdf");
+            let output = path("compact-catalog-output", "pdf");
+            let instructions = path("compact-catalog-plan", "json");
+            let mut source = review_catalog_source();
+            source.catalog_mut().unwrap().set("PageLabels", dictionary! {"Nums" => vec![
+                0.into(), dictionary! {"S" => "r"}.into(), 2.into(), dictionary! {"S" => "D"}.into()]});
+            let title = source.add_object(Object::string_literal("Nested body"));
+            let child = source.add_object(dictionary! {"Title" => title, "Parent" => (10,0), "Dest" => Object::string_literal("third")});
+            source
+                .get_dictionary_mut((10, 0))
+                .unwrap()
+                .set("First", child);
+            source
+                .get_dictionary_mut((10, 0))
+                .unwrap()
+                .set("Last", child);
+            source.get_dictionary_mut((10, 0)).unwrap().set("Count", 1);
+            source
+                .catalog_mut()
+                .unwrap()
+                .get_mut(b"Dests")
+                .unwrap()
+                .as_dict_mut()
+                .unwrap()
+                .set("surviving", vec![Object::Reference((5, 0)), "Fit".into()]);
+            source.save(&input).unwrap();
+            let mut blank = Document::with_version("1.7");
+            let pages_id = blank.new_object_id();
+            let pages = (0..2).map(|_| blank.add_object(dictionary! {"Type" => "Page", "Parent" => pages_id,
+                "MediaBox" => vec![0.into(),0.into(),200.into(),120.into()], "Resources" => dictionary! {}})).collect::<Vec<_>>();
+            blank.set_object(pages_id, dictionary! {"Type" => "Pages", "Kids" => pages.iter().copied().map(Object::Reference).collect::<Vec<_>>(), "Count" => 2});
+            let catalog = blank.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+            blank.trailer.set("Root", catalog);
+            let info = blank
+                .add_object(dictionary! {"EVBScanCleanup" => Object::string_literal("54455354")});
+            blank.trailer.set("Info", info);
+            blank.save(&raster).unwrap();
+            if preserved {
+                review_split(&mut source, &[2], true, true)
+                    .save(&primary)
+                    .unwrap();
+                let result = Command::new(qpdf_path())
+                    .arg(&primary)
+                    .args(["--coalesce-contents", "--pages"])
+                    .arg(&raster)
+                    .args(["1", ".", "1", "--"])
+                    .arg(&assembled)
+                    .output()
+                    .unwrap();
+                assert!(
+                    matches!(result.status.code(), Some(0 | 3)),
+                    "{}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            } else {
+                std::fs::copy(&raster, &assembled).unwrap();
+            }
+            if large {
+                // A sparse unreferenced stream forces the path-backed writer.
+                // The active catalog and Info inherit from the previous trailer.
+                for file_path in [&input, &assembled] {
+                    let mut document = Document::load(file_path).unwrap();
+                    let root = document
+                        .trailer
+                        .get(b"Root")
+                        .unwrap()
+                        .as_reference()
+                        .unwrap();
+                    let previous = document.xref_start;
+                    let info = document
+                        .trailer
+                        .get(b"Info")
+                        .unwrap()
+                        .as_reference()
+                        .unwrap();
+                    let id = document.new_object_id().0;
+                    let mut file = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(file_path)
+                        .unwrap();
+                    let offset = file.seek(SeekFrom::End(0)).unwrap();
+                    writeln!(file, "{id} 0 obj\n<</Length 537919488>>\nstream").unwrap();
+                    // append mode ignores seeks for writes; extend the file first.
+                    let end = file.stream_position().unwrap() + 513 * 1024 * 1024;
+                    file.set_len(end).unwrap();
+                    file.seek(SeekFrom::End(0)).unwrap();
+                    file.write_all(b"\nendstream\nendobj\n").unwrap();
+                    let xref = file.stream_position().unwrap();
+                    write!(file,"xref\n{id} 1\n{offset:010} 00000 n \ntrailer\n<</Size {}/Root {} {} R/Info {} {} R/Prev {previous}>>\nstartxref\n{xref}\n%%EOF\n",id+1,root.0,root.1,info.0,info.1).unwrap();
+                }
+            }
+            write(&instructions, serde_json::json!({"pages": [
+                {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true,"unmappedGeometry":true},
+                {"sourcePageIndex":2,"outputPageIndex":1,"matrix":[1,0,0,1,0,0],"linkOnly":true}
+            ]}).to_string()).unwrap();
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .args(["overlay-text", "--qpdf"])
+                .arg(qpdf_path())
+                .arg("--input")
+                .arg(&assembled)
+                .arg("--source")
+                .arg(&input)
+                .arg("--output")
+                .arg(&output)
+                .arg("--instructions-file")
+                .arg(&instructions)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let result = Command::new(qpdf_path())
+                .args([
+                    "--json",
+                    "--json-stream-data=none",
+                    "--json-key=qpdf",
+                    "--json-key=pages",
+                    "--json-key=outlines",
+                ])
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let json: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(json["pages"].as_array().unwrap().len(), 2);
+            assert_eq!(json["pages"][0]["label"]["/S"], "/r");
+            assert_eq!(json["pages"][0]["label"]["/St"], 1);
+            assert_eq!(json["pages"][1]["label"]["/S"], "/D");
+            assert_eq!(json["pages"][1]["label"]["/St"], 1);
+            assert_eq!(json["outlines"][0]["title"], "first");
+            assert_eq!(json["outlines"][0]["destpageposfrom1"], 1);
+            assert_eq!(json["outlines"][0]["kids"][0]["title"], "Nested body");
+            assert_eq!(json["outlines"][0]["kids"][0]["destpageposfrom1"], 2);
+            assert!(json["outlines"][1]["dest"].is_null());
+            let objects = &json["qpdf"][1];
+            let root = objects["trailer"]["value"]["/Root"].as_str().unwrap();
+            let catalog = &objects[format!("obj:{root}")]["value"];
+            assert_eq!(
+                catalog["/Dests"]["/surviving"][0],
+                json["pages"][1]["object"]
+            );
+            assert!(catalog["/Dests"]["/legacy"].is_null());
+            let dests = &catalog["/Names"]["/Dests"]["/Names"];
+            assert_eq!(dests[0], "u:first");
+            assert_eq!(dests[1][0], json["pages"][0]["object"]);
+            assert_eq!(dests[2], "u:third");
+            assert_eq!(dests[3][0], json["pages"][1]["object"]);
+            let info = objects["trailer"]["value"]["/Info"].as_str().unwrap();
+            assert_eq!(
+                objects[format!("obj:{info}")]["value"]["/EVBScanCleanup"],
+                "u:54455354"
+            );
+            let check = Command::new(qpdf_path())
+                .arg("--check")
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                check.status.success(),
+                "{}",
+                String::from_utf8_lossy(&check.stderr)
+            );
+            for file in [input, raster, primary, assembled, output, instructions] {
                 let _ = remove_file(file);
             }
         }

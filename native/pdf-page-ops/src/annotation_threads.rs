@@ -126,7 +126,7 @@ pub(crate) fn transform_split_annotations(
             view: output.crop,
             rotation: resolve_page_rotation(source, output.source_id)?,
         };
-        crate::link_rebinding::place_split_copy(
+        crate::split_navigation::place_split_copy(
             target,
             &mut annotation,
             source,

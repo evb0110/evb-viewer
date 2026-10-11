@@ -248,6 +248,14 @@ async function setup() {
 // These conversion controls are rasters; the native read must not write an
 // assembler output or invent positioned source text on their refused pages.
 async function rasterSourceInspectionResult(args: readonly string[]) {
+    if (args[0] === 'overlay-text') {
+        await writeFile(args[args.indexOf('--output') + 1]!, await readFile(args[args.indexOf('--input') + 1]!));
+        return {
+            exitCode: 0,
+            stderr: '',
+            stdout: '',
+        };
+    }
     if (args[0] === '--empty') {
         await writeFile(args.at(-1)!, await readFile(args[args.indexOf('--pages') + 1]!));
         return {
@@ -818,7 +826,10 @@ describe('scan cleanup pipeline', () => {
         expect(await readFile(raster, 'utf8')).toBe('unpublished raster');
     });
 
-    it('saves the overlay output for an all-preserved plan so its retained links are rebound', async () => {
+    it.each([
+        false,
+        true,
+    ])('saves the final catalog map when all pages are link-only (unmapped=%s)', async (unmappedGeometry) => {
         const fixture = await setup();
         const staged = join(fixture.dir, 'staged.pdf');
         await writeFile(staged, 'assembled without overlay');
@@ -843,6 +854,7 @@ describe('scan cleanup pipeline', () => {
                 0,
             ],
             linkOnly: true,
+            unmappedGeometry,
         }], pipelinePaths(fixture.dir), fixture.sourcePdfPath, staged, fixture.dir,
         new AbortController().signal, vi.fn(), deps);
         expect(await readFile(staged, 'utf8')).toBe('overlaid');

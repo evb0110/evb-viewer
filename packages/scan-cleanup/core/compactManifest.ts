@@ -64,7 +64,7 @@ export interface IScanCleanupPageOpsInstruction {
 
 export interface IScanCleanupPageOpsInstructionEnvelope {
     provenanceStampHex?: string;
-    /** `assembly` writes only the page tree and page labels; omitted, the split keeps the source catalog. */
+    /** `assembly` carries navigation, labels and page dependencies; omitted, the split keeps the source catalog. */
     catalog?: 'assembly';
     pages: IScanCleanupPageOpsInstruction[];
 }
