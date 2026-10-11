@@ -22,6 +22,8 @@ import {
     SCAN_CLEANUP_SETTINGS_SCHEMA_VERSION,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
 import type {IScanCleanupPageOverride} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {createRequestId} from '@contracts/shared';
+import type {IScanCleanupSettingsChange} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 
 const temporaryDirectories: string[] = [];
@@ -76,7 +78,9 @@ describe('file-backed scan-cleanup settings store', () => {
     it('publishes durable global commits in owner order while replies are delayed', async () => {
         const filePath = await createStoreFile();
         await writeFile(filePath, JSON.stringify(createDefaultScanCleanupSettingsFile()), 'utf8');
-        const published: string[] = [];
+        const published: IScanCleanupSettingsChange[] = [];
+        const firstId = createRequestId();
+        const secondId = createRequestId();
         let replacementStarted!: () => void;
         let releaseReplacement!: () => void;
         let releaseReply!: () => void;
@@ -85,19 +89,25 @@ describe('file-backed scan-cleanup settings store', () => {
         const reply = new Promise<void>(resolve => { releaseReply = resolve; });
         const store = createScanCleanupSettingsStore({
             filePath,
-            onSettingsChanged: settings => { published.push(settings.readingOrder); },
+            onSettingsChanged: change => { published.push(change); },
             replace: async (source, target) => {
                 replacementStarted();
                 await replacement;
                 await rename(source, target);
             },
         });
-        const olderReply = store.update({settingsPatch: {readingOrder: 'rtl'}}).then(async result => {
+        const olderReply = store.update(decodeScanCleanupSettingsUpdateRequest({
+            settingsPatch: {readingOrder: 'rtl'},
+            requestId: firstId,
+        })).then(async result => {
             await reply;
             return result;
         });
         await started;
-        const newerReply = store.update({settingsPatch: {readingOrder: 'ltr'}});
+        const newerReply = store.update(decodeScanCleanupSettingsUpdateRequest({
+            settingsPatch: {readingOrder: 'ltr'},
+            requestId: secondId,
+        }));
         const latestRead = store.get();
         expect(published).toEqual([]);
         releaseReplacement();
@@ -106,14 +116,61 @@ describe('file-backed scan-cleanup settings store', () => {
         releaseReply();
         const older = await olderReply;
 
-        expect(published).toEqual([
-            'rtl',
-            'ltr',
+        expect(published.map(change => [
+            change.settings.readingOrder,
+            change.requestId,
+        ])).toEqual([
+            [
+                'rtl',
+                firstId,
+            ],
+            [
+                'ltr',
+                secondId,
+            ],
         ]);
         expect(older.settings.readingOrder).toBe('rtl');
         expect(newer.settings.readingOrder).toBe('ltr');
         expect(latest.settings.readingOrder).toBe('ltr');
         expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('ltr');
+        expect(JSON.parse(await readFile(filePath, 'utf8'))).not.toHaveProperty('requestId');
+    });
+
+    it('publishes no acknowledgement for a failed write and acknowledges the successful retry', async () => {
+        const filePath = await createStoreFile();
+        await writeFile(filePath, JSON.stringify(createDefaultScanCleanupSettingsFile()), 'utf8');
+        const published: IScanCleanupSettingsChange[] = [];
+        let fail = true;
+        const store = createScanCleanupSettingsStore({
+            filePath,
+            onSettingsChanged: change => { published.push(change); },
+            replace: async (source, target) => {
+                if (fail) throw new Error('disk replacement failure');
+                await rename(source, target);
+            },
+        });
+        const failedId = createRequestId();
+        await expect(store.update(decodeScanCleanupSettingsUpdateRequest({
+            settingsPatch: {readingOrder: 'rtl'},
+            requestId: failedId,
+        })))
+            .rejects.toThrow('disk replacement failure');
+        expect(published).toEqual([]);
+        expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('ltr');
+        fail = false;
+        const retryId = createRequestId();
+        await store.update(decodeScanCleanupSettingsUpdateRequest({
+            settingsPatch: {readingOrder: 'rtl'},
+            requestId: retryId,
+        }));
+        expect(published.map(change => [
+            change.settings.readingOrder,
+            change.requestId,
+        ])).toEqual([[
+            'rtl',
+            retryId,
+        ]]);
+        expect(JSON.parse(await readFile(filePath, 'utf8')).settings.readingOrder).toBe('rtl');
     });
 
     it('quarantines malformed JSON, preserves its bytes, and atomically writes defaults', async () => {

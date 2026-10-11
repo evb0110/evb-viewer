@@ -1,3 +1,6 @@
+import {
+    requireRequestId, type TRequestId,
+} from '@contracts/shared';
 import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
 import {SCAN_CLEANUP_MARGIN_MAX_MM} from '@contracts/scan-cleanup/geometry';
 import type {
@@ -155,7 +158,13 @@ export interface IScanCleanupDocumentPreferencePatch {
 
 export type IScanCleanupGlobalPreferencePatch = Partial<IScanCleanupGlobalPreferences>;
 
+export interface IScanCleanupSettingsChange {
+    settings: IScanCleanupGlobalPreferences;
+    requestId?: TRequestId;
+}
+
 export interface IScanCleanupSettingsUpdateRequest {
+    requestId?: TRequestId;
     settings?: IScanCleanupGlobalPreferences;
     settingsPatch?: IScanCleanupGlobalPreferencePatch;
     document?: {
@@ -268,8 +277,10 @@ export function decodeScanCleanupSettingsUpdateRequest(value: unknown): IScanCle
     if (settings !== undefined && settingsPatch !== undefined) {
         throw new Error('Scan-cleanup settings and settingsPatch cannot be supplied together');
     }
+    const requestId = stored.requestId === undefined ? undefined : requireRequestId(stored.requestId);
     if (stored.document === undefined) {
         return {
+            ...(requestId === undefined ? {} : {requestId}),
             ...(settings === undefined ? {} : {settings}),
             ...(settingsPatch === undefined ? {} : {settingsPatch}),
         };
@@ -286,6 +297,7 @@ export function decodeScanCleanupSettingsUpdateRequest(value: unknown): IScanCle
         ? undefined
         : decodeNullablePath(documentValue.legacyDocumentKey, 'legacy document key');
     return {
+        ...(requestId === undefined ? {} : {requestId}),
         ...(settings === undefined ? {} : {settings}),
         ...(settingsPatch === undefined ? {} : {settingsPatch}),
         document: {

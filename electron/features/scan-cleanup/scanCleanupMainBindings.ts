@@ -11,7 +11,7 @@ import {
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
 import {
     SCAN_CLEANUP_SETTINGS_FILE_NAME,
-    type IScanCleanupGlobalPreferences,
+    type IScanCleanupSettingsChange,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     defaultDependencies,
@@ -35,12 +35,12 @@ const settingsLogger = createLogger('scan-cleanup-settings');
 
 // A committed global write reaches every trusted window, the writer's included.
 // Each renderer store rebases the fields it has no pending local edit for.
-function broadcastGlobalPreferences(settings: IScanCleanupGlobalPreferences) {
+function broadcastGlobalPreferences(change: IScanCleanupSettingsChange) {
     for (const window of BrowserWindow.getAllWindows()) {
         sendPlatformEvent<IScanCleanupEventMap, 'scan-cleanup:settings:changed'>(
             window,
             SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onSettingsChanged,
-            settings,
+            change,
             error => settingsLogger.debug(`Failed to send scan-cleanup settings change: ${String(error)}`),
         );
     }

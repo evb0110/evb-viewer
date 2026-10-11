@@ -1,3 +1,6 @@
+import {
+    createRequestId, type TRequestId,
+} from '@contracts/shared';
 import type {
     IScanCleanupMarginsMm,
     IScanCleanupPageOverride,
@@ -56,14 +59,15 @@ let preferencesHydrated = false;
 let preferencesHydrationPromise: Promise<void> | null = null;
 let remoteSettingsFile: IScanCleanupSettingsFile | null = null;
 let remoteWriteQueue = Promise.resolve();
-let pendingRemoteGlobalUpdate: IScanCleanupSettingsUpdateRequest | null = null;
-let pendingRemoteGlobalWrite: Promise<void> | null = null;
-let pendingRemoteGlobalWriteSettledFailure = false;
-let pendingRemoteGlobalRevision = 0;
+interface IPendingGlobalWrite {
+    request: IScanCleanupSettingsUpdateRequest;
+    acknowledge: () => void;
+    promise: Promise<void>;
+}
+let pendingRemoteGlobalWrite: IPendingGlobalWrite | null = null;
 let persistenceRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let persistenceRetryAttempt = 0;
 let persistedBrowserPreferences: IScanCleanupGlobalPreferences | null = null;
-let pendingPreferencesRevision = 0;
 let migrationContext: IScanCleanupPreferencesStoreOptions = {};
 let applyingRemotePreferences = false;
 let acknowledgedPreferences: IScanCleanupGlobalPreferences | null = null;
@@ -258,7 +262,7 @@ function schedulePersistenceRetry() {
         || (
             pendingDocumentUpdates.size === 0
             && pendingLegacyDocumentUpdates.size === 0
-            && pendingRemoteGlobalUpdate === null
+            && pendingRemoteGlobalWrite === null
             && pendingPreferences === null
         )
     ) {
@@ -308,18 +312,24 @@ function schedulePersistenceRetry() {
             }
             void queueRemoteUpdate(pending.request, pending.token, pending.version).catch(() => undefined);
         }
-        const pendingGlobalRequest = pendingRemoteGlobalUpdate;
-        if (pendingGlobalRequest && pendingRemoteGlobalRevision === pendingPreferencesRevision) {
-            void queueRemoteUpdate(pendingGlobalRequest, undefined, undefined, pendingRemoteGlobalRevision).catch(() => undefined);
-        } else if (pendingPreferences) {
-            void flushScanCleanupPreferencesStore().catch(() => undefined);
-        }
+        if (pendingPreferences) void flushScanCleanupPreferencesStore().catch(() => undefined);
     }, delayMs);
 }
 
-// A committed global write, ours or another renderer's, becomes the acknowledged
-// value. A field with a pending local edit keeps that edit until its own write.
-async function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPreferences) {
+// Only the ordered stream acknowledges a global write; invoke replies carry no intent outcome.
+function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPreferences, requestId?: TRequestId) {
+    if (requestId !== undefined && requestId === pendingRemoteGlobalWrite?.request.requestId) {
+        for (const [
+            key,
+            intent,
+        ] of pendingGlobalFields) {
+            if (isEqual(intent, pendingRemoteGlobalWrite.request.settingsPatch?.[key]) || isEqual(intent, settings[key])) {
+                pendingGlobalFields.delete(key);
+            }
+        }
+        pendingRemoteGlobalWrite.acknowledge();
+        pendingPreferences = pendingGlobalFields.size === 0 ? null : pendingPreferences;
+    }
     acknowledgedPreferences = cloneScanCleanupPreferenceValue(settings);
     if (!preferences) {
         return;
@@ -330,7 +340,6 @@ async function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPrefe
             preferences[key] = cloneScanCleanupPreferenceValue(settings[key]) as never;
         }
     }
-    await nextTick();
     applyingRemotePreferences = false;
     observedPreferences = cloneScanCleanupPreferenceValue(preferences);
 }
@@ -339,15 +348,11 @@ function queueRemoteUpdate(
     request: IScanCleanupSettingsUpdateRequest,
     documentToken?: IScanCleanupDocumentPersistenceToken,
     documentVersion?: number,
-    preferencesRevision = pendingPreferencesRevision,
 ): Promise<void> {
     const isGlobalPreferencesWrite = 'settingsPatch' in request;
     const documentKey = isGlobalPreferencesWrite ? null : documentUpdateKey(request);
-    if (isGlobalPreferencesWrite) {
-        pendingRemoteGlobalUpdate = request;
-        pendingRemoteGlobalRevision = preferencesRevision;
-        pendingRemoteGlobalWriteSettledFailure = false;
-    } else if (documentKey !== null && documentToken && documentVersion !== undefined) {
+    const ownerCommit = isGlobalPreferencesWrite ? Promise.withResolvers<undefined>() : null;
+    if (documentKey !== null && documentToken && documentVersion !== undefined) {
         pendingDocumentUpdates.set(documentKey, {
             request,
             token: documentToken,
@@ -368,21 +373,7 @@ function queueRemoteUpdate(
         }
         const result = await updateSettings(request);
         remoteSettingsFile = result;
-        if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
-            pendingRemoteGlobalUpdate = null;
-            pendingRemoteGlobalRevision = 0;
-            for (const [
-                key,
-                intent,
-            ] of pendingGlobalFields) {
-                const sentValue = request.settingsPatch?.[key];
-                if (isEqual(intent, sentValue) || isEqual(intent, acknowledgedPreferences?.[key])) pendingGlobalFields.delete(key);
-            }
-            // Replies acknowledge our patch; only the ordered owner stream supplies
-            // the committed baseline, which may already include a later window edit.
-            await applyCommittedGlobalPreferences(acknowledgedPreferences!);
-            pendingPreferences = pendingGlobalFields.size === 0 ? null : cloneScanCleanupPreferenceValue(preferences!);
-        }
+        await ownerCommit?.promise;
         committed = true;
     });
     remoteWriteQueue = queuedWrite.then(() => undefined, () => undefined);
@@ -394,14 +385,18 @@ function queueRemoteUpdate(
             }
         }
         BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
-        if (isGlobalPreferencesWrite && pendingRemoteGlobalUpdate === queuedRequest) {
-            pendingRemoteGlobalWriteSettledFailure = true;
+        if (pendingRemoteGlobalWrite?.request === queuedRequest) {
+            pendingRemoteGlobalWrite = null;
         }
         schedulePersistenceRetry();
         throw error;
     });
-    if (isGlobalPreferencesWrite) {
-        pendingRemoteGlobalWrite = observedWrite;
+    if (ownerCommit) {
+        pendingRemoteGlobalWrite = {
+            request,
+            acknowledge: () => { ownerCommit.resolve(undefined); },
+            promise: observedWrite,
+        };
     } else if (documentKey !== null) {
         const pending = pendingDocumentUpdates.get(documentKey);
         if (pending?.request === queuedRequest && pending.version === documentVersion) {
@@ -416,7 +411,7 @@ function queueRemoteUpdate(
             persistenceRetryAttempt = 0;
         }
         if (isGlobalPreferencesWrite) {
-            if (pendingRemoteGlobalWrite === observedWrite) pendingRemoteGlobalWrite = null;
+            if (pendingRemoteGlobalWrite?.promise === observedWrite) pendingRemoteGlobalWrite = null;
             return;
         }
         if (documentKey !== null) {
@@ -448,7 +443,7 @@ async function hydratePreferences() {
         ));
         remoteSettingsFile = result;
         // The initial read seeds the projection only until the owner stream arrives.
-        await applyCommittedGlobalPreferences(acknowledgedPreferences ?? result.settings);
+        applyCommittedGlobalPreferences(acknowledgedPreferences ?? result.settings);
         const hydratedSourceSha256 = isScanCleanupSourceSha256(requestContext.sourceSha256)
             ? requestContext.sourceSha256.toLowerCase()
             : null;
@@ -477,9 +472,6 @@ function scheduleScanCleanupPreferencesPersistence(value: IScanCleanupGlobalPref
     const previous = observedPreferences ?? cloneScanCleanupPreferenceValue(value);
     const changedKeys = (Object.keys(value) as Array<keyof IScanCleanupGlobalPreferences>)
         .filter(key => !isEqual(previous[key], value[key]));
-    if (changedKeys.length > 0) {
-        pendingPreferencesRevision += 1;
-    }
     for (const key of changedKeys) {
         pendingGlobalFields.set(key, cloneScanCleanupPreferenceValue(value[key]));
     }
@@ -523,7 +515,7 @@ export async function flushScanCleanupPreferencesStore(): Promise<void> {
         return;
     }
 
-    for (;;) {
+    while (preferences) {
         const pending = pendingPreferences;
         if (!preferencesHydrated) {
             await whenScanCleanupPreferencesReady();
@@ -548,17 +540,13 @@ export async function flushScanCleanupPreferencesStore(): Promise<void> {
             pendingPreferences = null;
             return;
         }
-        const request: IScanCleanupSettingsUpdateRequest = {settingsPatch};
-        if (
-            pendingRemoteGlobalUpdate
-            && pendingRemoteGlobalRevision === pendingPreferencesRevision
-            && isEqual(pendingRemoteGlobalUpdate, request)
-            && pendingRemoteGlobalWrite !== null
-            && !pendingRemoteGlobalWriteSettledFailure
-        ) {
-            await pendingRemoteGlobalWrite;
+        if (pendingRemoteGlobalWrite !== null) {
+            await pendingRemoteGlobalWrite.promise;
         } else {
-            await queueRemoteUpdate(request);
+            await queueRemoteUpdate({
+                settingsPatch,
+                requestId: createRequestId('scan-cleanup-settings'),
+            });
         }
     }
 }
@@ -605,12 +593,15 @@ export function getScanCleanupPreferencesStore(options?: IScanCleanupPreferences
     persistenceScope.run(() => {
         watch(sharedPreferences, value => {
             scheduleScanCleanupPreferencesPersistence(value);
-        }, {deep: true});
+        }, {
+            deep: true,
+            flush: 'sync',
+        });
     });
     registerLifecycleListeners();
     if (desktopStore) {
-        unsubscribeCommittedGlobalPreferences = currentScanCleanupCapability().onSettingsChanged(settings => {
-            void applyCommittedGlobalPreferences(settings);
+        unsubscribeCommittedGlobalPreferences = currentScanCleanupCapability().onSettingsChanged(change => {
+            applyCommittedGlobalPreferences(change.settings, change.requestId);
         });
     }
     return preferences;
@@ -631,10 +622,6 @@ export function retryScanCleanupPreferences(): Promise<void> {
         if (persistenceRetryTimer !== null) {
             clearTimeout(persistenceRetryTimer);
             persistenceRetryTimer = null;
-        }
-        if (pendingRemoteGlobalWriteSettledFailure) {
-            pendingRemoteGlobalWrite = null;
-            pendingRemoteGlobalWriteSettledFailure = false;
         }
         await flushScanCleanupDocumentPreferencesStore();
         await flushScanCleanupPreferencesStore();
@@ -880,7 +867,9 @@ export function dismissScanCleanupFirstRunGuidanceInStore() {
 
 /** Re-loads the singleton on its next access. Primarily useful for isolated tests. */
 export function resetScanCleanupPreferencesStore() {
-    void flushScanCleanupPreferencesStore().catch(() => undefined);
+    pendingPreferences = null;
+    if (persistenceTimer !== null) clearTimeout(persistenceTimer);
+    persistenceTimer = null;
     persistenceScope?.stop();
     persistenceScope = null;
     unregisterLifecycleListeners();
@@ -894,10 +883,8 @@ export function resetScanCleanupPreferencesStore() {
     pendingDocumentUpdates.clear();
     pendingLegacyDocumentUpdates.clear();
     pendingGlobalFields.clear();
-    pendingRemoteGlobalUpdate = null;
+    pendingRemoteGlobalWrite?.acknowledge();
     pendingRemoteGlobalWrite = null;
-    pendingRemoteGlobalWriteSettledFailure = false;
-    pendingRemoteGlobalRevision = 0;
     persistenceRetryAttempt = 0;
     if (persistenceRetryTimer !== null) {
         clearTimeout(persistenceRetryTimer);
@@ -906,7 +893,6 @@ export function resetScanCleanupPreferencesStore() {
     acknowledgedPreferences = null;
     observedPreferences = null;
     persistedBrowserPreferences = null;
-    pendingPreferencesRevision = 0;
     nextDocumentUpdateVersion = 0;
     if (documentPersistenceTimer !== null) {
         clearTimeout(documentPersistenceTimer);

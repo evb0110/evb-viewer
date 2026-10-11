@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import {
-    mkdir, mkdtemp, readFile, rm,
+    mkdir, mkdtemp, readFile, rename, rm,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {
@@ -20,12 +20,13 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import type * as preferencesStoreModule from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     createDefaultScanCleanupSettingsFile,
-    type IScanCleanupGlobalPreferences,
+    type IScanCleanupSettingsChange,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {
@@ -52,13 +53,13 @@ const capability = vi.hoisted(() => ({value: {
     onSettingsChanged: vi.fn(),
 }}));
 const temporaryDirectories: string[] = [];
-const settingsSubscribers = new Set<(settings: IScanCleanupGlobalPreferences) => void>();
+const settingsSubscribers = new Set<(settings: IScanCleanupSettingsChange) => void>();
 
-function broadcastSettings(settings: IScanCleanupGlobalPreferences) {
+function broadcastSettings(settings: IScanCleanupSettingsChange) {
     for (const subscriber of settingsSubscribers) subscriber(settings);
 }
 
-async function createDurableSettingsStore() {
+async function createDurableSettingsStore(onSettingsChanged = broadcastSettings, replace = rename) {
     await mkdir(join(process.cwd(), '.devkit'), {recursive: true});
     const directory = await mkdtemp(join(process.cwd(), '.devkit', 'p8-settings-'));
     temporaryDirectories.push(directory);
@@ -67,7 +68,8 @@ async function createDurableSettingsStore() {
         filePath,
         store: createScanCleanupSettingsStore({
             filePath,
-            onSettingsChanged: broadcastSettings,
+            onSettingsChanged,
+            replace,
         }),
     };
 }
@@ -92,11 +94,14 @@ describe('scan cleanup renderer preference store', () => {
         capability.value.updateSettings.mockImplementation(async request => {
             const result = createDefaultScanCleanupSettingsFile();
             Object.assign(result.settings, request.settingsPatch);
-            if (request.settingsPatch !== undefined) broadcastSettings(result.settings);
+            if (request.settingsPatch !== undefined) broadcastSettings({
+                settings: result.settings,
+                requestId: request.requestId,
+            });
             return result;
         });
         settingsSubscribers.clear();
-        capability.value.onSettingsChanged.mockImplementation((subscriber: (settings: IScanCleanupGlobalPreferences) => void) => {
+        capability.value.onSettingsChanged.mockImplementation((subscriber: (settings: IScanCleanupSettingsChange) => void) => {
             settingsSubscribers.add(subscriber);
             return () => { settingsSubscribers.delete(subscriber); };
         });
@@ -1182,36 +1187,6 @@ describe('scan cleanup renderer preference store', () => {
         }
     });
 
-    it('does not enqueue a pending global snapshot equal to the latest main-process value', async () => {
-        const remote = createDefaultScanCleanupSettingsFile();
-        getScanCleanupPreferencesStore();
-        await whenScanCleanupPreferencesReady();
-        capability.value.updateSettings.mockResolvedValue(remote);
-        const preferences = getScanCleanupPreferencesStore();
-        preferences.readingOrder = 'rtl';
-        remote.settings.readingOrder = 'rtl';
-        await nextTick();
-
-        await saveScanCleanupDocumentPreferencesInStore(
-            'f'.repeat(64),
-            '/documents/remote-snapshot.pdf',
-            {outputMode: 'color'},
-        );
-        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({document: {
-            sourceSha256: 'f'.repeat(64),
-            legacyDocumentKey: '/documents/remote-snapshot.pdf',
-            patch: {outputMode: 'color'},
-        }}));
-        await Promise.resolve();
-        await flushScanCleanupPreferencesStore();
-        await Promise.resolve();
-
-        const settingsUpdates = capability.value.updateSettings.mock.calls
-            .map(([request]) => request)
-            .filter(request => request.settings !== undefined);
-        expect(settingsUpdates).toEqual([]);
-    });
-
     it('sends only changed global fields so concurrent clients can merge them', async () => {
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
@@ -1219,7 +1194,10 @@ describe('scan cleanup renderer preference store', () => {
         preferences.readingOrder = 'rtl';
         await nextTick();
         await flushScanCleanupPreferencesStore();
-        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({settingsPatch: {readingOrder: 'rtl'}}));
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({
+            settingsPatch: {readingOrder: 'rtl'},
+            requestId: expect.any(String),
+        }));
     });
 
     it('rebases a later global edit without replaying an acknowledged field', async () => {
@@ -1228,7 +1206,10 @@ describe('scan cleanup renderer preference store', () => {
         capability.value.updateSettings.mockImplementation(async (request) => {
             if ('settingsPatch' in request) {
                 Object.assign(durable.settings, request.settingsPatch);
-                broadcastSettings(durable.settings);
+                broadcastSettings({
+                    settings: structuredClone(durable.settings),
+                    requestId: request.requestId,
+                });
             }
             return structuredClone(durable);
         });
@@ -1246,8 +1227,14 @@ describe('scan cleanup renderer preference store', () => {
         await flushScanCleanupPreferencesStore();
 
         expect(capability.value.updateSettings.mock.calls.map(([request]) => request)).toEqual([
-            {settingsPatch: {readingOrder: 'rtl'}},
-            {settingsPatch: {binarization: 'sauvola'}},
+            {
+                settingsPatch: {readingOrder: 'rtl'},
+                requestId: expect.any(String),
+            },
+            {
+                settingsPatch: {binarization: 'sauvola'},
+                requestId: expect.any(String),
+            },
         ]);
         expect(durable.settings.readingOrder).toBe('rtl');
         expect(durable.settings.binarization).toBe('sauvola');
@@ -1266,7 +1253,10 @@ describe('scan cleanup renderer preference store', () => {
                     await firstWrite;
                 }
                 Object.assign(durable.settings, request.settingsPatch);
-                broadcastSettings(durable.settings);
+                broadcastSettings({
+                    settings: structuredClone(durable.settings),
+                    requestId: request.requestId,
+                });
             }
             return structuredClone(durable);
         });
@@ -1300,7 +1290,10 @@ describe('scan cleanup renderer preference store', () => {
         capability.value.updateSettings.mockImplementation(async request => {
             if ('settingsPatch' in request) {
                 Object.assign(durable.settings, request.settingsPatch);
-                broadcastSettings(durable.settings);
+                broadcastSettings({
+                    settings: structuredClone(durable.settings),
+                    requestId: request.requestId,
+                });
             }
             return structuredClone(durable);
         });
@@ -1316,7 +1309,10 @@ describe('scan cleanup renderer preference store', () => {
         resolveHydration(structuredClone(durable));
         await closeFlush;
 
-        expect(capability.value.updateSettings).toHaveBeenCalledWith({settingsPatch: {binarization: 'sauvola'}});
+        expect(capability.value.updateSettings).toHaveBeenCalledWith({
+            settingsPatch: {binarization: 'sauvola'},
+            requestId: expect.any(String),
+        });
         expect(durable.settings.binarization).toBe('sauvola');
     });
 
@@ -1407,7 +1403,10 @@ describe('scan cleanup renderer preference store', () => {
         await expect(flushScanCleanupPreferencesStore()).rejects.toThrow('temporary failure');
         await retryScanCleanupPreferences();
         expect(capability.value.updateSettings).toHaveBeenCalledTimes(2);
-        expect(capability.value.updateSettings).toHaveBeenLastCalledWith({settingsPatch: {readingOrder: 'rtl'}});
+        expect(capability.value.updateSettings).toHaveBeenLastCalledWith({
+            settingsPatch: {readingOrder: 'rtl'},
+            requestId: expect.any(String),
+        });
     });
 
     it('drains failed document A after document B succeeds', async () => {
@@ -1527,7 +1526,10 @@ describe('scan cleanup renderer preference store', () => {
         preferences.readingOrder = 'rtl';
         await retryScanCleanupPreferences();
 
-        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({settingsPatch: {readingOrder: 'rtl'}}));
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({
+            settingsPatch: {readingOrder: 'rtl'},
+            requestId: expect.any(String),
+        }));
         consoleError.mockRestore();
     });
 
@@ -1571,5 +1573,340 @@ describe('scan cleanup renderer preference store', () => {
             legacyDocumentKey: documentKey,
             patch: {resetOverrides: true},
         }}]);
+    });
+});
+
+
+// The owner commits real JSON; only the two independent IPC delivery paths are held.
+describe.each([
+    'event-before-reply',
+    'reply-before-event',
+] as const)('ordered owner delivery: %s', order => {
+    const renderers: Array<typeof preferencesStoreModule> = [];
+    let held: Array<Parameters<typeof broadcastSettings>[0]>;
+
+    async function renderer(wait = true) {
+        vi.resetModules();
+        const module = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        renderers.push(module);
+        const preferences = module.getScanCleanupPreferencesStore();
+        if (wait) await module.whenScanCleanupPreferencesReady();
+        return {
+            module,
+            preferences,
+        };
+    }
+
+    function gate() {
+        let release!: () => void;
+        const promise = new Promise<void>(resolve => { release = resolve; });
+        return {
+            promise,
+            release,
+        };
+    }
+
+    async function owner(replace = rename) {
+        const main = await createDurableSettingsStore(event => {
+            if (order === 'reply-before-event') held.push(event);
+            else broadcastSettings(event);
+        }, replace);
+        connectMainProcessSettings(main.store);
+        return main;
+    }
+
+    async function settle(flush: Promise<unknown>) {
+        if (order === 'event-before-reply') return flush;
+        let settled = false;
+        void flush.finally(() => { settled = true; }).catch(() => undefined);
+        while (!settled || held.length > 0) {
+            await vi.waitFor(() => expect(settled || held.length > 0).toBe(true));
+            for (const event of held.splice(0)) broadcastSettings(event);
+            await nextTick();
+        }
+        return flush;
+    }
+
+    async function beforeEvent(flush: Promise<unknown>) {
+        if (order === 'event-before-reply') await flush;
+        else await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
+    }
+
+    beforeEach(() => {
+        held = [];
+        settingsSubscribers.clear();
+        capability.value.onSettingsChanged.mockImplementation(subscriber => {
+            settingsSubscribers.add(subscriber);
+            return () => { settingsSubscribers.delete(subscriber); };
+        });
+    });
+
+    afterEach(async () => {
+        for (const module of renderers.splice(0)) module.resetScanCleanupPreferencesStore();
+        settingsSubscribers.clear();
+        await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
+            recursive: true,
+            force: true,
+        })));
+        vi.restoreAllMocks();
+        vi.clearAllMocks();
+        localStorage.clear();
+    });
+
+    it('keeps accepted controls until and after the owner event', async () => {
+        const main = await owner();
+        const a = await renderer();
+        a.preferences.readingOrder = 'rtl';
+        await nextTick();
+        const flush = a.module.flushScanCleanupPreferencesStore();
+        await beforeEvent(flush);
+        const before = a.preferences.readingOrder;
+        await settle(flush);
+        expect({
+            beforeEvent: before,
+            afterEvent: a.preferences.readingOrder,
+            durable: (await main.store.get()).settings.readingOrder,
+        })
+            .toEqual({
+                beforeEvent: 'rtl',
+                afterEvent: 'rtl',
+                durable: 'rtl',
+            });
+    });
+
+    it('keeps an in-flight revert through the owner event', async () => {
+        const main = await owner();
+        const baseUpdate = capability.value.updateSettings.getMockImplementation()!;
+        const started = gate();
+        const release = gate();
+        capability.value.updateSettings.mockImplementationOnce(async request => {
+            started.release();
+            await release.promise;
+            return baseUpdate(request);
+        });
+        const a = await renderer();
+        a.preferences.readingOrder = 'rtl';
+        await nextTick();
+        const flush = a.module.flushScanCleanupPreferencesStore();
+        await started.promise;
+        a.preferences.readingOrder = 'ltr';
+        await nextTick();
+        release.release();
+        await beforeEvent(flush);
+        const before = a.preferences.readingOrder;
+        await settle(flush);
+        await a.module.flushScanCleanupPreferencesStore();
+        expect({
+            beforeEvent: before,
+            rendered: a.preferences.readingOrder,
+            durable: (await main.store.get()).settings.readingOrder,
+        })
+            .toEqual({
+                beforeEvent: 'ltr',
+                rendered: 'ltr',
+                durable: 'ltr',
+            });
+    });
+
+    it('hydrates a new renderer after another renderer commits', async () => {
+        const main = await owner();
+        const a = await renderer();
+        a.preferences.readingOrder = 'rtl';
+        await nextTick();
+        const flush = a.module.flushScanCleanupPreferencesStore();
+        await beforeEvent(flush);
+        const b = await renderer();
+        await settle(flush);
+        expect([
+            a.preferences.readingOrder,
+            b.preferences.readingOrder,
+            (await main.store.get()).settings.readingOrder,
+        ])
+            .toEqual([
+                'rtl',
+                'rtl',
+                'rtl',
+            ]);
+    });
+
+    it('hydrates a replacement renderer behind an outstanding durable write', async () => {
+        const started = gate();
+        const release = gate();
+        let hold = false;
+        const main = await owner(async (source, target) => {
+            if (hold) {
+                started.release();
+                await release.promise;
+            }
+            await rename(source, target);
+        });
+        const a = await renderer();
+        hold = true;
+        a.preferences.readingOrder = 'rtl';
+        await nextTick();
+        const flush = a.module.flushScanCleanupPreferencesStore();
+        await started.promise;
+        settingsSubscribers.clear();
+        a.module.resetScanCleanupPreferencesStore();
+        const b = await renderer(false);
+        release.release();
+        await flush;
+        await b.module.whenScanCleanupPreferencesReady();
+        await settle(Promise.resolve());
+        expect([
+            b.preferences.readingOrder,
+            (await main.store.get()).settings.readingOrder,
+        ]).toEqual([
+            'rtl',
+            'rtl',
+        ]);
+    });
+
+    it('merges simultaneous sparse edits from two windows', async () => {
+        const main = await owner();
+        const a = await renderer();
+        const b = await renderer();
+        a.preferences.readingOrder = 'rtl';
+        b.preferences.thickness = 3;
+        await nextTick();
+        const flush = Promise.all([
+            a.module.flushScanCleanupPreferencesStore(),
+            b.module.flushScanCleanupPreferencesStore(),
+        ]);
+        await beforeEvent(flush);
+        const before = [
+            a.preferences.readingOrder,
+            b.preferences.thickness,
+        ];
+        await settle(flush);
+        const disk = JSON.parse(await readFile(main.filePath, 'utf8')).settings;
+        expect(before).toEqual([
+            'rtl',
+            3,
+        ]);
+        expect([
+            a.preferences.readingOrder,
+            a.preferences.thickness,
+            b.preferences.readingOrder,
+            b.preferences.thickness,
+            disk.readingOrder,
+            disk.thickness,
+        ])
+            .toEqual([
+                'rtl',
+                3,
+                'rtl',
+                3,
+                'rtl',
+                3,
+            ]);
+    });
+
+    it('keeps a revert when another window publishes matching values first', async () => {
+        const main = await owner();
+        const a = await renderer();
+        const b = await renderer();
+        const baseUpdate = capability.value.updateSettings.getMockImplementation()!;
+        const started = gate();
+        const release = gate();
+        capability.value.updateSettings.mockImplementationOnce(async request => {
+            started.release();
+            await release.promise;
+            return baseUpdate(request);
+        });
+        a.preferences.readingOrder = 'rtl';
+        await nextTick();
+        const flush = a.module.flushScanCleanupPreferencesStore();
+        await started.promise;
+        a.preferences.readingOrder = 'ltr';
+        b.preferences.readingOrder = 'rtl';
+        await nextTick();
+        await settle(b.module.flushScanCleanupPreferencesStore());
+        b.preferences.readingOrder = 'ltr';
+        await nextTick();
+        await settle(b.module.flushScanCleanupPreferencesStore());
+        release.release();
+        await settle(flush);
+        await a.module.flushScanCleanupPreferencesStore();
+        expect([
+            a.preferences.readingOrder,
+            b.preferences.readingOrder,
+            (await main.store.get()).settings.readingOrder,
+        ])
+            .toEqual([
+                'ltr',
+                'ltr',
+                'ltr',
+            ]);
+    });
+
+    it('keeps a later window commit when an older writer reply arrives', async () => {
+        const main = await owner();
+        const a = await renderer();
+        const b = await renderer();
+        const baseUpdate = capability.value.updateSettings.getMockImplementation()!;
+        const committed = gate();
+        const release = gate();
+        capability.value.updateSettings.mockImplementationOnce(async request => {
+            const result = await baseUpdate(request);
+            committed.release();
+            await release.promise;
+            return result;
+        });
+        a.preferences.readingOrder = 'rtl';
+        await nextTick();
+        const flush = a.module.flushScanCleanupPreferencesStore();
+        await committed.promise;
+        if (held.length > 0) broadcastSettings(held.shift()!);
+        await nextTick();
+        b.preferences.readingOrder = 'ltr';
+        await nextTick();
+        const newerFlush = b.module.flushScanCleanupPreferencesStore();
+        await beforeEvent(newerFlush);
+        release.release();
+        await settle(Promise.all([
+            flush,
+            newerFlush,
+        ]));
+        expect([
+            a.preferences.readingOrder,
+            b.preferences.readingOrder,
+            (await main.store.get()).settings.readingOrder,
+        ])
+            .toEqual([
+                'ltr',
+                'ltr',
+                'ltr',
+            ]);
+    });
+
+    it('retains a failed write and accepts an explicit retry', async () => {
+        let fail = false;
+        const main = await owner(async (source, target) => {
+            if (fail) throw new Error('simulated disk replacement failure');
+            await rename(source, target);
+        });
+        const a = await renderer();
+        fail = true;
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        a.preferences.readingOrder = 'rtl';
+        await nextTick();
+        await expect(a.module.flushScanCleanupPreferencesStore()).rejects.toThrow('disk replacement failure');
+        expect(a.preferences.readingOrder).toBe('rtl');
+        expect(JSON.parse(await readFile(main.filePath, 'utf8')).settings.readingOrder).toBe('ltr');
+        fail = false;
+        const flush = a.module.retryScanCleanupPreferences();
+        await beforeEvent(flush);
+        const before = a.preferences.readingOrder;
+        await settle(flush);
+        expect([
+            before,
+            a.preferences.readingOrder,
+            (await main.store.get()).settings.readingOrder,
+        ]).toEqual([
+            'rtl',
+            'rtl',
+            'rtl',
+        ]);
     });
 });
