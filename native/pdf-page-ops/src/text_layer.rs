@@ -1195,11 +1195,9 @@ pub(crate) fn clone_object_graph(
             }
             // A destination no output shows is dropped; the annotation stays.
             if let Some(destination) = destination {
-                if let Some(remapped) = crate::internal_destinations::remap_internal_destination(
-                    source,
-                    &destination,
-                    pages,
-                )? {
+                if let Some(remapped) =
+                    crate::split_navigation::split_destination_mapper(source, pages)(&destination)?
+                {
                     dictionary.set(key, remapped);
                 }
             }

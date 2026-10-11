@@ -28,6 +28,7 @@ describe('public catalog cleanup proof', () => {
         'lossless-crop',
         'compact',
         'compact-threads',
+        'compact-fit-split',
         'identity-lossless',
     ])
         it(mode, async () => {
@@ -35,6 +36,22 @@ describe('public catalog cleanup proof', () => {
             const page = session.page;
             const source = resolve(evidence, `${mode}-source.pdf`);
             writeFileSync(source, Buffer.from(readFileSync(resolve('tests/fixtures/release/scan-cleanup-final-graph.pdf.hex'), 'utf8').replace(/\s/gu, ''), 'hex'));
+            if (mode === 'compact-fit-split') {
+                const sourceDocument = await PDFDocument.load(readFileSync(source), {updateMetadata: false});
+                for (const sourcePage of sourceDocument.getPages()) {
+                    for (const ref of sourcePage.node.Annots()?.asArray() ?? []) {
+                        const annotation = sourceDocument.context.lookup(ref, PDFDict);
+                        if (sourceDocument.context.lookup(annotation.get(PDFName.of('Subtype')))?.toString() === '/Link') {
+                            annotation.delete(PDFName.of('A'));
+                            annotation.set(PDFName.of('Dest'), sourceDocument.context.obj([
+                                sourceDocument.getPage(0).ref,
+                                PDFName.of('Fit'),
+                            ]));
+                        }
+                    }
+                }
+                writeFileSync(source, await sourceDocument.save());
+            }
             if (mode === 'lossless-crop') {
                 const sourceDocument = await PDFDocument.load(readFileSync(source), {updateMetadata: false});
                 sourceDocument.getPage(1).setCropBox(0, 0, 100, 120);
@@ -82,10 +99,13 @@ describe('public catalog cleanup proof', () => {
             await clickAsUser(page, '[aria-label="Page layout"]');
             await page.waitForSelector('[role="option"]');
             const layouts = await page.$$('[role="option"]');
-            const single = await Promise.all(layouts.map(option => option.evaluate(el => [
+            const single = await Promise.all(layouts.map(option => option.evaluate((el, split) => (split ? [
+                'Force two-page spreads',
+                'Two-page spread',
+            ] : [
                 'Force single pages',
                 'Single page',
-            ].includes(el.textContent?.trim() ?? ''))));
+            ]).includes(el.textContent?.trim() ?? ''), mode === 'compact-fit-split')));
             if (!single.includes(true))
                 throw new Error('Single-page layout option unavailable');
             await clickAsUser(page, layouts[single.indexOf(true)]!);
@@ -130,6 +150,19 @@ describe('public catalog cleanup proof', () => {
                 ...createPdfjsNodeDocumentOptions(),
             }).promise;
             try {
+                if (mode === 'compact-fit-split') {
+                    expect(savedPdf.numPages).toBe(4);
+                    const links = [];
+                    for (let n = 1; n <= savedPdf.numPages; n += 1)
+                        links.push(...(await (await savedPdf.getPage(n)).getAnnotations()).filter(annotation => annotation.subtype === 'Link'));
+                    expect(links.length).toBeGreaterThan(0);
+                    for (const link of links) {
+                        expect(link.dest[1].name).toBe('Fit');
+                        expect(await savedPdf.getPageIndex(link.dest[0])).toBe(0);
+                    }
+                    writeFileSync(resolve(evidence, `${mode}-annotations.json`), JSON.stringify(links, null, 2));
+                    return;
+                }
                 const pages = [];
                 for (let n = 1; n <= savedPdf.numPages; n += 1)
                     pages.push(await (await savedPdf.getPage(n)).getAnnotations());

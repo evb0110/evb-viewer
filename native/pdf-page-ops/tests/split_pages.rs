@@ -3423,3 +3423,167 @@ fn r8_identity_output_retains_accessibility_structure_and_references() {
         }
     }
 }
+
+// The review's compact plans use qpdf interleaving and the public CLI, so the
+// assertions see the final saved identities rather than an intermediate graph.
+fn r9_compact(source: &mut Document, specs: &[(usize, bool, i32, i32)]) -> Document {
+    let input = path("r9-source", "pdf");
+    let primary = path("r9-primary", "pdf");
+    let raster = path("r9-raster", "pdf");
+    let interleave = path("r9-interleave", "pdf");
+    let output = path("r9-output", "pdf");
+    let instructions = path("r9-instructions", "json");
+    source.save(&input).unwrap();
+    let kept = specs.iter().filter(|spec| spec.1).collect::<Vec<_>>();
+    write(&instructions, serde_json::json!({"catalog":"assembly", "pages": kept.iter().map(|spec| serde_json::json!({
+        "sourcePageIndex":spec.0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":spec.3,"height":120},
+        "contentTransform":{"scale":1,"translateX":spec.2,"translateY":0}}]
+    })).collect::<Vec<_>>()}).to_string()).unwrap();
+    if !kept.is_empty() {
+        run_split_pages(&input, &primary, &instructions);
+    }
+    save_single_page_pdf(&raster, Stream::new(Dictionary::new(), Vec::new()));
+    let mut raster_doc = Document::load(&raster).unwrap();
+    let raster_page = raster_doc.get_pages()[&1];
+    raster_doc
+        .get_dictionary_mut(raster_page)
+        .unwrap()
+        .set("Resources", Dictionary::new());
+    raster_doc.save(&raster).unwrap();
+    let mut command = Command::new(qpdf_path());
+    command
+        .arg(if kept.is_empty() { &raster } else { &primary })
+        .args(["--coalesce-contents", "--pages"]);
+    let mut preserved = 0;
+    for spec in specs {
+        if spec.1 {
+            preserved += 1;
+            command.args([".", &preserved.to_string()]);
+        } else {
+            command.arg(&raster).arg("1");
+        }
+    }
+    let result = command.arg("--").arg(&interleave).output().unwrap();
+    assert!(
+        matches!(result.status.code(), Some(0 | 3)),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let mut assembled = Document::load(&interleave).unwrap();
+    for (page, spec) in assembled.get_pages().values().zip(specs) {
+        if !spec.1 {
+            let page = assembled.get_dictionary_mut(*page).unwrap();
+            page.set(
+                "MediaBox",
+                vec![0.into(), 0.into(), spec.3.into(), 120.into()],
+            );
+            page.set(
+                "CropBox",
+                vec![0.into(), 0.into(), spec.3.into(), 120.into()],
+            );
+        }
+    }
+    assembled.save(&interleave).unwrap();
+    write(&instructions, serde_json::json!({"pages":specs.iter().enumerate().map(|(index,spec)| serde_json::json!({
+        "sourcePageIndex":spec.0,"outputPageIndex":index,"matrix":[1,0,0,1,spec.2,0],"linkOnly":spec.1,"filterToOutputPage":true
+    })).collect::<Vec<_>>()}).to_string()).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["overlay-text", "--qpdf"])
+        .arg(qpdf_path())
+        .arg("--input")
+        .arg(&interleave)
+        .arg("--source")
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .arg("--instructions-file")
+        .arg(&instructions)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    for file in [input, primary, raster, interleave, output, instructions] {
+        let _ = remove_file(file);
+    }
+    saved
+}
+
+#[test]
+fn r9_compact_links_follow_the_catalog_selection_policy() {
+    for kind in [0, 1, 2, 3] {
+        for coordinate in [None, Some(160), Some(250)] {
+            let mut source = review_catalog_source();
+            for page in [(3, 0), (4, 0), (5, 0)] {
+                source
+                    .get_dictionary_mut(page)
+                    .unwrap()
+                    .set("Annots", Vec::<Object>::new());
+            }
+            source.catalog_mut().unwrap().remove(b"AcroForm");
+            let dest = if let Some(x) = coordinate {
+                vec![(3, 0).into(), "XYZ".into(), x.into(), 80.into(), 0.into()]
+            } else {
+                vec![(3, 0).into(), "Fit".into()]
+            };
+            let link = source
+                .add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Link","P"=>(5,0),
+                "Rect"=>vec![20.into(),20.into(),50.into(),40.into()],"Dest"=>dest.clone()});
+            source
+                .get_dictionary_mut((5, 0))
+                .unwrap()
+                .set("Annots", vec![Object::Reference(link)]);
+            source.catalog_mut().unwrap().set("Names", dictionary! {"Dests"=>dictionary! {"Names"=>vec![Object::string_literal("target"),Object::Array(dest)]}});
+            let specs = if kind == 3 {
+                vec![(2, true, 0, 200), (0, true, 0, 200), (0, true, 0, 200)]
+            } else {
+                vec![
+                    (2, kind != 2, 0, 200),
+                    (0, kind == 0, 0, 100),
+                    (0, kind != 2, -100, 100),
+                ]
+            };
+            let saved = r9_compact(&mut source, &specs);
+            let annotations = split_page_annotations(&saved, 1);
+            let link = &annotations[0].1;
+            if coordinate == Some(250) {
+                assert!(!link.has(b"Dest"));
+            } else {
+                let dest = link.get(b"Dest").unwrap().as_array().unwrap();
+                let page = if coordinate.is_some() && kind != 3 {
+                    3
+                } else {
+                    2
+                };
+                assert_eq!(dest[0].as_reference().unwrap(), saved.get_pages()[&page]);
+                if coordinate.is_some() {
+                    assert_eq!(
+                        dest[2].as_float().unwrap(),
+                        if kind == 3 { 160.0 } else { 60.0 }
+                    );
+                }
+                let names = saved
+                    .catalog()
+                    .unwrap()
+                    .get(b"Names")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"Dests")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"Names")
+                    .unwrap()
+                    .as_array()
+                    .unwrap();
+                assert_eq!(&names[1], &Object::Array(dest.clone()));
+            }
+            assert!(!link.has(b"EVBDestinationPage"));
+        }
+    }
+}
+

@@ -171,12 +171,13 @@ pub(crate) fn rebind_retained_destinations(
                 if let Some(first) = array.first_mut() {
                     *first = Object::Reference(source_key(index)?);
                 }
-                match remap_internal_destination(output, &Object::Array(array), &pages)? {
-                    Some(destination) => annotation.set("Dest", destination),
-                    None => {
-                        annotation.remove(b"Dest");
-                    }
-                }
+                annotation.set("Dest", array);
+                remap_split_navigation(
+                    output,
+                    &mut annotation,
+                    b"Dest",
+                    &split_destination_mapper(output, &pages),
+                )?;
             }
             rebound.push((annotation_id, annotation));
         }
@@ -478,11 +479,7 @@ pub(crate) fn split_destination_mapper<'a>(
             .iter()
             .find(|page| split_destination_in_view(source, &array, page))
         {
-            Some(page) => remap_internal_destination(
-                source,
-                &Object::Array(array),
-                std::slice::from_ref(page),
-            ),
+            Some(page) => remap_internal_destination(source, array, page),
             None => Ok(None),
         }
     }

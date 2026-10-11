@@ -4435,7 +4435,7 @@ fn overlay_destinations_choose_the_source_region_independently_of_link_ownership
 }
 
 #[test]
-fn overlay_refuses_ambiguous_destinations_before_publishing() {
+fn overlay_selects_the_first_surviving_destination_output() {
     for destination in [
         vec!["Fit".into()],
         vec!["XYZ".into(), Object::Null, Object::Null, Object::Null],
@@ -4462,9 +4462,32 @@ fn overlay_refuses_ambiguous_destinations_before_publishing() {
         write(&output, b"existing output").unwrap();
         write(&instructions, plan).unwrap();
         let result = run_overlay_text(&input, &source, &output, &instructions);
-        assert!(!result.status.success());
-        assert!(String::from_utf8_lossy(&result.stderr).contains("internal destination"));
-        assert_eq!(fs::read(&output).unwrap(), b"existing output");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let first = saved.get_pages()[&1];
+        let annotation = saved
+            .get_dictionary(
+                saved
+                    .get_dictionary(first)
+                    .unwrap()
+                    .get(b"Annots")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            annotation.get(b"Dest").unwrap().as_array().unwrap()[0]
+                .as_reference()
+                .unwrap(),
+            first
+        );
         assert!(atomic_output_siblings(&output).is_empty());
         for file in [source, input, output, instructions] {
             remove_file(file).unwrap();
@@ -4960,7 +4983,7 @@ fn overlay_leaves_a_foreign_note_where_it_is_on_any_output_page() {
 /// A retained destination that the output refuses leaves the output's bytes
 /// as they were. The copy and the rebinding publish together, so a refused
 /// rebinding cannot leave the copied pages behind. The refused link names a
-/// page that two preserved halves both show, which is ambiguous.
+/// page that two preserved halves show, but has an unsupported destination mode.
 #[test]
 fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
     let source = path("retained-refusal-source", "pdf");
@@ -4976,7 +4999,7 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
     let link = document.add_object(dictionary! {
         "Type" => "Annot", "Subtype" => "Link", "P" => first_page,
         "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
-        "Dest" => vec![first_page.into(), "Fit".into()],
+        "Dest" => vec![first_page.into(), "UnsupportedDestination".into()],
     });
     document
         .get_dictionary_mut(first_page)
@@ -5019,7 +5042,7 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
         assert!(!refused.status.success());
         let stderr = String::from_utf8_lossy(&refused.stderr);
         assert!(
-            stderr.contains("ambiguous internal destination"),
+            stderr.contains("cannot resolve an internal destination"),
             "unexpected failure: {stderr}"
         );
         assert!(atomic_output_siblings(&output).is_empty());
