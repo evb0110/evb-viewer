@@ -37,7 +37,10 @@ import type {
     IDocumentOpenSurfacePageGeometry,
     IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
+import {
+    resolveAnchoredViewportHeight,
+    resolveDocumentPageSourceOpeningFrame,
+} from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 
 export interface IDocumentOpeningPageFramePolicy {
@@ -86,17 +89,6 @@ interface ICreateDocumentOpeningPageFrameOptions {
 // viewport height excludes.
 function readScrollbar(viewport: HTMLElement | null | undefined) {
     return viewport ? viewport.offsetWidth - viewport.clientWidth : 0;
-}
-
-function resolveAnchoredViewportHeight(
-    pageWidth: number,
-    viewport: {
-        width: number;
-        height: number;
-        scrollbar?: number;
-    },
-) {
-    return pageWidth + DOCUMENT_PAGE_GUTTER_PX * 2 > viewport.width ? viewport.height - (viewport.scrollbar ?? 0) : viewport.height;
 }
 
 let nextOpeningPageFrameId = 0;
@@ -301,27 +293,15 @@ function resolveOpeningPageFrameStyle(
     if (!isDjvuDocument(geometry.documentId)) {
         return resolvePdfOpeningPageFrameStyle(geometry, viewport, policy, anchor);
     }
-    const frame = resolveDocumentPageSourceOpeningFrame({
+    return resolveDocumentPageSourceOpeningFrame({
+        anchor,
         geometry,
+        scrollbar: viewport.scrollbar,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
         zoom: policy.zoom,
         zoomMode: policy.zoomMode,
-    });
-    if (!frame || !anchor) {
-        return frame?.style ?? null;
-    }
-    // The page-source renderer rounds its page layout to whole pixels and
-    // restores this point into the final client box, scrollbar included.
-    const width = Math.round(frame.width);
-    const height = Math.round(frame.height);
-    const top = resolveAnchoredViewportHeight(width, viewport) * anchor.viewportYFraction - height * anchor.pageYFraction;
-    // The restore clamps its scroll at the document start, so the first page
-    // never rises above its gutter. Later pages' layout tops are not known here.
-    return {
-        ...frame.style,
-        top: `${String(geometry.pageNumber === 1 ? Math.min(top, DOCUMENT_PAGE_GUTTER_PX) : top)}px`,
-    };
+    })?.style ?? null;
 }
 
 const PREPARABLE_PHASES: ReadonlySet<string> = new Set([
