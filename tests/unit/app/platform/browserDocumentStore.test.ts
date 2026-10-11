@@ -116,7 +116,7 @@ function createPendingTransferAuthority(transferId: string, ref: string): IBrows
             targetWindowId: 2,
             tab: {
                 fileName: 'transferred.pdf',
-                originalPath: ref,
+                originalPath: requireDocumentRef(ref),
                 originalBackend: 'browser',
                 isDirty: true,
                 isDjvu: false,
