@@ -61,8 +61,10 @@ interface IProps {
     contentHeight: number | null;
     /**
      * Stay transparent for a moment after mounting, so a page that paints
-     * quickly never flashes the placeholder. Read once: a skeleton already
-     * on screen must not vanish and fade back in.
+     * quickly never flashes the placeholder. Only the mount can start the
+     * delay and turning it off ends it for good: a skeleton on screen must
+     * never vanish and fade back in, and one that a second navigation
+     * claims must show at once.
      */
     deferred?: boolean;
 }
@@ -90,7 +92,12 @@ const {
     deferred = false,
 } = defineProps<IProps>();
 
-const isDeferred = deferred;
+const isDeferred = ref(deferred);
+watch(() => deferred, (value) => {
+    if (!value) {
+        isDeferred.value = false;
+    }
+});
 
 const resolvedPadding = computed<IPadding>(() => resolvePadding(padding));
 

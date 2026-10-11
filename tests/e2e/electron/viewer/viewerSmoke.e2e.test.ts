@@ -3144,7 +3144,11 @@ describe('Electron E2E - Viewer Smoke', () => {
                         ),
                     });
                 }
-                if (probe.frames.length < 120) {
+                // Sample until the target paints; the wait below bounds a page
+                // that never does.
+                const done = probe.frames.at(-1)?.rendered === true
+                    || probe.startedAt !== null && performance.now() - probe.startedAt > 10_000;
+                if (!done) {
                     requestAnimationFrame(sample);
                 }
             };
