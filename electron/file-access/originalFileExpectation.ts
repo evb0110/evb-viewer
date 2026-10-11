@@ -87,4 +87,3 @@ export function createOriginalFileExpectationFromStat(
         size: Number(originalStat.size),
     };
 }
-

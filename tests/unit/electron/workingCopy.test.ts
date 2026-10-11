@@ -638,6 +638,37 @@ describe('workingCopy', () => {
     });
 
     it.each([
+        'metadata',
+        'content',
+    ])('proves raw clone bytes after a %s change', async (change) => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {normalizePdfAppendBase} = await import('@electron/pdf/pdfAppendBase');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const originalPath = join(tempRoot, 'raw-clone.pdf');
+        const bytes = Buffer.alloc(1024 * 1024, 65);
+        const fixedTime = new Date('2026-09-01T00:00:00Z');
+        writeFileSync(originalPath, bytes);
+        utimesSync(originalPath, fixedTime, fixedTime);
+        vi.mocked(normalizePdfAppendBase).mockImplementationOnce(async () => {
+            if (change === 'content') {
+                const edited = Buffer.from(bytes);
+                edited.write('EXTERNAL-EDIT', 262144);
+                rewriteSourceInPlaceKeepingSizeAndMtime(originalPath, edited, fixedTime);
+            } else {
+                chmodSync(originalPath, 0o600);
+            }
+            return false;
+        });
+        const opening = createWorkingCopy(allowOpenPath(originalPath)!, 7);
+        if (change === 'content') {
+            await expect(opening).rejects.toMatchObject({code: 'source-changed'});
+        } else {
+            expect(readFileSync(await opening).equals(bytes)).toBe(true);
+        }
+    });
+
+    it.each([
         'unchanged',
         'changed',
         'missing-baseline',

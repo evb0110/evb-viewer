@@ -223,10 +223,9 @@ export async function createWorkingCopyWithOutcome(
             if (encrypted || normalized) backingState = 'eager';
         }
 
-        // Only the content has to be the one that was copied. macOS writes
-        // extended attributes (macl, lastuseddate, quarantine) as it hands a
-        // file to an app, which moves ctime alone; a moved ctime is accepted
-        // only with the copy's bytes as proof, and an unchanged one needs none.
+        // When ctime moves, compare the raw clone with one fresh original read.
+        // Admit matching bytes, including ordinary macOS metadata touches;
+        // refuse different bytes through the existing localized open outcome.
         const contentFingerprint = rawContentFingerprint ?? copiedSourceFingerprint?.contentFingerprint;
         const copyProof = {
             kind: 'open-copy' as const,
