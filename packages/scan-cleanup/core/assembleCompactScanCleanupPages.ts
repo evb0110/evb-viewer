@@ -299,6 +299,63 @@ async function assertSourceAnnotationsHaveGeometry(
     }
 }
 
+/**
+ * Overlay the source's text and annotations onto the staged output pages. The
+ * instructions name output pages by position, so a caller that assembles
+ * batches overlays once over the whole document, where every destination
+ * resolves.
+ */
+export async function overlayScanCleanupTextLayer(
+    pages: IScanCleanupTextLayerPlan['pages'],
+    paths: IScanCleanupWorkerPaths,
+    preparedPdfPath: string,
+    stagedPdfPath: string,
+    scratch: string,
+    signal: AbortSignal,
+    log: TScanCleanupLog,
+    dependencies: IRunScanCleanupPipelineDependencies,
+    onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
+) {
+    if (
+        pages.length > 0
+        && paths.pdfPageOpsBinary !== undefined
+        && !isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
+    ) {
+        const textLayerInstructionsPath = join(scratch, 'source-text-layer.json');
+        const textLayerPdfPath = join(scratch, 'text-layer-cleaned.pdf');
+        await writeFile(
+            textLayerInstructionsPath,
+            serializeScanCleanupTextLayerInstructions(pages),
+        );
+        await dependencies.runCommand(paths.pdfPageOpsBinary, [
+            'overlay-text',
+            '--input',
+            stagedPdfPath,
+            '--source',
+            preparedPdfPath,
+            '--qpdf',
+            paths.qpdfBinary,
+            '--output',
+            textLayerPdfPath,
+            '--instructions-file',
+            textLayerInstructionsPath,
+        ], {
+            signal,
+            commandLabel: 'evb-pdf-page-ops(overlay-text:scan-cleanup)',
+            timeoutMs: 10 * 60 * 1000,
+            log,
+            ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
+        });
+        await rename(textLayerPdfPath, stagedPdfPath);
+        log(
+            'debug',
+            `Scan cleanup retained source text and annotations on ${String(pages.length)} output page(s)`,
+        );
+    } else if (pages.length > 0) {
+        throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
+    }
+}
+
 export async function assembleWithCompactSourcePages(
     outputPages: readonly IRenderedCleanupOutputPage[],
     paths: IScanCleanupWorkerPaths,
@@ -413,43 +470,16 @@ export async function assembleWithCompactSourcePages(
             `Scan cleanup retained the original compact image layers for ${String(preservedPages.length)} automatic no-raster-change page(s)`,
         );
     }
-    if (
-        textLayerPlan.pages.length > 0
-        && paths.pdfPageOpsBinary !== undefined
-        && !isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
-    ) {
-        const textLayerInstructionsPath = join(scratch, 'source-text-layer.json');
-        const textLayerPdfPath = join(scratch, 'text-layer-cleaned.pdf');
-        await writeFile(
-            textLayerInstructionsPath,
-            serializeScanCleanupTextLayerInstructions(textLayerPlan.pages),
-        );
-        await dependencies.runCommand(paths.pdfPageOpsBinary, [
-            'overlay-text',
-            '--input',
-            stagedPdfPath,
-            '--source',
-            preparedPdfPath,
-            '--qpdf',
-            paths.qpdfBinary,
-            '--output',
-            textLayerPdfPath,
-            '--instructions-file',
-            textLayerInstructionsPath,
-        ], {
-            signal,
-            commandLabel: 'evb-pdf-page-ops(overlay-text:scan-cleanup)',
-            timeoutMs: 10 * 60 * 1000,
-            log,
-            ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
-        });
-        await rename(textLayerPdfPath, stagedPdfPath);
-        log(
-            'debug',
-            `Scan cleanup retained source text and annotations on ${String(textLayerPlan.pages.length)} output page(s)`,
-        );
-    } else if (textLayerPlan.pages.length > 0) {
-        throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
-    }
+    await overlayScanCleanupTextLayer(
+        textLayerPlan.pages,
+        paths,
+        preparedPdfPath,
+        stagedPdfPath,
+        scratch,
+        signal,
+        log,
+        dependencies,
+        onTerminationProof,
+    );
 
 }
