@@ -118,28 +118,28 @@ fn visit_tiff_pdf_pages_from_reader<R: Read + Seek>(
         let (width, height) = decoder.dimensions()?;
         assert_pixel_limit(width, height, max_pixels)?;
         let orientation = read_tiff_orientation(&mut decoder);
-        let resolution = read_tiff_dpi_axes(&mut decoder);
+        let (dpi_x, dpi_y) = match read_tiff_dpi_axes(&mut decoder) {
+            Some((dpi_x, dpi_y)) if swaps_tiff_axes(orientation) => (dpi_y, dpi_x), // rotated frame
+            Some(axes) => axes,
+            None => default_dpi.map_or((DEFAULT_DPI, DEFAULT_DPI), |dpi| (dpi, dpi)),
+        };
         let color_type = decoder.colortype()?;
         let page = if color_type == TiffColorType::Gray(1) {
-            let default_dpi = default_dpi.unwrap_or(DEFAULT_DPI);
-            let (dpi_x, dpi_y) = resolution.unwrap_or((default_dpi, default_dpi));
             let image = orient_tiff_bilevel(
                 read_tiff_bilevel_frame(&mut decoder, width, height)?,
                 orientation,
             )?;
-            let (dpi_x, dpi_y) = if swaps_tiff_axes(orientation) {
-                (dpi_y, dpi_x)
-            } else {
-                (dpi_x, dpi_y)
-            };
             bilevel_image_page(image, dpi_x, dpi_y)?
         } else {
-            let dpi = resolution
-                .map(|(dpi_x, dpi_y)| dpi_x.max(dpi_y))
-                .or(default_dpi)
-                .unwrap_or(DEFAULT_DPI);
             let decoded = decoder.read_image()?;
-            build_tiff_pdf_page(width, height, dpi, color_type, orientation, decoded)?
+            build_tiff_pdf_page(
+                width,
+                height,
+                (dpi_x, dpi_y),
+                color_type,
+                orientation,
+                decoded,
+            )?
         };
         on_page(page)?;
         page_count += 1;
@@ -160,7 +160,7 @@ fn visit_tiff_pdf_pages_from_reader<R: Read + Seek>(
 fn build_tiff_pdf_page(
     width: u32,
     height: u32,
-    dpi: u32,
+    (dpi_x, dpi_y): (u32, u32),
     color_type: TiffColorType,
     orientation: u16,
     decoded: DecodingResult,
@@ -198,8 +198,8 @@ fn build_tiff_pdf_page(
     Ok(ImagePage {
         width: oriented_width,
         height: oriented_height,
-        dpi_x: dpi,
-        dpi_y: dpi,
+        dpi_x,
+        dpi_y,
         color_space,
         icc_profile: None,
         payload: ImagePayload::RawFlate {

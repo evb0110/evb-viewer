@@ -68,7 +68,7 @@ fn applies_tiff_orientation_before_building_pdf_page() {
     let page = build_tiff_pdf_page(
         2,
         1,
-        300,
+        (300, 300),
         TiffColorType::RGB(8),
         6,
         DecodingResult::U8(vec![255, 0, 0, 0, 255, 0]),
@@ -302,6 +302,62 @@ fn temp_tiff_path(label: &str) -> PathBuf {
         "evb-pdf-image-combine-{label}-{}-{nanos}.tiff",
         process::id()
     ))
+}
+
+#[test]
+fn unequal_axis_resolution_sizes_gray_and_rgb_pages_per_axis() {
+    // 600 x 600 pixels at 300 x 150 dpi is 144 x 288 pt. Orientation 6
+    // displays the same frame turned, so its page is 288 x 144 pt.
+    for (orientation, media_box) in [
+        (1, "/MediaBox [0 0 144.0000 288.0000]"),
+        (6, "/MediaBox [0 0 288.0000 144.0000]"),
+    ] {
+        let gray = tiff_with_axes::<colortype::Gray8>(&vec![128; 600 * 600], orientation);
+        let rgb = tiff_with_axes::<colortype::RGB8>(&vec![128; 600 * 600 * 3], orientation);
+        for data in [gray, rgb] {
+            let pdf = crate::write_pdf(
+                Vec::new(),
+                [crate::PageSpec::Image {
+                    page_size: None,
+                    placement: None,
+                    rotation_degrees: 0,
+                    image: crate::ImageSpec {
+                        source: crate::InputSource::Bytes {
+                            file_name: "scan.tif",
+                            data: &data,
+                        },
+                        compression: crate::ImageCompression::Auto,
+                        processing: crate::ImageProcessing::None,
+                        size_guardrail: None,
+                    },
+                    frames: crate::FramePolicy::All,
+                }],
+                &crate::PdfBuildOptions::default(),
+                |_| {},
+            )
+            .unwrap();
+            let text = String::from_utf8_lossy(&pdf);
+            assert!(
+                text.contains(media_box),
+                "orientation {orientation}: {media_box} missing"
+            );
+        }
+    }
+}
+
+fn tiff_with_axes<C: ColorType<Inner = u8>>(pixels: &[u8], orientation: u16) -> Vec<u8> {
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    let mut encoder = TiffEncoder::new(&mut bytes).unwrap();
+    let mut image = encoder.new_image::<C>(600, 600).unwrap();
+    image.resolution_unit(ResolutionUnit::Inch);
+    image.x_resolution(Rational { n: 300, d: 1 });
+    image.y_resolution(Rational { n: 150, d: 1 });
+    image
+        .encoder()
+        .write_tag(Tag::Orientation, orientation)
+        .unwrap();
+    image.write_data(pixels).unwrap();
+    bytes.into_inner()
 }
 
 #[test]
