@@ -1,44 +1,6 @@
 use super::*;
-use crate::note_markers::{legacy_marker_on_page, legacy_note_marker_as_text};
-use crate::page_geometry::pdf_rect_to_note_marker_rect;
+use crate::note_markers::legacy_note_marker_as_text;
 use crate::split_pages::{page_annotation_array, transform_annotation_geometry};
-
-/// Readies an overlay copy of a source annotation and says whether it is a
-/// note root the reader admits on its source page. Only such a note must stay
-/// a note on the output page; one the source already shows as foreign is copied
-/// as it is. A legacy marker becomes a /Text note when the overlay filters to
-/// an output page, since the narrower page would stop recognizing it.
-pub(crate) fn prepare_note_copy(
-    document: &Document,
-    annotation: &mut Dictionary,
-    source: &Document,
-    source_page_id: ObjectId,
-    filtered: bool,
-) -> Result<bool> {
-    let resolved = |key: &[u8]| {
-        annotation
-            .get(key)
-            .ok()
-            .and_then(|value| document.resolved(value).ok())
-    };
-    let text_root = resolved(b"Subtype").and_then(|value| value.as_name().ok())
-        == Some(b"Text".as_slice())
-        && !annotation.has(b"IRT");
-    let admitted_text = text_root
-        && resolved(b"Rect")
-            .and_then(|value| parse_rect(value).ok())
-            .is_some_and(|rect| {
-                let view = resolve_page_view(source, source_page_id);
-                let rotation = resolve_page_rotation(source, source_page_id);
-                matches!((view, rotation), (Ok(view), Ok(rotation)) if pdf_rect_to_note_marker_rect(rect, view, rotation).is_ok())
-            });
-    let source_note =
-        admitted_text || legacy_marker_on_page(document, annotation, source, source_page_id)?;
-    if filtered {
-        legacy_note_marker_as_text(document, annotation, source, source_page_id)?;
-    }
-    Ok(source_note)
-}
 
 /// The annotation a reply or popup answers to: the thread root for a reply,
 /// the note for a popup. A form field is not a thread member, so a widget's
