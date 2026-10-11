@@ -701,7 +701,7 @@ export function createBrowserDocumentsFileCapability(
 
             const sourceRef = entry.sourceRef ?? path;
             if (sourceRef !== path) {
-                await browserDocumentStore.remove(path);
+                await browserDocumentStore.cleanupDetachedDocument(path);
                 await browserDocumentStore.cleanupDetachedDocument(sourceRef);
                 await Promise.all([
                     clearSearchCaches(path),

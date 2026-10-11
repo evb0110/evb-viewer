@@ -250,11 +250,24 @@ export async function admitBrowserMaintenance<T>(
     );
 }
 
-function isRefRetainedBy(authorities: IBrowserMaintenanceAuthorities, ref: string) {
+// A working copy is judged by the recovery journal and in-flight transfers only.
+// The window's own lease names a copy until the next checkpoint or heartbeat
+// republishes it, so a copy that an edit or save has superseded would stay pinned
+// until reload. The sweep still honours every lease for working copies, which is
+// how another window's open document keeps its copy.
+function isRefRetainedBy(
+    authorities: IBrowserMaintenanceAuthorities,
+    ref: string,
+    kind: IBrowserPersistedDocumentRecord['kind'] | undefined,
+) {
+    if (authorities.recoveryLeasedRefs.has(ref) || authorities.transfers.leasedRefs.has(ref)) {
+        return true;
+    }
+    if (kind === 'working') {
+        return false;
+    }
     return authorities.documents.some((record) => record.ref !== ref && record.sourceRef === ref)
-        || authorities.recoveryLeasedRefs.has(ref)
-        || authorities.liveLeases.leasedRefs.has(ref)
-        || authorities.transfers.leasedRefs.has(ref);
+        || authorities.liveLeases.leasedRefs.has(ref);
 }
 
 type TBrowserDetachedRecordRemoval = 'absent' | 'deleted' | 'retained';
@@ -269,11 +282,11 @@ export async function removeBrowserDetachedRecordIfUnretained(
     entries: Map<string, IBrowserDocumentEntry>,
 ): Promise<TBrowserDetachedRecordRemoval> {
     const removal = await admitBrowserMaintenance<TBrowserDetachedRecordRemoval>('readwrite', (authorities, transaction) => {
-        if (
-            authorities === null
-            || isRefRetainedBy(authorities, ref)
-            || entries.get(ref)?.pendingLoad
-        ) {
+        if (authorities === null || entries.get(ref)?.pendingLoad) {
+            return 'retained';
+        }
+        const record = authorities.documents.find(candidate => candidate.ref === ref);
+        if (isRefRetainedBy(authorities, ref, record?.kind)) {
             return 'retained';
         }
         // Read after the documents lock, like the sweep's admission.
@@ -281,7 +294,6 @@ export async function removeBrowserDetachedRecordIfUnretained(
         if (recentFiles === null || recentFiles.some(file => file.originalPath === ref)) {
             return 'retained';
         }
-        const record = authorities.documents.find(candidate => candidate.ref === ref);
         if (!record) {
             return 'absent';
         }

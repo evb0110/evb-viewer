@@ -463,11 +463,6 @@ export class BrowserDocumentRecordStore {
             return false;
         }
 
-        if (entry.kind === 'working') {
-            await this.removeDocumentRecordUnlocked(ref);
-            return true;
-        }
-
         const removal = await removeBrowserDetachedRecordIfUnretained(ref, this.entries);
         if (removal === 'retained') {
             return false;

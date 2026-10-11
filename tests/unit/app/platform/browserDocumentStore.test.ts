@@ -21,6 +21,10 @@ import {
     DOCUMENTS_STORE,
     WORKSPACE_RECOVERY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
+import {
+    mutateBrowserTransferAuthority,
+    type IBrowserTransferAuthorityRecord,
+} from '@app/platform/browser/browserDocumentIdb';
 import {saveBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -84,6 +88,47 @@ function createRecoveryCheckpoint(ref: string): IWorkspaceCheckpoint {
             zoomMode: 'custom',
         }],
     };
+}
+
+// A pending transfer pins its backing ref until it decides. The payload is the
+// smallest incoming transfer the schema accepts.
+function createPendingTransferAuthority(transferId: string, ref: string): IBrowserTransferAuthorityRecord {
+    return {
+        id: `transfer:${transferId}`,
+        transferId,
+        nonce: `nonce-${transferId}`,
+        sourceWindowId: 1,
+        sourceInstanceNonce: 'source',
+        targetWindowId: 2,
+        targetInstanceNonce: 'target',
+        generation: 1,
+        state: 'pending',
+        targetReady: false,
+        deadlineAt: Date.now() + 60_000,
+        payload: {
+            transferId,
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: {
+                fileName: 'transferred.pdf',
+                originalPath: ref,
+                originalBackend: 'browser',
+                isDirty: true,
+                isDjvu: false,
+            },
+            payload: {kind: 'empty'},
+        },
+        backingRefs: [{ref}],
+        createdAt: Date.now(),
+    };
+}
+
+// Lease owners are per module graph; a store from an earlier test speaks for its
+// own owner, so a test that publishes a lease takes a fresh graph.
+async function createFreshBrowserDocumentStore() {
+    vi.resetModules();
+    const {BrowserDocumentStore: FreshBrowserDocumentStore} = await import('@app/platform/browserDocumentStore');
+    return new FreshBrowserDocumentStore();
 }
 
 function createStoredPdf(
@@ -799,6 +844,45 @@ describe('BrowserDocumentStore', () => {
 
         await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
         await expect(store.exists(sourceRef)).resolves.toBe(true);
+    });
+
+    it('keeps a recovery snapshot that the recovery journal names through detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'restored.pdf', Uint8Array.of(1));
+        const snapshotRef = await store.createStoredDocument('restored.recovery.pdf', Uint8Array.of(2, 3), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'durable',
+            saveKind: 'pdf',
+            sourceRef,
+        });
+        await saveBrowserWorkspaceRecovery('window:crashed', 0, createRecoveryCheckpoint(snapshotRef), [requireDocumentRef(snapshotRef)]);
+
+        await expect(store.cleanupDetachedDocument(snapshotRef)).resolves.toBe(false);
+        await expect(store.read(snapshotRef)).resolves.toEqual(Uint8Array.of(2, 3));
+    });
+
+    it('keeps a working copy that an in-flight transfer backs through detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'transferred.pdf', Uint8Array.of(4));
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        await mutateBrowserTransferAuthority('in-flight', () => createPendingTransferAuthority('in-flight', workingRef));
+
+        await expect(store.cleanupDetachedDocument(workingRef)).resolves.toBe(false);
+        await expect(store.exists(workingRef)).resolves.toBe(true);
+    });
+
+    it('deletes a superseded working copy even while its window lease still names it', async () => {
+        // The window's own lease is republished only at a checkpoint or heartbeat, so
+        // a copy superseded by an edit or a save stays named until reload. Working
+        // copies are judged by the recovery journal and transfers, not this lease.
+        const store = await createFreshBrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'superseded.pdf', Uint8Array.of(5));
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        await store.createLiveLease('window:self', [{ref: workingRef}]);
+
+        await expect(store.cleanupDetachedDocument(workingRef)).resolves.toBe(true);
+        await expect(store.exists(workingRef)).resolves.toBe(false);
     });
 
     it('keeps a source when its dependent working copy cannot be read during detached cleanup', async () => {
