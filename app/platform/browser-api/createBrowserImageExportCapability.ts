@@ -601,19 +601,23 @@ async function exportBrowserDjvuPagesAsImages(
                     canceled: true as const,
                 };
             }
+            // The decoder only produces PNG; the chosen file name decides the encoding, as in the PDF export.
+            const format = resolveBrowserImageExportFormat(saveTarget.fileName);
+            const mimeType = resolveBrowserImageMimeType(format);
             const rendered = await worker.doc.getPage(pageNumber).createPngObjectUrl().run();
             try {
                 const response = await fetch(rendered.url);
                 if (!response.ok) throw new Error(`Failed to render DjVu page ${pageNumber}`);
-                const bytes = new Uint8Array(await response.arrayBuffer());
-                let saveName = normalizeBrowserImageExportFileName(saveTarget.fileName, 'png');
+                const pngBytes = new Uint8Array(await response.arrayBuffer());
+                const bytes = format === 'png' ? pngBytes : await encodeDecodedPngAs(pngBytes, format);
+                let saveName = normalizeBrowserImageExportFileName(saveTarget.fileName, format);
                 let saveHandle = saveTarget.handle ?? null;
                 if (saveTarget.handle) {
                     await writeBytesToHandle(saveTarget.handle, bytes);
                 } else {
                     const downloadResult = await saveBytesToPickerOrDownload(bytes, {
                         suggestedName: saveName,
-                        mimeType: 'image/png',
+                        mimeType,
                         pickerTypes: buildImageExportPickerTypes(),
                     });
                     if (downloadResult.canceled) {
@@ -622,11 +626,11 @@ async function exportBrowserDjvuPagesAsImages(
                             canceled: true as const,
                         };
                     }
-                    saveName = normalizeBrowserImageExportFileName(downloadResult.fileName, 'png');
+                    saveName = normalizeBrowserImageExportFileName(downloadResult.fileName, format);
                     saveHandle = downloadResult.handle ?? null;
                 }
                 const outputRef = await browserDocumentStore.createStoredDocument(saveName, saveHandle ? new Uint8Array() : bytes, {
-                    mimeType: 'image/png',
+                    mimeType,
                     saveKind: 'generic',
                     kind: 'output',
                     retention: 'transient',
@@ -668,7 +672,7 @@ async function decodePngToRgba(bytes: Uint8Array) {
         canvas.width = bitmap.width;
         canvas.height = bitmap.height;
         const context = canvas.getContext('2d', {willReadFrequently: true});
-        if (!context) throw new Error('Canvas 2D context is unavailable for DjVu TIFF export');
+        if (!context) throw new Error('Canvas 2D context is unavailable for DjVu image export');
         context.drawImage(bitmap, 0, 0);
         const image = context.getImageData(0, 0, canvas.width, canvas.height);
         return {
@@ -678,6 +682,25 @@ async function decodePngToRgba(bytes: Uint8Array) {
         };
     } finally {
         bitmap.close();
+        releaseCanvas(canvas);
+    }
+}
+
+async function encodeDecodedPngAs(pngBytes: Uint8Array, format: Exclude<TBrowserImageExportFormat, 'png'>) {
+    const image = await decodePngToRgba(pngBytes);
+    if (format === 'tiff') {
+        return encodeMultiPageTiff([image], await loadUtifEncoder());
+    }
+    const canvas = document.createElement('canvas');
+    try {
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Canvas 2D context is unavailable for DjVu JPEG export');
+        context.putImageData(new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height), 0, 0);
+        const jpegBlob = await canvasToBlob(canvas, resolveBrowserImageMimeType(format), 0.92);
+        return new Uint8Array(await jpegBlob.arrayBuffer());
+    } finally {
         releaseCanvas(canvas);
     }
 }

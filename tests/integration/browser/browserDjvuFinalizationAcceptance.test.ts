@@ -221,4 +221,44 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             await browser.close();
         }
     });
+
+    it('writes each DjVu image format that its chosen file name advertises', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage();
+            await page.goto(origin);
+            await page.addScriptTag({
+                path: bundlePath,
+                type: 'module',
+            });
+            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance') === 'function');
+            const pngResult = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')('page-001.png'));
+            const jpegResult = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')('page-001.jpg'));
+            const tiffResult = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')('page-001.tif'));
+            expect(pngResult).toEqual({
+                head: [
+                    137,
+                    80,
+                    78,
+                    71,
+                ],
+                decodable: true,
+            });
+            expect(jpegResult.head.slice(0, 3)).toEqual([
+                255,
+                216,
+                255,
+            ]);
+            expect(jpegResult.decodable).toBe(true);
+            // Chromium cannot decode TIFF; the big-endian header is the saved format.
+            expect(tiffResult.head).toEqual([
+                77,
+                77,
+                0,
+                42,
+            ]);
+        } finally {
+            await browser.close();
+        }
+    });
 });

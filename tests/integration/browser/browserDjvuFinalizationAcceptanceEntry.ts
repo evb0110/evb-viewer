@@ -20,6 +20,8 @@ import {
 } from '@app/platform/browser-api/browserDjvuRasterizer';
 import type {IBrowserPdfCombineWasmPageSpec} from '@app/platform/browser-api/browserPdfCombineWorker.types';
 import {tryCombineImageInputsWithWasm} from '@app/platform/browser-api/tryCombineImageInputsWithWasm';
+import {createBrowserImageExportCapability} from '@app/platform/browser-api/createBrowserImageExportCapability';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 async function runBrowserDjvuFinalizationAcceptance() {
     const fixtureResponse = await fetch('/fixtures/bitonal-faint-pencil.djvu');
@@ -208,3 +210,79 @@ async function installBrowserCompactDjvuAcceptance() {
 }
 
 Reflect.set(globalThis, '__evbInstallBrowserCompactDjvuAcceptance', installBrowserCompactDjvuAcceptance);
+
+let capturedImageExportBytes: Uint8Array | null = null;
+
+// The methods sit on the prototype: the stored output keeps this handle, and
+// IndexedDB cannot clone function-valued properties.
+class ImageExportSaveHandle {
+    readonly kind = 'file';
+
+    readonly name: string;
+
+    constructor(name: string) {
+        this.name = name;
+    }
+
+    async queryPermission() {
+        return 'granted';
+    }
+
+    async requestPermission() {
+        return 'granted';
+    }
+
+    async createWritable() {
+        return {
+            write: async (data: BodyInit) => {
+                capturedImageExportBytes = new Uint8Array(await new Response(data).arrayBuffer());
+            },
+            close: async () => {},
+            abort: async () => {},
+        };
+    }
+}
+
+async function runBrowserDjvuImageExportAcceptance(chosenName: string) {
+    const fixtureResponse = await fetch('/fixtures/bitonal-faint-pencil.djvu');
+    if (!fixtureResponse.ok) {
+        throw new Error(`Failed to load browser DjVu fixture: ${fixtureResponse.status}`);
+    }
+    const sourcePath = await browserDocumentStore.createStoredDocument(
+        'browser-djvu-image-export.djvu',
+        new Uint8Array(await fixtureResponse.arrayBuffer()),
+        {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+            retention: 'transient',
+            saveKind: 'generic',
+        },
+    );
+    capturedImageExportBytes = null;
+    Reflect.set(window, 'showSaveFilePicker', async () => new ImageExportSaveHandle(chosenName));
+    try {
+        const result = await createBrowserImageExportCapability().exportPdfToImages(
+            sourcePath,
+            [requirePageNumber(1)],
+            requireRequestId(`browser-djvu-image-export-${chosenName}`),
+            'djvu',
+        );
+        const bytes = capturedImageExportBytes as Uint8Array | null;
+        if (!result.success || bytes === null) {
+            throw new Error(`Browser DjVu image export did not write ${chosenName}`);
+        }
+        const decodable = await createImageBitmap(new Blob([bytes as BlobPart]))
+            .then((bitmap) => {
+                bitmap.close();
+                return true;
+            }, () => false);
+        return {
+            head: Array.from(bytes.slice(0, 4)),
+            decodable,
+        };
+    } finally {
+        await browserDocumentStore.remove(sourcePath);
+    }
+}
+
+Reflect.set(globalThis, '__evbRunBrowserDjvuImageExportAcceptance', runBrowserDjvuImageExportAcceptance);
