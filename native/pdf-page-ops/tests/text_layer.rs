@@ -2959,6 +2959,95 @@ fn overlay_legacy_point_note_thread_lands_on_one_split_half() {
 }
 
 #[test]
+fn unfiltered_overlay_keeps_a_legacy_note_marker_a_note_on_a_narrower_page() {
+    // Full-page cleanup copies without a page filter; a cropped output page
+    // narrower than the source still must not turn the marker foreign.
+    let source = path("legacy-marker-unfiltered-note", "pdf");
+    let input = path("legacy-marker-unfiltered-target", "pdf");
+    let output = path("legacy-marker-unfiltered-output", "pdf");
+    let instructions = path("legacy-marker-unfiltered", "json");
+    let parsed = path("legacy-marker-unfiltered-parsed", "jsonl");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let blank_appearance = document.add_object(Stream::new(
+        dictionary! { "Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 2.2.into(), 2.2.into()] },
+        Vec::new(),
+    ));
+    let root = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_id,
+        "NM" => Object::string_literal("legacy-marker"),
+        "Rect" => vec![48.9_f32.into(), 49.0_f32.into(), 51.1_f32.into(), 51.2_f32.into()],
+        "Contents" => Object::string_literal("Legacy margin"),
+        "AP" => dictionary! { "N" => blank_appearance },
+    });
+    let popup = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root,
+        "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+    });
+    document
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("Popup", popup);
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![root, popup]
+            .into_iter()
+            .map(Object::Reference)
+            .collect::<Vec<_>>(),
+    );
+    document.save(&source).unwrap();
+    let mut target = save_single_page(&input, Vec::new(), Dictionary::new());
+    let target_page = target.get_pages()[&1];
+    target
+        .get_dictionary_mut(target_page)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let parse = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args([
+            "parse-annotations",
+            "--input",
+            output.to_str().unwrap(),
+            "--output",
+            parsed.to_str().unwrap(),
+            "--modified-at",
+            "D:20260830130000Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        parse.status.success(),
+        "{}",
+        String::from_utf8_lossy(&parse.stderr)
+    );
+    let sidecar = fs::read_to_string(&parsed).unwrap();
+    let chunk = serde_json::from_str::<serde_json::Value>(sidecar.lines().nth(1).unwrap()).unwrap();
+    let marker = chunk["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == "legacy-marker")
+        .expect("the copied marker should parse");
+    assert_eq!(marker["kind"], "note");
+
+    for file in [source, input, output, instructions, parsed] {
+        let _ = remove_file(file);
+    }
+}
+
+#[test]
 fn overlay_split_keeps_a_legacy_note_marker_a_note_on_the_narrower_half() {
     let source = path("legacy-marker-width-note", "pdf");
     let input = path("legacy-marker-width-target", "pdf");

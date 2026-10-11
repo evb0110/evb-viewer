@@ -7,8 +7,6 @@ use crate::split_pages::transform_annotation_geometry;
 pub(crate) struct NoteCopy<'a> {
     pub(crate) source: &'a Document,
     pub(crate) source_page_id: ObjectId,
-    /// The copy is filtered to its output page, so a legacy marker becomes a /Text note.
-    pub(crate) filtered: bool,
     pub(crate) matrix: [f64; 6],
     /// The output page's view and rotation.
     pub(crate) view: PdfRect,
@@ -31,7 +29,6 @@ pub(crate) fn place_note_copy(
         annotation,
         copy.source,
         copy.source_page_id,
-        copy.filtered,
     )?;
     transform_annotation_geometry(target, annotation, copy.matrix, base, copy.rotation)?;
     fit_note_to_view(
@@ -46,14 +43,13 @@ pub(crate) fn place_note_copy(
 /// Readies an overlay copy of a source annotation and says whether it is a
 /// note root the reader admits on its source page. Only such a note must stay
 /// a note on the output page; one the source already shows as foreign is copied
-/// as it is. A legacy marker becomes a /Text note when the overlay filters to
-/// an output page, since the narrower page would stop recognizing it.
+/// as it is. A legacy marker becomes a /Text note, since the output page it
+/// lands on, cropped or narrowed, may stop recognizing it by its size.
 pub(crate) fn prepare_note_copy(
     document: &Document,
     annotation: &mut Dictionary,
     source: &Document,
     source_page_id: ObjectId,
-    filtered: bool,
 ) -> Result<bool> {
     let resolved = |key: &[u8]| {
         annotation
@@ -74,9 +70,7 @@ pub(crate) fn prepare_note_copy(
             });
     let source_note =
         admitted_text || legacy_marker_on_page(document, annotation, source, source_page_id)?;
-    if filtered {
-        legacy_note_marker_as_text(document, annotation, source, source_page_id)?;
-    }
+    legacy_note_marker_as_text(document, annotation, source, source_page_id)?;
     Ok(source_note)
 }
 

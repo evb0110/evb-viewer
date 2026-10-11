@@ -1805,7 +1805,6 @@ pub(crate) fn append_source_annotations(
     let copy = NoteCopy {
         source,
         source_page_id,
-        filtered: filter.is_some(),
         matrix: instruction.matrix,
         view,
         rotation,

@@ -90,7 +90,6 @@ pub(crate) fn transform_page_annotations(
     let note_copy = NoteCopy {
         source,
         source_page_id,
-        filtered: true,
         matrix,
         view: crop,
         rotation,
