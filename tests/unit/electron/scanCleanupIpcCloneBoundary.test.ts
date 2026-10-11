@@ -186,7 +186,6 @@ const responses: {[TChannel in TScanCleanupChannel]: unknown} = {
                 calibrationSignature: 'calibration-1',
             },
             clusters: [],
-            samples: [],
         },
         placementAnchors: {},
     },

@@ -976,7 +976,6 @@ describe('scan-cleanup-core conversion coverage', () => {
                             size: 1,
                         },
                     ],
-                    samples: [],
                 },
             },
             {

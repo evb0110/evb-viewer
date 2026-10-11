@@ -1865,8 +1865,8 @@ describe('scanCleanupDetectionLifecycleTest', () => {
                 ],
             );
             expect(firstCalibration).toEqual(secondCalibration);
-            expect(firstCalibration.summary.samples[0]?.yNormalized).toBe(0.1);
-            expect(changedCalibration.summary.samples[0]?.yNormalized).toBe(0.3);
+            expect(firstCalibration.summary.topEdgeNormalized).toBe(0.1);
+            expect(changedCalibration.summary.topEdgeNormalized).toBe(0.3);
             expect(chunkReads).toBe(4);
             await owner.resolvePlacementAnchorCalibration(calibrationSender, changedRequest);
             expect(chunkReads).toBe(4);

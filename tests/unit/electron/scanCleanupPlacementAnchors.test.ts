@@ -115,11 +115,6 @@ describe('scan-cleanup bounded ink placement summary', () => {
 
         expect(initial.sampleCount).toBe(1_025);
         expect(initial.referenceHeightPoints).toBe(792);
-        expect(initial.samples.map(sample => sample.pageNumber)).toEqual([
-            1,
-            513,
-            1_025,
-        ]);
         expect(initial.topEdgeNormalized).toBeCloseTo(0.2);
         expect(resolveScanCleanupSheetAnchorsFromSummary(initial, {full: 0.2}).full).toEqual({yNormalized: 0});
 
@@ -223,7 +218,7 @@ describe('scan-cleanup bounded ink placement summary', () => {
         expect(summary.referenceHeightPoints).toBe(792);
     });
 
-    it('keeps early, middle, and late anchors bounded for a 20,001-page result store', async () => {
+    it('places early, middle, and late pages of a 20,001-page result store from bounded calibration', async () => {
         const records = Array.from({length: 20_001}, (_, index) => {
             const pageNumber = index + 1;
             const yNormalized = pageNumber === 10_001
@@ -249,17 +244,9 @@ describe('scan-cleanup bounded ink placement summary', () => {
         expect(summary.referenceHeightPoints).toBe(792);
         expect(summary.topEdgeNormalized).toBeCloseTo(0.1);
         expect(summary.clusters.length).toBeLessThanOrEqual(256);
-        expect(summary.samples.map(sample => sample.pageNumber)).toEqual([
-            1,
-            10_001,
-            20_001,
-        ]);
-        expect(summary.samples.map(sample => sample.anchor.yNormalized)).toEqual([
-            0,
-            expect.closeTo(0.2),
-            expect.closeTo(0.1),
-        ]);
+        expect(resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.1}).full).toEqual({yNormalized: 0});
         expect(resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.3}).full).toEqual({yNormalized: expect.closeTo(0.2)});
+        expect(resolveScanCleanupSheetAnchorsFromSummary(summary, {full: 0.2}).full).toEqual({yNormalized: expect.closeTo(0.1)});
     });
 
 });

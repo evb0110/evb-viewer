@@ -218,7 +218,6 @@ export type IScanCleanupPagePlanEvidence = v.InferOutput<typeof SCAN_CLEANUP_PAG
  * in the renderer or across IPC.
  */
 export type IScanCleanupPlacementAnchorSummary = v.InferOutput<typeof SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SCHEMA>;
-export type IScanCleanupPlacementAnchorSummarySample = IScanCleanupPlacementAnchorSummary['samples'][number];
 export type IScanCleanupPlacementAnchorSummaryCluster = IScanCleanupPlacementAnchorSummary['clusters'][number];
 export type IScanCleanupPlacementAnchorSummaryIdentity = IScanCleanupPlacementAnchorSummary['identity'];
 export type IScanCleanupPlacementAnchorCalibrationRequest = v.InferOutput<typeof SCAN_CLEANUP_PLACEMENT_ANCHOR_CALIBRATION_REQUEST_SCHEMA>;

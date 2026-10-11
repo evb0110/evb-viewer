@@ -1,74 +1,37 @@
 import type {
     IScanCleanupOptions,
-    IScanCleanupSourcePageMetadata,
     TScanCleanupOutputHalf,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {
     IScanCleanupDetectionResult,
     IScanCleanupPlacementAnchorCalibration,
     IScanCleanupPlacementAnchorSummary,
-    IScanCleanupPlacementAnchorSummarySample,
     IScanCleanupPlacementAnchorSummaryIdentity,
 } from '@contracts/scan-cleanup/ipc';
+import {SCAN_CLEANUP_OUTPUT_HALVES} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
-    getScanCleanupPageOverride,
-    SCAN_CLEANUP_OUTPUT_HALVES,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {
-    resolveScanCleanupOutputPlacement,
+    addScanCleanupInkReferenceSheet,
+    collectScanCleanupSheetInkTops,
+    createScanCleanupInkReference,
+    resolveScanCleanupInkScale,
     resolveScanCleanupPlacementAnchorResolution,
-    resolveScanCleanupSheetInkTops,
-    SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM,
+    resolveScanCleanupSheetAnchors,
+    type IScanCleanupInkSheet,
+    type IScanCleanupPlacementAnchorSample,
     type IScanCleanupSnappedInkTop,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS} from '@contracts/scan-cleanup/inputLimits';
-import {
-    addScanCleanupPaperCohortRect,
-    createScanCleanupPaperCohortTally,
-    resolveScanCleanupInkReferenceHeightPoints,
-    resolveScanCleanupSheetRect,
-} from '@evb/scan-cleanup/core/policy/scanCleanupPaperCohort';
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 
-const POINTS_PER_MM = 72 / 25.4;
 /** Calibration never retains more than this many samples or clusters. */
 export const SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SAMPLE_LIMIT = SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS;
 
-export function resolveScanCleanupSheetHeightPoints(metadata: IScanCleanupSourcePageMetadata | undefined) {
-    return resolveScanCleanupSheetRect(metadata)?.heightPoints ?? 0;
-}
-
-function resolveInkSample(
-    result: IScanCleanupDetectionResult,
-    options: IScanCleanupOptions,
-    half: TScanCleanupOutputHalf,
-    referenceHeightPoints: number,
-): IScanCleanupPlacementAnchorSummarySample | undefined {
-    const pageOverride = getScanCleanupPageOverride(
-        options.pageOverrides,
-        result.pageNumber,
-        options.pageOverrideDefaults,
-        options.marginsMm,
-    );
-    if (
-        pageOverride.excluded
-        || resolveScanCleanupOutputPlacement(options.pageAlignment, pageOverride, half) !== 'ink'
-    ) {
-        return undefined;
-    }
-    const contentBox = pageOverride.manualContentBoxes?.[half]
-        ?? result.pagePlanEvidence?.outputs[half]?.contentBox;
-    if (contentBox === undefined) {
-        return undefined;
-    }
-    const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(result.sourcePageMetadata);
-    const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
-    const scale = measured ? sheetHeightPoints / referenceHeightPoints : 1;
+export function toScanCleanupInkSheet(result: IScanCleanupDetectionResult): IScanCleanupInkSheet {
     return {
         pageNumber: result.pageNumber,
-        half,
-        yNormalized: contentBox.yNormalized * scale,
-        anchor: {yNormalized: 0},
+        layoutClassification: result.classification,
+        evidence: result.pagePlanEvidence,
+        metadata: result.sourcePageMetadata,
     };
 }
 
@@ -119,14 +82,7 @@ export function resolveScanCleanupSheetAnchorsFromSummary(
             snapped[half] = resolveSummaryInkTop(summary, yNormalized);
         }
     }
-    const anchors: Partial<Record<TScanCleanupOutputHalf, {yNormalized: number}>> = {};
-    for (const [
-        half,
-        placed,
-    ] of Object.entries(resolveScanCleanupSheetInkTops(snapped)) as Array<[TScanCleanupOutputHalf, number]>) {
-        anchors[half] = {yNormalized: Math.max(0, placed - summary.topEdgeNormalized)};
-    }
-    return anchors;
+    return resolveScanCleanupSheetAnchors(snapped, summary.topEdgeNormalized);
 }
 
 export function resolveScanCleanupPlacementAnchorsFromResult(
@@ -134,22 +90,17 @@ export function resolveScanCleanupPlacementAnchorsFromResult(
     options: IScanCleanupOptions,
     result: IScanCleanupDetectionResult,
 ): IScanCleanupPlacementAnchorCalibration['placementAnchors'] {
-    const inkTops: Partial<Record<TScanCleanupOutputHalf, number>> = {};
-    for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
-        const sample = resolveInkSample(result, options, half, summary.referenceHeightPoints);
-        if (sample !== undefined) {
-            inkTops[half] = sample.yNormalized;
-        }
-    }
-    return resolveScanCleanupSheetAnchorsFromSummary(summary, inkTops);
+    return resolveScanCleanupSheetAnchorsFromSummary(
+        summary,
+        collectScanCleanupSheetInkTops(options, toScanCleanupInkSheet(result), summary.referenceHeightPoints),
+    );
 }
 
 /**
  * Build document-wide `ink` calibration without materializing the detection
  * store. The first pass finds the reference sheet height (the dominant paper's,
- * which the matched canvas also uses) and the sample count.
- * The second pass takes an evenly spaced calibration window, then keeps only
- * its bounded clusters plus early, middle, and late evidence samples.
+ * which the matched canvas also uses) and the sample count. The second pass
+ * takes an evenly spaced calibration window and keeps its bounded clusters.
  */
 export async function buildScanCleanupPlacementAnchorSummary({
     options,
@@ -162,61 +113,46 @@ export async function buildScanCleanupPlacementAnchorSummary({
     signal: AbortSignal;
     identity: IScanCleanupPlacementAnchorSummaryIdentity;
 }): Promise<IScanCleanupPlacementAnchorSummary> {
-    const sheets = createScanCleanupPaperCohortTally();
+    const reference = createScanCleanupInkReference();
     let sampleCount = 0;
     await resultStore.forEachChunk(results => {
         signal.throwIfAborted();
         for (const result of results) {
-            const pageOverride = getScanCleanupPageOverride(
-                options.pageOverrides,
-                result.pageNumber,
-                options.pageOverrideDefaults,
-                options.marginsMm,
-            );
-            if (pageOverride.excluded) continue;
-            const sheet = resolveScanCleanupSheetRect(result.sourcePageMetadata);
-            if (sheet !== null) {
-                addScanCleanupPaperCohortRect(sheets, sheet, result.classification === 'two-page-spread' ? 2 : 1);
-            }
-            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
-                if (resolveInkSample(result, options, half, 0) !== undefined) {
-                    sampleCount += 1;
-                }
-            }
+            const sheet = toScanCleanupInkSheet(result);
+            addScanCleanupInkReferenceSheet(reference, options, sheet);
+            sampleCount += Object.keys(collectScanCleanupSheetInkTops(options, sheet, 0)).length;
         }
     });
 
-    const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(sheets);
+    const {
+        referenceHeightPoints,
+        toleranceNormalized,
+    } = resolveScanCleanupInkScale(reference);
     const candidateCount = Math.min(
         SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_SAMPLE_LIMIT,
         sampleCount,
     );
-    const targetOrdinals = candidateCount <= 1
+    const targetOrdinalSet = new Set(candidateCount <= 1
         ? (candidateCount === 0 ? [] : [0])
         : Array.from(
             {length: candidateCount},
             (_, index) => Math.floor(index * (sampleCount - 1) / (candidateCount - 1)),
-        );
-    const targetOrdinalSet = new Set(targetOrdinals);
-    const sparseOrdinalSet = new Set([
-        0,
-        Math.floor((sampleCount - 1) / 2),
-        sampleCount - 1,
-    ]);
-    const candidates: IScanCleanupPlacementAnchorSummarySample[] = [];
-    const sparseSamples: IScanCleanupPlacementAnchorSummarySample[] = [];
+        ));
+    const candidates: IScanCleanupPlacementAnchorSample[] = [];
     let ordinal = 0;
     await resultStore.forEachChunk(results => {
         signal.throwIfAborted();
         for (const result of results) {
+            const inkTops = collectScanCleanupSheetInkTops(options, toScanCleanupInkSheet(result), referenceHeightPoints);
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
-                const sample = resolveInkSample(result, options, half, referenceHeightPoints);
-                if (sample === undefined) continue;
+                const yNormalized = inkTops[half];
+                if (yNormalized === undefined) continue;
                 if (targetOrdinalSet.has(ordinal)) {
-                    candidates.push(sample);
-                }
-                if (sparseOrdinalSet.has(ordinal)) {
-                    sparseSamples.push(sample);
+                    candidates.push({
+                        pageNumber: result.pageNumber,
+                        half,
+                        yNormalized,
+                    });
                 }
                 ordinal += 1;
             }
@@ -228,14 +164,11 @@ export async function buildScanCleanupPlacementAnchorSummary({
         );
     }
 
-    const toleranceNormalized = referenceHeightPoints > 0
-        ? SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM / referenceHeightPoints
-        : 0;
     const resolution = resolveScanCleanupPlacementAnchorResolution(
         candidates,
         toleranceNormalized,
     );
-    const summaryBase: IScanCleanupPlacementAnchorSummary = {
+    return {
         schemaVersion: 1,
         sampleCount,
         referenceHeightPoints,
@@ -243,15 +176,5 @@ export async function buildScanCleanupPlacementAnchorSummary({
         topEdgeNormalized: resolution.topEdgeNormalized,
         identity,
         clusters: resolution.clusters,
-        samples: [],
-    };
-    const resolvedSparseSamples = sparseSamples.map(sample => ({
-        ...sample,
-        anchor: resolveScanCleanupSheetAnchorsFromSummary(summaryBase, {[sample.half]: sample.yNormalized})[sample.half]
-            ?? {yNormalized: 0},
-    }));
-    return {
-        ...summaryBase,
-        samples: resolvedSparseSamples,
     };
 }

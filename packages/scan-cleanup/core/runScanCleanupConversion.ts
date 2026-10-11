@@ -38,19 +38,12 @@ import {
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
 import { isRecord } from '@contracts/runtimeGuards';
+import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
-    getScanCleanupPageOverride,
-    SCAN_CLEANUP_OUTPUT_HALVES,
-} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import type {TScanCleanupOutputHalf} from '@contracts/scan-cleanup/domain';
-import {
-    resolveScanCleanupOutputPlacement,
+    collectScanCleanupSheetInkTops,
     usesScanCleanupInkAlignment,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
-import {
-    resolveScanCleanupSheetAnchorsFromSummary,
-    resolveScanCleanupSheetHeightPoints,
-} from '@evb/scan-cleanup/core/placementAnchors';
+import {resolveScanCleanupSheetAnchorsFromSummary} from '@evb/scan-cleanup/core/placementAnchors';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {
     detectPageRasterFromPageSize,
@@ -1036,41 +1029,21 @@ function resolveBatchPlacementAnchors(
     for (const pageNumber of pageNumbers) {
         const key = String(pageNumber);
         const result = results.get(pageNumber);
-        const pageOverride = getScanCleanupPageOverride(
-            baseRequest.options.pageOverrides,
-            requirePageNumber(pageNumber),
-            baseRequest.options.pageOverrideDefaults,
-            baseRequest.options.marginsMm,
-        );
         const evidence = result?.pagePlanEvidence ?? baseRequest.pagePlanEvidenceByPage?.[key];
-        const metadata = result?.sourcePageMetadata ?? baseRequest.sourcePageMetadataByPage?.[key];
-        const explicit = baseRequest.placementAnchorsByPage?.[key];
-        const resolved: Partial<Record<
-            IScanCleanupPlacementAnchorSummary['samples'][number]['half'],
-            {yNormalized: number}
-        >> = explicit === undefined ? {} : {...explicit};
-        if (summary !== undefined) {
-            const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadata);
-            const scale = summary.referenceHeightPoints > 0 && sheetHeightPoints > 0
-                ? sheetHeightPoints / summary.referenceHeightPoints
-                : 1;
-            const inkTops: Partial<Record<TScanCleanupOutputHalf, number>> = {};
-            for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
-                if (resolved[half] !== undefined) continue;
-                if (resolveScanCleanupOutputPlacement(
-                    baseRequest.options.pageAlignment,
-                    pageOverride,
-                    half,
-                ) !== 'ink') {
-                    continue;
-                }
-                const contentBox = pageOverride.manualContentBoxes?.[half]
-                    ?? evidence?.outputs[half]?.contentBox;
-                if (contentBox === undefined) continue;
-                inkTops[half] = contentBox.yNormalized * scale;
-            }
-            Object.assign(resolved, resolveScanCleanupSheetAnchorsFromSummary(summary, inkTops));
-        }
+        // The sheet's correction is chosen from all of its `ink` halves, so an
+        // explicit anchor for one half still lets that half vote for the other.
+        const resolved = {
+            ...(summary === undefined ? {} : resolveScanCleanupSheetAnchorsFromSummary(
+                summary,
+                collectScanCleanupSheetInkTops(baseRequest.options, {
+                    pageNumber,
+                    layoutClassification: result?.classification ?? evidence?.layoutClassification,
+                    evidence,
+                    metadata: result?.sourcePageMetadata ?? baseRequest.sourcePageMetadataByPage?.[key],
+                }, summary.referenceHeightPoints),
+            )),
+            ...baseRequest.placementAnchorsByPage?.[key],
+        };
         if (Object.keys(resolved).length > 0) {
             anchorsByPage[key] = resolved;
         }
