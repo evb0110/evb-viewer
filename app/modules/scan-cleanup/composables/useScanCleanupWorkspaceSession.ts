@@ -109,21 +109,9 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     // That comparison is document-wide, so it is resolved once here rather
     // than per request: the preview the user judges and the run they start
     // must place a page identically.
-    const placementAnchorsByPage = computed<TScanCleanupPlacementAnchorsByPage>(() => {
-        const metadataByPage = detection.sourcePageMetadataByPage.value;
-        return resolveScanCleanupDocumentInkAnchors(
-            resolvedOptions.value,
-            [...detection.pagePlanEvidenceByPage].map(([
-                pageNumber,
-                evidence,
-            ]) => ({
-                pageNumber,
-                layoutClassification: evidence.layoutClassification,
-                evidence,
-                metadata: metadataByPage.get(pageNumber),
-            })),
-        );
-    });
+    const placementAnchorsByPage = computed<TScanCleanupPlacementAnchorsByPage>(() => (
+        resolveScanCleanupDocumentInkAnchors(resolvedOptions.value, detection.inkSheets.value)
+    ));
     previewResult = useScanCleanupPreviewSession({
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
@@ -135,6 +123,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         lifecycleDocumentKey,
         ownerId,
         pagePlanEvidenceByPage: detection.pagePlanEvidenceByPage,
+        detectionResultStoreId: detection.detectionResultStoreId,
         placementAnchorSummary: detection.placementAnchorSummary,
         placementAnchorCalibrationPending: detection.placementAnchorCalibrationPending,
         placementAnchorsByPage,

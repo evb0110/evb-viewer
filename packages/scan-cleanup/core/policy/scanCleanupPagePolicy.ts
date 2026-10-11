@@ -392,10 +392,9 @@ export interface IScanCleanupInkSheet {
 /**
  * The halves a sheet is printed as. A forced layout decides by itself; an
  * automatic one follows the sheet's classification. An offcut keeps the half
- * the detector reported, or, when its evidence names none (a blank or dewarped
- * output carries no box), the wider side of its cutter, as native cuts it. A
- * manual box drawn on a half the layout no longer produces stays with the page
- * for later, but it is not an output to place.
+ * its evidence names, else the wider side of its cutter, as native cuts it (a
+ * detected offcut drops under 30% of the sheet, so never a near tie). A manual
+ * box on a half the layout no longer produces is not an output to place.
  */
 function resolveScanCleanupProducedHalves(
     options: Pick<IScanCleanupOptions, 'layoutMode'>,

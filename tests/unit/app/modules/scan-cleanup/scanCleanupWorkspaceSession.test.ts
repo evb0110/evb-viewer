@@ -1133,6 +1133,62 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('measures ink against every retained sheet, with or without page-plan evidence', async () => {
+        // Four tall sheets carry no page-plan evidence. They still vote for the
+        // reference height, as they do in the core summary and the CLI, so the
+        // tall page 4 sits three quarters down rather than past the canvas.
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-reference-population-${Date.now()}`, {
+            currentPage: () => 4,
+            totalPages: () => 8,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const state = detectionState('detect-1', 'completed', 8);
+        state.results = state.results.map((result) => {
+            const pageNumber = result.pageNumber;
+            const tall = pageNumber >= 4;
+            const {
+                pagePlanEvidence, ...withoutEvidence
+            } = result;
+            return {
+                ...(pageNumber <= 4
+                    ? {
+                        ...result,
+                        pagePlanEvidence: {
+                            ...pagePlanEvidence!,
+                            outputs: {full: {contentBox: {
+                                xNormalized: 0.1,
+                                yNormalized: tall ? 0.8 : 0.1,
+                                widthNormalized: 0.8,
+                                heightNormalized: 0.1,
+                                rotationDegrees: 0,
+                            }}},
+                        },
+                    }
+                    : withoutEvidence),
+                sourcePageMetadata: {
+                    pageNumber,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: tall ? 1_134 : 567,
+                    rotation: 0,
+                    sourceDpi: 300,
+                },
+            };
+        });
+        harness.emitDetection(state);
+
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request !== undefined
+            && request.pageNumber === 4
+            && Math.abs((request.placementAnchors?.full?.yNormalized ?? 0) - 0.75) < 1e-9
+        ))).toBe(true));
+        mounted.unmount();
+    });
+
     it('runs a selected kept half without asking for the discarded half\'s anchor', async () => {
         // A box drawn on the left while the sheet was a spread stays with the
         // page after keep-right; only the right half is an output to place.

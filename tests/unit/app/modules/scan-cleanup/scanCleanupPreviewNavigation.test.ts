@@ -363,6 +363,7 @@ function mountPreviewSession(
     ) => Promise<IScanCleanupPlacementAnchorCalibration | undefined>,
     initialPageAlignment: IScanCleanupOptions['pageAlignment'] = 'top-center',
     placementAnchorsByPage: TScanCleanupPlacementAnchorsByPage = new Map(),
+    detectionResultStoreId: Ref<string | null> = ref(null),
 ) {
     let session: ReturnType<typeof useScanCleanupPreviewSession> | null = null;
     const settings = reactive({
@@ -384,6 +385,7 @@ function mountPreviewSession(
             ownerId: 'owner-1',
             pagePlanEvidenceByPage: new Map(),
             ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
+            detectionResultStoreId,
             placementAnchorsByPage: computed(() => placementAnchorsByPage),
             previewPage,
             recommendedOutputModeByPage: new Map(),
@@ -759,6 +761,35 @@ describe('scan cleanup preview navigation', () => {
             request.pageNumber === 100
             && request.placementAnchors?.full?.yNormalized === 0.035
         ))).toBe(true);
+        mounted.unmount();
+    });
+
+    it('does not place a store-backed page from the renderer window when its calibration is missing', async () => {
+        // A failed calibration leaves the store without a summary and nothing
+        // pending; the renderer's map covers only its retained window, so it
+        // must not stand in for the document-wide calibration.
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const mounted = mountPreviewSession(
+            ref(100),
+            reactive(new Map()),
+            undefined,
+            undefined,
+            shallowRef<IScanCleanupPlacementAnchorSummary | null>(null),
+            vi.fn(async () => undefined),
+            'ink',
+            new Map([[
+                100,
+                {full: {yNormalized: 0.1}},
+            ]]),
+            ref<string | null>('retained-store'),
+        );
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        expect(backend.previewCalls.mock.calls.some(([request]) => (
+            request.pageNumber === 100
+            && request.placementAnchors?.full?.yNormalized === 0.1
+        ))).toBe(false);
         mounted.unmount();
     });
 

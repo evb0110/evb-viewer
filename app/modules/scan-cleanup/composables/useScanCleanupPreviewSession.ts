@@ -180,6 +180,8 @@ interface IUseScanCleanupPreviewSessionOptions {
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
     pagePlanEvidenceByPage: ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
+    /** A retained result store makes the main-process calibration the authority. */
+    detectionResultStoreId?: Readonly<Ref<string | null>>;
     placementAnchorSummary?: Readonly<Ref<IScanCleanupPlacementAnchorSummary | null>>;
     placementAnchorCalibrationPending?: Readonly<Ref<boolean>>;
     placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
@@ -567,12 +569,13 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             resolvedPlacementAnchorsByPage.delete(pageNumber);
         }
         // A retained result store places pages from the main-process
-        // calibration, and only such a store leaves it pending. Without one,
-        // the run sends the renderer's map, so the preview shows that map too,
-        // whether or not a summary was built.
+        // calibration; while that is missing (pending or failed) the renderer's
+        // map covers only its retained window and must not stand in for it.
+        // Without a store, the run sends the renderer's map, so the preview
+        // shows that map too, whether or not a summary was built.
         if (
             summary === null
-            && options.placementAnchorCalibrationPending?.value === true
+            && (options.detectionResultStoreId?.value ?? null) !== null
             && usesScanCleanupInkAlignment(options.settings)
         ) {
             return undefined;
