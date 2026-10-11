@@ -120,7 +120,6 @@ const recentFilesStoreMocks = vi.hoisted(() => ({
     runSerializedRecentFilesStorageMutation: vi.fn(async () => undefined),
     writeRecentFilesToStorage: vi.fn(),
 }));
-const recoveryMocks = vi.hoisted(() => ({loadBrowserWorkspaceRecoveryLeasedRefs: vi.fn(async () => new Set<string>())}));
 
 vi.mock('@app/platform/browser/browserDocumentIdb', async importOriginal => ({
     ...await importOriginal(),
@@ -128,7 +127,6 @@ vi.mock('@app/platform/browser/browserDocumentIdb', async importOriginal => ({
 }));
 vi.mock('@app/platform/browser/browserDocumentChunks', () => chunkMocks);
 vi.mock('@app/platform/browser/browserRecentFilesStore', () => recentFilesStoreMocks);
-vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => recoveryMocks);
 
 function makeTransferAuthority(
     transferId: string,
@@ -181,7 +179,6 @@ describe('browserDocumentMaintenance', () => {
             value: [],
         });
         chunkMocks.parseChunkKey.mockReset();
-        recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set());
         documentIdbMocks.recoveryRecordsAtDelete = [];
         documentIdbMocks.documentsAtDelete = [];
         documentIdbMocks.liveLeasesAtDelete = [];
@@ -198,27 +195,29 @@ describe('browserDocumentMaintenance', () => {
     it('retains a working document while the recovery journal leases it', async () => {
         const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
         const ref = 'browser://documents/recovery.pdf';
+        const record = {
+            ref,
+            fileName: 'recovery.pdf',
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'durable',
+            data: Uint8Array.of(1),
+            fileSize: 1,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
         documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
             available: true,
             value: [ref],
         });
         documentIdbMocks.loadRecordAvailability.mockResolvedValue({
             available: true,
-            value: {
-                ref,
-                fileName: 'recovery.pdf',
-                mimeType: 'application/pdf',
-                kind: 'working',
-                retention: 'durable',
-                data: Uint8Array.of(1),
-                fileSize: 1,
-                updatedAt: 1,
-                storageMode: 'inline',
-                chunkCount: 0,
-                chunkSize: 4,
-            },
+            value: record,
         });
-        recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set([ref]));
+        documentIdbMocks.documentsAtDelete = [record];
+        documentIdbMocks.recoveryRecordsAtDelete = [{snapshotRefs: [ref]}];
 
         await sweepBrowserDocumentMaintenance(new Map());
 
@@ -228,27 +227,28 @@ describe('browserDocumentMaintenance', () => {
     it('rechecks a recovery lease committed while a destructive sweep is running', async () => {
         const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
         const ref = 'browser://documents/recovery-race.pdf';
+        const record = {
+            ref,
+            fileName: 'recovery-race.pdf',
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            data: Uint8Array.of(1),
+            fileSize: 1,
+            updatedAt: 1,
+            storageMode: 'inline',
+            chunkCount: 0,
+            chunkSize: 4,
+        };
         documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
             available: true,
             value: [ref],
         });
         documentIdbMocks.loadRecordAvailability.mockResolvedValue({
             available: true,
-            value: {
-                ref,
-                fileName: 'recovery-race.pdf',
-                mimeType: 'application/pdf',
-                kind: 'working',
-                retention: 'transient',
-                data: Uint8Array.of(1),
-                fileSize: 1,
-                updatedAt: 1,
-                storageMode: 'inline',
-                chunkCount: 0,
-                chunkSize: 4,
-            },
+            value: record,
         });
-        recoveryMocks.loadBrowserWorkspaceRecoveryLeasedRefs.mockResolvedValue(new Set());
+        documentIdbMocks.documentsAtDelete = [record];
         documentIdbMocks.recoveryRecordsAtDelete = [{snapshotRefs: [ref]}];
 
         await sweepBrowserDocumentMaintenance(new Map());

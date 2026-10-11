@@ -42,7 +42,6 @@ import type {
 } from '@app/platform/browser/browserDocumentTypes';
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
-import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import { reclaimOrphanedBrowserDocumentLiveLeases } from '@app/platform/browser/browserDocumentLeaseStore';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
@@ -118,7 +117,6 @@ export async function sweepBrowserDocumentMaintenance(
     // Retire the leases of owners that no longer exist before reading
     // protection, so a crashed window cannot pin its records forever.
     await reclaimOrphanedBrowserDocumentLiveLeases().catch(() => undefined);
-    const recoveryLeasedRefs = await loadBrowserWorkspaceRecoveryLeasedRefs();
     const {
         available,
         records,
@@ -167,7 +165,6 @@ export async function sweepBrowserDocumentMaintenance(
             recentRefs,
             nonWorkingDependentCounts,
         ))
-        .filter(record => !recoveryLeasedRefs.has(record.ref))
         .filter((record) => !pendingRefs.has(record.ref))
         .filter(record => !hasActivePendingChunkGeneration(record))
         .map(record => record.ref);
