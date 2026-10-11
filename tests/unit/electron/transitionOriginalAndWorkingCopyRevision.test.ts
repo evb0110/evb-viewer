@@ -349,6 +349,31 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it.each([
+        false,
+        true,
+    ])('restores the actual displaced original after a crash, edited=%s', async edited => {
+        const fixture = await prepare('original-version', 'accepted-unsaved-work');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {restoreOriginal} = await import('@electron/file-access/workingCopyJournalOriginal');
+        const witness = await captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7);
+        expect(witness).not.toBeNull();
+        const preparedSnapshot = witness!.getSnapshotForJournal();
+        if (edited) await writeFile(fixture.originalPath, 'external-version');
+        const backupPath = join(tempRoot, 'displaced.bak');
+        await rename(fixture.originalPath, backupPath);
+        const recovery = restoreOriginal({
+            path: fixture.originalPath,
+            backupPath,
+            state: 'prepared',
+            preparedSnapshot,
+        });
+        if (edited) await expect(recovery).rejects.toThrow('Original file changed on disk');
+        else await expect(recovery).resolves.toBeUndefined();
+        expect(await readFile(fixture.originalPath, 'utf8')).toBe(edited ? 'external-version' : 'original-version');
+        expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
+    });
+
     it('stops proof reads promptly when save is cancelled and retains both revisions', async () => {
         const fixture = await prepare('old-original', 'accepted-unsaved-work');
         const bytes = Buffer.alloc(4 * 1024 * 1024, 65);

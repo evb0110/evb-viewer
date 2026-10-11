@@ -85,13 +85,9 @@ export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
             if (await capturePathSaveWitness(original.path) !== null) {
                 throw error;
             }
-            await assertPathMatchesSaveWitnessSnapshot(
-                original.backupPath,
-                original.preparedSnapshot ?? expectedSnapshot,
-                {contentOnly: true},
-            );
-            // The link creates the destination only while it is still absent.
+            // Restore the displaced bytes exclusively, including external edits.
             await link(original.backupPath, original.path);
+            await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot ?? expectedSnapshot, {contentOnly: true});
             return;
         }
     }
