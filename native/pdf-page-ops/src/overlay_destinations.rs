@@ -7,24 +7,35 @@ use crate::link_rebinding::page_index_by_id;
 pub(crate) struct OverlayDestinations<'a> {
     probe: &'a Document,
     page_index_by_id: HashMap<ObjectId, usize>,
+    /// The source pages an instruction maps. A link to any other page resolves nowhere.
+    mapped: HashSet<usize>,
 }
 
 impl<'a> OverlayDestinations<'a> {
-    pub(crate) fn new(probe: &'a Document) -> Result<Self> {
+    pub(crate) fn new(probe: &'a Document, instructions: &TextLayerFile) -> Result<Self> {
         let page_index_by_id = page_index_by_id(&probe.get_pages());
+        let mapped = instructions
+            .pages
+            .iter()
+            .map(|instruction| instruction.source_page_index)
+            .collect();
         Ok(Self {
             probe,
             page_index_by_id,
+            mapped,
         })
     }
 
     /// The pages a subset extracts for its copied pages: those pages plus every
-    /// page their links name, so each link resolves inside the subset. A link
+    /// mapped page their links name, so each link resolves inside the subset.
+    /// A subset adds at most `MAX_SOURCE_PAGE_BATCH_PAGES` such pages; a link
+    /// past that cap keeps its annotation and loses its navigation, which keeps
+    /// one linking page from making the subset too large to extract. A link
     /// that names its target also carries the name, since `--empty` drops the
     /// catalog that defines it.
     pub(crate) fn subset_pages(&self, pages: &[usize]) -> Result<OverlaySubset> {
         let resolver = PageTreeResolver::new(self.probe)?;
-        let mut subset = pages.to_vec();
+        let mut extra = HashSet::new();
         let mut named = Vec::new();
         for &page in pages {
             let page_id =
@@ -47,7 +58,15 @@ impl<'a> OverlayDestinations<'a> {
                 };
                 let target = array.first().and_then(|object| object.as_reference().ok());
                 if let Some(&index) = target.and_then(|id| self.page_index_by_id.get(&id)) {
-                    subset.push(index);
+                    if !self.mapped.contains(&index) {
+                        continue;
+                    }
+                    if !pages.contains(&index) && !extra.contains(&index) {
+                        if extra.len() >= MAX_SOURCE_PAGE_BATCH_PAGES {
+                            continue;
+                        }
+                        extra.insert(index);
+                    }
                     if let Object::Name(name) | Object::String(name, _) = &destination {
                         let rest = array[1..]
                             .iter()
@@ -68,6 +87,8 @@ impl<'a> OverlayDestinations<'a> {
                 }
             }
         }
+        let mut subset = pages.to_vec();
+        subset.extend(extra);
         subset.sort_unstable();
         subset.dedup();
         Ok(OverlaySubset {

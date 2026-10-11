@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-const MAX_SOURCE_PAGE_BATCH_PAGES: usize = 64;
+pub(crate) const MAX_SOURCE_PAGE_BATCH_PAGES: usize = 64;
 const QPDF_SOURCE_EXTRACTION_TIMEOUT: Duration = Duration::from_secs(110);
 
 pub(crate) fn read_text_layer_file(path: &Path) -> Result<TextLayerFile> {
@@ -722,7 +722,7 @@ fn write_overlay_text_layer_copies(
     )?;
 
     let source_pages = referenced_source_pages(instructions)?;
-    let destinations = OverlayDestinations::new(source_probe.get_prev_documents())?;
+    let destinations = OverlayDestinations::new(source_probe.get_prev_documents(), instructions)?;
     let temp_dir = OverlaySourceTempDir::create()?;
     with_staged_incremental_output(input_path, output_path, |staged_output_path| {
         let mut next_batch_id = 0;
