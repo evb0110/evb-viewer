@@ -84,7 +84,7 @@ import {
     resolveOutputPathConflicts,
     resolveSuffixedOutputPathConflicts,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
-import {addPngPhysicalResolution} from '@electron/features/image-export/main/addPngPhysicalResolution';
+import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
 import {canUseLocalTiffCombineFallback} from '@electron/features/image-export/main/canUseLocalTiffCombineFallback';
 import {TiffCombineWorkerStartupError} from '@electron/features/image-export/main/tiffCombineWorkerStartupError';
 import {
