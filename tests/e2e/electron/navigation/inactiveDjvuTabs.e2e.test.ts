@@ -1138,14 +1138,16 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             };
             w.__djvuSkeletonHandoffRaf = requestAnimationFrame(sample);
         });
-        await activateTab(session, 0);
-        await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
-        await session.page.waitForFunction(() => !document.querySelector('.editor-pane.is-active .document-viewer-chassis__opening-page'), {timeout: 30_000});
-        const frames = await session.page.evaluate(() => {
-            const w = window as IDjvuSkeletonHandoffWindow;
-            cancelAnimationFrame(w.__djvuSkeletonHandoffRaf!);
-            return w.__djvuSkeletonHandoffFrames!;
-        });
+        try {
+            await activateTab(session, 0);
+            await waitForDjvuLoaded(session.page, DJVU_E2E_TIMEOUT_MS);
+            await session.page.waitForFunction(() => !document.querySelector('.editor-pane.is-active .document-viewer-chassis__opening-page'), {timeout: 30_000});
+        } finally {
+            await session.page.evaluate(() => {
+                cancelAnimationFrame((window as IDjvuSkeletonHandoffWindow).__djvuSkeletonHandoffRaf!);
+            });
+        }
+        const frames = await session.page.evaluate(() => (window as IDjvuSkeletonHandoffWindow).__djvuSkeletonHandoffFrames!);
         const shells = frames.flatMap(frame => frame.shell ? [frame.shell] : []);
         const page = frames.flatMap(frame => frame.page ? [frame.page] : []).at(-1);
         const axis = scenario === 'narrowed-window' ? 'top' : 'left';
