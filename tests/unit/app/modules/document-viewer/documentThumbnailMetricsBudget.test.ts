@@ -59,14 +59,20 @@ describe('document thumbnail retained surfaces', () => {
         expect(harness.renderCalls.length).toBeGreaterThan(callsBeforeDeactivation);
     });
 
-    it('keeps completed pixels on a return journey without asking for page geometry', async () => {
+    it('keeps completed pixels on a return journey, measuring only the document\'s slot shape', async () => {
         const harness = createDocumentThumbnailSourceHarness(5000, '/budget.pdf');
         const {host} = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
         const target = await scrollToRenderedPage(harness, host, 10_000);
         await scrollAwayAndBack(host, 10_000);
         expect(countDocumentThumbnailCalls(harness.renderCalls, target)).toBe(1);
-        expect(harness.metricsCalls).toEqual([]);
+        // The first, middle and last pages give the slot shape, once; the
+        // journey itself asks for no page's geometry.
+        expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([
+            1,
+            2500,
+            5000,
+        ]);
     });
 
     it('starts a replacement document from an empty budget instead of stacking documents', async () => {

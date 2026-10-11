@@ -2,8 +2,10 @@ import {
     describe, expect, it,
 } from 'vitest';
 import {
+    DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
     DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT,
     DocumentThumbnailLayout,
+    resolveDocumentThumbnailAspectRatio,
 } from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
 
 describe('DocumentThumbnailLayout', () => {
@@ -38,6 +40,64 @@ describe('DocumentThumbnailLayout', () => {
             itemChromeHeight: 66,
         });
         expect(layout.getPageTop(3)).toBe(432);
+    });
+
+    it('shapes every slot like the document\'s pages', () => {
+        // A book scanned as two-page spreads: 793 x 566 pt sheets.
+        const spreadAspectRatio = resolveDocumentThumbnailAspectRatio([
+            {
+                widthPoints: 793,
+                heightPoints: 566,
+            },
+            {
+                widthPoints: 793,
+                heightPoints: 566,
+            },
+            {
+                widthPoints: 793,
+                heightPoints: 566,
+            },
+        ]);
+        const layout = new DocumentThumbnailLayout({
+            aspectRatio: spreadAspectRatio,
+            pageCount: 3,
+            renderWidth: 100,
+            itemChromeHeight: 30,
+        });
+        expect(layout.getPageHeight(2)).toBe(102);
+        expect(layout.getPageTop(3)).toBe(220);
+        // A width change keeps the document's shape.
+        layout.reset({
+            pageCount: 3,
+            renderWidth: 200,
+        });
+        expect(layout.getPageHeight(1)).toBe(173);
+    });
+
+    it('takes the shape most sampled pages share and keeps tall pages in the portrait slot', () => {
+        const spread = {
+            widthPoints: 793,
+            heightPoints: 566,
+        };
+        const cover = {
+            widthPoints: 396,
+            heightPoints: 566,
+        };
+        expect(resolveDocumentThumbnailAspectRatio([
+            cover,
+            spread,
+            spread,
+        ])).toBeCloseTo(566 / 793);
+        expect(resolveDocumentThumbnailAspectRatio([{
+            widthPoints: 200,
+            heightPoints: 800,
+        }]))
+            .toBe(DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO);
+        expect(resolveDocumentThumbnailAspectRatio([{
+            widthPoints: 1000,
+            heightPoints: 100,
+        }])).toBe(0.5);
+        expect(resolveDocumentThumbnailAspectRatio([])).toBe(DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO);
     });
 
     it('virtualizes a million-page document without page-sized geometry', () => {

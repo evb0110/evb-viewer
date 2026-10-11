@@ -4908,6 +4908,68 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect((await getWorkspaceToolbarSnapshot(session.page))?.currentPage).toBe(64);
     }, 90_000);
 
+    it('shapes the thumbnail slots of a book of two-page spreads like its spreads', async () => {
+        // Every slot was an A4 portrait slot, so each landscape spread sat in
+        // a tall card with blank bands above and below it.
+        const session = sessionFixture.getSession();
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 1_000,
+            width: 1_300,
+        });
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (let number = 1; number <= 6; number += 1) {
+            const page = pdf.addPage([
+                793,
+                566,
+            ]);
+            page.drawRectangle({
+                x: 0,
+                y: 0,
+                width: 793,
+                height: 566,
+                color: rgb(0.85, 0.85, 0.85),
+            });
+            page.drawText(`Spread ${number}`, {
+                x: 60,
+                y: 480,
+                font,
+                size: 32,
+            });
+        }
+        const fixturePath = createFixturePath(`viewer-landscape-spreads-${Date.now()}.pdf`);
+        await writeFile(fixturePath, await pdf.save());
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Pages');
+        await waitForFunctionInPage(session.page, () => Boolean(document.querySelector(
+            '.editor-pane.is-active [data-thumbnail-page="1"] .document-thumbnail-list__canvas-host canvas',
+        )), {timeout: 15_000});
+
+        const slot = await session.page.evaluate(() => {
+            const frame = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-thumbnail-page="1"] [data-document-thumbnail-frame]',
+            )!;
+            const canvas = frame.querySelector('canvas')!.getBoundingClientRect();
+            const style = getComputedStyle(frame);
+            const frameRect = frame.getBoundingClientRect();
+            return {
+                frameWidth: frameRect.width - parseFloat(style.borderLeftWidth) - parseFloat(style.paddingLeft)
+                    - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight),
+                frameHeight: frameRect.height - parseFloat(style.borderTopWidth) - parseFloat(style.paddingTop)
+                    - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom),
+                pageWidth: canvas.width,
+                pageHeight: canvas.height,
+            };
+        });
+        // The spread fills its slot both ways: no blank band above or below.
+        expect(slot.frameWidth / slot.frameHeight, JSON.stringify(slot)).toBeCloseTo(793 / 566, 1);
+        expect(Math.abs(slot.pageWidth - slot.frameWidth), JSON.stringify(slot)).toBeLessThanOrEqual(2);
+        expect(Math.abs(slot.pageHeight - slot.frameHeight), JSON.stringify(slot)).toBeLessThanOrEqual(2);
+    });
+
     it('fits explicitly navigated mixed-size pages without thumbnail overlap', async () => {
         const session = sessionFixture.getSession();
 
