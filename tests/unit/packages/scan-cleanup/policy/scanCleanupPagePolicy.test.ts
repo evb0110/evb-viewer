@@ -1,3 +1,4 @@
+import * as v from 'valibot';
 import {
     describe,
     expect,
@@ -5,8 +6,10 @@ import {
 } from 'vitest';
 import type {
     IScanCleanupOptions,
+    TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {SCAN_CLEANUP_PLACEMENT_ANCHORS_SCHEMA} from '@contracts/scan-cleanup/ipcRequestCodecs';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
@@ -16,11 +19,13 @@ import {
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     estimateScanCleanupOutputPages,
+    resolveScanCleanupDocumentInkAnchors,
     resolveScanCleanupPageLayout,
     resolveScanCleanupMarginsMm,
     resolveScanCleanupOutputPlacement,
     resolveScanCleanupPlacementAnchors,
     shouldShowScanCleanupOutputEstimate,
+    type IScanCleanupInkSheet,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 
 describe('scan cleanup page overrides', () => {
@@ -430,6 +435,22 @@ describe('scan cleanup ink placement', () => {
         ]);
     });
 
+    it('keeps a spread on the canvas when its correction would carry the lower half past it', () => {
+        // The verso joins the running heads and takes their correction. Applied
+        // whole to a recto whose ink starts at the foot of the page, it would
+        // ask for an anchor below the canvas, which a run request refuses.
+        const anchors = resolveScanCleanupPlacementAnchors([
+            ...Array.from({length: 20}, (_, index) => sample(index + 2, 'full', 0)),
+            ...Array.from({length: 40}, (_, index) => sample(index + 22, 'full', 0.11)),
+            sample(1, 'left', 0.1),
+            sample(1, 'right', 0.995),
+        ], 4 / 256).get(1);
+        expect(v.parse(SCAN_CLEANUP_PLACEMENT_ANCHORS_SCHEMA, anchors)).toEqual({
+            left: {yNormalized: expect.closeTo(0.105, 10)},
+            right: {yNormalized: expect.closeTo(1, 10)},
+        });
+    });
+
     it('resolves the same anchors whatever order the evidence arrived in', () => {
         const samples = [
             sample(4, 'full', 0.13),
@@ -446,5 +467,131 @@ describe('scan cleanup ink placement', () => {
             samples[3]!,
             samples[1]!,
         ], 0.05)).toEqual(expected);
+    });
+});
+
+describe('scan cleanup ink sheets', () => {
+    const box = (yNormalized: number) => ({
+        xNormalized: 0.1,
+        yNormalized,
+        widthNormalized: 0.8,
+        heightNormalized: 0.1,
+        rotationDegrees: 0 as const,
+    });
+
+    function sheet(
+        pageNumber: number,
+        layoutClassification: TScanCleanupLayoutClassification,
+        tops: Partial<Record<TScanCleanupOutputHalf, number>>,
+    ): IScanCleanupInkSheet {
+        return {
+            pageNumber,
+            layoutClassification,
+            evidence: {outputs: Object.fromEntries(Object.entries(tops).map(([
+                half,
+                yNormalized,
+            ]) => [
+                half,
+                {contentBox: box(yNormalized)},
+            ]))},
+            metadata: {
+                pageNumber: requirePageNumber(pageNumber),
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                sourceDpi: 300,
+            },
+        };
+    }
+
+    function inkOptions(pageOverrides: IScanCleanupOptions['pageOverrides']): IScanCleanupOptions {
+        return {
+            preserveOriginalQuality: false,
+            layoutMode: 'auto',
+            outputMode: 'bw',
+            thickness: 0,
+            crop: true,
+            matchPageSize: true,
+            pageAlignment: 'ink',
+            marginsMm: {
+                leftMm: 5,
+                topMm: 5,
+                rightMm: 5,
+                bottomMm: 5,
+            },
+            despeckle: true,
+            readingOrder: 'ltr',
+            skipBlankPages: false,
+            pageOverrides,
+        };
+    }
+
+    // Running heads at 0.10 and a lower position at 0.15; the 4 mm tolerance is
+    // 0.0143 of the 792-point sheet, so a top at 0.11 joins the running heads.
+    const book = [
+        ...Array.from({length: 30}, (_, index) => sheet(index + 2, 'single-uncut-page', {full: 0.1})),
+        ...Array.from({length: 3}, (_, index) => sheet(index + 32, 'single-uncut-page', {full: 0.15})),
+    ];
+
+    it('lets only a sheet\'s ink halves choose its correction', () => {
+        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({placementOverrides: {left: 'top-center'}})}), [
+            sheet(1, 'two-page-spread', {
+                left: 0.11,
+                right: 0.15,
+            }),
+            ...book,
+        ]);
+        expect(anchors.get(1)).toEqual({right: {yNormalized: expect.closeTo(0.05, 10)}});
+    });
+
+    it('keeps the wider side of an offcut whose evidence names no output', () => {
+        // A blank or dewarped output carries no box, so the detector reports
+        // none; native keeps the side of the cutter that is wider.
+        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({manualContentBoxes: {
+            left: box(0.11),
+            right: box(0.15),
+        }})}), [
+            {
+                ...sheet(1, 'page-with-offcut', {}),
+                evidence: {
+                    outputs: {},
+                    automaticSplit: {
+                        xNormalized: 0.4,
+                        rotationDegrees: 0,
+                    },
+                },
+            },
+            ...book,
+        ]);
+        expect(anchors.get(1)).toEqual({right: {yNormalized: expect.closeTo(0.05, 10)}});
+    });
+
+    it('places a manual box on a sheet the detector left without evidence', () => {
+        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({
+            layoutOverride: 'single',
+            manualContentBoxes: {full: box(0.15)},
+        })}), [
+            {
+                ...sheet(1, 'single-uncut-page', {}),
+                evidence: undefined,
+            },
+            ...book,
+        ]);
+        expect(anchors.get(1)).toEqual({full: {yNormalized: expect.closeTo(0.05, 10)}});
+    });
+
+    it('does not place a half the layout no longer produces', () => {
+        // The left box was drawn while the sheet was a spread; keeping the
+        // right half leaves it with the page, but not among the outputs.
+        const anchors = resolveScanCleanupDocumentInkAnchors(inkOptions({'1': createScanCleanupPageOverride({
+            layoutOverride: 'keep-right',
+            manualContentBoxes: {left: box(0.11)},
+        })}), [
+            sheet(1, 'two-page-spread', {right: 0.15}),
+            ...book,
+        ]);
+        expect(anchors.get(1)).toEqual({right: {yNormalized: expect.closeTo(0.05, 10)}});
     });
 });

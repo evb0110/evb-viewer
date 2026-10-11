@@ -228,19 +228,15 @@ function placementAnchorSummary(
         sampleCount: 1_025,
         referenceHeightPoints: 792,
         toleranceNormalized: 0.014,
-        topEdgeNormalized: 0.1,
+        // Marks which calibration is installed; the renderer reads anchors
+        // from the per-page calibration, not from the summary.
+        topEdgeNormalized: anchorY,
         identity: placementAnchorIdentity(options),
         clusters: [{
             startNormalized: 0.1,
             endNormalized: 0.1,
             valueNormalized: 0.1,
             size: 1,
-        }],
-        samples: [{
-            pageNumber: requirePageNumber(1),
-            half: 'full',
-            yNormalized: 0.1,
-            anchor: {yNormalized: anchorY},
         }],
     };
 }
@@ -760,20 +756,6 @@ describe('scan cleanup workspace session detection guidance', () => {
                     size: 1,
                 },
             ],
-            samples: [
-                {
-                    pageNumber: requirePageNumber(1),
-                    half: 'full',
-                    yNormalized: 0.1,
-                    anchor: {yNormalized: 0},
-                },
-                {
-                    pageNumber: requirePageNumber(1_025),
-                    half: 'full',
-                    yNormalized: 0.2,
-                    anchor: {yNormalized: 0.1},
-                },
-            ],
         };
         state.results = state.results.map((result, index) => ({
             ...result,
@@ -862,7 +844,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             const callsBefore = recalculationCalls().length;
             mounted.session.selection.updatePageOverride(1, override);
             await vi.waitFor(() => expect(recalculationCalls().length).toBeGreaterThan(callsBefore));
-            await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.samples[0]?.anchor.yNormalized)
+            await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.topEdgeNormalized)
                 .toBe(anchorY));
             expect(harness.value.detectAll).toHaveBeenCalledOnce();
             expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false);
@@ -957,7 +939,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.detection.placementAnchorSummary.value).toBe(null);
         expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(true);
         second.resolve(placementAnchorCalibration(0.3, mounted.session.settings.values));
-        await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.samples[0]?.anchor.yNormalized)
+        await vi.waitFor(() => expect(mounted.session.detection.placementAnchorSummary.value?.topEdgeNormalized)
             .toBe(0.3));
         expect(mounted.session.detection.placementAnchorCalibrationPending.value).toBe(false);
         expect(harness.value.detectAll).toHaveBeenCalledOnce();
@@ -1089,27 +1071,13 @@ describe('scan cleanup workspace session detection guidance', () => {
                 valueNormalized: 0.1,
                 size: 1,
             }],
-            samples: [
-                {
-                    pageNumber: requirePageNumber(1),
-                    half: 'full',
-                    yNormalized: 0.1,
-                    anchor: {yNormalized: 0},
-                },
-                {
-                    pageNumber: requirePageNumber(10_001),
-                    half: 'full',
-                    yNormalized: 0.2,
-                    anchor: {yNormalized: 0.1},
-                },
-                {
-                    pageNumber: requirePageNumber(20_001),
-                    half: 'full',
-                    yNormalized: 0.2,
-                    anchor: {yNormalized: 0.1},
-                },
-            ],
         };
+        // A store-backed document previews through the main process, which
+        // resolves each page from the same summary the run streams with.
+        setPlacementAnchorCalibrationCapability(harness.value, vi.fn(async () => ({
+            summary: placementAnchorSummary,
+            placementAnchors: {full: {yNormalized: 0}},
+        })));
         const state = detectionState('detect-1', 'completed');
         state.progress = {
             ...state.progress,
@@ -1162,6 +1130,143 @@ describe('scan cleanup workspace session detection guidance', () => {
         }));
         expect(vi.mocked(harness.value.start).mock.calls[0]?.[0])
             .not.toHaveProperty('placementAnchorsByPage');
+        mounted.unmount();
+    });
+
+    it('measures ink against every retained sheet, with or without page-plan evidence', async () => {
+        // Four tall sheets carry no page-plan evidence. They still vote for the
+        // reference height, as they do in the core summary and the CLI, so the
+        // tall page 4 sits three quarters down rather than past the canvas.
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`ink-reference-population-${Date.now()}`, {
+            currentPage: () => 4,
+            totalPages: () => 8,
+        });
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const state = detectionState('detect-1', 'completed', 8);
+        state.results = state.results.map((result) => {
+            const pageNumber = result.pageNumber;
+            const tall = pageNumber >= 4;
+            const {
+                pagePlanEvidence, ...withoutEvidence
+            } = result;
+            return {
+                ...(pageNumber <= 4
+                    ? {
+                        ...result,
+                        pagePlanEvidence: {
+                            ...pagePlanEvidence!,
+                            outputs: {full: {contentBox: {
+                                xNormalized: 0.1,
+                                yNormalized: tall ? 0.8 : 0.1,
+                                widthNormalized: 0.8,
+                                heightNormalized: 0.1,
+                                rotationDegrees: 0,
+                            }}},
+                        },
+                    }
+                    : withoutEvidence),
+                sourcePageMetadata: {
+                    pageNumber,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: tall ? 1_134 : 567,
+                    rotation: 0,
+                    sourceDpi: 300,
+                },
+            };
+        });
+        harness.emitDetection(state);
+
+        await vi.waitFor(() => expect(vi.mocked(harness.value.preview).mock.calls.some(([request]) => (
+            request !== undefined
+            && request.pageNumber === 4
+            && Math.abs((request.placementAnchors?.full?.yNormalized ?? 0) - 0.75) < 1e-9
+        ))).toBe(true));
+        mounted.unmount();
+    });
+
+    it('runs a selected kept half without asking for the discarded half\'s anchor', async () => {
+        // A box drawn on the left while the sheet was a spread stays with the
+        // page after keep-right; only the right half is an output to place.
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        vi.mocked(harness.value.start).mockResolvedValue({
+            started: false as const,
+            jobId: requireJobId('run-1'),
+            error: 'test stop',
+            errorCode: 'internal' as const,
+        });
+        const mounted = mountSession(`ink-kept-half-${Date.now()}`, {
+            currentPage: () => 1,
+            totalPages: () => 3,
+        });
+        const settle = async () => {
+            for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        };
+        const box = (yNormalized: number) => ({
+            xNormalized: 0.1,
+            yNormalized,
+            widthNormalized: 0.7,
+            heightNormalized: 0.6,
+            rotationDegrees: 0 as const,
+        });
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+        const first = detectionState('detect-1', 'completed');
+        harness.emitDetection(first);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+
+        mounted.session.selection.updatePageOverride(1, {
+            rotationDegrees: 0,
+            layoutOverride: 'keep-right',
+            excluded: false,
+            manualSplit: null,
+            manualContentBoxes: {left: box(0.118)},
+        });
+        mounted.session.selection.setSettingsScope('page');
+        await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
+        await settle();
+        const state = detectionState('detect-2', 'completed');
+        state.results = state.results.map(result => ({
+            ...result,
+            recommendedOutputMode: 'bw' as const,
+            ...(result.pageNumber === 1 ? {classification: 'page-with-offcut' as const} : {}),
+            pagePlanEvidence: {
+                ...result.pagePlanEvidence!,
+                ...(result.pageNumber === 1
+                    ? {
+                        layoutClassification: 'page-with-offcut' as const,
+                        outputs: {right: {contentBox: box(0.121)}},
+                    }
+                    : {outputs: {full: {contentBox: box(0.1)}}}),
+            },
+            sourcePageMetadata: {
+                pageNumber: result.pageNumber,
+                xPoints: 0,
+                yPoints: 0,
+                widthPoints: 612,
+                heightPoints: 792,
+                rotation: 0,
+                sourceDpi: 300,
+            },
+        }));
+        harness.emitDetection(state);
+        await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
+        await vi.waitFor(() => expect(mounted.session.detection.pagePlanEvidenceByPage.get(1)?.layoutClassification)
+            .toBe('page-with-offcut'));
+        // Ink is chosen after detection, so no summary was built for it.
+        mounted.session.settings.values.pageAlignment = 'ink';
+        await settle();
+        expect(mounted.session.detection.placementAnchorSummary.value).toBe(null);
+
+        await mounted.session.run.run();
+
+        expect(harness.value.start).toHaveBeenCalledOnce();
+        expect(vi.mocked(harness.value.start).mock.calls[0]?.[0].placementAnchorsByPage?.['1'])
+            .toEqual({right: expect.objectContaining({yNormalized: expect.any(Number)})});
         mounted.unmount();
     });
 

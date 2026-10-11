@@ -35,9 +35,12 @@ import {
 } from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {
     buildScanCleanupPlacementAnchorSummary,
-    resolveScanCleanupPlacementAnchorsFromResult,
+    toScanCleanupInkSheet,
 } from '@evb/scan-cleanup/core/placementAnchors';
-import {usesScanCleanupInkAlignment} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
+import {
+    resolveScanCleanupDocumentInkAnchors,
+    usesScanCleanupInkAlignment,
+} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createFileBackedScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/fileBackedResultStore';
 import {
     extractPdfMrcLayers,
@@ -704,7 +707,18 @@ export function buildScanCleanupCliDetectionRequestFields(
     const softAlphaForegroundRecommendations: NonNullable<IRunScanCleanupPipelineRequest['softAlphaForegroundRecommendations']> = {};
     const sourcePageMetadataByPage: NonNullable<IRunScanCleanupPipelineRequest['sourcePageMetadataByPage']> = {};
     const documentPriorByPage: NonNullable<IRunScanCleanupPipelineRequest['documentPriorByPage']> = {};
-    const placementAnchorsByPage: NonNullable<IRunScanCleanupPipelineRequest['placementAnchorsByPage']> = {};
+    // Documents whose results are all at hand place `ink` the way the app's
+    // renderer does, from every sheet, so the CLI prints what a run prints.
+    const placementAnchorsByPage: NonNullable<IRunScanCleanupPipelineRequest['placementAnchorsByPage']> = Object.fromEntries(
+        [...resolveScanCleanupDocumentInkAnchors(options, detection.results.map(toScanCleanupInkSheet))]
+            .map(([
+                pageNumber,
+                anchors,
+            ]) => [
+                String(pageNumber),
+                anchors,
+            ]),
+    );
     for (const result of detection.results) {
         const key = String(result.pageNumber);
         layoutByPage[key] = result.classification;
@@ -719,13 +733,6 @@ export function buildScanCleanupCliDetectionRequestFields(
             sourcePageMetadataByPage[key] = result.sourcePageMetadata;
         }
         if (result.documentPrior !== null) documentPriorByPage[key] = result.documentPrior;
-        if (detection.placementAnchorSummary !== undefined) {
-            placementAnchorsByPage[key] = resolveScanCleanupPlacementAnchorsFromResult(
-                detection.placementAnchorSummary,
-                options,
-                result,
-            );
-        }
     }
     return {
         documentPriorByPage,
@@ -733,7 +740,7 @@ export function buildScanCleanupCliDetectionRequestFields(
         outputModeRecommendations,
         pagePlanEvidenceByPage,
         ...placementFields,
-        ...(detection.placementAnchorSummary === undefined ? {} : {placementAnchorsByPage}),
+        ...(Object.keys(placementAnchorsByPage).length === 0 ? {} : {placementAnchorsByPage}),
         softAlphaForegroundRecommendations,
         sourcePageMetadataByPage,
     };

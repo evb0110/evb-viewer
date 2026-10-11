@@ -1,9 +1,13 @@
 import type {TPageNumber} from '@contracts/pageNumbers';
-import {parsePageNumber} from '@contracts/pageNumbers';
+import {
+    parsePageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
     TScanCleanupLayoutByPage,
+    TScanCleanupLayoutClassification,
     TScanCleanupOutputHalf,
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
@@ -11,8 +15,10 @@ import type {
 import {SCAN_CLEANUP_OUTPUT_HALVES} from '@contracts/scan-cleanup/domain';
 import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
 import type {
+    IScanCleanupPagePlanEvidence,
     IScanCleanupPlacementAnchorSummaryCluster,
     IScanCleanupPreviewMetadata,
+    IScanCleanupSourcePageMetadata,
 } from '@contracts/scan-cleanup/ipc';
 import type {IScanCleanupPlacementAnchor} from '@contracts/scan-cleanup/nativeProtocolV3';
 import {
@@ -21,6 +27,13 @@ import {
     getScanCleanupPageOverride,
     getScanCleanupPageOverrideDefaults,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
+import {
+    addScanCleanupPaperCohortRect,
+    createScanCleanupPaperCohortTally,
+    resolveScanCleanupInkReferenceHeightPoints,
+    resolveScanCleanupSheetRect,
+    type IScanCleanupPaperCohortTally,
+} from '@evb/scan-cleanup/core/policy/scanCleanupPaperCohort';
 
 export type TScanCleanupResolvedPageLayout = ReturnType<typeof resolveScanCleanupPageLayout>;
 
@@ -107,22 +120,28 @@ export interface IScanCleanupSnappedInkTop {
 }
 
 /**
- * Where the outputs of one scanned sheet print. The halves of a spread were
- * exposed together, so the scanner's offset is the same in both, and moving
- * them by different amounts would print facing pages at heights the book
- * never had. The sheet moves as one, by the correction of the half whose
- * snapped position the most outputs share; a tie keeps the smaller move.
+ * Where the outputs of one scanned sheet print, as anchors below the document's
+ * top edge. The halves of a spread were exposed together, so the scanner's
+ * offset is the same in both, and moving them by different amounts would print
+ * facing pages at heights the book never had. The sheet moves as one, by the
+ * correction of the half whose snapped position the most outputs share; a tie
+ * keeps the smaller move. An anchor is a fraction of the canvas below the top
+ * margin, so a correction that would carry the lower half past the canvas is
+ * cut back for the whole sheet. Ink above the top edge still sits at the margin.
  */
-export function resolveScanCleanupSheetInkTops(
+export function resolveScanCleanupSheetAnchors(
     inkTops: Partial<Record<TScanCleanupOutputHalf, IScanCleanupSnappedInkTop>>,
-): Partial<Record<TScanCleanupOutputHalf, number>> {
+    topEdgeNormalized: number,
+): Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> {
     let correction: number | undefined;
     let support = 0;
+    let lowestTop = Number.NEGATIVE_INFINITY;
     for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
         const inkTop = inkTops[half];
         if (inkTop === undefined) {
             continue;
         }
+        lowestTop = Math.max(lowestTop, inkTop.yNormalized);
         const candidate = inkTop.snappedNormalized - inkTop.yNormalized;
         if (
             correction === undefined
@@ -133,14 +152,19 @@ export function resolveScanCleanupSheetInkTops(
             support = inkTop.support;
         }
     }
-    const placed: Partial<Record<TScanCleanupOutputHalf, number>> = {};
+    const anchors: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> = {};
+    if (correction === undefined) {
+        return anchors;
+    }
+    const sheetCorrection = Math.min(correction, topEdgeNormalized + 1 - lowestTop);
     for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
         const inkTop = inkTops[half];
-        if (inkTop !== undefined && correction !== undefined) {
-            placed[half] = inkTop.yNormalized + correction;
+        if (inkTop !== undefined) {
+            const offset = inkTop.yNormalized + sheetCorrection - topEdgeNormalized;
+            anchors[half] = {yNormalized: Math.min(1, Math.max(0, offset))};
         }
     }
-    return placed;
+    return anchors;
 }
 
 /**
@@ -313,14 +337,7 @@ export function resolveScanCleanupPlacementAnchorResolution(
         pageNumber,
         inkTops,
     ] of inkTopsByPage) {
-        const page: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> = {};
-        for (const [
-            half,
-            placed,
-        ] of Object.entries(resolveScanCleanupSheetInkTops(inkTops)) as Array<[TScanCleanupOutputHalf, number]>) {
-            page[half] = {yNormalized: Math.max(0, placed - topEdge)};
-        }
-        anchorsByPage.set(pageNumber, page);
+        anchorsByPage.set(pageNumber, resolveScanCleanupSheetAnchors(inkTops, topEdge));
     }
     return {
         anchorsByPage,
@@ -340,10 +357,12 @@ export function resolveScanCleanupPlacementAnchorResolution(
  *
  * Pages whose ink starts within a few millimetres of each other were meant to
  * start in the same place, and a reader flipping through the finished book sees
- * the difference as the text block jumping; every member of such a cluster is
- * snapped to the cluster's median, the position that moves the fewest pages.
- * Versos and rectos are clustered together: a book has one top margin, and the
- * canvas gives every leaf the same height to measure it against.
+ * the difference as the text block jumping; such a cluster snaps to its median,
+ * the position that moves the fewest pages. A spread's halves then move by one
+ * shared correction (see `resolveScanCleanupSheetAnchors`), so a half can sit
+ * off its own cluster's median by the offset it was scanned with. Versos and
+ * rectos are clustered together: a book has one top margin, and the canvas
+ * gives every leaf the same height to measure it against.
  *
  * The snapped positions are then measured from the document's own top edge —
  * the highest position enough outputs share — which prints at the top margin,
@@ -358,6 +377,186 @@ export function resolveScanCleanupPlacementAnchors(
     tolerance: number,
 ): TScanCleanupPlacementAnchorsByPage {
     return resolveScanCleanupPlacementAnchorResolution(samples, tolerance).anchorsByPage;
+}
+
+const POINTS_PER_MM = 72 / 25.4;
+
+/** One source sheet as `ink` calibration reads it. */
+export interface IScanCleanupInkSheet {
+    pageNumber: number;
+    layoutClassification: TScanCleanupLayoutClassification | undefined;
+    evidence: Pick<IScanCleanupPagePlanEvidence, 'outputs' | 'automaticSplit'> | undefined;
+    metadata: IScanCleanupSourcePageMetadata | undefined;
+}
+
+/**
+ * The halves a sheet is printed as. A forced layout decides by itself; an
+ * automatic one follows the sheet's classification. An offcut keeps the half
+ * its evidence names, else the wider side of its cutter, as native cuts it (a
+ * detected offcut drops under 30% of the sheet, so never a near tie). A manual
+ * box on a half the layout no longer produces is not an output to place.
+ */
+function resolveScanCleanupProducedHalves(
+    options: Pick<IScanCleanupOptions, 'layoutMode'>,
+    pageOverride: IScanCleanupPageOverride,
+    sheet: IScanCleanupInkSheet,
+): readonly TScanCleanupOutputHalf[] {
+    const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
+    if (layout === 'keep-left' || layout === 'keep-right') {
+        return [layout === 'keep-left' ? 'left' : 'right'];
+    }
+    if (layout === 'force-single') {
+        return ['full'];
+    }
+    if (layout === 'force-two-page' || pageOverride.manualSplit !== null) {
+        return [
+            'left',
+            'right',
+        ];
+    }
+    if (sheet.layoutClassification === 'single-uncut-page') {
+        return ['full'];
+    }
+    if (sheet.layoutClassification === 'two-page-spread') {
+        return [
+            'left',
+            'right',
+        ];
+    }
+    if (sheet.layoutClassification !== 'page-with-offcut') {
+        return SCAN_CLEANUP_OUTPUT_HALVES;
+    }
+    const reported = SCAN_CLEANUP_OUTPUT_HALVES.filter(half => half !== 'full' && sheet.evidence?.outputs[half] !== undefined);
+    if (reported.length > 0) {
+        return reported;
+    }
+    const cutter = sheet.evidence?.automaticSplit?.xNormalized;
+    if (cutter !== undefined) {
+        return [cutter >= 0.5 ? 'left' : 'right'];
+    }
+    return SCAN_CLEANUP_OUTPUT_HALVES;
+}
+
+/**
+ * The measured ink tops of a sheet's `ink` outputs, on the reference height.
+ * Every path that calibrates, places or checks `ink` reads a sheet through this
+ * one rule, so they agree on which halves take part: only produced, included
+ * outputs whose placement is `ink`, each by its manual box before its
+ * detected one. A manual box needs no detection evidence: the page it was
+ * drawn on is placed by it either way.
+ */
+export function collectScanCleanupSheetInkTops(
+    options: IScanCleanupOptions,
+    sheet: IScanCleanupInkSheet,
+    referenceHeightPoints: number,
+): Partial<Record<TScanCleanupOutputHalf, number>> {
+    const inkTops: Partial<Record<TScanCleanupOutputHalf, number>> = {};
+    const pageOverride = getScanCleanupPageOverride(
+        options.pageOverrides,
+        requirePageNumber(sheet.pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
+    );
+    if (pageOverride.excluded) {
+        return inkTops;
+    }
+    const sheetHeightPoints = resolveScanCleanupSheetRect(sheet.metadata)?.heightPoints ?? 0;
+    const scale = referenceHeightPoints > 0 && sheetHeightPoints > 0
+        ? sheetHeightPoints / referenceHeightPoints
+        : 1;
+    for (const half of resolveScanCleanupProducedHalves(options, pageOverride, sheet)) {
+        if (resolveScanCleanupOutputPlacement(options.pageAlignment, pageOverride, half) !== 'ink') {
+            continue;
+        }
+        const box = pageOverride.manualContentBoxes?.[half] ?? sheet.evidence?.outputs[half]?.contentBox;
+        if (box !== undefined) {
+            inkTops[half] = box.yNormalized * scale;
+        }
+    }
+    return inkTops;
+}
+
+/**
+ * The height `ink` measures against: the dominant paper of the included sheets,
+ * a spread voting for both leaves it carries. A sheet that cannot be measured
+ * keeps its own-sheet fraction, which is not comparable with the others, so
+ * snapping is only meaningful when every included sheet was measured.
+ */
+export interface IScanCleanupInkReference {
+    sheets: IScanCleanupPaperCohortTally;
+    everySheetMeasured: boolean;
+}
+
+export function createScanCleanupInkReference(): IScanCleanupInkReference {
+    return {
+        sheets: createScanCleanupPaperCohortTally(),
+        everySheetMeasured: true,
+    };
+}
+
+export function addScanCleanupInkReferenceSheet(
+    reference: IScanCleanupInkReference,
+    options: IScanCleanupOptions,
+    sheet: IScanCleanupInkSheet,
+) {
+    if (getScanCleanupPageOverride(
+        options.pageOverrides,
+        requirePageNumber(sheet.pageNumber),
+        options.pageOverrideDefaults,
+        options.marginsMm,
+    ).excluded) {
+        return;
+    }
+    const rect = resolveScanCleanupSheetRect(sheet.metadata);
+    if (rect === null) {
+        reference.everySheetMeasured = false;
+        return;
+    }
+    addScanCleanupPaperCohortRect(reference.sheets, rect, sheet.layoutClassification === 'two-page-spread' ? 2 : 1);
+}
+
+export function resolveScanCleanupInkScale(reference: IScanCleanupInkReference) {
+    const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(reference.sheets);
+    return {
+        referenceHeightPoints,
+        toleranceNormalized: reference.everySheetMeasured && referenceHeightPoints > 0
+            ? SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM / referenceHeightPoints
+            : 0,
+    };
+}
+
+/**
+ * Anchors for every `ink` output of a document whose sheets are all at hand.
+ * The renderer places a run with this map and the CLI resolves the same
+ * documents through it, so both print a page where the preview shows it.
+ */
+export function resolveScanCleanupDocumentInkAnchors(
+    options: IScanCleanupOptions,
+    sheets: Iterable<IScanCleanupInkSheet>,
+): TScanCleanupPlacementAnchorsByPage {
+    if (!usesScanCleanupInkAlignment(options)) {
+        return new Map();
+    }
+    const included = [...sheets];
+    const reference = createScanCleanupInkReference();
+    for (const sheet of included) {
+        addScanCleanupInkReferenceSheet(reference, options, sheet);
+    }
+    const {
+        referenceHeightPoints,
+        toleranceNormalized,
+    } = resolveScanCleanupInkScale(reference);
+    const samples = included.flatMap(sheet => Object.entries(
+        collectScanCleanupSheetInkTops(options, sheet, referenceHeightPoints),
+    ).map(([
+        half,
+        yNormalized,
+    ]) => ({
+        pageNumber: requirePageNumber(sheet.pageNumber),
+        half: half as TScanCleanupOutputHalf,
+        yNormalized,
+    })));
+    return resolveScanCleanupPlacementAnchors(samples, toleranceNormalized);
 }
 
 export function resolveScanCleanupPageLayout(

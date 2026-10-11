@@ -39,6 +39,7 @@ import {requireRequestId} from '@contracts/shared';
 import type * as scanCleanupPreviewCacheModule from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import type {IScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
+import type {TScanCleanupPlacementAnchorsByPage} from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 
 // M2 (U21), page 200 of the reference document, cold: one cleaned preview costs
 // 2412 ms. M1: its raw PNG is 1 056 837 B. The raster is modelled as free, the
@@ -93,10 +94,7 @@ function scanCleanupOptions(): IScanCleanupOptions {
     };
 }
 
-function placementAnchorSummary(
-    detectionSignature: string,
-    anchorY: number,
-): IScanCleanupPlacementAnchorSummary {
+function placementAnchorSummary(detectionSignature: string): IScanCleanupPlacementAnchorSummary {
     return {
         schemaVersion: 1,
         sampleCount: 1,
@@ -113,12 +111,6 @@ function placementAnchorSummary(
             endNormalized: 0.1,
             valueNormalized: 0.1,
             size: 1,
-        }],
-        samples: [{
-            pageNumber: requirePageNumber(100),
-            half: 'full',
-            yNormalized: 0.1,
-            anchor: {yNormalized: anchorY},
         }],
     };
 }
@@ -370,6 +362,8 @@ function mountPreviewSession(
         pageNumber: number,
     ) => Promise<IScanCleanupPlacementAnchorCalibration | undefined>,
     initialPageAlignment: IScanCleanupOptions['pageAlignment'] = 'top-center',
+    placementAnchorsByPage: TScanCleanupPlacementAnchorsByPage = new Map(),
+    detectionResultStoreId: Ref<string | null> = ref(null),
 ) {
     let session: ReturnType<typeof useScanCleanupPreviewSession> | null = null;
     const settings = reactive({
@@ -391,7 +385,8 @@ function mountPreviewSession(
             ownerId: 'owner-1',
             pagePlanEvidenceByPage: new Map(),
             ...(placementAnchorSummary === undefined ? {} : {placementAnchorSummary}),
-            placementAnchorsByPage: computed(() => new Map()),
+            detectionResultStoreId,
+            placementAnchorsByPage: computed(() => placementAnchorsByPage),
             previewPage,
             recommendedOutputModeByPage: new Map(),
             ...(resolvePlacementAnchorsForPage === undefined ? {} : {resolvePlacementAnchorsForPage}),
@@ -742,11 +737,67 @@ describe('scan cleanup preview navigation', () => {
         mounted.unmount();
     });
 
+    it('previews a page from the run\'s map when no result store calibrates it', async () => {
+        // Ink chosen after detection leaves no summary, and a document without
+        // a retained result store never gets one; its run sends this map.
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const mounted = mountPreviewSession(
+            ref(100),
+            reactive(new Map()),
+            undefined,
+            undefined,
+            shallowRef<IScanCleanupPlacementAnchorSummary | null>(null),
+            vi.fn(async () => undefined),
+            'ink',
+            new Map([[
+                100,
+                {full: {yNormalized: 0.035}},
+            ]]),
+        );
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        expect(backend.previewCalls.mock.calls.some(([request]) => (
+            request.pageNumber === 100
+            && request.placementAnchors?.full?.yNormalized === 0.035
+        ))).toBe(true);
+        mounted.unmount();
+    });
+
+    it('does not place a store-backed page from the renderer window when its calibration is missing', async () => {
+        // A failed calibration leaves the store without a summary and nothing
+        // pending; the renderer's map covers only its retained window, so it
+        // must not stand in for the document-wide calibration.
+        const backend = previewBackend();
+        capability.value = backend.capability;
+        const mounted = mountPreviewSession(
+            ref(100),
+            reactive(new Map()),
+            undefined,
+            undefined,
+            shallowRef<IScanCleanupPlacementAnchorSummary | null>(null),
+            vi.fn(async () => undefined),
+            'ink',
+            new Map([[
+                100,
+                {full: {yNormalized: 0.1}},
+            ]]),
+            ref<string | null>('retained-store'),
+        );
+        await backend.advanceBy(PREVIEW_MS + 500);
+
+        expect(backend.previewCalls.mock.calls.some(([request]) => (
+            request.pageNumber === 100
+            && request.placementAnchors?.full?.yNormalized === 0.1
+        ))).toBe(false);
+        mounted.unmount();
+    });
+
     it('rejects placement anchors returned for an older calibration identity', async () => {
         const backend = previewBackend();
         capability.value = backend.capability;
         const summary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(
-            placementAnchorSummary('detection-current', 0.2),
+            placementAnchorSummary('detection-current'),
         );
         const oldCalibration = Promise.withResolvers<IScanCleanupPlacementAnchorCalibration>();
         const resolvePlacementAnchorsForPage = vi.fn(async () => oldCalibration.promise);
@@ -764,7 +815,7 @@ describe('scan cleanup preview navigation', () => {
 
         summary.value!.identity.detectionSignature = 'detection-new';
         oldCalibration.resolve({
-            summary: placementAnchorSummary('detection-current', 0.2),
+            summary: placementAnchorSummary('detection-current'),
             placementAnchors: {full: {yNormalized: 0.2}},
         });
         for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();

@@ -11,8 +11,6 @@ export const SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES = 20_000;
 export const SCAN_CLEANUP_STREAMING_BATCH_PAGES = 1_024;
 /** Maximum clusters retained by the document-wide ink calibration summary. */
 export const SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_CLUSTERS = 256;
-/** The summary carries only sparse early, middle, and late evidence. */
-export const SCAN_CLEANUP_PLACEMENT_ANCHOR_SUMMARY_MAX_SAMPLES = 9;
 export const SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE = 256;
 export const SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON = 64;
 export const SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE = 8_192;

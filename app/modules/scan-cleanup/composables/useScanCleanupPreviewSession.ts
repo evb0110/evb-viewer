@@ -9,14 +9,12 @@ import {
     type IScanCleanupPagePlanEvidence,
     type IScanCleanupPlacementAnchorCalibration,
     type IScanCleanupPlacementAnchorSummary,
-    type IScanCleanupPlacementAnchor,
     type IScanCleanupRawPreviewEvent,
     type IScanCleanupRawPreviewResult,
     type IScanCleanupPreviewRequest,
     type IScanCleanupPreviewResult,
     type TScanCleanupErrorCode,
     type TScanCleanupOutputMode,
-    type TScanCleanupOutputHalf,
     type TScanCleanupPreviewWireResult,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
@@ -35,7 +33,6 @@ import {
     getScanCleanupPageOverride,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
-    resolveScanCleanupOutputPlacement,
     scanCleanupMatchedCanvasOverridesSignature,
     toScanCleanupLayoutByPage,
     usesScanCleanupInkAlignment,
@@ -183,6 +180,8 @@ interface IUseScanCleanupPreviewSessionOptions {
     lifecycleDocumentKey: ComputedRef<string | null>;
     ownerId: string;
     pagePlanEvidenceByPage: ReadonlyMap<number, IScanCleanupPagePlanEvidence>;
+    /** A retained result store makes the main-process calibration the authority. */
+    detectionResultStoreId?: Readonly<Ref<string | null>>;
     placementAnchorSummary?: Readonly<Ref<IScanCleanupPlacementAnchorSummary | null>>;
     placementAnchorCalibrationPending?: Readonly<Ref<boolean>>;
     placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
@@ -569,31 +568,17 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         if (resolved !== undefined) {
             resolvedPlacementAnchorsByPage.delete(pageNumber);
         }
+        // A retained result store places pages from the main-process
+        // calibration; while that is missing (pending or failed) the renderer's
+        // map covers only its retained window and must not stand in for it.
+        // Without a store, the run sends the renderer's map, so the preview
+        // shows that map too, whether or not a summary was built.
         if (
             summary === null
-            && options.resolvePlacementAnchorsForPage !== undefined
+            && (options.detectionResultStoreId?.value ?? null) !== null
             && usesScanCleanupInkAlignment(options.settings)
         ) {
             return undefined;
-        }
-        if (summary !== null && options.settings.matchPageSize) {
-            const pageOverride = getScanCleanupPageOverride(
-                options.settings.pageOverrides,
-                requirePageNumber(pageNumber),
-            );
-            const summaryAnchors = summary.samples
-                .filter(sample => sample.pageNumber === pageNumber && resolveScanCleanupOutputPlacement(
-                    options.settings.pageAlignment,
-                    pageOverride,
-                    sample.half,
-                ) === 'ink')
-                .reduce<Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>>((resolved, sample) => {
-                    resolved[sample.half] = sample.anchor;
-                    return resolved;
-                }, {});
-            if (Object.keys(summaryAnchors).length > 0) {
-                return summaryAnchors;
-            }
         }
         const anchors = options.placementAnchorsByPage.value.get(pageNumber);
         return anchors !== undefined && Object.keys(anchors).length > 0 ? anchors : undefined;

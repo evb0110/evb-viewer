@@ -20,6 +20,7 @@ import {
     resolveScanCleanupPageLayout,
     shouldShowScanCleanupOutputEstimate,
     usesScanCleanupInkAlignment,
+    type IScanCleanupInkSheet,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createScanCleanupPlacementAnchorCalibrationSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
 import {isScanCleanupSourceSha256} from '@contracts/scan-cleanup/scanCleanupSettings';
@@ -299,6 +300,21 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         return layouts;
     });
+    // Every retained sheet as `ink` calibration reads it, the population the
+    // core summary and the CLI read from their results: a measured sheet votes
+    // for the reference height whether or not it carries page-plan evidence.
+    const inkSheets = computed<IScanCleanupInkSheet[]>(() => [...new Set([
+        ...pagePlanEvidenceByPage.keys(),
+        ...sourcePageMetadataByPage.keys(),
+    ])].map(pageNumber => {
+        const evidence = pagePlanEvidenceByPage.get(pageNumber);
+        return {
+            pageNumber,
+            layoutClassification: evidence?.layoutClassification ?? detectedLayoutByPage.get(pageNumber),
+            evidence,
+            metadata: sourcePageMetadataByPage.get(pageNumber),
+        };
+    }));
     const authoritativeLayoutByPage = computed<ReadonlyMap<number, TScanCleanupLayoutClassification>>(() => {
         const layouts = new Map(detectedLayoutByPage);
         for (const [
@@ -1613,6 +1629,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         documentPriorByPage,
         detectionEvidenceComplete: computed(() => detectionEvidenceComplete.value),
         detectionResultStoreId: computed(() => detectionResultStoreId.value),
+        inkSheets,
         placementAnchorSummary: computed(() => placementAnchorSummary.value),
         placementAnchorCalibrationError,
         placementAnchorCalibrationPending,
