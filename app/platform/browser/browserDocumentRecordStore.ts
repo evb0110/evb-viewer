@@ -24,9 +24,9 @@ import {
 import {
     cleanupBrowserEvictedRecentRefs,
     loadBrowserPersistedDocumentRecordsResult,
-    removeBrowserDetachedRecordIfUnretained,
     sweepBrowserDocumentMaintenance,
 } from '@app/platform/browser/browserDocumentMaintenance';
+import { removeBrowserDetachedRecordIfUnretained } from '@app/platform/browser/browserDocumentAdmission';
 import {
     createBrowserDocumentRevisionInfo,
     getBrowserDocumentEntryContentRevision,
