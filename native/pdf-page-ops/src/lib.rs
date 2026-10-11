@@ -43,6 +43,7 @@ mod markup_hints;
 mod note_markers;
 mod note_placement;
 mod ocr_layer;
+mod overlay_destinations;
 mod overlay_sources;
 mod page_geometry;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
