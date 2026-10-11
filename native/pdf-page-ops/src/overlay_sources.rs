@@ -291,6 +291,21 @@ fn is_too_large_error(error: &(dyn Error + 'static)) -> bool {
         .is_some_and(|error| error.code == NativeErrorCode::TooLarge)
 }
 
+/// The destination an annotation navigates to, unresolved: its `/Dest`, or else
+/// the `/D` of its `/A` action.
+pub(crate) fn annotation_destination(
+    document: &Document,
+    annotation: &Dictionary,
+) -> Option<Object> {
+    let action = annotation
+        .get(b"A")
+        .ok()
+        .and_then(|action| document.dereference(action).ok())
+        .and_then(|(_, action)| action.as_dict().ok())
+        .and_then(|action| action.get(b"D").ok());
+    annotation.get(b"Dest").ok().or(action).cloned()
+}
+
 /// The source document's destinations as source page indices. Built from the
 /// structural probe, which reads dictionaries and no stream bodies.
 struct OverlayDestinations<'a> {
@@ -329,17 +344,11 @@ impl<'a> OverlayDestinations<'a> {
                 let Ok(annotation) = annotation.as_dict() else {
                     continue;
                 };
-                let action = annotation
-                    .get(b"A")
-                    .ok()
-                    .and_then(|action| self.probe.dereference(action).ok())
-                    .and_then(|(_, action)| action.as_dict().ok())
-                    .and_then(|action| action.get(b"D").ok());
-                let Some(destination) = annotation.get(b"Dest").ok().or(action) else {
+                let Some(destination) = annotation_destination(self.probe, annotation) else {
                     continue;
                 };
                 let Some(array) =
-                    crate::internal_destinations::resolve_destination(self.probe, destination)?
+                    crate::internal_destinations::resolve_destination(self.probe, &destination)?
                 else {
                     continue;
                 };
