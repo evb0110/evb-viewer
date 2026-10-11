@@ -269,6 +269,23 @@ describe('workingCopy', () => {
         );
     });
 
+    it('materializes a lazily backed working copy when search names it, then resolves its leaf', async () => {
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
+        preventAutomaticWorkingCopyMaterialization();
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const originalPath = join(tempRoot, 'search-lazy-original.pdf');
+        const originalBytes = Buffer.alloc(2 * 1024 * 1024, 17);
+        writeFileSync(originalPath, originalBytes);
+        const workingPath = await createWorkingCopy(allowOpenPath(originalPath)!, 7);
+        const {resolveSearchablePdfPath} = await import('@electron/features/search/main/ipc');
+
+        expect(existsSync(workingPath)).toBe(false);
+        await expect(resolveSearchablePdfPath(workingPath, 7)).resolves.toBe(workingPath);
+        expect(readFileSync(workingPath).equals(originalBytes)).toBe(true);
+        await expect(resolveSearchablePdfPath(join(tempRoot, 'never-opened.pdf'), 7)).resolves.toBeNull();
+    });
+
     it('fails the open when the source is replaced with same-size, same-mtime bytes during a rewrite', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         preventAutomaticWorkingCopyMaterialization();
