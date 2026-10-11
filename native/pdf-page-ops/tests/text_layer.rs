@@ -2522,7 +2522,7 @@ fn overlay_rebinds_a_link_a_preserved_page_retains_to_its_output_page() {
     save_retained_link_source(&source);
     write(
         &split_instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":0.5,"translateX":10,"translateY":20}}]}]}"#,
+        r#"{"catalog":"assembly","pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":0.5,"translateX":10,"translateY":20}}]}]}"#,
     )
     .unwrap();
     run_split_pages(&source, &split, &split_instructions);
@@ -4985,7 +4985,7 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
     document.save(&source).unwrap();
     write(
         &split_instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+        r#"{"catalog":"assembly","pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
     )
     .unwrap();
     run_split_pages(&source, &split, &split_instructions);

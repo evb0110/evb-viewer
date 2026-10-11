@@ -2302,3 +2302,161 @@ fn split_pages_removed_reply_target_keeps_text_without_an_unlisted_clone() {
                 == Some(b"other-root")
         ));
 }
+
+#[test]
+fn split_pages_labels_and_navigation_follow_the_output_page_mapping() {
+    for order in [&[2, 0][..], &[2, 0, 2][..]] {
+        let split = review_split(&mut review_catalog_source(), order, false, false);
+        let catalog = split.catalog().unwrap();
+        let labels = split
+            .dereference(catalog.get(b"PageLabels").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        let nums = split
+            .dereference(labels.get(b"Nums").unwrap())
+            .unwrap()
+            .1
+            .as_array()
+            .unwrap();
+        let prefixes = nums
+            .chunks_exact(2)
+            .map(|pair| {
+                split
+                    .dereference(&pair[1])
+                    .unwrap()
+                    .1
+                    .as_dict()
+                    .unwrap()
+                    .get(b"P")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_vec()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            prefixes,
+            order
+                .iter()
+                .map(|index| [b"one".to_vec(), b"two".to_vec(), b"three".to_vec()][*index].clone())
+                .collect::<Vec<_>>()
+        );
+        let names = split
+            .dereference(catalog.get(b"Names").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        let dests = split
+            .dereference(names.get(b"Dests").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        let names = split
+            .dereference(dests.get(b"Names").unwrap())
+            .unwrap()
+            .1
+            .as_array()
+            .unwrap();
+        let destinations = names
+            .chunks_exact(2)
+            .map(|pair| {
+                (
+                    pair[0].as_str().unwrap().to_vec(),
+                    pair[1].as_array().unwrap()[0].as_reference().unwrap(),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        let pages = split.get_pages();
+        assert_eq!(destinations[b"third".as_slice()], pages[&1]);
+        assert_eq!(destinations[b"first".as_slice()], pages[&2]);
+        assert!(!destinations.contains_key(b"removed".as_slice()));
+        let legacy = split
+            .dereference(catalog.get(b"Dests").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        assert!(!legacy.has(b"legacy"));
+        let outlines = split
+            .dereference(catalog.get(b"Outlines").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        let first = split
+            .dereference(outlines.get(b"First").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        assert_eq!(
+            first.get(b"Dest").unwrap().as_array().unwrap()[0]
+                .as_reference()
+                .unwrap(),
+            pages[&2]
+        );
+        let removed = split
+            .dereference(outlines.get(b"Last").unwrap())
+            .unwrap()
+            .1
+            .as_dict()
+            .unwrap();
+        assert_eq!(removed.get(b"Title").unwrap().as_str().unwrap(), b"removed");
+        assert!(
+            !removed.has(b"Dest"),
+            "retain the heading and children, but neutralize a discarded target"
+        );
+        let annotations = split_page_annotations(&split, 2);
+        let link = annotations
+            .iter()
+            .find(|(_, annotation)| {
+                annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Link")
+            })
+            .unwrap();
+        assert_eq!(
+            link.1.get(b"Dest").unwrap().as_array().unwrap()[0]
+                .as_reference()
+                .unwrap(),
+            pages[&1]
+        );
+    }
+}
+
+#[test]
+fn split_pages_numeric_label_ranges_keep_the_source_number_after_reorder() {
+    let mut source = review_catalog_source();
+    let child = source.add_object(dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "r", "P" => Object::string_literal("pre-"), "St" => 8}.into()]});
+    source.catalog_mut().unwrap().set(
+        "PageLabels",
+        dictionary! {"Kids" => vec![Object::Reference(child)]},
+    );
+    let split = review_split(&mut source, &[2, 0, 2], true, false);
+    let labels = split
+        .catalog()
+        .unwrap()
+        .get(b"PageLabels")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Nums")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let starts = labels
+        .chunks_exact(2)
+        .map(|pair| {
+            pair[1]
+                .as_dict()
+                .unwrap()
+                .get(b"St")
+                .unwrap()
+                .as_i64()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(starts, [10, 8, 10]);
+}

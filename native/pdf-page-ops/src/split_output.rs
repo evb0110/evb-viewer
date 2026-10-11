@@ -135,11 +135,18 @@ pub(crate) fn build_split_output(
         .into(),
     );
 
+    let catalog_id = source.trailer.get(b"Root")?.as_reference()?;
+    let catalog = split_catalog(
+        source,
+        target,
+        catalog_id,
+        pages_id,
+        instructions.catalog,
+        &pages,
+    )?;
     for page in pages {
         target.set_object(page.id, page.page);
     }
-    let catalog_id = source.trailer.get(b"Root")?.as_reference()?;
-    let catalog = split_catalog(source, catalog_id, pages_id, instructions.catalog)?;
     target.set_object(catalog_id, Object::Dictionary(catalog));
     if let Some(stamp) = instructions.provenance_stamp_hex.as_deref() {
         let info_id = target.add_object(dictionary! {

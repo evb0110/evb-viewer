@@ -35,20 +35,20 @@ pub(crate) struct PdfCombinePageLabelRange {
     pub(crate) start: Option<u32>,
 }
 
-struct CatalogWalkState {
+pub(crate) struct CatalogWalkState {
     visited: HashSet<ObjectId>,
     nodes: usize,
 }
 
 impl CatalogWalkState {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             visited: HashSet::new(),
             nodes: 0,
         }
     }
 
-    fn enter(&mut self, object: &Object) -> bool {
+    pub(crate) fn enter(&mut self, object: &Object) -> bool {
         if self.nodes >= CATALOG_WALK_NODE_LIMIT {
             return false;
         }
@@ -638,7 +638,7 @@ pub(crate) fn add_implicit_default_page_label_range(
     }
 }
 
-fn read_number_tree(
+pub(crate) fn read_number_tree(
     document: &impl PdfObjectSource,
     node_object: &Object,
     depth: usize,
