@@ -33,6 +33,7 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {
     clickAsUser,
     clickFoundAsUser,
+    revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     clickAnnotationTool,
@@ -700,6 +701,7 @@ describe('Electron E2E - annotated raster readiness', () => {
         // red Approved appearance. It is foreign to the canonical editor.
         const fixture = resolve('tests/fixtures/electron/reader-approved-stamp.pdf');
         await page.evaluate(() => {
+            const activeWorkspaceSelector = '.editor-pane.is-active .workspace-host[data-workspace-active="true"]';
             const ready = new Promise<{
                 created: boolean;
                 red: number
@@ -707,10 +709,11 @@ describe('Electron E2E - annotated raster readiness', () => {
                 const observer = new MutationObserver(() => {
                     const api = window.__evbTestApi;
                     const workspace = api?.getActiveWorkspaceHandle();
-                    const chassis = document.querySelector<HTMLElement>('.document-viewer-chassis');
+                    const activeHost = document.querySelector(activeWorkspaceSelector);
+                    const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis');
                     const status = api?.readActiveWorkspaceStateValues(['annotationCommentsStatus']).annotationCommentsStatus;
                     if (!workspace || status !== 'ready' || chassis?.dataset.viewportLifecycle !== 'ready'
-                        || !document.querySelector('.page_container[data-page="1"] canvas')) return;
+                        || !activeHost?.querySelector('.page_container[data-page="1"] canvas')) return;
                     observer.disconnect();
                     // This public action awaits the page's raster before creating
                     // its shape. Read the foreign appearance at that acknowledgement.
@@ -722,7 +725,8 @@ describe('Electron E2E - annotated raster readiness', () => {
                         width: 0.08,
                         height: 0.06,
                     }).then((result) => {
-                        const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] canvas');
+                        const canvas = document.querySelector(activeWorkspaceSelector)
+                            ?.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] canvas');
                         const pixels = canvas?.getContext('2d', {willReadFrequently: true})
                             ?.getImageData(0, 0, canvas.width, canvas.height).data;
                         let red = 0;
@@ -916,4 +920,92 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         expect(new Set(reopened.canonicalEntities.map(entity => entity.id)).size).toBe(3_200);
     }, 300_000);
 
+    it('imports replies under their supported parents and keeps them after save and reopen', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = copyFreshFixture(resolve('tests/fixtures/electron/reader-highlight-replies.pdf'), 'reader-replies');
+        const artifactDirectory = resolve('.devkit/artifacts', `reader-replies-${Date.now()}`);
+        mkdirSync(artifactDirectory, {recursive: true});
+        const expectThreads = async (entityCount: number) => {
+            await openDocumentSidebarTab(page, 'annotations');
+            await page.waitForFunction(() => document.body.innerText.includes('Highlight parent comment'));
+            const threads = await page.evaluate(() => Array.from(document.querySelectorAll('.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-testid="annotation-note-reply"]'))
+                .map(reply => ({
+                    text: reply.textContent,
+                    parent: reply.closest('.note-item')?.textContent,
+                    kind: reply.closest<HTMLElement>('.note-item')?.dataset.annotationKind,
+                })));
+            expect(threads).toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    text: expect.stringContaining('Reader reply on highlight'),
+                    parent: expect.stringContaining('Highlight parent comment'),
+                    kind: 'text-markup',
+                }),
+                expect.objectContaining({
+                    text: expect.stringContaining('Reader reply on square'),
+                    kind: 'shape',
+                }),
+            ]));
+            expect(threads).toHaveLength(2);
+            for (const [
+                kind,
+                text,
+            ] of [
+                    [
+                        'text-markup',
+                        'Reader reply on highlight',
+                    ],
+                    [
+                        'shape',
+                        'Reader reply on square',
+                    ],
+                ] as const) {
+                const selector = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="${kind}"] .note-item-reply-text`;
+                await revealForPointer(page, selector);
+                const deltaY = await page.$eval(selector, (reply) => {
+                    const range = document.createRange();
+                    range.selectNodeContents(reply);
+                    const bounds = range.getBoundingClientRect();
+                    const clip = reply.closest('.notes-list')!.getBoundingClientRect();
+                    return (bounds.top + bounds.bottom - clip.top - clip.bottom) / 2;
+                });
+                await page.mouse.wheel({deltaY});
+                await page.waitForFunction((target, expectedText) => {
+                    const reply = document.querySelector<HTMLElement>(target);
+                    const viewport = reply?.closest('.notes-list');
+                    if (!reply || !viewport || !reply.innerText.includes(expectedText)) {
+                        return false;
+                    }
+                    const range = document.createRange();
+                    range.selectNodeContents(reply);
+                    const bounds = range.getBoundingClientRect();
+                    const clip = viewport.getBoundingClientRect();
+                    return bounds.top >= clip.top && bounds.bottom <= clip.bottom
+                        && bounds.left >= clip.left && bounds.right <= clip.right;
+                }, {}, selector, text);
+                await page.screenshot({path: join(artifactDirectory, `${entityCount}-${kind}.png`)});
+            }
+            const imported = await collectAnnotationOwnershipDebugState(page);
+            expect(imported.canonicalEntities).toHaveLength(entityCount);
+            expect(imported.canonicalEntities.filter(entity => entity.kind !== 'text-box').map(entity => entity.kind).sort()).toEqual([
+                'shape',
+                'text-markup',
+            ]);
+        };
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await expectThreads(2);
+        // A real edit forces incremental writing; untouched reply dictionaries
+        // must stay in the PDF and import under the same parents on reopen.
+        await createCanonicalTextBoxWithPointer(page, 'Save preserves imported reply threads', {
+            x: 0.4,
+            y: 0.65,
+        });
+        await saveViaVisibleToolbar(page, SAVE_TIMEOUT_MS, fixture);
+        await openPdfInApp(page, copyFreshFixture(fixture, 'reader-replies-reopen'));
+        await waitForPdfLoaded(page);
+        await expectThreads(3);
+        const saved = await readPdfTextAnnotationRecords(fixture);
+        expect(saved.filter(annotation => annotation.contents.startsWith('Reader reply on'))).toHaveLength(2);
+        console.log(`READER_REPLY_EVIDENCE ${artifactDirectory}`);
+    }, ACCEPTANCE_TIMEOUT_MS);
 });

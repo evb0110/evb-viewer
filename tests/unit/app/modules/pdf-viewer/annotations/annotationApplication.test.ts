@@ -11,6 +11,7 @@ import {
     asAnnotationId,
     type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {mapPdfAnnotationParseEntity} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -58,6 +59,44 @@ describe('AnnotationApplication', () => {
         expect(application.store.undo()).toBe(true);
         expect(comments).toEqual(application.listCommentSummaries());
         expect(comments[0]!.text).toBe('hello');
+    });
+
+    it('projects a parsed highlight reply only under its parent without making it dirty', () => {
+        const application = new AnnotationApplication('reader-replies');
+        const reply = {
+            objectNumber: 18,
+            generationNumber: 0,
+            contents: 'Reader reply',
+            author: 'Reply author',
+            createdAt: 10,
+            modifiedAt: 11,
+        };
+        const parent = mapPdfAnnotationParseEntity({
+            kind: 'highlight',
+            pageIndex: requirePageIndex(0),
+            objectNumber: 17,
+            generationNumber: 0,
+            name: 'highlight-parent',
+            author: 'Parent author',
+            createdAt: null,
+            modifiedAt: null,
+            subtype: 'Highlight',
+            quadPoints: [note().position],
+            color: '#ffcc00',
+            opacity: 1,
+            contents: 'Parent comment',
+            replies: [reply],
+        });
+        application.store.import(parent);
+        expect(application.listCommentSummaries()).toEqual([expect.objectContaining({
+            appAnnotationId: 'highlight-parent',
+            text: 'Parent comment',
+            replies: [reply],
+        })]);
+        expect(application.store.dirtyEntities()).toEqual([]);
+        const comments = application.listCommentSummaries();
+        comments[0]!.replies![0]!.contents = 'Changed projection';
+        expect(application.listCommentSummaries()[0]!.replies?.[0]?.contents).toBe('Reader reply');
     });
 
     it('captures and acknowledges a store save frontier', () => {

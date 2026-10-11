@@ -188,3 +188,50 @@ fn parse_annotations_decodes_pdfdocencoding_text_strings() {
     fs::remove_file(input).unwrap();
     fs::remove_file(output).unwrap();
 }
+
+#[test]
+fn parse_annotations_cli_attaches_reader_replies_to_supported_parents() {
+    // PyMuPDF 1.28.2 wrote a highlight and square, each with a /Text /IRT child.
+    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/reader-highlight-replies.pdf");
+    let output = temporary_path("reader-replies", "jsonl");
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args([
+            "parse-annotations",
+            "--input",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--modified-at",
+            "D:20260830130000Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let sidecar = fs::read_to_string(&output).unwrap();
+    fs::remove_file(output).unwrap();
+    let entries: Vec<serde_json::Value> = sidecar
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .collect();
+    assert_eq!(entries.len(), 2, "Replies must not become top-level notes");
+    for (kind, contents, author) in [
+        ("highlight", "Reader reply on highlight", "Reply author"),
+        ("shape", "Reader reply on square", "Square reply author"),
+    ] {
+        let parent = entries.iter().find(|entry| entry["kind"] == kind).unwrap();
+        assert_eq!(parent["replies"].as_array().map(Vec::len), Some(1));
+        assert_eq!(parent["replies"][0]["contents"], contents);
+        assert_eq!(parent["replies"][0]["author"], author);
+    }
+}

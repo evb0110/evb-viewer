@@ -66,6 +66,20 @@ const revisionTokenSchema = v.pipe(
     v.check(value => parseDocumentRevisionToken(value) !== null, 'must be a valid document revision token'),
     v.transform(value => parseDocumentRevisionToken(value)!),
 );
+const noteReplySchema = v.strictObject({
+    objectNumber: nonNegativeInteger('annotation parse replies.objectNumber'),
+    generationNumber: nonNegativeInteger('annotation parse replies.generationNumber'),
+    contents: nonEmptyString('annotation parse replies.contents', true),
+    author: nullableString('annotation parse replies.author'),
+    createdAt: nullableTimestamp('annotation parse replies.createdAt'),
+    modifiedAt: nullableTimestamp('annotation parse replies.modifiedAt'),
+}, 'contains unsupported field');
+const repliesSchema = v.pipe(
+    v.unknown(),
+    v.check(value => Array.isArray(value) && value.length <= 4_096,
+        'annotation parse replies must contain at most 4096 replies'),
+    v.array(noteReplySchema),
+);
 const parseIdentity = {
     pageIndex: pageIndexSchema,
     objectNumber: nonNegativeInteger('objectNumber'),
@@ -74,6 +88,7 @@ const parseIdentity = {
     author: nullableString('author'),
     createdAt: nullableTimestamp('createdAt'),
     modifiedAt: nullableTimestamp('modifiedAt'),
+    replies: v.optional(repliesSchema),
 };
 const baseRectSchema = v.strictObject({
     left: finiteNumber('rect.left'),
@@ -149,14 +164,6 @@ const textBoxSchema = v.pipe(
             && rect.width * rect.height <= availableArea + 1e-7;
     }, 'annotation parse text-box.rect cannot fit inside the normalized page bounds after rotation'),
 );
-const noteReplySchema = v.strictObject({
-    objectNumber: nonNegativeInteger('annotation parse note.replies.objectNumber'),
-    generationNumber: nonNegativeInteger('annotation parse note.replies.generationNumber'),
-    contents: nonEmptyString('annotation parse note.replies.contents', true),
-    author: nullableString('annotation parse note.replies.author'),
-    createdAt: nullableTimestamp('annotation parse note.replies.createdAt'),
-    modifiedAt: nullableTimestamp('annotation parse note.replies.modifiedAt'),
-}, 'contains unsupported field');
 const noteSchema = v.strictObject({
     kind: v.literal('note'),
     ...parseIdentity,
@@ -169,12 +176,7 @@ const noteSchema = v.strictObject({
     contents: nonEmptyString('annotation parse note.contents', true),
     color: v.optional(v.nullable(rgbColorSchema('annotation parse note.color')), null),
     open: v.boolean('annotation parse note.open must be a boolean'),
-    replies: v.pipe(
-        v.unknown(),
-        v.check(value => Array.isArray(value) && value.length <= 4_096,
-            'annotation parse note.replies must contain at most 4096 replies'),
-        v.array(noteReplySchema),
-    ),
+    replies: repliesSchema,
 }, 'contains unsupported field');
 const highlightSchema = v.strictObject({
     kind: v.literal('highlight'),

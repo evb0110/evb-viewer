@@ -252,7 +252,7 @@ export class AnnotationApplication {
                 annotationName: null,
                 hasNote: entity.kind === 'note' || entity.kind === 'text-markup' && text.length > 0,
                 markerRect,
-                ...(entity.kind === 'note' && entity.replies
+                ...(entity.replies
                     ? {replies: entity.replies.map(reply => ({...reply}))}
                     : {}),
                 ...(entity.kind === 'text-markup'

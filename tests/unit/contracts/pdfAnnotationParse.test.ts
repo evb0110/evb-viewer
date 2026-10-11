@@ -89,6 +89,47 @@ describe('PDF annotation parse IPC contracts', () => {
             .toThrow(/normalized page bounds/iu);
     });
 
+    it('decodes bounded replies on a supported non-note parent', () => {
+        const entry = {
+            kind: 'highlight',
+            pageIndex: 0,
+            objectNumber: 17,
+            generationNumber: 0,
+            name: 'highlight-parent',
+            author: 'Author',
+            createdAt: null,
+            modifiedAt: null,
+            subtype: 'Highlight',
+            quadPoints: [{
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            }],
+            color: '#ffcc00',
+            opacity: 1,
+            contents: 'Parent comment',
+            replies: [{
+                objectNumber: 18,
+                generationNumber: 0,
+                contents: 'Reply',
+                author: 'Reader',
+                createdAt: null,
+                modifiedAt: null,
+            }],
+        };
+        const decode = (replies: unknown) => decodeEntries({entries: [{
+            ...entry,
+            replies,
+        }]});
+        expect(decode(entry.replies).entries).toEqual([entry]);
+        expect(() => decode(Array.from({length: 4_097}, () => entry.replies[0]))).toThrow(/4096/iu);
+        expect(() => decode([{
+            ...entry.replies[0],
+            extra: true,
+        }])).toThrow(/unsupported field/iu);
+    });
+
     it('round-trips parsed annotation entries and results', () => {
         const textBox = {
             kind: 'text-box' as const,
@@ -230,6 +271,17 @@ describe('PDF annotation parse IPC contracts', () => {
                 shape,
             ],
         };
+
+        const threadedEntries = [
+            textBox,
+            highlight,
+            stamp,
+            shape,
+        ].map(entry => ({
+            ...entry,
+            replies: note.replies,
+        }));
+        expect(decodeEntries({entries: threadedEntries}).entries).toEqual(threadedEntries);
 
         const decodedChunk = decodeEntries(chunk);
         expect(decodedChunk).toEqual(chunk);

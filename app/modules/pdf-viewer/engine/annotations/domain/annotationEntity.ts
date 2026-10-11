@@ -30,7 +30,7 @@ export interface IAnnotationIdentity {
     readonly pdfRef?: string;
 }
 
-/** A reply read from a foreign note. Replies are derived and never authored here. */
+/** A reply read from a foreign annotation. Replies are derived and never authored here. */
 export type IAnnotationReply = IPdfAnnotationNoteReply;
 
 /** The image object reference returned by the writer for a stamp. */
@@ -58,6 +58,8 @@ interface IAnnotationEntityBase {
     readonly createdAt: TEpochMs | null;
     readonly modifiedAt: TEpochMs | null;
     readonly author: string | null;
+    /** Derived from the document on open. Replies are excluded from equality. */
+    readonly replies?: readonly IAnnotationReply[];
 }
 
 export interface ITextBoxEntity extends IAnnotationEntityBase {
@@ -75,8 +77,6 @@ export interface INoteEntity extends IAnnotationEntityBase {
     readonly position: IAnnotationMarkerRect;
     readonly color: string | null;
     readonly open: boolean;
-    /** Derived from the document on open. Replies are excluded from equality. */
-    readonly replies?: readonly IAnnotationReply[];
     /** Bounded native recovery graph, retained for undo after a saved deletion. */
     readonly recoveryData?: string;
 }
