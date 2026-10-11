@@ -899,6 +899,17 @@ function isPageLabelArray(
     return Array.isArray(pageLabels);
 }
 
+/** Parse the numbering part of a label in its segment's style, or null when it is not one. */
+function parseSegmentNumber(style: TNonNullPageLabelStyle, suffix: string) {
+    if (style === 'D') {
+        return /^\d+$/.test(suffix) ? Number.parseInt(suffix, 10) : null;
+    }
+    if (style === 'R' || style === 'r') {
+        return parseRoman(suffix);
+    }
+    return parseAlphabetic(suffix);
+}
+
 function findPageByLabelInModel(
     input: string,
     model: IDocumentPageLabelModel,
@@ -914,15 +925,20 @@ function findPageByLabelInModel(
             continue;
         }
 
-        const parsed = segment.style === 'D'
-            ? inferDecimalCandidate(input)
-            : segment.style === 'R' || segment.style === 'r'
-                ? inferRomanCandidate(input)
-                : inferAlphabeticCandidate(input);
-        if (!parsed || parsed.style !== segment.style || parsed.prefix !== segment.prefix) {
+        // The segment already knows its prefix; only the remainder is numbering.
+        const inputPrefix = input.slice(0, segment.prefix.length);
+        const prefixMatches = caseInsensitive
+            ? inputPrefix.toLowerCase() === segment.prefix.toLowerCase()
+            : inputPrefix === segment.prefix;
+        if (!prefixMatches) {
             continue;
         }
-        const page = segment.startPage + parsed.startNumber - segment.startNumber;
+        const suffix = input.slice(segment.prefix.length);
+        const number = parseSegmentNumber(segment.style, caseInsensitive ? suffix.toLowerCase() : suffix);
+        if (number === null) {
+            continue;
+        }
+        const page = segment.startPage + number - segment.startNumber;
         if (page >= segment.startPage && page <= segment.endPage) {
             const actual = model.labelAt(page);
             if (actual === input || actual?.toLowerCase() === candidate) {
