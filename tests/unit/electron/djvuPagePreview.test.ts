@@ -243,7 +243,7 @@ describe('DjVu native page preview helpers', () => {
         });
 
         const windows = [];
-        for await (const window of getDjvuPageSizeWindowsForViewing('/tmp/large.djvu', 513)) {
+        for await (const window of getDjvuPageSizeWindowsForViewing('/tmp/large.djvu', 2_049)) {
             windows.push(window);
         }
 
@@ -253,21 +253,21 @@ describe('DjVu native page preview helpers', () => {
         ])).toEqual([
             [
                 1,
-                256,
+                1024,
             ],
             [
-                257,
-                256,
+                1025,
+                1024,
             ],
             [
-                513,
+                2049,
                 1,
             ],
         ]);
         expect(mocks.runNativeCommand).toHaveBeenCalledTimes(3);
         const calls = mocks.runNativeCommand.mock.calls as unknown[][];
-        expect((calls[0]?.[1] as string[] | undefined)?.[2]).toContain('select 256; size');
-        expect((calls[1]?.[1] as string[] | undefined)?.[2]).toContain('select 257; size');
+        expect((calls[0]?.[1] as string[] | undefined)?.[2]).toContain('select 1024; size');
+        expect((calls[1]?.[1] as string[] | undefined)?.[2]).toContain('select 1025; size');
     });
 
     it('probes only selected pages instead of scanning every intervening window', async () => {
@@ -325,8 +325,8 @@ describe('DjVu native page preview helpers', () => {
             };
         });
 
-        await getDjvuPageSizesForViewing('/tmp/cache-bound.djvu', 513);
-        await getDjvuPageSizesForViewing('/tmp/cache-bound.djvu', 513);
+        await getDjvuPageSizesForViewing('/tmp/cache-bound.djvu', 2_049);
+        await getDjvuPageSizesForViewing('/tmp/cache-bound.djvu', 2_049);
 
         expect(mocks.runNativeCommand).toHaveBeenCalledTimes(6);
     });
