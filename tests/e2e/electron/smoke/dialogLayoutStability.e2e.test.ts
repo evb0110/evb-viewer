@@ -218,6 +218,19 @@ async function setSavedLocale(page: Page, locale: TAppLocale) {
     await page.reload({waitUntil: 'domcontentloaded'});
 }
 
+// The native owner retains the last requested check, and a renderer start
+// restores its status dialog; dismiss it as a person.
+async function closeRestoredUpdateStatus(page: Page, locale: TAppLocale) {
+    const startupStatus = await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
+    if (startupStatus?.origin !== 'manual' || startupStatus.phase !== 'unsupported') {
+        return;
+    }
+    await page.waitForSelector('[role="dialog"]', {visible: true});
+    await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+        .find(button => button.textContent?.trim() === label), LOCALE_MESSAGES[locale].settings.close, {description: 'Close restored update status'});
+    await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
+}
+
 async function readFailureToast(page: Page) {
     return page.evaluate(() => {
         const toast = Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'))
@@ -529,15 +542,7 @@ describe('Electron E2E - dialog layout stability', () => {
                     // an unsupported runtime cannot become supported in place.
                     await setSavedLocale(page, locale);
                     await page.waitForSelector(`button[aria-label="${messages.toolbar.settings}"]`, {visible: true});
-                    const startupStatus = await page.evaluate(() => (window as IE2EWindow).electronAPI?.updates.getState());
-                    if (startupStatus?.origin === 'manual' && startupStatus.phase === 'unsupported') {
-                        // The native owner retains the last requested check. Its
-                        // status dialog is restored on reload; dismiss it as a person.
-                        await page.waitForSelector('[role="dialog"]', {visible: true});
-                        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                            .find(button => button.textContent?.trim() === label), messages.settings.close, {description: 'Close restored update status'});
-                        await page.waitForFunction(() => !document.querySelector('[role="dialog"]'), {timeout: DIALOG_TIMEOUT_MS});
-                    }
+                    await closeRestoredUpdateStatus(page, locale);
                     await page.evaluate(() => (window as TUpdateFaultWindow).__emitUpdateStatusForAutomation?.({
                         phase: 'idle',
                         origin: 'auto',
@@ -681,6 +686,8 @@ describe('Electron E2E - dialog layout stability', () => {
         const {page} = session;
         await setSavedLocale(page, 'en');
         await page.waitForSelector('button[aria-label="Settings"]', {visible: true});
+        // The updater test above leaves a manual check's status in the native owner.
+        await closeRestoredUpdateStatus(page, 'en');
         await clickFoundAsUser(page, () => document.querySelector<HTMLButtonElement>('button[aria-label="Settings"]'),
             undefined, {description: 'Settings button'});
         // The assistant card is the stacked one; the MCP card is the other.
