@@ -1,7 +1,7 @@
 use super::*;
 
 const MAX_RECOVERY_BYTES: usize = 1024 * 1024;
-const MAX_RECOVERY_OBJECTS: usize = 1024;
+pub(crate) const MAX_RECOVERY_OBJECTS: usize = 1024;
 
 /// A bounded, native-owned snapshot lives in annotation undo history. No
 /// deleted content is added to the output PDF until the user restores it.
