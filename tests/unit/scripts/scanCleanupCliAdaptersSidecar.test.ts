@@ -1,3 +1,4 @@
+import type * as TChildProcess from 'node:child_process';
 import {
     EventEmitter, on,
 } from 'node:events';
@@ -7,9 +8,15 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    delimiter,
+    isAbsolute,
+    join,
+} from 'node:path';
 import {PassThrough} from 'node:stream';
+import {decode as decodePng} from 'fast-png';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     afterEach,
@@ -290,5 +297,191 @@ describe('CLI scan cleanup acceptance evidence', () => {
                 force: true,
             });
         }
+    });
+});
+
+/** Two pixels on a white page; the mask gives the left pixel ink and the right pixel paper. */
+const HARD_MASK_INK_THEN_PAPER = Buffer.concat([
+    Buffer.from('P4\n2 1\n', 'ascii'),
+    Buffer.from([0x80]),
+]);
+/** Opacity samples: the left pixel is opaque (255) and the right pixel is clear. */
+const SOFT_ALPHA_OPAQUE_THEN_CLEAR = Buffer.concat([
+    Buffer.from('P5\n2 1\n255\n', 'ascii'),
+    Buffer.from([
+        255,
+        0,
+    ]),
+]);
+
+const layeredMaskMagick = process.env.EVB_SCAN_CLEANUP_MAGICK_PATH ?? 'magick';
+const layeredMaskMagickAvailable = isAbsolute(layeredMaskMagick)
+    ? existsSync(layeredMaskMagick)
+    : (process.env.PATH ?? '').split(delimiter).some(directory => existsSync(join(directory, layeredMaskMagick)));
+
+describe.skipIf(!layeredMaskMagickAvailable)('CLI layered-mask fallback polarity', () => {
+    beforeEach(async () => {
+        // The file mocks node:child_process for the sidecar protocol. These cases
+        // spawn the real ImageMagick that the fallback runs.
+        const actual = await vi.importActual<typeof TChildProcess>('node:child_process');
+        mocks.spawn.mockImplementation(actual.spawn);
+    });
+
+    /**
+     * Flattens a two-pixel page through the fallback and returns the red channel
+     * of the left and right pixels. Ink on the left is black (0) when it is
+     * composited opaque over the white background, and paper on the right is white (255).
+     */
+    async function flattenTwoPixelPage(
+        mask: Buffer,
+        manifestLine: (paths: {
+            background: string;
+            foreground: string;
+            mask: string
+        }) => string[],
+    ) {
+        const directory = await mkdtemp(join(tmpdir(), 'layered-mask-fallback-'));
+        try {
+            const background = join(directory, 'background.ppm');
+            const foreground = join(directory, 'foreground.ppm');
+            const maskPath = join(directory, 'mask.netpbm');
+            await Promise.all([
+                writeFile(background, Buffer.concat([
+                    Buffer.from('P6\n2 1\n255\n', 'ascii'),
+                    Buffer.alloc(6, 255),
+                ])),
+                writeFile(foreground, Buffer.concat([
+                    Buffer.from('P6\n2 1\n255\n', 'ascii'),
+                    Buffer.alloc(6, 0),
+                ])),
+                writeFile(maskPath, mask),
+            ]);
+            const {flattenLayeredManifestPage} = await import('@scripts/flattenLayeredManifestPage');
+            const flattenedPath = await flattenLayeredManifestPage(
+                manifestLine({
+                    background,
+                    foreground,
+                    mask: maskPath,
+                }),
+                directory,
+                layeredMaskMagick,
+                {},
+            );
+            const decoded = decodePng(await readFile(flattenedPath));
+            // ImageMagick writes a two-colour result as a 1-bit palette PNG; the
+            // single-colour fallback is a 1-bit gray PNG, and the colored one is 8-bit.
+            const sample = (index: number) => {
+                if (decoded.depth !== 1) return decoded.data[index * decoded.channels]!;
+                const bit = (decoded.data[index >> 3]! >> (7 - (index & 7))) & 1;
+                return decoded.palette ? decoded.palette[bit]![0]! : bit * 255;
+            };
+            return [
+                sample(0),
+                sample(1),
+            ];
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }
+
+    it('keeps hard stencil ink opaque in the layered-jpeg fallback', async () => {
+        expect(await flattenTwoPixelPage(HARD_MASK_INK_THEN_PAPER, ({
+            background, mask,
+        }) => [
+            'layered-jpeg',
+            '72',
+            '144',
+            '85',
+            background,
+            mask,
+        ])).toEqual([
+            0,
+            255,
+        ]);
+    });
+
+    it('keeps hard stencil ink opaque over a colored layered-color-jpeg foreground', async () => {
+        expect(await flattenTwoPixelPage(HARD_MASK_INK_THEN_PAPER, ({
+            background, mask,
+        }) => [
+            'layered-color-jpeg',
+            '72',
+            '144',
+            '85',
+            background,
+            mask,
+            '128',
+            '16',
+            '16',
+        ])).toEqual([
+            128,
+            255,
+        ]);
+    });
+
+    it('keeps soft alpha opacity as written in the soft-layered-jpeg fallback', async () => {
+        expect(await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({
+            background, mask,
+        }) => [
+            'soft-layered-jpeg',
+            '72',
+            '144',
+            '85',
+            background,
+            mask,
+        ])).toEqual([
+            0,
+            255,
+        ]);
+    });
+
+    it('keeps affine masks with no decode field as written in the fallback', async () => {
+        expect(await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({
+            background, foreground, mask,
+        }) => [
+            'affine-masked-layered-jpeg',
+            '72',
+            '144',
+            '85',
+            background,
+            foreground,
+            mask,
+            '72',
+            '0',
+            '0',
+            '144',
+            '0',
+            '0',
+        ])).toEqual([
+            0,
+            255,
+        ]);
+    });
+
+    it('inverts affine masks that declare an inverted decode in the fallback', async () => {
+        expect(await flattenTwoPixelPage(SOFT_ALPHA_OPAQUE_THEN_CLEAR, ({
+            background, foreground, mask,
+        }) => [
+            'affine-masked-layered-jpeg',
+            '72',
+            '144',
+            '85',
+            background,
+            foreground,
+            mask,
+            '72',
+            '0',
+            '0',
+            '144',
+            '0',
+            '0',
+            'inverted',
+        ])).toEqual([
+            255,
+            0,
+        ]);
     });
 });
