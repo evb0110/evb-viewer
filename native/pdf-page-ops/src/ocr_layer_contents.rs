@@ -215,3 +215,39 @@ pub(crate) fn strip_previous_ocr_text(
     }
     Ok(())
 }
+
+/// Replaces a page's OCR text. The new layer becomes the page's first content
+/// stream. The layer's coordinates assume the default graphics state, and the
+/// page may leave a cm, clip or text state open, so a layer appended after the
+/// page's content would be drawn through it. Placed first, the layer starts in
+/// the default state; the page's own streams keep their painting.
+pub(crate) fn replace_page_ocr_text(
+    incremental: &mut IncrementalDocument,
+    input_path: &Path,
+    qpdf_path: Option<&Path>,
+    source: &Document,
+    source_page_id: ObjectId,
+    page_id: ObjectId,
+    matrix: [f64; 6],
+    normalize_greek_micro_sign: bool,
+) -> Result<()> {
+    strip_previous_ocr_text(incremental, input_path, qpdf_path, page_id)?;
+    append_text_layer(
+        &mut incremental.new_document,
+        source,
+        page_id,
+        source_page_id,
+        matrix,
+        false,
+        normalize_greek_micro_sign,
+        Some((EVB_OCR_LAYER_BEGIN, EVB_OCR_LAYER_END)),
+        &mut HashMap::new(),
+    )?;
+    let mut contents = incremental.new_document.get_page_contents(page_id);
+    contents.rotate_right(1);
+    incremental.new_document.get_dictionary_mut(page_id)?.set(
+        "Contents",
+        Object::Array(contents.into_iter().map(Object::Reference).collect()),
+    );
+    Ok(())
+}

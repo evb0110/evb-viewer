@@ -1744,6 +1744,53 @@ fn keeps_the_ink_of_a_scale_that_an_old_ocr_stream_only_sets() {
     }
 }
 
+#[test]
+fn places_words_where_the_page_leaves_a_transform_open() {
+    let source = path("open-transform-source", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    // The page ends with a scale it never restores, as a placed image leaves it.
+    // The second page holds an extra Q, which a reader ignores, after the scale.
+    for (label, content) in [
+        ("open-transform", &b"200 0 0 120 0 0 cm 0 0 1 1 re f"[..]),
+        ("unbalanced-restore", &b"2 0 0 2 0 0 cm Q 0 0 1 1 re f"[..]),
+    ] {
+        let input = path(label, "pdf");
+        let output = path(&format!("{label}-output"), "pdf");
+        save_ocr_page(
+            &input,
+            [0, 0, 200, 120],
+            None,
+            vec![content.to_vec()],
+            Dictionary::new(),
+        );
+
+        let result = run_ocr_text_layer(&input, &output, &source);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        let bbox = pdftotext_all(&output, &["-bbox"]);
+        let x = bbox_word_x(&bbox, "Recognized");
+        assert!(
+            (x - 10.0).abs() < 1.0,
+            "{label}: word moved to x={x}: {bbox}"
+        );
+
+        for file in [input, output] {
+            let _ = fs::remove_file(file);
+        }
+    }
+    let _ = fs::remove_file(source);
+}
+
 /// One page whose resources hold a Form XObject `/Fm0` with `form_content`
 /// and an image `/Im0` the form and the page may both draw.
 fn save_ocr_page_with_form(path: &Path, contents: Vec<Vec<u8>>, form_content: &[u8]) {

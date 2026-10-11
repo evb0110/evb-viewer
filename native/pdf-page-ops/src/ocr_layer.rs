@@ -669,17 +669,15 @@ pub(crate) fn write_ocr_text_layer_path(
         if !incremental.new_document.has_object(page_id) {
             prepare_incremental_overlay_page(&mut incremental, page_id)?;
         }
-        strip_previous_ocr_text(&mut incremental, input_path, qpdf_path, page_id)?;
-        append_text_layer(
-            &mut incremental.new_document,
+        replace_page_ocr_text(
+            &mut incremental,
+            input_path,
+            qpdf_path,
             &source,
-            page_id,
             source_page_id,
+            page_id,
             matrix,
-            false,
             page.normalize_greek_micro_sign,
-            Some((EVB_OCR_LAYER_BEGIN, EVB_OCR_LAYER_END)),
-            &mut HashMap::new(),
         )?;
     }
     incremental.new_document.version = incremental.get_prev_documents().version.clone();
