@@ -1834,13 +1834,7 @@ pub(crate) fn append_source_annotations(
             source_page_id,
         )?;
         for key in [b"IRT".as_slice(), b"Parent".as_slice(), b"Popup".as_slice()] {
-            if annotation_related_ref(&annotation, key).is_some_and(|id| {
-                source
-                    .get_dictionary(id)
-                    .is_ok_and(|member| member.has(b"Subtype"))
-            }) {
-                annotation.remove(key);
-            }
+            annotation.remove(key);
         }
         annotation.set(
             crate::split_navigation::SOURCE_ANNOTATION_SLOT,

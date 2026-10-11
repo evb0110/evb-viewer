@@ -233,7 +233,10 @@ fn restore_source_catalog(
     let pages = output_pages
         .iter()
         .map(|page| {
-            let source_id = resolver.page_id(&source, page.0 .0)?;
+            let source_id = resolver.page_id(
+                &source,
+                overlay_page_number(page.2.source_page_index, "sourcePageIndex")?,
+            )?;
             let id = navigation.new_object_id();
             identities.insert(id, page.1);
             Ok((source_id, id, page.2, page.3))
@@ -247,6 +250,27 @@ fn restore_source_catalog(
         SplitCatalog::Assembly,
         &pages,
     )?;
+    // The same final annotation identities rebuild form membership and exports.
+    // Import-only ids keep source field references apart from qpdf output ids.
+    let mut mapped_annotations: crate::split_output::SplitAnnotationMap = HashMap::new();
+    for (source_id, copies) in &annotations {
+        for (page, id) in copies {
+            let mapped = navigation.new_object_id();
+            identities.insert(mapped, *id);
+            navigation.set_object(mapped, output.new_document.get_dictionary(*id)?.clone());
+            mapped_annotations
+                .entry(*source_id)
+                .or_default()
+                .push((*page, mapped));
+        }
+    }
+    if let Some(form) = crate::split_catalog::split_forms::split_form(
+        &source,
+        &mut navigation,
+        &mapped_annotations,
+    )? {
+        catalog.set("AcroForm", form);
+    }
     if catalog.is_empty() {
         return Ok(!annotations.is_empty());
     }
@@ -278,6 +302,25 @@ fn restore_source_catalog(
         &|_, _| Ok(()),
         0,
     )?;
+    for copies in mapped_annotations.values() {
+        for (_, mapped) in copies {
+            let mut annotation = navigation.get_dictionary(*mapped)?.clone();
+            if annotation.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Widget") {
+                continue;
+            }
+            if let Ok(parent) = annotation.get(b"Parent").and_then(Object::as_reference) {
+                annotation.set(
+                    "Parent",
+                    *identities
+                        .get(&parent)
+                        .ok_or("overlay-text form parent was not imported")?,
+                );
+            }
+            output
+                .new_document
+                .set_object(identities[mapped], annotation);
+        }
+    }
     let root = output
         .previous_document
         .trailer
@@ -591,7 +634,10 @@ pub(crate) fn rebind_output_threads(
     let mut copies: crate::split_output::SplitAnnotationMap = HashMap::new();
     let mut pending = Vec::new();
     for page in pages {
-        let source_page = resolver.page_id(source, page.0 .0)?;
+        let source_page = resolver.page_id(
+            source,
+            overlay_page_number(page.2.source_page_index, "sourcePageIndex")?,
+        )?;
         let entries = source_annotation_entries(source, source_page);
         for entry in
             page_annotation_array(output, output.get_dictionary(page.1)?).unwrap_or_default()

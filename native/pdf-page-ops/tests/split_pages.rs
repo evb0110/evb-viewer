@@ -3173,3 +3173,129 @@ fn r8_mixed_compact_replies_target_only_listed_final_annotations() {
         }
     }
 }
+
+#[test]
+fn r8_radio_exports_follow_pruned_and_duplicated_widgets() {
+    let mut source = review_catalog_source();
+    let field = source.new_object_id();
+    let mut kids = Vec::new();
+    for (index, page) in [(3, 0), (4, 0), (5, 0)].into_iter().enumerate() {
+        let name = ["A", "B", "C"][index];
+        let widget = source.add_object(dictionary! {"Type" => "Annot", "Subtype" => "Widget", "Parent" => field,
+            "P" => page, "Rect" => vec![130.into(), 50.into(), 146.into(), 66.into()], "AS" => name});
+        kids.push(Object::Reference(widget));
+        source
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(widget)]);
+    }
+    source.set_object(field, dictionary! {"FT" => "Btn", "T" => Object::string_literal("radio"), "Ff" => 32768,
+        "V" => "B", "Kids" => kids, "Opt" => vec![Object::string_literal("Option A"), Object::string_literal("Option B"), Object::string_literal("Option C")]});
+    source.catalog_mut().unwrap().set("AcroForm", dictionary! {"Fields" => vec![Object::Reference(field)], "CO" => vec![Object::Reference(field)], "NeedAppearances" => true});
+    for order in [&[0, 1, 0, 2][..], &[2, 0][..], &[2, 0, 1][..]] {
+        let split = review_split(&mut source, order, false, false);
+        r8_assert_radio_exports(&split, order);
+    }
+    let input = path("r8-radio-input", "pdf");
+    let primary = path("r8-radio-primary", "pdf");
+    let raster = path("r8-radio-raster", "pdf");
+    let interleave = path("r8-radio-interleave", "pdf");
+    let output = path("r8-radio-output", "pdf");
+    let instructions = path("r8-radio-instructions", "json");
+    source.save(&input).unwrap();
+    review_split(&mut source, &[2], true, false)
+        .save(&primary)
+        .unwrap();
+    save_single_page_pdf(&raster, Stream::new(Dictionary::new(), Vec::new()));
+    let mut raster_document = Document::load(&raster).unwrap();
+    let raster_page = raster_document.get_pages()[&1];
+    raster_document
+        .get_dictionary_mut(raster_page)
+        .unwrap()
+        .set("Resources", Dictionary::new());
+    raster_document.save(&raster).unwrap();
+    let result = Command::new(qpdf_path())
+        .arg(&primary)
+        .args(["--coalesce-contents", "--pages", ".", "1"])
+        .arg(&raster)
+        .args(["1", "--"])
+        .arg(&interleave)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    write(
+        &instructions,
+        serde_json::json!({"pages": [
+            {"sourcePageIndex":2,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true},
+            {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["overlay-text", "--qpdf"])
+        .arg(qpdf_path())
+        .arg("--input")
+        .arg(&interleave)
+        .arg("--source")
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .arg("--instructions-file")
+        .arg(&instructions)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    r8_assert_radio_exports(&Document::load(&output).unwrap(), &[2, 0]);
+    for file in [input, primary, raster, interleave, output, instructions] {
+        let _ = remove_file(file);
+    }
+}
+
+fn r8_assert_radio_exports(split: &Document, order: &[usize]) {
+    let form = split
+        .catalog()
+        .unwrap()
+        .get(b"AcroForm")
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let field = form.get(b"Fields").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let dictionary = split.get_dictionary(field).unwrap();
+    let kids = dictionary.get(b"Kids").unwrap().as_array().unwrap();
+    let options = dictionary.get(b"Opt").unwrap().as_array().unwrap();
+    assert_eq!(options.len(), kids.len());
+    for (page, source_index) in order.iter().enumerate() {
+        let (id, widget) = &split_page_annotations(split, page as u32 + 1)[0];
+        assert_eq!(
+            widget.get(b"Parent").unwrap().as_reference().unwrap(),
+            field,
+            "pure widgets remain direct field children"
+        );
+        let slot = kids
+            .iter()
+            .position(|kid| kid.as_reference().unwrap() == *id)
+            .unwrap();
+        assert_eq!(
+            options[slot].as_str().unwrap(),
+            [b"Option A", b"Option B", b"Option C"][*source_index]
+        );
+    }
+    assert_eq!(
+        form.get(b"CO").unwrap().as_array().unwrap()[0]
+            .as_reference()
+            .unwrap(),
+        field
+    );
+    assert!(form.get(b"NeedAppearances").unwrap().as_bool().unwrap());
+}
