@@ -112,6 +112,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 return () => undefined;
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
 
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');

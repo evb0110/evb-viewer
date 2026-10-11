@@ -311,6 +311,7 @@ function capabilityHarness() {
             detectionListener = listener;
             return () => { detectionListener = () => undefined; };
         }),
+        onSettingsChanged: vi.fn(() => () => undefined),
     };
     return {
         emitDetection: (state: TScanCleanupDetectionJobState) => detectionListener(state),

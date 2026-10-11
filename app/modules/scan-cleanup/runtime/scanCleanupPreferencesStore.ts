@@ -68,6 +68,7 @@ let migrationContext: IScanCleanupPreferencesStoreOptions = {};
 let applyingRemotePreferences = false;
 let acknowledgedPreferences: IScanCleanupGlobalPreferences | null = null;
 let observedPreferences: IScanCleanupGlobalPreferences | null = null;
+let unsubscribeCommittedGlobalPreferences: (() => void) | null = null;
 
 const pendingGlobalFields = new Map<keyof IScanCleanupGlobalPreferences, {
     value: unknown;
@@ -319,6 +320,24 @@ function schedulePersistenceRetry() {
     }, delayMs);
 }
 
+// A committed global write, ours or another renderer's, becomes the acknowledged
+// value. A field with a pending local edit keeps that edit until its own write.
+async function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPreferences) {
+    acknowledgedPreferences = cloneScanCleanupPreferenceValue(settings);
+    if (!preferences) {
+        return;
+    }
+    applyingRemotePreferences = true;
+    for (const key of Object.keys(settings) as Array<keyof IScanCleanupGlobalPreferences>) {
+        if (!pendingGlobalFields.has(key)) {
+            preferences[key] = cloneScanCleanupPreferenceValue(settings[key]) as never;
+        }
+    }
+    await nextTick();
+    applyingRemotePreferences = false;
+    observedPreferences = cloneScanCleanupPreferenceValue(preferences);
+}
+
 function queueRemoteUpdate(
     request: IScanCleanupSettingsUpdateRequest,
     documentToken?: IScanCleanupDocumentPersistenceToken,
@@ -354,17 +373,7 @@ function queueRemoteUpdate(
         const result = await updateSettings(request);
         remoteSettingsFile = result;
         if (isGlobalPreferencesWrite) {
-            acknowledgedPreferences = cloneScanCleanupPreferenceValue(result.settings);
-            if (preferences) {
-                applyingRemotePreferences = true;
-                for (const key of Object.keys(result.settings) as Array<keyof IScanCleanupGlobalPreferences>) {
-                    if (!pendingGlobalFields.has(key)) {
-                        preferences[key] = cloneScanCleanupPreferenceValue(result.settings[key]) as never;
-                    }
-                }
-                await nextTick();
-                applyingRemotePreferences = false;
-            }
+            await applyCommittedGlobalPreferences(result.settings);
         }
         committed = true;
     });
@@ -624,6 +633,11 @@ export function getScanCleanupPreferencesStore(options?: IScanCleanupPreferences
         }, {deep: true});
     });
     registerLifecycleListeners();
+    if (desktopStore) {
+        unsubscribeCommittedGlobalPreferences = currentScanCleanupCapability().onSettingsChanged(settings => {
+            void applyCommittedGlobalPreferences(settings);
+        });
+    }
     return preferences;
 }
 
@@ -895,6 +909,8 @@ export function resetScanCleanupPreferencesStore() {
     persistenceScope?.stop();
     persistenceScope = null;
     unregisterLifecycleListeners();
+    unsubscribeCommittedGlobalPreferences?.();
+    unsubscribeCommittedGlobalPreferences = null;
     preferences = null;
     preferencesHydrated = false;
     preferencesHydrationPromise = null;

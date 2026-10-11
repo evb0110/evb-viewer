@@ -25,6 +25,7 @@ import {
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
 import {
+    decodeScanCleanupGlobalPreferences,
     decodeScanCleanupSettingsResult,
     decodeScanCleanupSettingsReadRequest,
     decodeScanCleanupSettingsUpdateRequest,
@@ -41,6 +42,7 @@ const nonNegativeInteger = v.message(v.pipe(v.number(), v.safeInteger(), v.minVa
 const settingsReadArgs = v.strictTuple([v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsReadRequest))]);
 const settingsUpdateArgs = v.strictTuple([v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsUpdateRequest))]);
 const settingsFile = v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsResult));
+const globalPreferences = v.pipe(v.unknown(), v.transform(decodeScanCleanupGlobalPreferences));
 const previewArgs = SCAN_CLEANUP_PREVIEW_ARGS_SCHEMA;
 const cancelPreviewArgs = SCAN_CLEANUP_PREVIEW_CANCEL_ARGS_SCHEMA;
 const detectionArgs = SCAN_CLEANUP_DETECTION_ARGS_SCHEMA;
@@ -235,6 +237,13 @@ export const SCAN_CLEANUP_PLATFORM_FEATURE = definePlatformFeature({
             channel: 'scan-cleanup:detect-all:state',
             payload: detectionEvent,
             browser: {method: 'onDetectionJobState'},
+            lazy: 'forwarded',
+        },
+        onSettingsChanged: {
+            kind: 'event',
+            channel: 'scan-cleanup:settings:changed',
+            payload: globalPreferences,
+            browser: {method: 'onSettingsChanged'},
             lazy: 'forwarded',
         },
     },

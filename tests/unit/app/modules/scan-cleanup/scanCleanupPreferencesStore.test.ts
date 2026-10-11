@@ -23,7 +23,10 @@ import {
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
-import {createDefaultScanCleanupSettingsFile} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {
+    createDefaultScanCleanupSettingsFile,
+    type IScanCleanupGlobalPreferences,
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {useScanCleanupDocumentSettings} from '@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings';
 import {
     scanCleanupSourceIdentityKey,
@@ -46,6 +49,7 @@ import {
 const capability = vi.hoisted(() => ({value: {
     getSettings: vi.fn(),
     updateSettings: vi.fn(),
+    onSettingsChanged: vi.fn(),
 }}));
 const temporaryDirectories: string[] = [];
 
@@ -60,6 +64,28 @@ async function createDurableSettingsStore() {
     };
 }
 
+// Stands in for the main process: a committed global write reaches every
+// renderer subscriber, the writer's own included.
+function connectMainProcessSettings(store: ReturnType<typeof createScanCleanupSettingsStore>) {
+    const subscribers = new Set<(settings: IScanCleanupGlobalPreferences) => void>();
+    capability.value.getSettings.mockImplementation(store.get);
+    capability.value.onSettingsChanged.mockImplementation((subscriber: (settings: IScanCleanupGlobalPreferences) => void) => {
+        subscribers.add(subscriber);
+        return () => {
+            subscribers.delete(subscriber);
+        };
+    });
+    capability.value.updateSettings.mockImplementation(async request => {
+        const committed = await store.update(request);
+        if (request.settingsPatch !== undefined) {
+            for (const subscriber of subscribers) {
+                subscriber(committed.settings);
+            }
+        }
+        return committed;
+    });
+}
+
 vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => true}));
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 
@@ -70,6 +96,7 @@ describe('scan cleanup renderer preference store', () => {
         vi.clearAllMocks();
         capability.value.getSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
         capability.value.updateSettings.mockResolvedValue(createDefaultScanCleanupSettingsFile());
+        capability.value.onSettingsChanged.mockReturnValue(() => undefined);
     });
 
     afterEach(async () => {
@@ -143,6 +170,94 @@ describe('scan cleanup renderer preference store', () => {
         expect(reloadedPreferences.binarization).toBe('sauvola');
         expect(reloadedPreferences.normalizeIllumination).toBe(false);
         reloadedStoreModule.resetScanCleanupPreferencesStore();
+    });
+
+    it('shows a committed global edit in another renderer and in a reopened surface', async () => {
+        vi.resetModules();
+        const firstStoreModule = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const firstPreferences = firstStoreModule.getScanCleanupPreferencesStore();
+        await firstStoreModule.whenScanCleanupPreferencesReady();
+
+        vi.resetModules();
+        const secondStoreModule = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        const secondPreferences = secondStoreModule.getScanCleanupPreferencesStore();
+        await secondStoreModule.whenScanCleanupPreferencesReady();
+        const secondSettingsModule = await import('@app/modules/scan-cleanup/composables/useScanCleanupDocumentSettings');
+
+        async function openSettingsSession(name: string, sourceSha256: string) {
+            const host = document.createElement('div');
+            document.body.append(host);
+            let session!: ReturnType<typeof secondSettingsModule.useScanCleanupDocumentSettings>;
+            const app = createApp(defineComponent({setup() {
+                session = secondSettingsModule.useScanCleanupDocumentSettings({
+                    documentLifecycleKey: computed(() => name),
+                    sourceSha256: computed(() => sourceSha256),
+                    legacyDocumentKey: computed(() => `/documents/${name}.pdf`),
+                });
+                return () => h('div');
+            }}));
+            app.mount(host);
+            await vi.waitFor(() => expect(session.documentSettingsReady.value).toBe(true));
+            return {
+                session,
+                close: () => {
+                    app.unmount();
+                    host.remove();
+                },
+            };
+        }
+
+        const open = await openSettingsSession('second-window', 'e'.repeat(64));
+        firstPreferences.readingOrder = 'rtl';
+        await nextTick();
+        await firstStoreModule.flushScanCleanupPreferencesStore();
+
+        expect(secondPreferences.readingOrder).toBe('rtl');
+        expect(open.session.values.readingOrder).toBe('rtl');
+        open.close();
+        const reopened = await openSettingsSession('reopened', 'f'.repeat(64));
+        expect(reopened.session.values.readingOrder).toBe('rtl');
+        reopened.close();
+        expect((await store.get()).settings.readingOrder).toBe('rtl');
+
+        firstStoreModule.resetScanCleanupPreferencesStore();
+        secondStoreModule.resetScanCleanupPreferencesStore();
+    });
+
+    it('keeps a pending global edit in one renderer when another renderer commits a different field', async () => {
+        vi.resetModules();
+        const firstStoreModule = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        const {store} = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const firstPreferences = firstStoreModule.getScanCleanupPreferencesStore();
+        await firstStoreModule.whenScanCleanupPreferencesReady();
+
+        vi.resetModules();
+        const secondStoreModule = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
+        const secondPreferences = secondStoreModule.getScanCleanupPreferencesStore();
+        await secondStoreModule.whenScanCleanupPreferencesReady();
+
+        firstPreferences.readingOrder = 'rtl';
+        await nextTick();
+        await firstStoreModule.flushScanCleanupPreferencesStore();
+        expect(secondPreferences.readingOrder).toBe('rtl');
+
+        secondPreferences.readingOrder = 'ltr';
+        await nextTick();
+        firstPreferences.thickness = 2;
+        await nextTick();
+        await firstStoreModule.flushScanCleanupPreferencesStore();
+        expect(secondPreferences.readingOrder).toBe('ltr');
+        expect(secondPreferences.thickness).toBe(2);
+
+        await secondStoreModule.flushScanCleanupPreferencesStore();
+        expect(firstPreferences.readingOrder).toBe('ltr');
+        expect((await store.get()).settings.readingOrder).toBe('ltr');
+
+        firstStoreModule.resetScanCleanupPreferencesStore();
+        secondStoreModule.resetScanCleanupPreferencesStore();
     });
 
     it('warns when a desktop document patch has no authoritative source hash', async () => {

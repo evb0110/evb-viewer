@@ -140,6 +140,7 @@ function stubCapability(
             return () => undefined;
         }),
         onDetectionJobState: vi.fn(() => () => undefined),
+        onSettingsChanged: vi.fn(() => () => undefined),
     };
 }
 
@@ -172,6 +173,7 @@ describe('scan cleanup run coordinator', () => {
             onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const request = {
@@ -408,6 +410,7 @@ describe('scan cleanup run coordinator', () => {
             onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
 
@@ -531,6 +534,7 @@ describe('scan cleanup run coordinator', () => {
             onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
 
@@ -580,6 +584,7 @@ describe('scan cleanup run coordinator', () => {
             onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         terminalState.mark = () => {
@@ -627,6 +632,7 @@ describe('scan cleanup run coordinator', () => {
             onPreviewRaw: vi.fn(() => () => undefined),
             onJobState,
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const dependencies = {
@@ -724,6 +730,7 @@ describe('scan cleanup run coordinator', () => {
             onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
@@ -770,6 +777,7 @@ describe('scan cleanup run coordinator', () => {
             onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
@@ -864,6 +872,7 @@ describe('scan cleanup run coordinator', () => {
                 return () => { listener = () => undefined; };
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => true);
         const saveCompletedOutputAs = vi.fn(async () => true);
@@ -1345,6 +1354,7 @@ describe('scan cleanup run coordinator', () => {
                 return () => undefined;
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const toastAdd = vi.fn();
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
@@ -1448,6 +1458,7 @@ describe('scan cleanup run coordinator', () => {
                 return () => undefined;
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(() => openGate.promise);
         const toastAdd = vi.fn();
@@ -1527,6 +1538,7 @@ describe('scan cleanup run coordinator', () => {
                 return () => undefined;
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => {
             throw new Error('Invalid or non-existent file');
@@ -1618,6 +1630,7 @@ describe('scan cleanup run coordinator', () => {
                 return () => undefined;
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => true);
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
@@ -1669,6 +1682,7 @@ describe('scan cleanup run coordinator', () => {
                 return () => undefined;
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
@@ -1757,6 +1771,7 @@ describe('scan cleanup run coordinator', () => {
             pruneGeneratedOutputs: vi.fn(),
             onJobState,
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         try {
             secondCleanup = coordinator.installScanCleanupRunCoordinator(dependencies);
@@ -1787,6 +1802,7 @@ describe('scan cleanup run coordinator', () => {
             pruneGeneratedOutputs,
             onJobState: vi.fn(() => unsubscribe),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const firstCleanup = coordinator.installScanCleanupRunCoordinator({

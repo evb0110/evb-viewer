@@ -1,9 +1,18 @@
-import {app} from 'electron';
+import {
+    app,
+    BrowserWindow,
+} from 'electron';
 import {join} from 'node:path';
 import type {IpcMainInvokeEvent} from 'electron';
-import type {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {
+    SCAN_CLEANUP_PLATFORM_FEATURE,
+    type IScanCleanupEventMap,
+} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
-import {SCAN_CLEANUP_SETTINGS_FILE_NAME} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {
+    SCAN_CLEANUP_SETTINGS_FILE_NAME,
+    type IScanCleanupGlobalPreferences,
+} from '@contracts/scan-cleanup/scanCleanupSettings';
 import {
     defaultDependencies,
     scanCleanupPreviewLifecycle,
@@ -12,12 +21,27 @@ import {createScanCleanupService} from '@electron/features/scan-cleanup/createSc
 import {createScanCleanupSettingsStore} from '@electron/features/scan-cleanup/createScanCleanupSettingsStore';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {createLogger} from '@electron/utils/createLogger';
+import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
 import {sweepStaleScanCleanupScratchDirs} from '@evb/scan-cleanup/core/scratchCleanup';
 
 const previewService = scanCleanupPreviewLifecycle(defaultDependencies);
 const service = createScanCleanupService();
 const settingsStore = createScanCleanupSettingsStore({filePath: join(app.getPath('userData'), SCAN_CLEANUP_SETTINGS_FILE_NAME)});
 const logger = createLogger('scan-cleanup-scratch');
+const settingsLogger = createLogger('scan-cleanup-settings');
+
+// A committed global write reaches every trusted window, the writer's included.
+// Each renderer store rebases the fields it has no pending local edit for.
+function broadcastGlobalPreferences(settings: IScanCleanupGlobalPreferences) {
+    for (const window of BrowserWindow.getAllWindows()) {
+        sendPlatformEvent<IScanCleanupEventMap, 'scan-cleanup:settings:changed'>(
+            window,
+            SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onSettingsChanged,
+            settings,
+            error => settingsLogger.debug(`Failed to send scan-cleanup settings change: ${String(error)}`),
+        );
+    }
+}
 
 void Promise.resolve()
     .then(() => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}))
@@ -53,7 +77,13 @@ const featureBindings = {
     // the store instead of adding a renderer-id namespace with no isolation
     // boundary behind it.
     getSettings: (_context, request) => settingsStore.get(request),
-    updateSettings: (_context, request) => settingsStore.update(request),
+    updateSettings: async (_context, request) => {
+        const result = await settingsStore.update(request);
+        if (request.settings !== undefined || request.settingsPatch !== undefined) {
+            broadcastGlobalPreferences(result.settings);
+        }
+        return result;
+    },
     getPendingCompletedOutputs: async context => [...await service.getPendingCompletedOutputs(context.sender)],
     acknowledgeCompletedOutputs: outputPaths => service.acknowledgeCompletedOutputs(outputPaths),
 } satisfies TFeatureMainBindings<typeof SCAN_CLEANUP_PLATFORM_FEATURE, IpcMainInvokeEvent>;
