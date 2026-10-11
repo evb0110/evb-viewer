@@ -132,6 +132,12 @@ pub(super) fn missing_free_text_appearance(
         x2: inner.x2 - 2.0 * width,
         y2: inner.y2 - 2.0 * width,
     };
+    let geometry = print_text_geometry(
+        document,
+        annotation,
+        text_rect,
+        resolve_page_rotation(document, page_id)?,
+    )?;
     if let Some(font) = source_font.filter(|_| text.is_ascii()) {
         resources.set("Font", Dictionary::from_iter([("PrintText", font)]));
         let color_operator = match color.len() {
@@ -140,16 +146,13 @@ pub(super) fn missing_free_text_appearance(
             _ => "k",
         };
         content.push_str(&format!(
-            "q {} re W n BT {} {color_operator} /PrintText {size} Tf\n",
-            format_operands(&[
-                text_rect.x1,
-                text_rect.y1,
-                text_rect.width().max(0.0),
-                text_rect.height().max(0.0)
-            ]),
+            "q {} cm 0 0 {} {} re W n BT {} {color_operator} /PrintText {size} Tf\n",
+            format_operands(&geometry.matrix),
+            geometry.width,
+            geometry.height,
             format_operands(&color)
         ));
-        for (index, line) in crate::text_box_font::layout(&text, text_rect.width().max(0.0), size)
+        for (index, line) in crate::text_box_font::layout(&text, geometry.width, size)
             .iter()
             .enumerate()
         {
@@ -160,18 +163,12 @@ pub(super) fn missing_free_text_appearance(
                 .replace(')', "\\)");
             content.push_str(&format!(
                 "1 0 0 1 {} {} Tm ({text}) Tj\n",
-                text_rect.x1,
-                text_rect.y2 - size - index as f64 * size * 1.2
+                0,
+                geometry.height - size - index as f64 * size * 1.2
             ));
         }
         content.push_str("ET Q\n");
     } else {
-        let geometry = print_text_geometry(
-            document,
-            annotation,
-            text_rect,
-            resolve_page_rotation(document, page_id)?,
-        )?;
         let mut programs = vec![crate::text_box_font::FONT.to_vec()];
         let page = materialized_page_dictionary(document, page_id)?;
         let catalog = document.catalog()?;

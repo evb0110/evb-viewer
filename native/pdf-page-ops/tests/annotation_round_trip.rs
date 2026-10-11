@@ -1833,3 +1833,39 @@ fn print_freetext_missing_fonts_use_pdf_rotation_without_editor_metadata() {
         }
     }
 }
+#[test]
+fn print_freetext_retained_fonts_follow_annotation_rotation() {
+    let temp = TempPaths::new("print-text-retained-rotation");
+    let printed = temp.root.join("printed.pdf");
+    for page in [0, 90, 180, 270] {
+        for own in [0, 90, 180, 270] {
+            write_print_text_pdf(
+                &temp.pdf,
+                "Rotate ABC",
+                Some("Helvetica"),
+                page,
+                own,
+                [100, 500, 300, 620],
+                20,
+            );
+            print_annotation_pdf(&temp.pdf, &printed);
+            let row_width = if page % 180 == 0 { 596 } else { 842 };
+            let ink: Vec<_> = poppler_pixels(&printed)
+                .chunks_exact(3)
+                .enumerate()
+                .filter(|(_, rgb)| rgb.iter().any(|c| *c < 220))
+                .map(|(i, _)| (i % row_width, i / row_width))
+                .collect();
+            assert!(ink.len() > 500);
+            let width =
+                ink.iter().map(|p| p.0).max().unwrap() - ink.iter().map(|p| p.0).min().unwrap();
+            let height =
+                ink.iter().map(|p| p.1).max().unwrap() - ink.iter().map(|p| p.1).min().unwrap();
+            assert_eq!(
+                height > width,
+                (own + page) % 180 != 0,
+                "page rotation {page}, annotation rotation {own}"
+            );
+        }
+    }
+}
