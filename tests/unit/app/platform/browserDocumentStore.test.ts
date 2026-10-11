@@ -25,9 +25,11 @@ import {
     loadRecordAvailability,
     mutateBrowserTransferAuthority,
     persistRecord,
+    runObjectStoresTransaction,
     type IBrowserTransferAuthorityRecord,
 } from '@app/platform/browser/browserDocumentIdb';
 import {toPersistedDocumentRecord} from '@app/platform/browser/browserDocumentRecords';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import {saveBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 import {requireDocumentRef} from '@contracts/documentRef';
@@ -958,6 +960,32 @@ describe('BrowserDocumentStore', () => {
 
         await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
         await expect(store.exists(sourceRef)).resolves.toBe(true);
+    });
+
+    it('refuses a sweep whose document row cannot be decoded and logs the refusal', async () => {
+        const first = new BrowserDocumentStore();
+        const orphanRef = await first.createStoredDocument('refused-orphan.pdf', Uint8Array.of(12), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            saveKind: 'pdf',
+        });
+        await runObjectStoresTransaction([DOCUMENTS_STORE], 'readwrite', (transaction, setResult) => {
+            transaction.objectStore(DOCUMENTS_STORE).put({
+                ref: 'browser://documents/undecodable.pdf',
+                kind: 'unknown',
+            });
+            setResult(true);
+        });
+        const warn = vi.spyOn(BrowserLogger, 'warn');
+
+        try {
+            const second = new BrowserDocumentStore();
+            await expect(second.exists(orphanRef)).resolves.toBe(true);
+            expect(warn.mock.calls.some(([scope]) => scope === 'browser-document-maintenance')).toBe(true);
+        } finally {
+            warn.mockRestore();
+        }
     });
 
     it('keeps a source when its dependent working copy cannot be read during detached cleanup', async () => {

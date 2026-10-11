@@ -22,6 +22,7 @@ import type {
     IBrowserPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentTypes';
 import {BROWSER_DOCUMENT_LIVE_LEASE_SCHEMA} from '@app/platform/browser/browserDocumentTypes';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import * as v from 'valibot';
 
 const BROWSER_STAGED_CHUNK_GRACE_MS = 10 * 60 * 1_000;
@@ -241,12 +242,19 @@ export async function admitBrowserMaintenance<T>(
                     if (pendingReads > 0) {
                         return;
                     }
-                    setResult(decide(readBrowserMaintenanceAuthorities({
+                    const authorities = readBrowserMaintenanceAuthorities({
                         documents: documentsRead.result,
                         recoveries: recoveriesRead.result,
                         liveLeases: liveLeasesRead.result,
                         transfers: transferAuthoritiesRead.result,
-                    }), transaction));
+                    });
+                    if (!authorities) {
+                        BrowserLogger.warn(
+                            'browser-document-maintenance',
+                            'Browser document maintenance refused: an authority row cannot be decoded; nothing was deleted',
+                        );
+                    }
+                    setResult(decide(authorities, transaction));
                 };
             }
         },
