@@ -28,7 +28,6 @@ import {
 } from '@app/platform/browser/browserDocumentChunks';
 import {
     pruneRecentFiles,
-    readRecentFilesFromStorage,
     tryHasRecentFilesStorageSnapshot,
     tryReadRecentFilesFromStorage,
     writeRecentFilesToStorage,
@@ -285,15 +284,41 @@ function isRefRetainedBy(authorities: IBrowserMaintenanceAuthorities, ref: strin
         || authorities.transfers.leasedRefs.has(ref);
 }
 
-// Detached-record cleanup may remove a source only when no working copy depends
-// on it and no live lease, recovery journal or transfer names it. These are the
-// authorities the destructive sweep reads; an authority that cannot be read or
-// decoded keeps the ref.
-export async function isBrowserRefRetained(ref: string) {
-    const retained = await admitBrowserMaintenance('readonly', authorities => (
-        authorities === null || isRefRetainedBy(authorities, ref)
-    ));
-    return retained ?? true;
+type TBrowserDetachedRecordRemoval = 'absent' | 'deleted' | 'retained';
+
+// Detached-record cleanup may delete a source only in the admission that judged
+// it: no working copy depends on it, no live lease, recovery journal or transfer
+// names it, and Recent Files does not list it. An authority that cannot be read
+// or decoded keeps it. The reported result says whether this admission deleted a
+// row, so the caller clears external chunks only for a record it removed.
+export async function removeBrowserDetachedRecordIfUnretained(
+    ref: string,
+    entries: Map<string, IBrowserDocumentEntry>,
+): Promise<TBrowserDetachedRecordRemoval> {
+    const removal = await admitBrowserMaintenance<TBrowserDetachedRecordRemoval>('readwrite', (authorities, transaction) => {
+        if (
+            authorities === null
+            || isRefRetainedBy(authorities, ref)
+            || entries.get(ref)?.pendingLoad
+        ) {
+            return 'retained';
+        }
+        // Read after the documents lock, like the sweep's admission.
+        const recentFiles = tryReadRecentFilesFromStorage();
+        if (recentFiles === null || recentFiles.some(file => file.originalPath === ref)) {
+            return 'retained';
+        }
+        const record = authorities.documents.find(candidate => candidate.ref === ref);
+        if (!record) {
+            return 'absent';
+        }
+        if (hasActivePendingChunkGeneration(record)) {
+            return 'retained';
+        }
+        transaction.objectStore(DOCUMENTS_STORE).delete(ref);
+        return 'deleted';
+    });
+    return removal ?? 'retained';
 }
 
 function isBrokenChunkedRecord(
@@ -308,12 +333,6 @@ function isBrokenChunkedRecord(
             || (record.chunkCount ?? 0) !== Math.ceil(record.fileSize / Math.max(1, record.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE))
             || isChunkedRecordMissingChunks(record, chunkIndicesByRef)
         )
-    );
-}
-
-export function isBrowserRecentFileRef(ref: string) {
-    return readRecentFilesFromStorage().some(
-        (candidate) => candidate.originalPath === ref,
     );
 }
 

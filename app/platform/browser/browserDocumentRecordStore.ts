@@ -23,9 +23,8 @@ import {
 } from '@app/platform/browser/browserDocumentChunkStorage';
 import {
     cleanupBrowserEvictedRecentRefs,
-    isBrowserRecentFileRef,
-    isBrowserRefRetained,
     loadBrowserPersistedDocumentRecordsResult,
+    removeBrowserDetachedRecordIfUnretained,
     sweepBrowserDocumentMaintenance,
 } from '@app/platform/browser/browserDocumentMaintenance';
 import {
@@ -126,7 +125,7 @@ export class BrowserDocumentRecordStore {
         cleanupEvictedRecentRefs: (refs) => cleanupBrowserEvictedRecentRefs(
             refs,
             async (ref) => {
-                await this.cleanupDetachedPersistedRecord(ref, { allowDurable: true });
+                await this.cleanupDetachedPersistedRecord(ref);
             },
         ),
     });
@@ -450,20 +449,14 @@ export class BrowserDocumentRecordStore {
     }
 
     public async cleanupDetachedDocument(ref: string) {
-        return this.cleanupDetachedPersistedRecord(ref, { allowDurable: true });
+        return this.cleanupDetachedPersistedRecord(ref);
     }
 
-    private async cleanupDetachedPersistedRecord(
-        ref: string,
-        options?: { allowDurable?: boolean },
-    ) {
-        return this.runRefMutation(ref, () => this.cleanupDetachedPersistedRecordUnlocked(ref, options));
+    private async cleanupDetachedPersistedRecord(ref: string) {
+        return this.runRefMutation(ref, () => this.cleanupDetachedPersistedRecordUnlocked(ref));
     }
 
-    private async cleanupDetachedPersistedRecordUnlocked(
-        ref: string,
-        options?: { allowDurable?: boolean },
-    ) {
+    private async cleanupDetachedPersistedRecordUnlocked(ref: string) {
         await this.ensureMaintenance();
         const entry = await this.ensureEntry(ref);
         if (!entry) {
@@ -475,19 +468,17 @@ export class BrowserDocumentRecordStore {
             return true;
         }
 
-        if (isBrowserRecentFileRef(ref)) {
+        const removal = await removeBrowserDetachedRecordIfUnretained(ref, this.entries);
+        if (removal === 'retained') {
             return false;
         }
-
-        if (await isBrowserRefRetained(ref)) {
-            return false;
+        this.onDocumentRemoved(ref);
+        this.dropLoadedEntry(ref);
+        // Only a row this admission deleted may have its chunks cleared.
+        if (removal === 'deleted') {
+            await clearPendingBrowserDocumentChunks(entry);
+            await clearBrowserDocumentExternalChunkStorage(entry);
         }
-
-        if (entry.retention !== 'transient' && options?.allowDurable !== true) {
-            return false;
-        }
-
-        await this.removeDocumentRecordUnlocked(ref);
         return true;
     }
 

@@ -837,6 +837,68 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(ref)).resolves.toEqual(bytes);
     });
 
+    it('keeps a source whose lease is committed before its detached delete starts', async () => {
+        // A fresh module graph gives this store its own lease owner; earlier tests
+        // leave the shared module speaking for theirs.
+        vi.resetModules();
+        const {BrowserDocumentStore: FreshBrowserDocumentStore} = await import('@app/platform/browserDocumentStore');
+        const idb = await import('@app/platform/browser/browserDocumentIdb');
+        const store = new FreshBrowserDocumentStore();
+        const bytes = Uint8Array.of(7, 8);
+        const ref = await createStoredPdf(store, 'lease-race.pdf', bytes);
+
+        let reachDestructiveStep!: () => void;
+        const destructiveStepReached = new Promise<void>(resolve => {
+            reachDestructiveStep = resolve;
+        });
+        let releaseDestructiveStep!: () => void;
+        const destructiveStepReleased = new Promise<void>(resolve => {
+            releaseDestructiveStep = resolve;
+        });
+        let holdArmed = true;
+        // Pauses the first destructive step for this source, before its delete.
+        const holdDestructiveStep = async () => {
+            if (!holdArmed) {
+                return;
+            }
+            holdArmed = false;
+            reachDestructiveStep();
+            await destructiveStepReleased;
+        };
+        const originalDeleteRecord = idb.deleteRecord;
+        const originalTransaction = idb.runObjectStoresTransaction;
+        const deleteSpy = vi.spyOn(idb, 'deleteRecord').mockImplementation(async candidate => {
+            if (candidate === ref) {
+                await holdDestructiveStep();
+            }
+            return originalDeleteRecord(candidate);
+        });
+        const transactionSpy = vi.spyOn(idb, 'runObjectStoresTransaction').mockImplementation(async (
+            storeNames,
+            mode,
+            run,
+        ) => {
+            if (mode === 'readwrite' && storeNames.includes(DOCUMENTS_STORE)) {
+                await holdDestructiveStep();
+            }
+            return originalTransaction(storeNames, mode, run);
+        });
+        let removed: boolean;
+        try {
+            const cleanup = store.cleanupDetachedDocument(ref);
+            await destructiveStepReached;
+            await store.createLiveLease('window:new', [{ref}]);
+            releaseDestructiveStep();
+            removed = await cleanup;
+        } finally {
+            deleteSpy.mockRestore();
+            transactionSpy.mockRestore();
+        }
+
+        expect(removed).toBe(false);
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+    });
+
     it('serializes dependent creation against detached-source cleanup', async () => {
         for (let index = 0; index < 6; index += 1) {
             const store = new BrowserDocumentStore();
