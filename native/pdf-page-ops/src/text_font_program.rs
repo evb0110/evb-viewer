@@ -92,3 +92,106 @@ pub(crate) fn embed_font_program(
     }
     document.add_object(dictionary)
 }
+
+/// Retain a simple source font only when its painted advances can be measured.
+/// Otherwise both wrapping and painting use the portable Unicode font.
+pub(crate) fn simple_font_advances(
+    document: &Document,
+    font: &Object,
+    text: &str,
+) -> Option<[f64; 128]> {
+    let dictionary = document.dereference(font).ok()?.1.as_dict().ok()?;
+    if !text.is_ascii()
+        || text
+            .chars()
+            .any(|c| c.is_ascii_control() && !matches!(c, '\n' | '\r'))
+        || !matches!(
+            dictionary.get(b"Subtype").and_then(Object::as_name).ok(),
+            Some(b"Type1" | b"TrueType")
+        )
+    {
+        return None;
+    }
+    let encoding = dictionary
+        .get(b"Encoding")
+        .ok()
+        .map(|v| document.dereference(v).ok()?.1.as_name().ok())
+        .unwrap_or(Some(b"StandardEncoding"));
+    if !matches!(
+        encoding,
+        Some(b"StandardEncoding" | b"WinAnsiEncoding" | b"MacRomanEncoding")
+    ) {
+        return None;
+    }
+    let base = dictionary
+        .get(b"BaseFont")
+        .and_then(Object::as_name)
+        .ok()
+        .unwrap_or_default();
+    let program: Option<&[u8]> = match base {
+        b"Helvetica" => Some(include_bytes!(
+            "../../../public/pdf/standard_fonts/LiberationSans-Regular.ttf"
+        )),
+        b"Helvetica-Bold" => Some(include_bytes!(
+            "../../../public/pdf/standard_fonts/LiberationSans-Bold.ttf"
+        )),
+        b"Helvetica-Oblique" => Some(include_bytes!(
+            "../../../public/pdf/standard_fonts/LiberationSans-Italic.ttf"
+        )),
+        b"Helvetica-BoldOblique" => Some(include_bytes!(
+            "../../../public/pdf/standard_fonts/LiberationSans-BoldItalic.ttf"
+        )),
+        _ => None,
+    };
+    let widths = dictionary
+        .get(b"Widths")
+        .ok()
+        .and_then(|v| document.dereference(v).ok()?.1.as_array().ok());
+    let first = dictionary
+        .get(b"FirstChar")
+        .ok()
+        .and_then(|v| document.dereference(v).ok()?.1.as_i64().ok())
+        .unwrap_or(0);
+    let missing = dictionary
+        .get(b"FontDescriptor")
+        .ok()
+        .and_then(|v| document.dereference(v).ok()?.1.as_dict().ok())
+        .and_then(|d| {
+            object_to_f64(document.dereference(d.get(b"MissingWidth").ok()?).ok()?.1).ok()
+        });
+    let mut advances = [0.0; 128];
+    for c in text.chars().filter(|c| !matches!(c, '\n' | '\r')) {
+        let value = if let Some(widths) = widths {
+            i64::from(c as u32)
+                .checked_sub(first)
+                .and_then(|i| usize::try_from(i).ok())
+                .and_then(|i| widths.get(i))
+                .and_then(|v| object_to_f64(document.dereference(v).ok()?.1).ok())
+                .or(missing)?
+        } else if matches!(
+            base,
+            b"Courier" | b"Courier-Bold" | b"Courier-Oblique" | b"Courier-BoldOblique"
+        ) {
+            600.0
+        } else {
+            let face = FontRef::from_index(program?, 0).ok()?;
+            f64::from(
+                face.glyph_metrics(Size::unscaled(), LocationRef::default())
+                    .advance_width(face.charmap().map(c)?)?,
+            ) * 1000.0
+                / f64::from(
+                    face.metrics(Size::unscaled(), LocationRef::default())
+                        .units_per_em,
+                )
+        };
+        if !value.is_finite() || value < 0.0 {
+            return None;
+        }
+        advances[c as usize] = if widths.is_none() {
+            value.round()
+        } else {
+            value
+        };
+    }
+    Some(advances)
+}

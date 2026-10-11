@@ -3,7 +3,7 @@
 use super::*;
 use harfrust::{Direction, ShapeOptions, Shaper, ShaperData, UnicodeBuffer};
 use std::ops::Range;
-use unicode_bidi::{BidiInfo, ParagraphInfo};
+use unicode_bidi::{BidiInfo, Level, ParagraphInfo};
 use unicode_script::{Script, UnicodeScript};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -63,6 +63,10 @@ fn shape_line(
             rtl: paragraph.level.is_rtl(),
         };
     }
+    let replacement_font = fonts
+        .iter()
+        .position(|(_, face)| face.charmap().map('�').is_some())
+        .unwrap_or(0);
     let logical_text = &text[range.clone()];
     let show_hyphen = range.end < text.len() && logical_text.ends_with('\u{00ad}');
     let rendered_text = if show_hyphen {
@@ -113,7 +117,9 @@ fn shape_line(
                                     .position(|(_, face)| {
                                         invisible(c) || face.charmap().map(c).is_some()
                                     })
-                                    .map_or((0, "�".to_string()), |i| (i, c.to_string()))
+                                    .map_or((replacement_font, "�".to_string()), |i| {
+                                        (i, c.to_string())
+                                    })
                             })
                             .collect()
                     },
@@ -176,7 +182,7 @@ pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
         .get_or_init(|| ShaperData::new(&face))
         .shaper(&face)
         .build();
-    layout_shaped(text, width, font_size, &[(shaper, face)])
+    layout_shaped(text, width, font_size, &[(shaper, face)], None)
 }
 
 pub(crate) fn layout_with_fonts(
@@ -195,7 +201,9 @@ pub(crate) fn layout_with_fonts(
         .zip(&data)
         .map(|(face, data)| (data.shaper(face).build(), face.clone()))
         .collect();
-    layout_shaped(text, width, font_size, &shapers)
+    // AP-less FreeText uses the viewer's left-to-right canvas paragraph while
+    // retaining RTL glyph runs. Editor layout above keeps its auto direction.
+    layout_shaped(text, width, font_size, &shapers, Some(Level::ltr()))
 }
 
 fn layout_shaped(
@@ -203,6 +211,7 @@ fn layout_shaped(
     width: f64,
     font_size: f64,
     shapers: &[(Shaper<'_>, FontRef<'_>)],
+    paragraph_level: Option<Level>,
 ) -> Vec<Line> {
     let font = &shapers[0].1;
     let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
@@ -212,6 +221,50 @@ fn layout_shaped(
             .and_then(|id| glyph_metrics.advance_width(id))
             .unwrap_or(0.0),
     );
+    wrap(
+        text,
+        width,
+        paragraph_level,
+        |text, bidi, paragraph, range| {
+            shape_line(
+                shapers,
+                space_advance,
+                text,
+                bidi,
+                paragraph,
+                range,
+                font_size,
+            )
+        },
+    )
+}
+
+pub(crate) fn layout_simple(text: &str, width: f64, size: f64, advances: &[f64; 128]) -> Vec<Line> {
+    wrap(
+        text,
+        width,
+        Some(Level::ltr()),
+        |text, _, paragraph, range| {
+            let text = &text[range];
+            Line {
+                text: text.to_string(),
+                glyphs: Vec::new(),
+                width: text
+                    .bytes()
+                    .map(|c| advances[usize::from(c)] * size / 1000.0)
+                    .sum(),
+                rtl: paragraph.level.is_rtl(),
+            }
+        },
+    )
+}
+
+fn wrap(
+    text: &str,
+    width: f64,
+    paragraph_level: Option<Level>,
+    shape: impl Fn(&str, &BidiInfo<'_>, &ParagraphInfo, Range<usize>) -> Line,
+) -> Vec<Line> {
     // Match CSS segment-break normalization. Contents retains the original text.
     let normalized = text
         .replace("\r\n", "\n")
@@ -227,7 +280,7 @@ fn layout_shaped(
             });
             continue;
         }
-        let bidi = BidiInfo::new(paragraph_text, None);
+        let bidi = BidiInfo::new(paragraph_text, paragraph_level);
         let paragraph = &bidi.paragraphs[0];
         let boundaries: Vec<usize> = paragraph_text
             .grapheme_indices(true)
@@ -242,14 +295,11 @@ fn layout_shaped(
             let fits = |end: usize| {
                 let trimmed = paragraph_text[boundaries[start]..boundaries[end]]
                     .trim_end_matches([' ', '\t']);
-                shape_line(
-                    shapers,
-                    space_advance,
+                shape(
                     paragraph_text,
                     &bidi,
                     paragraph,
                     boundaries[start]..boundaries[start] + trimmed.len(),
-                    font_size,
                 )
                 .width
                     <= width
@@ -284,14 +334,11 @@ fn layout_shaped(
                     .find(|index| breaks.contains(&boundaries[*index]))
                     .unwrap_or(fit)
             };
-            result.push(shape_line(
-                shapers,
-                space_advance,
+            result.push(shape(
                 paragraph_text,
                 &bidi,
                 paragraph,
                 boundaries[start]..boundaries[end],
-                font_size,
             ));
             start = end;
         }

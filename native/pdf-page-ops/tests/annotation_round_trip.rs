@@ -1576,7 +1576,7 @@ fn print_annotation_pdf(source: &Path, printed: &Path) {
         .arg(source)
         .arg("--output")
         .arg(printed)
-        .args(["--view-mode", "single", "--orientation", "portrait"])
+        .args(["--view-mode", "single", "--orientation", "auto"])
         .output()
         .unwrap();
     assert_success(output, "print-layout");
@@ -1783,6 +1783,80 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
             "lost supported text: {text}"
         );
     }
+    // Covered characters must paint their own glyphs, not replacement boxes.
+    // The directional mark preserves the RTL paragraph for the comparison.
+    for text in ["Latin abc xyz", "אבג", "مرحبا", "ܫܠܡܐ"] {
+        write_print_text_pdf(&temp.pdf, text, None, 0, 0, [100, 450, 400, 700], 20);
+        print_annotation_pdf(&temp.pdf, &printed);
+        let supported = poppler_pixels(&printed);
+        let replacement = format!(
+            "{}{}",
+            if text.is_ascii() { "" } else { "\u{200f}" },
+            "�".repeat(text.chars().count())
+        );
+        write_print_text_pdf(
+            &temp.pdf,
+            &replacement,
+            None,
+            0,
+            0,
+            [100, 450, 400, 700],
+            20,
+        );
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert_ne!(
+            supported,
+            poppler_pixels(&printed),
+            "covered glyphs: {text}"
+        );
+    }
+    // PDF.js and MuPDF display foreign mixed-script FreeText in an LTR
+    // paragraph. An explicit LTR mark must produce the same visible ordering.
+    let mixed = "שלום abc 123\nمرحبا xyz";
+    write_print_text_pdf(&temp.pdf, mixed, None, 0, 0, [100, 450, 400, 700], 20);
+    print_annotation_pdf(&temp.pdf, &printed);
+    let automatic = poppler_pixels(&printed);
+    let marked = mixed
+        .split('\n')
+        .map(|line| format!("\u{200e}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    write_print_text_pdf(&temp.pdf, &marked, None, 0, 0, [100, 450, 400, 700], 20);
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(automatic, poppler_pixels(&printed), "viewer bidi ordering");
+    // A document-provided bold Syriac program must win over the regular
+    // bundled fallback, while Latin still comes from a supporting font.
+    write_print_text_pdf(
+        &temp.pdf,
+        "Latin ܫܠܡܐ xyz",
+        None,
+        0,
+        0,
+        [100, 450, 400, 700],
+        20,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    let regular = poppler_pixels(&printed);
+    let mut document = Document::load(&temp.pdf).unwrap();
+    let program = document.add_object(lopdf::Stream::new(
+        lopdf::dictionary! {},
+        include_bytes!("../../../scripts/fixtures/ocr-language-fonts/NotoSansSyriac-Black.ttf")
+            .to_vec(),
+    ));
+    let descriptor = document.add_object(lopdf::dictionary! {"Type"=>"FontDescriptor", "FontName"=>"NotoSansSyriacBlack", "FontFile2"=>program, "Flags"=>32, "FontBBox"=>vec![0.into(),(-300).into(),1500.into(),1500.into()], "ItalicAngle"=>0, "Ascent"=>1000, "Descent"=>-300, "CapHeight"=>1000, "StemV"=>80});
+    let source_font = document.add_object(lopdf::dictionary! {"Type"=>"Font", "Subtype"=>"TrueType", "BaseFont"=>"NotoSansSyriacBlack", "FontDescriptor"=>descriptor, "FirstChar"=>0, "LastChar"=>0, "Widths"=>vec![0.into()]});
+    let page_id = document.get_pages()[&1];
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Resources",
+        lopdf::dictionary! {"Font"=>lopdf::dictionary! {"Helv"=>source_font}},
+    );
+    document.save(&temp.pdf).unwrap();
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_ne!(
+        poppler_pixels(&printed),
+        regular,
+        "paint with the glyph-capable source program"
+    );
     write_print_text_pdf(
         &temp.pdf,
         "Latin abc \u{10FFFF} xyz",
@@ -1868,4 +1942,44 @@ fn print_freetext_retained_fonts_follow_annotation_rotation() {
             );
         }
     }
+}
+#[test]
+fn print_freetext_courier_wraps_all_sixty_glyphs_in_six_lines() {
+    let temp = TempPaths::new("print-text-courier-metrics");
+    let printed = temp.root.join("printed.pdf");
+    write_print_text_pdf(
+        &temp.pdf,
+        &"i".repeat(60),
+        Some("Courier"),
+        0,
+        0,
+        [100, 450, 220, 700],
+        18,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    let pixels = poppler_pixels(&printed);
+    // Count visible glyph columns in each 21.6-point line. The dot and stem
+    // of i can occupy separate horizontal bands, but belong to one glyph.
+    let mut columns = [[false; 596]; 6];
+    for (index, rgb) in pixels.chunks_exact(3).enumerate() {
+        if rgb.iter().all(|c| *c < 100) {
+            let y = index / 596;
+            assert!(y >= 142, "text stays inside its rectangle");
+            let line = ((y - 142) as f64 / 21.6) as usize;
+            columns.get_mut(line).expect("six visible lines")[index % 596] = true;
+        }
+    }
+    let glyph_counts: Vec<_> = columns
+        .iter()
+        .map(|line| {
+            line.iter()
+                .zip(std::iter::once(&false).chain(line.iter()))
+                .filter(|(column, prior)| **column && !**prior)
+                .count()
+        })
+        .collect();
+    assert_eq!(glyph_counts, vec![11, 11, 11, 11, 11, 5]);
+    // Poppler's AP-less Courier and the independent 600-unit plain-content
+    // reference both retain all 60 glyphs, with 1648 nonwhite pixels at 72 dpi.
+    assert_eq!(poppler_ink_pixels(&printed), 1648);
 }

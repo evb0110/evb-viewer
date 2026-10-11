@@ -50,7 +50,7 @@ pub(crate) fn baseline_from_top(font_size: f64) -> f64 {
 
 #[path = "text_layout.rs"]
 mod text_layout;
-pub(crate) use text_layout::{layout, layout_with_fonts};
+pub(crate) use text_layout::{layout, layout_simple, layout_with_fonts};
 
 fn trusted_font() -> &'static (Document, ObjectId) {
     static TRUSTED: std::sync::OnceLock<(Document, ObjectId)> = std::sync::OnceLock::new();
@@ -218,7 +218,7 @@ pub(crate) fn existing_font(document: &Document) -> Option<ObjectId> {
 
 #[path = "text_font_program.rs"]
 mod text_font_program;
-pub(crate) use text_font_program::{embed_font, embed_font_program};
+pub(crate) use text_font_program::{embed_font, embed_font_program, simple_font_advances};
 
 pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
     let mut result = if bom {

@@ -93,35 +93,33 @@ pub(super) fn missing_free_text_appearance(
         .and_then(|(_, v)| pdf_string_to_text(v))
         .unwrap_or_default();
     let page = materialized_page_dictionary(document, page_id)?;
-    let source_font = [annotation.get(b"DR").ok(), page.get(b"Resources").ok()]
-        .into_iter()
-        .flatten()
-        .find_map(|resources| {
-            let resources = document.dereference(resources).ok()?.1.as_dict().ok()?;
-            let fonts = document
-                .dereference(resources.get(b"Font").ok()?)
-                .ok()?
-                .1
-                .as_dict()
-                .ok()?;
-            let font = fonts.get(&font_name).ok()?;
-            let dictionary = document.dereference(font).ok()?.1.as_dict().ok()?;
-            let simple = matches!(
-                dictionary.get(b"Subtype").and_then(Object::as_name).ok(),
-                Some(b"Type1" | b"TrueType")
-            );
-            let encoding = dictionary
-                .get(b"Encoding")
-                .ok()
-                .map(|v| document.dereference(v).ok()?.1.as_name().ok())
-                .unwrap_or(Some(b"StandardEncoding"));
-            (simple
-                && matches!(
-                    encoding,
-                    Some(b"StandardEncoding" | b"WinAnsiEncoding" | b"MacRomanEncoding")
-                ))
-            .then(|| font.clone())
-        });
+    let catalog = document.catalog()?;
+    let acroform = catalog
+        .get(b"AcroForm")
+        .ok()
+        .and_then(|v| document.dereference(v).ok()?.1.as_dict().ok());
+    let font_resources: Vec<_> = [
+        annotation.get(b"DR").ok(),
+        page.get(b"Resources").ok(),
+        acroform.and_then(|d| d.get(b"DR").ok()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|r| {
+        let r = document.dereference(r).ok()?.1.as_dict().ok()?;
+        document
+            .dereference(r.get(b"Font").ok()?)
+            .ok()?
+            .1
+            .as_dict()
+            .ok()
+    })
+    .collect();
+    let source_font = font_resources.iter().find_map(|fonts| {
+        let font = fonts.get(&font_name).ok()?;
+        crate::text_box_font::simple_font_advances(document, font, &text)
+            .map(|advances| (font.clone(), advances))
+    });
     let mut resources = Dictionary::new();
     let width = shape_stroke_width(document, annotation)
         .filter(|w| w.is_finite() && *w >= 0.0)
@@ -138,7 +136,7 @@ pub(super) fn missing_free_text_appearance(
         text_rect,
         resolve_page_rotation(document, page_id)?,
     )?;
-    if let Some(font) = source_font.filter(|_| text.is_ascii()) {
+    if let Some((font, advances)) = source_font {
         resources.set("Font", Dictionary::from_iter([("PrintText", font)]));
         let color_operator = match color.len() {
             1 => "g",
@@ -152,9 +150,10 @@ pub(super) fn missing_free_text_appearance(
             geometry.height,
             format_operands(&color)
         ));
-        for (index, line) in crate::text_box_font::layout(&text, geometry.width, size)
-            .iter()
-            .enumerate()
+        for (index, line) in
+            crate::text_box_font::layout_simple(&text, geometry.width, size, &advances)
+                .iter()
+                .enumerate()
         {
             let text = line
                 .text
@@ -169,37 +168,15 @@ pub(super) fn missing_free_text_appearance(
         }
         content.push_str("ET Q\n");
     } else {
-        let mut programs = vec![crate::text_box_font::FONT.to_vec()];
-        let page = materialized_page_dictionary(document, page_id)?;
-        let catalog = document.catalog()?;
-        let acroform = catalog
-            .get(b"AcroForm")
-            .ok()
-            .and_then(|v| document.dereference(v).ok()?.1.as_dict().ok());
-        for resource in [
-            annotation.get(b"DR").ok(),
-            page.get(b"Resources").ok(),
-            acroform.and_then(|d| d.get(b"DR").ok()),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            let Some(fonts) = document
-                .dereference(resource)
-                .ok()
-                .and_then(|(_, r)| r.as_dict().ok())
-                .and_then(|r| {
-                    document
-                        .dereference(r.get(b"Font").ok()?)
-                        .ok()?
-                        .1
-                        .as_dict()
-                        .ok()
-                })
-            else {
-                continue;
-            };
-            for (_, font) in fonts {
+        let mut programs = Vec::new();
+        for fonts in &font_resources {
+            // The DA font wins when it has this run's glyphs. Other embedded
+            // resources precede the portable fallbacks, never host fonts.
+            for (_, font) in fonts
+                .iter()
+                .filter(|(name, _)| *name == &font_name)
+                .chain(fonts.iter().filter(|(name, _)| *name != &font_name))
+            {
                 let program = (|| -> Result<Vec<u8>> {
                     let mut font = document.dereference(font)?.1.as_dict()?;
                     if let Ok(descendants) = font.get(b"DescendantFonts") {
@@ -243,6 +220,7 @@ pub(super) fn missing_free_text_appearance(
                 }
             }
         }
+        programs.push(crate::text_box_font::FONT.to_vec());
         programs.push(
             include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf").to_vec(),
         );
@@ -257,7 +235,7 @@ pub(super) fn missing_free_text_appearance(
             .map(|g| g.font)
             .collect::<std::collections::BTreeSet<_>>()
         {
-            let reference = if index == 0 {
+            let reference = if programs[index] == crate::text_box_font::FONT {
                 *font_ref.get_or_insert_with(|| {
                     crate::text_box_font::existing_font(document)
                         .unwrap_or_else(|| crate::text_box_font::embed_font(document))
@@ -346,4 +324,3 @@ fn print_text_geometry(
         crate::text_box_font::geometry(rect, 0, rotation)
     }
 }
-
