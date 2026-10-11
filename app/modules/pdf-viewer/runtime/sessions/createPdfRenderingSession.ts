@@ -332,8 +332,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         },
         start: prepared => prepared.render.startRender(),
         onRenderStall: payload => handlePageRenderStall(payload),
-        // A visible page whose raster kept failing is told once, with a Retry
-        // that redraws it; buffer pages stay quiet until they are scrolled to.
+        // The scheduler reports exhaustion once; retain any old canvas for Retry.
         onRenderFailed(demand, error) {
             const pageNumber = demand.pageNumber;
             const job = viewportRasterJobs.get(demand.renderKey);
@@ -341,11 +340,15 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             if (
                 !job
                 || requestId === null
-                || !isPageRenderFailed(pageNumber)
-                || demand.lane !== 'navigation-target' && demand.lane !== 'viewport-visible'
+                || demand.consumerGeneration !== renderVersion
             ) {
                 return;
             }
+            pageRenderState.markRenderFailed(pageNumber, demand.consumerGeneration, requestId);
+            resolveViewportRasterWaiters(pageNumber);
+            renderedPageStateVersion.value += 1;
+            queueFrame();
+            if (demand.lane !== 'navigation-target' && demand.lane !== 'viewport-visible') return;
             initialVisual.handlePageRasterFailed({
                 openSurfaceGeneration: job.renderOptions.openSurfaceGeneration ?? 0,
                 documentRevision: job.renderOptions.openSurfaceRevision ?? documentSession.openSurfaceRevision,
@@ -436,13 +439,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             canvasRenderer.cleanupCanvasRenderResult(prepared.render);
             const pageNumber = prepared.job.demand.pageNumber;
             const generation = prepared.job.demand.consumerGeneration;
-            if (isPreparedRasterCurrent(prepared)
-                && pageRenderState.getSlot(pageNumber).canvasReadiness !== 'ready') {
-                pageRenderState.markRenderFailed(pageNumber, generation, prepared.requestId);
-            } else {
-                pageRenderState.completeRender(pageNumber, generation, prepared.requestId);
-            }
-            if (isPageRenderFailed(pageNumber) || !isViewportRasterDemanded(pageNumber)) resolveViewportRasterWaiters(pageNumber);
+            if (!isPreparedRasterCurrent(prepared)) pageRenderState.completeRender(pageNumber, generation, prepared.requestId);
+            if (!isViewportRasterDemanded(pageNumber)) resolveViewportRasterWaiters(pageNumber);
             renderedPageStateVersion.value += 1;
             queueFrame();
         },

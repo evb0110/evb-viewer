@@ -1,3 +1,4 @@
+import type * as PdfPageRendererModule from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
@@ -24,6 +25,8 @@ import type {
     TPdfDocumentView,
 } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import {createPdfPageRasterScheduler} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
+import {createWorkspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
 import { createPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type {
     IPdfPageRasterScheduler,
@@ -59,6 +62,18 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
     warnThrottled: vi.fn(),
     debug: vi.fn(),
 }}));
+
+vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer', async importOriginal => {
+    const original = await importOriginal<typeof PdfPageRendererModule>();
+    return {usePdfPageRenderer: (...args: Parameters<typeof original.usePdfPageRenderer>) => ({
+        ...original.usePdfPageRenderer(...args),
+        renderCommittedPageLayers: async ({
+            pageNumber, version, requestId,
+        }: Parameters<ReturnType<typeof original.usePdfPageRenderer>['renderCommittedPageLayers']>[0]) => {
+            args[0].pageRenderState.completeRender(pageNumber, version, requestId);
+        },
+    })};
+});
 
 const performancePolicy = resolvePdfRenderPerformancePolicy({
     lowCpu: false,
@@ -210,6 +225,7 @@ function createViewportFixture(input: {
     const emitEffectiveZoom = vi.fn();
     const viewportWrites = createTestPdfViewportWritePort();
     const {port} = viewportWrites;
+    let rendering: ReturnType<typeof createPdfRenderingSession> | undefined;
     let viewport: ReturnType<typeof createPdfViewportSession> | undefined;
     const root = document.createElement('div');
     const app = createApp(defineComponent({
@@ -257,7 +273,7 @@ function createViewportFixture(input: {
             });
             if (input.rasterScheduler) {
                 documentSession.rasterScheduler = input.rasterScheduler;
-                createPdfRenderingSession({
+                rendering = createPdfRenderingSession({
                     document: documentSession,
                     viewport,
                     chassisAuthority: null,
@@ -305,6 +321,7 @@ function createViewportFixture(input: {
         outputScale,
         viewport,
         viewportWrites,
+        rendering,
         viewMode,
         zoom,
         zoomMode,
@@ -408,6 +425,117 @@ function transition(
 }
 
 describe('PdfViewportSession behavior', () => {
+    it.each([
+        false,
+        true,
+    ])('settles exhausted annotation rendering while retaining existing canvas=%s', async retained => {
+        const projectionReady = ref(!retained);
+        let failRender = !retained;
+        let failedAttempts = 0;
+        let rejectPendingAttempt!: (error: Error) => void;
+        const page = Object.assign(Object.create(null), {
+            pageNumber: 1,
+            rotate: 0,
+            getViewport: ({scale}: {scale: number}) => ({
+                width: 600 * scale,
+                height: 900 * scale,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 600,
+                    pageHeight: 900,
+                },
+            }),
+            render: () => {
+                let promise = Promise.resolve();
+                if (failRender) {
+                    failedAttempts += 1;
+                    promise = failedAttempts === 2
+                        ? new Promise<void>((_resolve, reject) => {rejectPendingAttempt = reject;})
+                        : Promise.reject(new Error('annotation appearance failed'));
+                }
+                return {
+                    promise,
+                    cancel() {},
+                };
+            },
+        });
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: 'revision-1',
+            },
+            maxConcurrency: 1,
+            leasePage: async () => ({
+                page,
+                release() {},
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
+        });
+        const animation = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0);
+        const fixture = createViewportFixture({
+            pageCount: 1,
+            bufferPages: 0,
+            rasterScheduler: scheduler,
+        });
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+        document.body.append(fixture.container);
+        appendRasterTarget(fixture.container, 1);
+        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+        fixture.viewport.markPageMounted(requirePageNumber(1));
+        const rendering = fixture.rendering!;
+        rendering.attachAnnotationProjection({
+            annotationProjectionReady: projectionReady,
+            hiddenAnnotationIds: ref(new Set()),
+            canvasHiddenAnnotationIds: ref(new Set()),
+            thumbnailHiddenAnnotationIds: ref(new Set()),
+            pageCommitted() {},
+        });
+        try {
+            if (retained) {
+                await rendering.renderVisiblePages({
+                    start: 1,
+                    end: 1,
+                });
+                expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            }
+            const oldCanvas = fixture.container.querySelector('canvas');
+            expect(Boolean(oldCanvas)).toBe(retained);
+            projectionReady.value = true;
+            failRender = true;
+            expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(false);
+            let settled = false;
+            const wait = rendering.renderVisiblePages({
+                start: 1,
+                end: 1,
+            }).then(() => {settled = true;});
+            await expect.poll(() => failedAttempts).toBe(2);
+            expect(settled).toBe(false);
+            rejectPendingAttempt(new Error('annotation appearance failed'));
+            await expect.poll(() => failedAttempts).toBe(4);
+            await expect.poll(() => settled, {timeout: 1_000}).toBe(true);
+            await wait;
+            expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(true);
+            expect(fixture.container.querySelector('canvas')).toBe(oldCanvas);
+            if (oldCanvas) expect(oldCanvas.width * oldCanvas.height).toBeGreaterThan(0);
+            failRender = false;
+            await rendering.renderVisiblePages({
+                start: 1,
+                end: 1,
+            }, {forceRerender: true});
+            expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(false);
+            expect(fixture.container.querySelector('canvas')).not.toBe(oldCanvas);
+        } finally {
+            rejectPendingAttempt?.(new Error('test cleanup'));
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            context.mockRestore();
+            animation.mockRestore();
+        }
+    });
+
     it('reports an opening viewport stall once after five seconds and resets after cancellation', () => {
         vi.useFakeTimers();
         const warn = vi.mocked(BrowserLogger.warn);
