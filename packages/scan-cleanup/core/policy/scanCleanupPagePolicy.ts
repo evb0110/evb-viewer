@@ -8,6 +8,7 @@ import type {
     TScanCleanupPageLayoutOverride,
     TScanCleanupPageOverrides,
 } from '@contracts/scan-cleanup/domain';
+import {SCAN_CLEANUP_OUTPUT_HALVES} from '@contracts/scan-cleanup/domain';
 import type {IScanCleanupMarginsMm} from '@contracts/scan-cleanup/geometry';
 import type {
     IScanCleanupPlacementAnchorSummaryCluster,
@@ -96,11 +97,67 @@ interface IScanCleanupAnchorCluster {
 }
 
 /**
- * Clusters are grown greedily over the sorted values while the run stays within
- * the tolerance of its first member, so a slow drift across the document splits
- * instead of chaining every page into one cluster. Ordering and tie-breaks are
- * fully determined by (value, page, half), so the same document resolves to
- * the same anchors whatever order its evidence arrived in.
+ * One output's measured ink top, the position its cluster snapped it to, and
+ * how many outputs share that position.
+ */
+export interface IScanCleanupSnappedInkTop {
+    yNormalized: number;
+    snappedNormalized: number;
+    support: number;
+}
+
+/**
+ * Where the outputs of one scanned sheet print. The halves of a spread were
+ * exposed together, so the scanner's offset is the same in both, and moving
+ * them by different amounts would print facing pages at heights the book
+ * never had. The sheet moves as one, by the correction of the half whose
+ * snapped position the most outputs share; a tie keeps the smaller move.
+ */
+export function resolveScanCleanupSheetInkTops(
+    inkTops: Partial<Record<TScanCleanupOutputHalf, IScanCleanupSnappedInkTop>>,
+): Partial<Record<TScanCleanupOutputHalf, number>> {
+    let correction: number | undefined;
+    let support = 0;
+    for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
+        const inkTop = inkTops[half];
+        if (inkTop === undefined) {
+            continue;
+        }
+        const candidate = inkTop.snappedNormalized - inkTop.yNormalized;
+        if (
+            correction === undefined
+            || inkTop.support > support
+            || (inkTop.support === support && Math.abs(candidate) < Math.abs(correction))
+        ) {
+            correction = candidate;
+            support = inkTop.support;
+        }
+    }
+    const placed: Partial<Record<TScanCleanupOutputHalf, number>> = {};
+    for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
+        const inkTop = inkTops[half];
+        if (inkTop !== undefined && correction !== undefined) {
+            placed[half] = inkTop.yNormalized + correction;
+        }
+    }
+    return placed;
+}
+
+/**
+ * Every cluster spans at most the tolerance, so a slow drift across the
+ * document splits instead of chaining every page into one cluster. Where the
+ * splits fall decides which nearly equal pages end up apart, so the densest
+ * window is taken first and the rest of its run is clustered on either side of
+ * it: a boundary lands at the thin edge of a position many pages share, not
+ * wherever a window happened to start. A window grown from the lowest value
+ * instead cut a title spread's two halves, measured 0.4 mm apart, into two
+ * clusters 4 mm apart, because it began on the running heads' tail.
+ *
+ * Two neighbouring clusters never fit in one window together, or that window
+ * would have been the denser one, so a run holds at most about two clusters per
+ * tolerance of its span. Ordering and tie-breaks are fully determined by
+ * (value, page, half), so the same document resolves to the same anchors
+ * whatever order its evidence arrived in.
  */
 function snapScanCleanupAnchors(
     samples: readonly IScanCleanupPlacementAnchorSample[],
@@ -114,38 +171,80 @@ function snapScanCleanupAnchors(
         .sort((left, right) => left.sample.yNormalized - right.sample.yNormalized
             || left.sample.pageNumber - right.sample.pageNumber
             || left.sample.half.localeCompare(right.sample.half));
-    const snapped = new Array<number>(samples.length);
-    const clusters: IScanCleanupAnchorCluster[] = [];
-    let cluster: typeof ordered = [];
-    const flushCluster = () => {
-        const [first] = cluster;
-        const last = cluster.at(-1);
-        if (first === undefined || last === undefined) {
-            return;
+    const values = ordered.map(entry => entry.sample.yNormalized);
+    const valueAt = (position: number) => {
+        const value = values[position];
+        if (value === undefined) {
+            throw new RangeError(`Anchor position ${String(position)} is outside ${String(values.length)} samples`);
         }
-        const value = resolveScanCleanupAnchorClusterValue(cluster.map(entry => entry.sample.yNormalized));
-        for (const entry of cluster) {
+        return value;
+    };
+    const snapped = new Array<number>(samples.length);
+    const support = new Array<number>(samples.length);
+    const clusters: IScanCleanupAnchorCluster[] = [];
+    // Half-open [start, end) ranges of `ordered`. No window crosses a gap wider
+    // than the tolerance, so those gaps separate the first runs.
+    const runs: Array<readonly [number, number]> = [];
+    let runStart = 0;
+    for (let position = 1; position <= values.length; position += 1) {
+        if (position === values.length || valueAt(position) - valueAt(position - 1) > tolerance) {
+            runs.push([
+                runStart,
+                position,
+            ]);
+            runStart = position;
+        }
+    }
+    for (let run = runs.pop(); run !== undefined; run = runs.pop()) {
+        const [
+            start,
+            end,
+        ] = run;
+        if (start >= end) {
+            continue;
+        }
+        let bestStart = start;
+        let bestEnd = start + 1;
+        let windowStart = start;
+        for (let windowEnd = start + 1; windowEnd <= end; windowEnd += 1) {
+            while (valueAt(windowEnd - 1) - valueAt(windowStart) > tolerance) {
+                windowStart += 1;
+            }
+            const size = windowEnd - windowStart;
+            const bestSize = bestEnd - bestStart;
+            if (
+                size > bestSize
+                || (size === bestSize
+                    && valueAt(windowEnd - 1) - valueAt(windowStart) < valueAt(bestEnd - 1) - valueAt(bestStart))
+            ) {
+                bestStart = windowStart;
+                bestEnd = windowEnd;
+            }
+        }
+        const value = resolveScanCleanupAnchorClusterValue(values.slice(bestStart, bestEnd));
+        for (const entry of ordered.slice(bestStart, bestEnd)) {
             snapped[entry.index] = value;
+            support[entry.index] = bestEnd - bestStart;
         }
         clusters.push({
-            start: first.sample.yNormalized,
-            end: last.sample.yNormalized,
+            start: valueAt(bestStart),
+            end: valueAt(bestEnd - 1),
             value,
-            size: cluster.length,
+            size: bestEnd - bestStart,
         });
-        cluster = [];
-    };
-    for (const entry of ordered) {
-        const [first] = cluster;
-        if (first !== undefined && entry.sample.yNormalized - first.sample.yNormalized > tolerance) {
-            flushCluster();
-        }
-        cluster.push(entry);
+        runs.push([
+            start,
+            bestStart,
+        ], [
+            bestEnd,
+            end,
+        ]);
     }
-    flushCluster();
+    clusters.sort((left, right) => left.start - right.start);
     return {
         clusters,
         snapped,
+        support,
     };
 }
 
@@ -191,6 +290,7 @@ export function resolveScanCleanupPlacementAnchorResolution(
     const {
         clusters,
         snapped,
+        support,
     } = snapScanCleanupAnchors(samples, tolerance);
     // A sparse calibration window represents the full document. Use the
     // window's cardinality for its support threshold so a common cluster is
@@ -199,12 +299,29 @@ export function resolveScanCleanupPlacementAnchorResolution(
         ? Math.min(sampleCount, samples.length)
         : samples.length;
     const topEdge = resolveScanCleanupInkTopEdge(clusters, representedSampleCount);
+    const inkTopsByPage = new Map<number, Partial<Record<TScanCleanupOutputHalf, IScanCleanupSnappedInkTop>>>();
     samples.forEach((sample, index) => {
-        const snappedValue = snapped[index] ?? sample.yNormalized;
-        const page = anchorsByPage.get(sample.pageNumber) ?? {};
-        page[sample.half] = {yNormalized: Math.max(0, snappedValue - topEdge)};
-        anchorsByPage.set(sample.pageNumber, page);
+        const inkTops = inkTopsByPage.get(sample.pageNumber) ?? {};
+        inkTops[sample.half] = {
+            yNormalized: sample.yNormalized,
+            snappedNormalized: snapped[index] ?? sample.yNormalized,
+            support: support[index] ?? 1,
+        };
+        inkTopsByPage.set(sample.pageNumber, inkTops);
     });
+    for (const [
+        pageNumber,
+        inkTops,
+    ] of inkTopsByPage) {
+        const page: Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>> = {};
+        for (const [
+            half,
+            placed,
+        ] of Object.entries(resolveScanCleanupSheetInkTops(inkTops)) as Array<[TScanCleanupOutputHalf, number]>) {
+            page[half] = {yNormalized: Math.max(0, placed - topEdge)};
+        }
+        anchorsByPage.set(pageNumber, page);
+    }
     return {
         anchorsByPage,
         topEdgeNormalized: topEdge,
@@ -212,6 +329,7 @@ export function resolveScanCleanupPlacementAnchorResolution(
             startNormalized: cluster.start,
             endNormalized: cluster.end,
             valueNormalized: cluster.value,
+            size: cluster.size,
         })),
     };
 }
