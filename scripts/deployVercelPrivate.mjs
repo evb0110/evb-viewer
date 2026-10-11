@@ -16,7 +16,11 @@ import {
     readFile as readFileAsync,
     unlink as unlinkAsync,
 } from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {
+    homedir,
+    hostname,
+    tmpdir,
+} from 'node:os';
 import path from 'node:path';
 import {
     execFileSync,
@@ -558,9 +562,12 @@ function readVercelProjectLink(sourceRoot) {
     };
 }
 
-function getProductionDeployLockPath(projectId) {
+// One lock per Vercel project for this OS user. It is not under TMPDIR: each
+// agent session has its own task temp root, and a temp-dir lock would let two
+// sessions deploy the same project at once, which breaks the rollback target.
+export function getProductionDeployLockPath(projectId) {
     const projectFingerprint = createHash('sha256').update(projectId).digest('hex').slice(0, 24);
-    return path.join(tmpdir(), `evb-vercel-production-${projectFingerprint}.lock`);
+    return path.join(homedir(), '.cache', 'evb-viewer', 'deploy-locks', `evb-vercel-production-${projectFingerprint}.lock`);
 }
 
 async function readProductionDeployLock(lockPath) {
@@ -569,6 +576,40 @@ async function readProductionDeployLock(lockPath) {
     } catch {
         return null;
     }
+}
+
+// A lock is live unless its owner is a process on this host that has exited.
+// A lock from another host cannot be checked here, so it stays in force.
+function isProductionDeployLockOwnerLive(owner) {
+    if (owner.hostname !== hostname()) {
+        return true;
+    }
+    try {
+        process.kill(owner.pid, 0);
+        return true;
+    } catch (error) {
+        return error?.code !== 'ESRCH';
+    }
+}
+
+// Removes the lock only when its owner has exited. Returns true when it did, so
+// the caller retries at once. The token re-read guards the window in which a
+// concurrent caller may already have replaced the dead lock.
+async function reclaimDeadProductionDeployLock(lockPath) {
+    const owner = await readProductionDeployLock(lockPath);
+    if (!owner || isProductionDeployLockOwnerLive(owner)) {
+        return false;
+    }
+    const current = await readProductionDeployLock(lockPath);
+    if (current?.token !== owner.token) {
+        return false;
+    }
+    await unlinkAsync(lockPath).catch((error) => {
+        if (error?.code !== 'ENOENT') {
+            throw error;
+        }
+    });
+    return true;
 }
 
 async function acquireProductionDeployLock({
@@ -582,6 +623,7 @@ async function acquireProductionDeployLock({
         ? configuredWaitMs
         : PRODUCTION_DEPLOY_LOCK_WAIT_MS;
     const deadline = Date.now() + waitMs;
+    mkdirSync(path.dirname(lockPath), {recursive: true});
 
     while (true) {
         const temporaryPath = `${lockPath}.${process.pid}.${lockToken}.tmp`;
@@ -590,6 +632,7 @@ async function acquireProductionDeployLock({
             try {
                 await handle.writeFile(JSON.stringify({
                     acquiredAt: Date.now(),
+                    hostname: hostname(),
                     pid: process.pid,
                     token: lockToken,
                 }));
@@ -611,6 +654,9 @@ async function acquireProductionDeployLock({
             }
         }
 
+        if (await reclaimDeadProductionDeployLock(lockPath)) {
+            continue;
+        }
         if (Date.now() >= deadline) {
             throw new Error(`Timed out waiting for the production deploy lock for ${waitMs}ms.`);
         }

@@ -10,14 +10,19 @@ import {
     symlinkSync,
     writeFileSync,
 } from 'node:fs';
-import {tmpdir} from 'node:os';
+import {
+    hostname,
+    tmpdir,
+} from 'node:os';
 import path, {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {computeNativeBuildId} from '../../../scripts/native-build-id.mjs';
 import {
     execFileSync,
+    spawn,
     spawnSync,
 } from 'node:child_process';
+import {once} from 'node:events';
 import {
     afterAll,
     beforeAll,
@@ -43,6 +48,7 @@ interface IPrivateDeployModule {
         },
     ) => string[];
     extractVercelDeploymentUrl: (output: string) => string | null;
+    getProductionDeployLockPath: (projectId: string) => string;
     extractVercelDeploymentIdentity: (output: string, options?: {
         expectedAliasUrl?: string;
         expectedProjectName?: string;
@@ -71,6 +77,7 @@ const {
     buildVercelRollbackArgs,
     buildPrivateDeployArgs,
     extractVercelDeploymentUrl,
+    getProductionDeployLockPath,
     extractVercelDeploymentIdentity,
     parsePrivateDeployOptions,
     promoteLandingVercelOutput,
@@ -88,16 +95,41 @@ function spawnedArg(arg: string) {
     return process.platform === 'win32' ? quoteWindowsShellArg(arg) : arg;
 }
 
+function restoreEnv(name: 'HOME' | 'TMPDIR' | 'USERPROFILE', value: string | undefined) {
+    if (value === undefined) {
+        Reflect.deleteProperty(process.env, name);
+    } else {
+        process.env[name] = value;
+    }
+}
+
 let projectFixtureTemplate: string | undefined;
+let savedHome: string | undefined;
+let savedUserProfile: string | undefined;
+let lockHome: string | undefined;
 
 beforeAll(() => {
     // Build one clean, tagged repository; each test gets a separate copy.
     projectFixtureTemplate = createProjectFixture();
+    // The production deploy lock lives under the home directory: keep it out of the real one.
+    lockHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-home-'));
+    savedHome = process.env.HOME;
+    savedUserProfile = process.env.USERPROFILE;
+    process.env.HOME = lockHome;
+    process.env.USERPROFILE = lockHome;
 });
 
 afterAll(() => {
     if (projectFixtureTemplate) {
         rmSync(projectFixtureTemplate, {
+            recursive: true,
+            force: true,
+        });
+    }
+    restoreEnv('HOME', savedHome);
+    restoreEnv('USERPROFILE', savedUserProfile);
+    if (lockHome) {
+        rmSync(lockHome, {
             recursive: true,
             force: true,
         });
@@ -425,6 +457,159 @@ describe('private Vercel deployment source', () => {
                 recursive: true,
                 retryDelay: 20,
             });
+        }
+    });
+
+    it('lets a deploy proceed after the process holding the production lock was killed', async () => {
+        const projectRoot = createProjectFixture();
+        const lockPath = getProductionDeployLockPath('project');
+        const owner = spawn(process.execPath, [
+            '--input-type=module',
+            '-e',
+            `
+                const {runPrivateVercelDeploy} = await import(process.env.EVB_TEST_DEPLOY_MODULE);
+                await runPrivateVercelDeploy({
+                    command: 'vercel-test',
+                    env: {CI: 'true'},
+                    fetchImpl: () => {
+                        process.stdout.write('lock-held\\n');
+                        return new Promise(() => {});
+                    },
+                    projectRoot: process.env.EVB_TEST_PROJECT_ROOT,
+                    rawArgs: ['--prod'],
+                    spawnSyncImpl: (_command, args) => ({
+                        stderr: '',
+                        stdout: args[0] === 'inspect'
+                            ? '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}'
+                            : 'Production: https://next.vercel.app',
+                        status: 0,
+                    }),
+                });
+            `,
+        ], {
+            env: {
+                ...process.env,
+                EVB_TEST_DEPLOY_MODULE: pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href,
+                EVB_TEST_PROJECT_ROOT: projectRoot,
+            },
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
+        });
+
+        try {
+            await new Promise<void>((resolveHeld, rejectHeld) => {
+                owner.stdout.on('data', (chunk: Buffer) => {
+                    if (chunk.toString().includes('lock-held')) {
+                        resolveHeld();
+                    }
+                });
+                owner.once('exit', code => rejectHeld(new Error(`owner exited before taking the lock: ${code}`)));
+            });
+            owner.kill('SIGKILL');
+            await once(owner, 'exit');
+            expect(existsSync(lockPath)).toBe(true);
+
+            const deployCalls: string[][] = [];
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {
+                    CI: 'true',
+                    EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0',
+                },
+                fetchImpl: async () => ({
+                    ok: true,
+                    status: 200,
+                }),
+                projectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (_command: string, args: string[]) => {
+                    deployCalls.push(args);
+                    return deployCalls.length === 1
+                        ? {
+                            stderr: '',
+                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}\n',
+                            status: 0,
+                        }
+                        : {
+                            stderr: '',
+                            stdout: 'Production: https://next.vercel.app\n',
+                            status: 0,
+                        };
+                },
+            })).resolves.toBe(0);
+            expect(deployCalls).toHaveLength(2);
+            expect(existsSync(lockPath)).toBe(false);
+        } finally {
+            if (owner.exitCode === null && owner.signalCode === null) {
+                owner.kill('SIGKILL');
+            }
+            rmSync(lockPath, {force: true});
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('keeps a live owner\'s production deploy lock in force across task temp roots', async () => {
+        const projectRoot = createProjectFixture();
+        const originalTmpdir = process.env.TMPDIR;
+        const ownerTmpdir = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-owner-'));
+        const otherSessionTmpdir = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-other-'));
+        const lockPath = (() => {
+            process.env.TMPDIR = ownerTmpdir;
+            return getProductionDeployLockPath('project');
+        })();
+        mkdirSync(path.dirname(lockPath), {recursive: true});
+        writeFileSync(lockPath, JSON.stringify({
+            acquiredAt: Date.now(),
+            hostname: hostname(),
+            pid: process.pid,
+            token: 'live-owner',
+        }));
+        const deployCalls: string[][] = [];
+
+        try {
+            process.env.TMPDIR = otherSessionTmpdir;
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {
+                    CI: 'true',
+                    EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0',
+                },
+                projectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (_command: string, args: string[]) => {
+                    deployCalls.push(args);
+                    return {
+                        stderr: '',
+                        stdout: '',
+                        status: 0,
+                    };
+                },
+            })).rejects.toThrow('Timed out waiting for the production deploy lock');
+            expect(deployCalls).toEqual([]);
+            expect(JSON.parse(readFileSync(lockPath, 'utf8')).token).toBe('live-owner');
+        } finally {
+            restoreEnv('TMPDIR', originalTmpdir);
+            rmSync(lockPath, {force: true});
+            for (const directory of [
+                ownerTmpdir,
+                otherSessionTmpdir,
+                projectRoot,
+            ]) {
+                rmSync(directory, {
+                    force: true,
+                    maxRetries: 5,
+                    recursive: true,
+                    retryDelay: 20,
+                });
+            }
         }
     });
 
