@@ -57,13 +57,14 @@ pub(crate) fn legacy_note_marker_as_text(
 /// Move a note's marker back onto its output page, keeping its size. The reader
 /// admits a note only while its centre lies on the page, so a marker that a
 /// split or canvas placement pushed past an edge would import as foreign. A
-/// popup has no centre rule of its own and is only moved. A note that cannot
-/// fit the page fails the conversion rather than publishing a foreign note.
+/// popup has no centre rule of its own and is only moved. A note its source
+/// admits that cannot fit fails the conversion; a foreign one stays as copied.
 pub(crate) fn fit_note_to_view(
     document: &Document,
     annotation: &mut Dictionary,
     view: PdfRect,
     page_rotation: i64,
+    source_note: bool,
 ) -> Result<()> {
     let Some(rect) = annotation
         .get(b"Rect")
@@ -92,9 +93,8 @@ pub(crate) fn fit_note_to_view(
         x2: x1 + width,
         y2: y1 + height,
     };
-    // Only a thread root is a note; a reply is not admitted by the note reader.
-    let is_root = !is_popup && annotation.get(b"IRT").is_err();
-    if is_root && pdf_rect_to_note_marker_rect(fitted, view, page_rotation).is_err() {
+    // A note root its source page admits must stay one; a foreign one is copied.
+    if source_note && pdf_rect_to_note_marker_rect(fitted, view, page_rotation).is_err() {
         return Err("overlay-text cannot keep a note on its output page".into());
     }
     if x1 == rect.x1 && y1 == rect.y1 {
@@ -103,7 +103,7 @@ pub(crate) fn fit_note_to_view(
     let (centre_x, centre_y) = ((fitted.x1 + fitted.x2) / 2.0, (fitted.y1 + fitted.y2) / 2.0);
     let centred = (view.x1..view.x2).contains(&centre_x) && (view.y1..view.y2).contains(&centre_y);
     if !(is_popup || centred) {
-        return Err("overlay-text cannot keep a note centred on its output page".into());
+        return Ok(());
     }
     annotation.set("Rect", rect_object(fitted));
     Ok(())

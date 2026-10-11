@@ -79,6 +79,7 @@ pub(crate) use annotation_identity::*;
 pub(crate) use annotation_index::*;
 pub(crate) use annotation_parse::*;
 pub(crate) use annotation_recovery::*;
+pub(crate) use annotation_threads::prepare_note_copy;
 pub(crate) use annotations::*;
 pub(crate) use catalog::*;
 pub(crate) use cli::*;

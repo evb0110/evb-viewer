@@ -3807,3 +3807,48 @@ fn overlay_refuses_a_note_wider_than_its_output_page() {
 fn overlay_refuses_an_overwide_note_already_at_the_output_origin() {
     assert_overlay_refuses_note_wider_than_output("note-too-wide-origin", [0, 45, 11, 55]);
 }
+
+#[test]
+fn overlay_copies_a_text_annotation_its_source_page_already_shows_as_foreign() {
+    // A /Text root wider than its own source page is not a note there, so the
+    // overlay copies it as it is rather than refusing the whole document.
+    let source = path("foreign-wide-text-source", "pdf");
+    let input = path("foreign-wide-text-target", "pdf");
+    let output = path("foreign-wide-text-output", "pdf");
+    let instructions = path("foreign-wide-text", "json");
+    let mut document = save_single_page(&source, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let note = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+        "Rect" => vec![(-60).into(), 45.into(), 165.into(), 55.into()],
+        "Contents" => Object::string_literal("Foreign wide text"),
+    });
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(note)]);
+    document.save(&source).unwrap();
+    let mut target = save_single_page(&input, Vec::new(), Dictionary::new());
+    let target_page = target.get_pages()[&1];
+    target
+        .get_dictionary_mut(target_page)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 10.into(), 120.into()]);
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"filterToOutputPage":true,"sourceRegion":{"matrix":[1,0,0,1,0,0],"rect":{"x":0,"y":0,"width":100,"height":120}}}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(output.exists(), "the overlay publishes its output");
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}

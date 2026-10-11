@@ -1846,13 +1846,12 @@ fn append_source_annotations(
         (_, view) => view.map(|view| (instruction.matrix, view)),
     };
     let rotation = resolve_page_rotation(target, target_page_id)?;
+    let filtered = filter.is_some();
     let transform = |target: &mut Document, annotation: &mut Dictionary| {
-        if filter.is_some() {
-            legacy_note_marker_as_text(&*target, annotation, source, source_page_id)?;
-        }
+        let note = prepare_note_copy(&*target, annotation, source, source_page_id, filtered)?;
         transform_annotation_geometry(target, annotation, instruction.matrix, None, rotation)?;
         clip_text_markup_to_view(target, annotation, output_view);
-        fit_note_to_view(target, annotation, view, rotation)?;
+        fit_note_to_view(target, annotation, view, rotation, note)?;
         annotation.set("P", target_page_id);
         Ok(())
     };
