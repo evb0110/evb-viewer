@@ -517,8 +517,7 @@ export async function handleCommitStagedPdfNativeMutations(
                     // original's ctime, so it must happen before the transaction records the witness.
                     await releaseStagedArtifact();
                 },
-                afterWorkingCopySync: refreshWorkingCopy,
-                afterOriginalRestore: refreshWorkingCopy,
+                refreshOriginalExpectation: refreshWorkingCopy,
                 onPhase: (phase, durationMs) => phaseTimings.push({
                     phase,
                     durationMs,

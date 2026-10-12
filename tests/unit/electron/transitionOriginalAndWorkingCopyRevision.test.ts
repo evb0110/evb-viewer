@@ -98,6 +98,20 @@ function createCheckpoint(sourcePath: string, workingCopyPath: string): IWorkspa
 
 vi.mock('electron', () => ({app: {getPath: vi.fn(() => tempRoot)}}));
 
+// Another program's in-place save, run as a separate process.
+function writeExternally(path: string) {
+    const writer = spawnSync(process.execPath, [
+        '--input-type=module',
+        '-e',
+        'import fs from \'node:fs/promises\';const h=await fs.open(process.argv[1],\'r+\');await h.write(\'EXTERNAL\',262144);await h.close();',
+        path,
+    ], {
+        encoding: 'utf8',
+        windowsHide: true,
+    });
+    expect(writer.status, writer.stderr).toBe(0);
+}
+
 describe('transitionOriginalAndWorkingCopyRevision', () => {
     beforeEach(async () => {
         vi.resetModules();
@@ -107,6 +121,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
     afterEach(async () => {
         delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        vi.unstubAllEnvs();
         await rm(tempRoot, {
             force: true,
             recursive: true,
@@ -141,6 +156,36 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         };
     }
 
+    // An annotation save as the renderer makes it: an opaque native stage committed through the real handler.
+    async function prepareAnnotationSaves(directoryName: string) {
+        vi.stubEnv('TMPDIR', tempRoot);
+        vi.stubEnv('TEMP', tempRoot);
+        vi.stubEnv('TMP', tempRoot);
+        const {getAppTempDir} = await import('@electron/utils/appTempDir');
+        const fixture = await prepare('old-original', 'old-working', 'original.pdf', join(getAppTempDir(), directoryName));
+        const {makeSiblingTempPath} = await import('@electron/utils/atomicReplace');
+        const {createOpaqueNativePdfStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
+        const {handleCommitStagedPdfNativeMutations} = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+        const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        const saveAnnotations = async (bytes: Buffer) => {
+            const stagedPath = `${makeSiblingTempPath(fixture.workingCopyPath)}.pdf`;
+            await writeFile(stagedPath, bytes);
+            const staged = await createOpaqueNativePdfStagedArtifact({senderId: 7}, stagedPath, {
+                qpdfCheck: false,
+                tailCheck: true,
+                semanticCheck: true,
+                semanticScopeSha256: 'b'.repeat(64),
+                fsynced: true,
+            }, {cleanupOnRelease: true});
+            const {token} = await getWorkingCopyRevision(fixture.workingCopyPath, 7);
+            return handleCommitStagedPdfNativeMutations({senderId: 7}, fixture.workingCopyPath, staged, {expectedDocumentRevisionToken: token});
+        };
+        return {
+            ...fixture,
+            saveAnnotations,
+        };
+    }
+
     it('keeps accepted work and an external save made during registration refresh', async () => {
         const {
             originalPath, stagedPath, workingCopyPath,
@@ -163,18 +208,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 assertDestinationCurrent,
                 destinationBackupPath,
             }),
-            afterWorkingCopySync: async (admitted) => {
-                const writer = spawnSync(process.execPath, [
-                    '--input-type=module',
-                    '-e',
-                    'import fs from \'node:fs/promises\';const h=await fs.open(process.argv[1],\'r+\');await h.write(\'EXTERNAL\',262144);await h.close();',
-                    originalPath,
-                ],
-                {
-                    encoding: 'utf8',
-                    windowsHide: true,
-                });
-                expect(writer.status, writer.stderr).toBe(0);
+            refreshOriginalExpectation: async (admitted) => {
+                writeExternally(originalPath);
                 await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7, admitted);
             },
         });
@@ -220,7 +255,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                     assertDestinationCurrent: assertDestinationCurrent,
                     destinationBackupPath,
                 }),
-                afterWorkingCopySync: async () => {
+                refreshOriginalExpectation: async () => {
                     expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
                 },
                 onPhase: phase => phases.push(phase),
@@ -648,7 +683,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 assertDestinationCurrent: assertDestinationCurrent,
                 destinationBackupPath,
             }),
-            afterWorkingCopySync: async () => {
+            refreshOriginalExpectation: async () => {
                 throw new Error('post-sync failure');
             },
         })).rejects.toThrow('post-sync failure');
@@ -743,7 +778,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                     assertDestinationCurrent: assertDestinationCurrent,
                     destinationBackupPath,
                 }),
-                afterWorkingCopySync: async () => {
+                refreshOriginalExpectation: async () => {
+                    if (failWorkingRollback) return;
                     failWorkingRollback = true;
                     throw new Error('post-sync failure');
                 },
@@ -794,7 +830,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
                 destinationBackupPath,
             }),
-            afterWorkingCopySync: async () => {
+            refreshOriginalExpectation: async () => {
                 await writeFile(originalPath, 'external-original');
                 throw new Error('post-sync failure');
             },
@@ -825,7 +861,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
                 destinationBackupPath,
             }),
-            afterWorkingCopySync: async () => {
+            refreshOriginalExpectation: async () => {
                 throw new Error('post-sync failure');
             },
         })).rejects.toThrow('post-sync failure');
@@ -1116,11 +1152,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                     assertDestinationCurrent: assertDestinationCurrent,
                     destinationBackupPath,
                 }),
-                afterWorkingCopySync: async () => {
-                    expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
-                },
-                afterOriginalRestore: async () => {
-                    expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
+                refreshOriginalExpectation: async expected => {
+                    expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7, expected)).toBe(true);
                 },
             })).rejects.toThrow('manifest publication failed');
 
@@ -1203,7 +1236,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
                 destinationBackupPath,
             }),
-            afterWorkingCopySync: async () => {
+            refreshOriginalExpectation: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
         })).resolves.toMatchObject({contentRevision: 2});
@@ -1274,7 +1307,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
                 destinationBackupPath,
             }),
-            afterWorkingCopySync: async () => {
+            refreshOriginalExpectation: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
         })).resolves.toMatchObject({contentRevision: 2});
@@ -1329,7 +1362,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
                 destinationBackupPath,
             }),
-            afterWorkingCopySync: async () => {
+            refreshOriginalExpectation: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
         })).resolves.toMatchObject({contentRevision: 2});
@@ -1375,7 +1408,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                     ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
                     destinationBackupPath,
                 }),
-                afterWorkingCopySync: async () => {
+                refreshOriginalExpectation: async () => {
                     expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
                 },
             })).resolves.toMatchObject({contentRevision: 2});
@@ -1493,9 +1526,6 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
     });
 
     it('refuses the next annotation save after another program saves the PDF right after one', async () => {
-        vi.stubEnv('TMPDIR', tempRoot);
-        vi.stubEnv('TEMP', tempRoot);
-        vi.stubEnv('TMP', tempRoot);
         let afterTransition = (): void => undefined;
         vi.doMock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', async importOriginal => {
             const actual = await importOriginal<typeof TransitionModule>();
@@ -1509,43 +1539,15 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             };
         });
         try {
-            const {getAppTempDir} = await import('@electron/utils/appTempDir');
             const {
-                originalPath, workingCopyPath,
-            } = await prepare('old-original', 'old-working', 'original.pdf', join(getAppTempDir(), 'pdf-work-native-race'));
-            const {makeSiblingTempPath} = await import('@electron/utils/atomicReplace');
-            const {createOpaqueNativePdfStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
-            const {handleCommitStagedPdfNativeMutations} = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
-            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
-            const saveAnnotations = async (bytes: Buffer) => {
-                const stagedPath = `${makeSiblingTempPath(workingCopyPath)}.pdf`;
-                await writeFile(stagedPath, bytes);
-                const staged = await createOpaqueNativePdfStagedArtifact({senderId: 7}, stagedPath, {
-                    qpdfCheck: false,
-                    tailCheck: true,
-                    semanticCheck: true,
-                    semanticScopeSha256: 'b'.repeat(64),
-                    fsynced: true,
-                }, {cleanupOnRelease: true});
-                const {token} = await getWorkingCopyRevision(workingCopyPath, 7);
-                return handleCommitStagedPdfNativeMutations({senderId: 7}, workingCopyPath, staged, {expectedDocumentRevisionToken: token});
-            };
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-native-race');
             const firstSave = Buffer.alloc(2 * 1024 * 1024, 67);
             const external = Buffer.from(firstSave);
             external.write('EXTERNAL', 262144);
             afterTransition = () => {
                 afterTransition = () => undefined;
-                const writer = spawnSync(process.execPath, [
-                    '--input-type=module',
-                    '-e',
-                    'import fs from \'node:fs/promises\';const h=await fs.open(process.argv[1],\'r+\');await h.write(\'EXTERNAL\',262144);await h.close();',
-                    originalPath,
-                ],
-                {
-                    encoding: 'utf8',
-                    windowsHide: true,
-                });
-                expect(writer.status, writer.stderr).toBe(0);
+                writeExternally(originalPath);
             };
 
             await expect(saveAnnotations(firstSave)).resolves.toMatchObject({applied: true});
@@ -1558,7 +1560,52 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             expect((await readFile(workingCopyPath)).equals(firstSave)).toBe(true);
         } finally {
             vi.doUnmock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
-            vi.unstubAllEnvs();
+        }
+    });
+
+    it('refuses the next annotation save after another program saves right after a failed save is restored', async () => {
+        const fs = await import('node:fs/promises');
+        const paths = {
+            original: '',
+            working: '',
+        };
+        let fault: 'armed' | 'thrown' | 'idle' = 'idle';
+        let external: Buffer | null = null;
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            rename: async (...args: Parameters<typeof fs.rename>) => {
+                if (fault === 'armed' && String(args[1]) === paths.working) {
+                    fault = 'thrown';
+                    throw Object.assign(new Error('Injected EIO while syncing the working copy'), {code: 'EIO'});
+                }
+                await fs.rename(...args);
+                if (fault === 'thrown' && external === null && String(args[1]) === paths.original) {
+                    writeExternally(paths.original);
+                    external = await fs.readFile(paths.original);
+                }
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-rollback-race');
+            paths.original = originalPath;
+            paths.working = workingCopyPath;
+            fault = 'armed';
+
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 67))).resolves.toMatchObject({
+                applied: false,
+                reason: 'original-changed',
+            });
+            expect(external).not.toBeNull();
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 68))).resolves.toMatchObject({
+                applied: false,
+                reason: 'original-changed',
+            });
+            expect((await readFile(originalPath)).equals(external!)).toBe(true);
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+        } finally {
+            vi.doUnmock('fs/promises');
         }
     });
 });

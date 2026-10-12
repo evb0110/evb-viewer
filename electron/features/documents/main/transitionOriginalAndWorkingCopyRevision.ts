@@ -28,8 +28,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     publishOriginal: (assertDestinationCurrent: () => Promise<void>, destinationBackupPath: string) => Promise<void>;
     publishedSourcePath: string;
     publishedContentFingerprint?: string;
-    afterWorkingCopySync?: (originalFileExpectation?: ReturnType<IOriginalPathSaveWitness['getOriginalFileExpectation']>) => Promise<void>;
-    afterOriginalRestore?: () => Promise<void>;
+    refreshOriginalExpectation?: (expected: ReturnType<IOriginalPathSaveWitness['getOriginalFileExpectation']>) => Promise<void>;
     onPhase?: (phase: string, durationMs: number) => void;
 }) {
     const measurePhase = <T>(phase: string, operation: () => Promise<T>) =>
@@ -45,6 +44,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         if (!witness) {
             return null;
         }
+        const admittedExpectation = witness.getOriginalFileExpectation();
         const originalBackupPath = createOriginalTransitionBackupPath(input.originalPath, input.workingCopyPath);
         let committed = false as boolean;
         let journal = null as IWorkingCopyJournal | null;
@@ -88,7 +88,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         await measurePhase('transition-rebase-original-witness-after-working-sync',
                             async () => witness.assertCurrent({allowBackupMetadataChange: true}));
                         await measurePhase('transition-after-working-copy-sync', async () =>
-                            input.afterWorkingCopySync?.(witness.getOriginalFileExpectation()));
+                            input.refreshOriginalExpectation?.(witness.getOriginalFileExpectation()));
                     } catch (error) {
                         if (error instanceof OriginalPathSaveConflictError) await recordWorkingCopyJournalOriginal(transitionJournal, {
                             ...transitionJournal.original!,
@@ -121,14 +121,10 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 if (!committed && journal?.original
                     && (journal.original.state === 'prepared' || journal.original.state === 'published')) {
                     await restoreOriginal(journal.original);
-                    try {
-                        await recordWorkingCopyJournalOriginal(journal, {
-                            ...journal.original,
-                            state: 'restored',
-                        });
-                    } finally {
-                        await input.afterOriginalRestore?.();
-                    }
+                    await recordWorkingCopyJournalOriginal(journal, {
+                        ...journal.original,
+                        state: 'restored',
+                    }).finally(() => input.refreshOriginalExpectation?.(admittedExpectation));
                 }
             } finally {
                 if (!committed && (!journal?.original || journal.original.state === 'restored' || journal.original.state === 'conflicted')) {

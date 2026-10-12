@@ -184,11 +184,7 @@ async function replaceOriginalWithValidatedTemp(
             }),
             publishedSourcePath: tempPath,
             ...(optimizedValidation === null && copied ? {publishedContentFingerprint: copied.contentFingerprint} : {}),
-            afterWorkingCopySync: expectation => refreshWorkingCopyOriginalFileExpectationForSave(workingPath, senderWebContentsId, expectation),
-            afterOriginalRestore: () => refreshWorkingCopyOriginalFileExpectationForSave(
-                workingPath,
-                senderWebContentsId,
-            ),
+            refreshOriginalExpectation: expectation => refreshWorkingCopyOriginalFileExpectationForSave(workingPath, senderWebContentsId, expectation),
         });
         if (!transition) {
             return {
