@@ -48,9 +48,7 @@ export type TPdfBookmarkActionValue =
     | boolean
     | number
     | {readonly real: number}
-    | {readonly name: string}
-    | {readonly literal: readonly number[]}
-    | {readonly hex: readonly number[]}
+    | v.InferOutput<typeof BOOKMARK_NAME_SCHEMA>
     | {readonly dict: ReadonlyArray<readonly [string, unknown]>}
     | readonly unknown[];
 export interface IPdfBookmarkAction {readonly dict: ReadonlyArray<readonly [string, TPdfBookmarkActionValue]>}
@@ -87,7 +85,13 @@ function isWithinBookmarkActionCeilings(value: unknown) {
     return true;
 }
 
-const bookmarkActionBytesSchema = v.array(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(255)));
+// A PDF name or string; native keeps none over 16,383 bytes, in a name or an action.
+const bookmarkActionBytesSchema = v.pipe(v.array(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(255))), v.maxLength(16_383));
+const BOOKMARK_NAME_SCHEMA = v.union([
+    v.strictObject({name: v.pipe(v.string(), v.maxBytes(16_383))}),
+    v.strictObject({literal: bookmarkActionBytesSchema}),
+    v.strictObject({hex: bookmarkActionBytesSchema}),
+]);
 const BOOKMARK_ACTION_DICT_SCHEMA: v.GenericSchema<unknown, IPdfBookmarkAction> = v.lazy(() => v.strictObject({dict: v.array(v.strictTuple([
     v.string(),
     BOOKMARK_ACTION_VALUE_SCHEMA,
@@ -97,9 +101,7 @@ const BOOKMARK_ACTION_VALUE_SCHEMA: v.GenericSchema<unknown, TPdfBookmarkActionV
     v.boolean(),
     v.pipe(v.number(), v.safeInteger()),
     v.strictObject({real: v.pipe(v.number(), v.check(value => Number.isFinite(Math.fround(value))))}),
-    v.strictObject({name: v.string()}),
-    v.strictObject({literal: bookmarkActionBytesSchema}),
-    v.strictObject({hex: bookmarkActionBytesSchema}),
+    ...BOOKMARK_NAME_SCHEMA.options,
     BOOKMARK_ACTION_DICT_SCHEMA,
     v.array(BOOKMARK_ACTION_VALUE_SCHEMA),
 ]));
@@ -111,21 +113,18 @@ export const PDF_BOOKMARK_ACTION_SCHEMA = v.pipe(
 
 const BOOKMARK_SOURCE_INTENT_SCHEMA = v.object({
     originalDestination: v.exactOptional(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA),
+    /** Written only when the entry has no destination of its own. */
     originalAction: v.exactOptional(PDF_BOOKMARK_ACTION_SCHEMA),
-    originalNamedDest: v.exactOptional(v.pipe(v.unknown(), v.check(isWithinBookmarkActionCeilings, 'bookmark name exceeds its size ceiling'), BOOKMARK_ACTION_VALUE_SCHEMA)),
+    /** The name's source form, kept only when Save would write the name differently. */
+    originalNamedDest: v.exactOptional(BOOKMARK_NAME_SCHEMA),
 });
 export const decodeBookmarkSourceIntent = (value: Record<string, unknown>) => v.parse(BOOKMARK_SOURCE_INTENT_SCHEMA, value);
 
-export interface IPdfBookmarkEntry {
+export interface IPdfBookmarkEntry extends Readonly<v.InferOutput<typeof BOOKMARK_SOURCE_INTENT_SCHEMA>> {
     readonly title: string;
     readonly pageIndex: TPageIndex | null;
     readonly pageYRatio?: number | null;
-    readonly originalDestination?: TPdfBookmarkOriginalDestination;
-    /** Written only when the entry has no destination of its own. */
-    readonly originalAction?: IPdfBookmarkAction;
     readonly namedDest: string | null;
-    /** The name's source form, kept only when Save would write the name differently. */
-    readonly originalNamedDest?: TPdfBookmarkActionValue;
     readonly bold: boolean;
     readonly italic: boolean;
     readonly color: string | null;

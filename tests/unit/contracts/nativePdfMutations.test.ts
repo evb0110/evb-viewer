@@ -331,6 +331,60 @@ describe('native PDF mutation contracts', () => {
         }
     });
 
+    it('keeps a source name form through save and rejects what native admission refuses', () => {
+        const bookmark = {
+            title: 'Named',
+            pageIndex: null,
+            pageYRatio: null,
+            namedDest: 'caf\u00e9',
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        };
+        const save = (originalNamedDest: unknown) => normalizePdfNativeMutationSet({bookmarks: {
+            totalPages: 1,
+            untitledLabel: 'Untitled',
+            items: [{
+                ...bookmark,
+                originalNamedDest,
+            }],
+        }}, 'mutations').bookmarks?.items[0]?.originalNamedDest;
+        // Native writes back a PDF name or string of at most 16,383 bytes.
+        for (const valid of [
+            {literal: [
+                99,
+                97,
+                102,
+                233,
+            ]},
+            {hex: [
+                254,
+                255,
+                0,
+                99,
+            ]},
+            {name: 'chapter'},
+            {literal: Array.from({length: 16_383}, () => 97)},
+            {name: '\u00e9'.repeat(8_191)},
+        ]) {
+            expect(save(valid)).toEqual(valid);
+        }
+        for (const invalid of [
+            null,
+            true,
+            7,
+            {real: 1.5},
+            {dict: []},
+            [{literal: [97]}],
+            {literal: [256]},
+            {literal: Array.from({length: 16_384}, () => 97)},
+            {name: '\u00e9'.repeat(8_192)},
+        ]) {
+            expect(() => save(invalid)).toThrow();
+        }
+    });
+
     it('normalizes native canonical identity bindings without changing their proof', () => {
         expect(normalizePdfNativeAnnotationIdentityBindings([{
             annotationId: '  app-annotation-1 ',
