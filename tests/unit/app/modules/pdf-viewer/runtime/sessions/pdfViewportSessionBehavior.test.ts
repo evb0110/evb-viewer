@@ -222,7 +222,6 @@ function createViewportFixture(input: {
     const fitMode = input.fitMode ?? ref<'width' | 'height'>('width');
     const isActive = input.isActive ?? ref(true);
     const emittedPages: number[] = [];
-    const emitEffectiveZoom = vi.fn();
     const viewportWrites = createTestPdfViewportWritePort();
     const {port} = viewportWrites;
     let rendering: ReturnType<typeof createPdfRenderingSession> | undefined;
@@ -268,7 +267,6 @@ function createViewportFixture(input: {
                 emitZoomState: state => {
                     if (state.kind === 'custom') zoom.value = state.scale;
                 },
-                emitEffectiveZoom,
                 summarizeViewerStateForLog: vi.fn(),
             });
             if (input.rasterScheduler) {
@@ -314,7 +312,6 @@ function createViewportFixture(input: {
             }
         },
         documentSession,
-        emitEffectiveZoom,
         emittedPages,
         fitMode,
         isActive,
@@ -1717,7 +1714,6 @@ describe('PdfViewportSession behavior', () => {
         try {
             expect(fixture.viewport.scale.seedOpeningFitScale(845 / 612)).toBe(true);
             await nextTick();
-            fixture.emitEffectiveZoom.mockClear();
             // The PDF viewer settles on page 6 while the shared surface still
             // holds its unplaced opening ticket. A user scroll is held back in
             // that state, so seed the viewer's page directly.
@@ -1763,7 +1759,7 @@ describe('PdfViewportSession behavior', () => {
                 6,
                 6,
             ]);
-            expect(fixture.emitEffectiveZoom).toHaveBeenCalledExactlyOnceWith(845 / 612);
+            expect(fixture.viewport.scale.effectiveScale.value).toBeCloseTo(845 / 612);
             expect(currentPage.value).toBe(6);
             expect(navigationFence.targetPage.value).toBeNull();
         } finally {

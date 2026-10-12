@@ -208,7 +208,6 @@ export const usePdfViewerFeatureController = (
         emitCurrentPage: page => emit('update:currentPage', page),
         emitNavigationFeedbackPage: page => emit('update:navigationFeedbackPage', page),
         emitZoomState: state => emit('update:zoomState', state),
-        emitEffectiveZoom: value => emit('update:effectiveZoom', value),
         summarizeViewerStateForLog,
     });
     viewportSessionRef.value = viewportSession;
@@ -429,7 +428,6 @@ export const usePdfViewerFeatureController = (
             if (zoomMode.value === 'fit-width') {
                 viewportSession.scale.invalidateScaleCache();
                 viewportSession.scale.computeFitWidthScale(viewerContainer.value, {page});
-                viewportSession.reloadTransition.commitEffectiveZoom(viewportSession.scale.effectiveScale.value);
             }
         }, getRequestAnchor(undefined, page));
     }

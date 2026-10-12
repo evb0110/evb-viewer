@@ -55,7 +55,6 @@ export interface IPdfViewerProps {
 
 export interface IPdfViewerEmit {
     (e: 'update:zoomState', state: TPdfZoomState): void;
-    (e: 'update:effectiveZoom', value: number): void;
     (e: 'update:currentPage', page: number): void;
     (e: 'update:navigationFeedbackPage', page: number | null): void;
     (e: 'update:totalPages', total: number): void;

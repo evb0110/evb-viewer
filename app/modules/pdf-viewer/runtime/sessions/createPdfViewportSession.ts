@@ -114,7 +114,6 @@ export interface ICreatePdfViewportSessionOptions {
     emitCurrentPage: (page: number) => void;
     emitNavigationFeedbackPage: (page: number | null) => void;
     emitZoomState: (state: TPdfZoomState) => void;
-    emitEffectiveZoom: (value: number) => void;
     summarizeViewerStateForLog: () => unknown;
 }
 export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptions) => {
@@ -167,15 +166,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         scroll.currentPage,
         options.continuousScroll,
     );
-    const reloadTransition = usePdfViewerReloadTransition({
-        emitEffectiveZoom: options.emitEffectiveZoom,
-        summarizeViewerStateForLog: options.summarizeViewerStateForLog,
-    });
-    watch(
-        () => scale.effectiveScale.value,
-        value => reloadTransition.emitEffectiveZoom(value),
-        { immediate: true },
-    );
+    const reloadTransition = usePdfViewerReloadTransition({summarizeViewerStateForLog: options.summarizeViewerStateForLog});
     const skeletonInsets = usePdfSkeletonInsets(basePageWidth, basePageHeight, scale.effectiveScale);
     const currentPage = scroll.currentPage;
     // A measurement describes the document it was taken in; a deleted page or
@@ -400,15 +391,14 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             ] as const;
         },
         (viewportSession, previousViewportSession) => {
-            // Page and scale projections can arrive before the shared surface is
-            // ready. Replay both authorities at that lifecycle edge so the
-            // workspace reflects the geometry that already settled physically.
+            // The page projection can arrive before the shared surface is
+            // ready. Replay it at that lifecycle edge so the workspace reflects
+            // the page that already settled physically.
             if (
                 viewportSession[0] === 'ready'
                 && previousViewportSession?.[0] !== 'ready'
             ) {
                 options.emitCurrentPage(currentPage.value);
-                reloadTransition.emitEffectiveZoom(scale.effectiveScale.value);
             }
         },
         {
@@ -1068,13 +1058,6 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             }
             if (!transition.plan.isSelectiveReload || options.zoomMode.value === 'fit-width') {
                 scale.computeFitWidthScale(options.viewerContainer.value, {page: currentPage.value});
-            }
-            if (isPreservedSelectiveReload && options.zoomMode.value === 'fit-width') {
-                // This Fit Width value defines the first raster for the new
-                // revision. Publish it now instead of letting the visual
-                // reload transition defer the toolbar/readout until the
-                // replacement raster has warmed and the transition settles.
-                reloadTransition.commitEffectiveZoom(scale.effectiveScale.value);
             }
             if (!transition.plan.isSelectiveReload) {
                 await applyRestoredReloadZoom(placement.displayZoomToRestore);
