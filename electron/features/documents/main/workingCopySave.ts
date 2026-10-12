@@ -120,8 +120,8 @@ function areWorkingCopyAndOriginalMissing(workingPath: string, senderWebContents
         && !existsSync(mapping.originalPath);
 }
 
-async function refreshWorkingCopyOriginalFileExpectationForSave(workingPath: string, senderWebContentsId: number) {
-    const refreshed = await refreshWorkingCopyOriginalFileExpectation(workingPath, senderWebContentsId);
+async function refreshWorkingCopyOriginalFileExpectationForSave(...args: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>) {
+    const refreshed = await refreshWorkingCopyOriginalFileExpectation(...args);
     if (!refreshed) {
         throw new Error('Working copy registration changed before original expectation refresh completed');
     }
@@ -190,10 +190,7 @@ async function replaceOriginalWithValidatedTemp(
                 ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
             }),
             publishedSourcePath: tempPath,
-            afterWorkingCopySync: () => refreshWorkingCopyOriginalFileExpectationForSave(
-                workingPath,
-                senderWebContentsId,
-            ),
+            afterWorkingCopySync: expectation => refreshWorkingCopyOriginalFileExpectationForSave(workingPath, senderWebContentsId, expectation),
             afterOriginalRestore: () => refreshWorkingCopyOriginalFileExpectationForSave(
                 workingPath,
                 senderWebContentsId,

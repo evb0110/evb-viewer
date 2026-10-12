@@ -29,7 +29,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     captureOriginalWitness?: () => Promise<IOriginalPathSaveWitness | null>;
     publishOriginal: (assertDestinationCurrent?: () => Promise<void>, destinationBackupPath?: string) => Promise<void>;
     publishedSourcePath: string;
-    afterWorkingCopySync?: () => Promise<void>;
+    afterWorkingCopySync?: (originalFileExpectation?: ReturnType<IOriginalPathSaveWitness['getOriginalFileExpectation']>) => Promise<void>;
     afterOriginalRestore?: () => Promise<void>;
     onPhase?: (phase: string, durationMs: number) => void;
 }) {
@@ -104,9 +104,8 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         )}));
                     await measurePhase('transition-rebase-original-witness-after-working-sync',
                         async () => witness?.assertCurrent({allowBackupMetadataChange: true}));
-                    if (input.afterWorkingCopySync) {
-                        await measurePhase('transition-after-working-copy-sync', input.afterWorkingCopySync);
-                    }
+                    await measurePhase('transition-after-working-copy-sync', async () =>
+                        input.afterWorkingCopySync?.(witness?.getOriginalFileExpectation()));
                 },
                 input.senderId,
                 input.onPhase,

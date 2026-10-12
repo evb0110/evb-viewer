@@ -1017,6 +1017,7 @@ export function getWorkingCopyOriginalFileExpectation(
 export async function refreshWorkingCopyOriginalFileExpectation(
     workingPath: string,
     senderWebContentsId?: number,
+    admittedExpectation?: IWorkingCopyOriginalFileExpectation,
 ) {
     const activeEntry = workingCopyMap.get(workingPath);
     if (!activeEntry || !canUseWorkingCopyEntry(activeEntry, senderWebContentsId)) {
@@ -1037,10 +1038,8 @@ export async function refreshWorkingCopyOriginalFileExpectation(
         return false;
     }
     if (expectation) {
-        if (sameOriginalFileExpectation(currentEntry.originalFileExpectation, expectation)
-            && currentEntry.originalFileExpectation?.contentFingerprint) {
-            expectation.contentFingerprint = currentEntry.originalFileExpectation.contentFingerprint;
-        }
+        const baseline = admittedExpectation ?? currentEntry.originalFileExpectation;
+        if (sameOriginalFileExpectation(baseline, expectation) && baseline?.contentFingerprint) expectation.contentFingerprint = baseline.contentFingerprint;
         currentEntry.originalFileExpectation = expectation;
         await captureOriginalFileContentFingerprint(currentEntry, workingPath, expectation, controller);
     } else {

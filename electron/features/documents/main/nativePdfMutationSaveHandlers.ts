@@ -359,12 +359,9 @@ async function prepareNativeNoteMutation(options: {
     };
 }
 
-async function syncNativeOutputToRequestingWorkingCopy(
-    requestedWorkingPath: string,
-    senderWebContentsId: number,
-): Promise<void> {
-    await ensureWorkingCopyDirectory(requestedWorkingPath, senderWebContentsId);
-    if (!await refreshWorkingCopyOriginalFileExpectation(requestedWorkingPath, senderWebContentsId)) {
+async function syncNativeOutputToRequestingWorkingCopy(...args: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>): Promise<void> {
+    await ensureWorkingCopyDirectory(args[0], args[1]);
+    if (!await refreshWorkingCopyOriginalFileExpectation(...args)) {
         throw new Error('Working copy registration changed before original expectation refresh completed');
     }
 }
@@ -482,7 +479,7 @@ export async function handleCommitStagedPdfNativeMutations(
     const phaseTimings: INativeNotePhaseTiming[] = [];
     const operationStart = performance.now();
     const operationStartedAtEpochMs = Date.now();
-    const refreshWorkingCopy = () => syncNativeOutputToRequestingWorkingCopy(normalizedWorkingPath, senderId);
+    const refreshWorkingCopy = (expectation?: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>[2]) => syncNativeOutputToRequestingWorkingCopy(normalizedWorkingPath, senderId, expectation);
     let result: IPdfNativeNoteTextSaveResult | null = null;
     let stagedArtifactCleaned = false as boolean;
     try {
