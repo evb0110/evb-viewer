@@ -1724,7 +1724,7 @@ export default {
             'noPages': 'Die PDF-Datei enthält keine Seiten',
             'folderEmpty': 'Im ausgewählten Ordner wurden keine unterstützten Dokumente gefunden',
             'save': 'Datei konnte nicht gespeichert werden',
-            'originalSavedOtherKept': 'EVB hat Ihre Änderungen gespeichert. Die andere Version wurde unter {path} aufbewahrt.',
+            'originalSavedOtherKept': 'Das Original wurde anderweitig geändert. Eine Version wurde unter {path} aufbewahrt.',
             'browserStorageTitle': 'Browserspeicher ist nicht verfügbar',
             'browserStorageDescription': '„{name}“ ist im Arbeitsspeicher geöffnet, erscheint nach dem Neuladen aber nicht wieder.',
         },

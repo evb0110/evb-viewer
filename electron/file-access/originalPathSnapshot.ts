@@ -24,8 +24,7 @@ export interface IOriginalPathSaveSnapshot {
 
 export class OriginalPathSaveConflictError extends Error {
     constructor(readonly keptFilePath?: string) {
-        super(keptFilePath
-            ? `EVB saved your edits. The other version was kept at ${keptFilePath}`
+        super(keptFilePath ? `The original changed elsewhere. A version was kept at ${keptFilePath}`
             : 'Original file changed on disk; save skipped to avoid overwriting external edits');
         this.name = 'OriginalPathSaveConflictError';
     }

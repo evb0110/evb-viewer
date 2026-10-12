@@ -261,9 +261,9 @@ describe('useWorkspaceFailureSurface', () => {
     it.each([
         'structured',
         'native',
-    ] as const)('identifies the kept external version after a late %s conflict', channel => {
+    ] as const)('identifies a retained revision without misnaming it after a late %s conflict', channel => {
         const keptFilePath = '/documents/report.pdf.evb-transition-123.bak';
-        const message = `EVB saved your edits. The other version was kept at ${keptFilePath}.`;
+        const message = `The original changed elsewhere. A version was kept at ${keptFilePath}.`;
         const result = channel === 'structured'
             ? v.parse(documentSaveResult, {
                 ok: false,

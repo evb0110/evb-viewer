@@ -1724,7 +1724,7 @@ export default {
             'noPages': 'De PDF bevat geen pagina’s',
             'folderEmpty': 'Er zijn geen ondersteunde documenten gevonden in de geselecteerde map',
             'save': 'Kan bestand niet opslaan',
-            'originalSavedOtherKept': 'EVB heeft uw wijzigingen opgeslagen. De andere versie is bewaard op {path}.',
+            'originalSavedOtherKept': 'Het origineel is elders gewijzigd. Een versie is bewaard op {path}.',
             'browserStorageTitle': 'Browseropslag is niet beschikbaar',
             'browserStorageDescription': '‘{name}’ is in het geheugen geopend, maar verschijnt niet opnieuw na herladen.',
         },

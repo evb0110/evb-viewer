@@ -1724,7 +1724,7 @@ export default {
             'noPages': 'El PDF no contiene páginas',
             'folderEmpty': 'No se encontraron documentos compatibles en la carpeta seleccionada',
             'save': 'No se pudo guardar el archivo',
-            'originalSavedOtherKept': 'EVB guardó sus cambios. La otra versión se conservó en {path}.',
+            'originalSavedOtherKept': 'El original cambió en otro programa. Se conservó una versión en {path}.',
             'browserStorageTitle': 'El almacenamiento del navegador no está disponible',
             'browserStorageDescription': '“{name}” está abierto en memoria, pero no volverá a aparecer tras recargar.',
         },
