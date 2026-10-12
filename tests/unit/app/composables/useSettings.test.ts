@@ -457,6 +457,31 @@ describe('useSettings', () => {
         expect(instance.settings.value.authorName).toBe('Other window');
     });
 
+    it('settles an undo to the saved value after a failed write and adopts another window', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const baseline = {
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved author',
+            clientDiagnosticsPreference: 'denied' as const,
+        };
+        mockGet.mockResolvedValue(baseline);
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+        mockSave.mockRejectedValueOnce(new Error('ENOSPC: no space left on device'));
+        instance.updateSetting('authorName', 'Failed edit');
+        await expect(instance.save()).resolves.toBe(false);
+        expect(instance.settingsSaveStatus.value).toBe('failed');
+        instance.updateSetting('authorName', 'Saved author');
+        await expect(instance.save()).resolves.toBe(true);
+        emitSettingsChange({
+            ...baseline,
+            authorName: 'Other window',
+        });
+        expect(instance.settings.value.authorName).toBe('Other window');
+        expect(instance.settingsSaveStatus.value).toBe('idle');
+    });
+
     it('releases an edit that returned to the committed value before any save started', async () => {
         mockGet.mockResolvedValue({
             ...DEFAULT_SETTINGS,

@@ -151,7 +151,7 @@ export const useSettings = () => {
         state: settings,
         isResolved: isLoaded,
         error: settingsLoadError,
-        load: loadSettingsState,
+        load,
     } = usePlatformHydratedState<ISettingsData>({
         key: 'settings',
         initialValue: () => initialSettings,
@@ -206,10 +206,6 @@ export const useSettings = () => {
             if (isLoaded.value && pendingSettingsIntent.size > 0) void getSettingsPersistenceQueue().save();
             else if (settingsSaveStatus.value === 'saving') settingsSaveStatus.value = 'idle';
         });
-    }
-
-    function load() {
-        return loadSettingsState();
     }
 
     async function loadOrThrow() {
@@ -280,7 +276,7 @@ export const useSettings = () => {
     }
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
-        if (settingsSaveStatus.value === 'idle' && value === lastSavedSettings.value?.[key]) pendingSettingsIntent.delete(key);
+        if (settingsSaveStatus.value !== 'saving' && value === lastSavedSettings.value?.[key]) pendingSettingsIntent.delete(key);
         else pendingSettingsIntent.set(key, value);
         Object.assign(settings.value, {[key]: value});
         if (key === 'clientDiagnosticsPreference') {
