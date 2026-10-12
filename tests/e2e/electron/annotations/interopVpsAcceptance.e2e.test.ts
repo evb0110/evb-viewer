@@ -893,7 +893,6 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         const {page} = sessionFixture.getSession();
         const fixture = await createMultiPageTextFixturePdf(`many-new-shapes-${Date.now()}.pdf`, 1);
         await openPdfInApp(page, fixture);
-        await waitForPdfLoaded(page);
         // Bulk creation is setup through the public annotation command. Save
         // itself is the same trusted toolbar action a person uses.
         const created = await page.evaluate(async () => {
@@ -916,7 +915,7 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         const saved = await inspectPdf(fixture);
         expect(saved.annotations.filter(annotation => annotation.subtype === 'Square')).toHaveLength(3_200);
         await openPdfInApp(page, copyFreshFixture(fixture, 'many-shapes-reopen'));
-        await waitForPdfLoaded(page);
+        await page.waitForFunction(() => document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"] .pdf-annotation-editor-layer')?.querySelectorAll('[data-annotation-kind="shape"]').length === 3_200);
         const reopened = await collectAnnotationOwnershipDebugState(page);
         expect(reopened.canonicalEntities.filter(entity => entity.kind === 'shape')).toHaveLength(3_200);
         expect(new Set(reopened.canonicalEntities.map(entity => entity.id)).size).toBe(3_200);
