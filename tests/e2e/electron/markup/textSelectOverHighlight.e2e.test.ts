@@ -2,9 +2,11 @@ import {
     copyFile, mkdir, mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
 import {
-    PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString,
+    join, resolve,
+} from 'node:path';
+import {
+    PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString,
 } from 'pdf-lib';
 import {
     describe, expect, it, onTestFinished,
@@ -19,6 +21,7 @@ import {
     clickAsUser, revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 
 async function highlightedTextPdf(path: string, note = '', flags = 4) {
@@ -109,6 +112,67 @@ async function drag(page: Page, points: Awaited<ReturnType<typeof lineDragPoints
     return evaluateInPage(page, () => document.getSelection()?.toString() ?? '');
 }
 
+
+async function readImportedHighlight(path: string) {
+    const bytes = await readFile(path);
+    const pdf = await PDFDocument.load(bytes);
+    const refs = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).asArray();
+    const ref = refs.find(value => pdf.context.lookup(value, PDFDict)
+        .get(PDFName.of('Subtype'))?.toString() === '/Highlight');
+    if (!(ref instanceof PDFRef)) throw new Error('The fixture has no referenced highlight');
+    const dictionary = pdf.context.lookup(ref, PDFDict);
+    const objectBytes = [...bytes.toString('latin1').matchAll(new RegExp(
+        `${ref.objectNumber} ${ref.generationNumber} obj[\\s\\S]*?endobj`, 'gu',
+    ))].at(-1)?.[0];
+    if (!objectBytes) throw new Error('The highlight object bytes are missing');
+    return {
+        dictionary: dictionary.toString(),
+        objectBytes,
+        rect: dictionary.lookup(PDFName.of('Rect'), PDFArray).asArray()
+            .map(value => pdf.context.lookup(value, PDFNumber).asNumber()),
+        flags: dictionary.lookup(PDFName.of('F'), PDFNumber).asNumber(),
+    };
+}
+
+async function importedHighlightRegion(page: Page) {
+    return page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', element => {
+        const rect = element.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width * 80 / 612,
+            y: rect.top + rect.height * (792 - 585) / 792,
+            width: rect.width * (360 - 80) / 612,
+            height: rect.height * (585 - 550) / 792,
+        };
+    });
+}
+
+async function importedHighlightPixels(page: Page, screenshotPath: string) {
+    const region = await importedHighlightRegion(page);
+    const bytes = await page.screenshot({path: screenshotPath});
+    return page.evaluate(async ({
+        data, region,
+    }) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${data}`;
+        await image.decode();
+        const canvas = new OffscreenCanvas(image.naturalWidth, image.naturalHeight);
+        const context = canvas.getContext('2d')!;
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(
+            Math.ceil(region.x), Math.ceil(region.y), Math.floor(region.width), Math.floor(region.height),
+        ).data;
+        let yellow = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+            if (pixels[index]! > 180 && pixels[index + 1]! > 140 && pixels[index + 2]! < 160
+                && pixels[index]! > pixels[index + 2]! + 60) yellow += 1;
+        }
+        return yellow;
+    }, {
+        data: Buffer.from(bytes).toString('base64'),
+        region,
+    });
+}
+
 describe('Electron E2E - Text Select over existing highlight', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-text-select-highlight-${Date.now()}`});
 
@@ -170,6 +234,112 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         await copyFile(path, join(artifacts, 'saved.pdf'));
         await page.screenshot({path: join(artifacts, 'restricted-highlight.png')});
         console.log(`RESTRICTED_HIGHLIGHT_EVIDENCE ${artifacts}`);
+    }, 90_000);
+
+
+    it('keeps a NoView highlight hidden with no editable hit target', async () => {
+        const {page} = sessions.getSession();
+        const directory = await mkdtemp(join(tmpdir(), 'evb-noview-highlight-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const path = join(directory, 'noview.pdf');
+        await copyFile(resolve('tests/fixtures/electron/restricted-markup/Highlight-36.pdf'), path);
+        const before = await readImportedHighlight(path);
+        const artifacts = join('.devkit', 'artifacts', `noview-highlight-${Date.now()}`);
+        await mkdir(artifacts, {recursive: true});
+        await copyFile(path, join(artifacts, 'input.pdf'));
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAsUser(page, '.notes-panel .tool-button[data-tool="select"]');
+        await waitForViewportQuiet(page);
+        const yellowPixels = await importedHighlightPixels(page, join(artifacts, 'noview.png'));
+        const region = await importedHighlightRegion(page);
+        await page.mouse.click(region.x + region.width / 2, region.y + region.height / 2, {count: 2});
+        const markup = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]';
+        const canonicalMarks = await page.$$(markup);
+        if (canonicalMarks.length) await page.waitForSelector('textarea.note-window__textarea', {visible: true});
+        const writable = await page.$$('textarea.note-window__textarea:not([readonly]):not([disabled])');
+        await page.screenshot({path: join(artifacts, 'after-double-click.png')});
+        console.log('NOVIEW_HIGHLIGHT', {
+            yellowPixels,
+            canonicalMarks: canonicalMarks.length,
+            writable: writable.length,
+            artifacts,
+        });
+        expect(yellowPixels, 'NoView suppresses painted highlight pixels').toBe(0);
+        expect(canonicalMarks, 'NoView has no canonical hit target').toHaveLength(0);
+        expect(writable, 'double-click cannot open a writable NoView note').toHaveLength(0);
+        await createCanonicalTextBoxWithPointer(page, 'Unrelated save beside NoView', {
+            x: 0.2,
+            y: 0.65,
+        });
+        await saveViaVisibleToolbar(page, 30_000, path);
+        expect(await readImportedHighlight(path)).toEqual(before);
+        await copyFile(path, join(artifacts, 'saved.pdf'));
+    }, 90_000);
+
+    it('keeps a Locked highlight unchanged after arrow keys and Save', async () => {
+        const {page} = sessions.getSession();
+        const directory = await mkdtemp(join(tmpdir(), 'evb-locked-highlight-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const path = join(directory, 'locked.pdf');
+        await copyFile(resolve('tests/fixtures/electron/restricted-markup/Highlight-132.pdf'), path);
+        const before = await readImportedHighlight(path);
+        const artifacts = join('.devkit', 'artifacts', `locked-highlight-${Date.now()}`);
+        await mkdir(artifacts, {recursive: true});
+        await copyFile(path, join(artifacts, 'input.pdf'));
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAsUser(page, '.notes-panel .tool-button[data-tool="select"]');
+        await waitForViewportQuiet(page);
+        expect(await importedHighlightPixels(page, join(artifacts, 'opened.png'))).toBeGreaterThan(1_000);
+        const markup = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]';
+        const canonical = await page.$(markup);
+        if (canonical) {
+            await clickAsUser(page, canonical);
+            await page.waitForFunction(selector => document.querySelector(selector)?.classList.contains('is-selected'), {}, markup);
+        } else {
+            const region = await importedHighlightRegion(page);
+            await page.mouse.click(region.x + region.width / 2, region.y + region.height / 2);
+        }
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('ArrowDown');
+        const dirtyAfterArrows = Boolean(await page.$('.tab.is-dirty'));
+        await page.screenshot({path: join(artifacts, 'after-arrows.png')});
+        // Force a real incremental Save even when the restricted mark stayed untouched.
+        await createCanonicalTextBoxWithPointer(page, 'Unrelated save beside Locked', {
+            x: 0.2,
+            y: 0.65,
+        });
+        await saveViaVisibleToolbar(page, 30_000, path);
+        const saved = await readImportedHighlight(path);
+        await copyFile(path, join(artifacts, 'saved.pdf'));
+        await page.screenshot({path: join(artifacts, 'saved.png')});
+        console.log('LOCKED_HIGHLIGHT', {
+            before,
+            saved,
+            dirtyAfterArrows,
+            artifacts,
+        });
+        expect(saved.rect).toEqual([
+            80,
+            550,
+            360,
+            585,
+        ]);
+        expect(saved.flags).toBe(132);
+        expect(saved).toEqual(before);
+        expect(dirtyAfterArrows, 'arrow keys cannot edit a foreign Locked highlight').toBe(false);
+        expect(await page.$$(markup)).toHaveLength(0);
     }, 90_000);
 
     it('selects text through a highlight without moving its mark or dirtying the file', async () => {
@@ -240,8 +410,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
             '',
         ]) {
             const path = join(directory, note ? 'with-note.pdf' : 'empty-note.pdf');
-            // Locked geometry alone permits contents edits, unlike ReadOnly or LockedContents.
-            await highlightedTextPdf(path, note, note ? 4 : 132);
+            await highlightedTextPdf(path, note);
             await openPdfInApp(page, path);
             await waitForPdfLoaded(page);
             await waitForViewerInteractive(page);

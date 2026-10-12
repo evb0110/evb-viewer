@@ -705,11 +705,16 @@ fn parse_highlight_entry(
     subtype: &str,
     name: &str,
 ) -> std::result::Result<PdfAnnotationParseHighlight, String> {
-    // The canonical editor has no read-only contents capability; retain these as foreign.
-    if read_optional_integer(document, dict, b"F")?.unwrap_or(0) & (64 | 512) != 0 {
-        return Err("Text markup contents are read-only".to_string());
+    // Keep restricted markup foreign so the reader owns its visibility and permissions.
+    if read_optional_integer(document, dict, b"F")?.unwrap_or(0) & (2 | 32 | 64 | 128 | 512) != 0 {
+        return Err("Text markup has visibility or edit restrictions".to_string());
     }
-    let subtype = canonical_markup_subtype_name(subtype);
+    let subtype = match subtype.to_ascii_lowercase().as_str() {
+        "highlight" => "Highlight",
+        "underline" => "Underline",
+        "strikeout" => "StrikeOut",
+        _ => "Squiggly",
+    };
     let quad_points = parse_highlight_quad_points(document, dict, page_view, page_rotation)?;
     let color = read_annotation_color(document, dict).unwrap_or_else(|| {
         if subtype == "Highlight" {
@@ -776,15 +781,6 @@ fn parse_highlight_quad_points(
             .map_err(|error| error.to_string())
         })
         .collect()
-}
-
-fn canonical_markup_subtype_name(subtype: &str) -> &'static str {
-    match subtype.to_ascii_lowercase().as_str() {
-        "highlight" => "Highlight",
-        "underline" => "Underline",
-        "strikeout" => "StrikeOut",
-        _ => "Squiggly",
-    }
 }
 
 /// Parse a stamp into its rect, rotation and a reference to the JPEG bytes in
@@ -2205,9 +2201,9 @@ mod tests {
     }
 
     #[test]
-    fn restricted_markup_stays_foreign_but_locked_geometry_can_edit_contents() {
+    fn restricted_text_markup_stays_foreign() {
         for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
-            for flags in [4, 68, 132, 516, 644] {
+            for flags in [2, 32, 36, 64, 128, 132, 512, 644, 4] {
                 let mut mark =
                     highlight_dict(subtype, &[20.0, 80.0, 120.0, 80.0, 20.0, 70.0, 120.0, 70.0]);
                 mark.set("F", flags);
@@ -2216,7 +2212,7 @@ mod tests {
                 assert_eq!(entries.len(), 1);
                 assert_eq!(
                     matches!(entries[0], PdfAnnotationParseEntry::Foreign(_)),
-                    flags & (64 | 512) != 0,
+                    flags != 4,
                     "{subtype} /F {flags}"
                 );
             }
