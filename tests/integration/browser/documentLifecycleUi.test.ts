@@ -5144,7 +5144,12 @@ end
             exact: true,
         }).click();
         await page.evaluate(async () => {
-            if (!await (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi).waitForActiveDocumentOpenSettled?.()) throw new Error('Sidebar layout did not settle');
+            const monitor = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {timeoutMs: number}) => Promise<{
+                settled: boolean;
+                reason?: string
+            }>};
+            const outcome = await monitor.waitForSettled({timeoutMs: 10000});
+            if (!outcome.settled) throw new Error(outcome.reason ?? 'Sidebar layout did not settle');
         });
         // Sidebar opening can change fit-width, so sample ink in this layout.
         const inkBounds = await layer.locator(':scope > span').evaluate(span => {
