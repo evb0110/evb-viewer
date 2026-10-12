@@ -1303,7 +1303,6 @@ export const useDocumentPageSourceRuntime = (options: {
             createPageFailureError: presentation.createFailureError,
             emit,
             ensureExactPageMetric,
-            getOpeningShellTarget: getChassisOpeningShellTarget,
             layoutLifecycle,
             loadController: activeLoadController,
             markExactPageMetric: pageNumber => exactPageMetricNumbers.add(pageNumber),

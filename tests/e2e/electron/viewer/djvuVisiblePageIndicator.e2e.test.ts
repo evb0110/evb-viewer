@@ -1,5 +1,5 @@
 import {
-    copyFileSync, mkdtempSync,
+    copyFileSync, mkdtempSync, writeFileSync,
 } from 'node:fs';
 import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -11,7 +11,7 @@ import {
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    openDjvuInApp, waitForDjvuLoaded,
+    openDjvuInApp, waitForDjvuLoaded, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
@@ -21,6 +21,8 @@ import {
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
+import {activateMenuItemAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {collectDocumentOpenDiagnostics} from '@tests/e2e/electron/helpers/collectDocumentOpenDiagnostics';
 
 
 /** Two DjVu pages: a tall page 1 (1200x4000) and a short page 2 (1200x400), each one black rule. */
@@ -59,6 +61,56 @@ async function readPageGeometry(page: Page) {
 
 describe('Electron E2E - DjVu visible page indicator', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-visible-indicator-${Date.now()}`});
+
+    // T5/L2: a replacement open must paint its page in the current opening.
+    it.each([
+        [
+            'DjVu',
+            'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu',
+        ],
+        [
+            'PDF',
+            'tests/fixtures/electron/generated-text.pdf',
+        ],
+    ])('paints an active %s reopened through File > Open in the same tab', async (kind, fixture) => {
+        const session = await sessions.restart({
+            hard: true,
+            sessionName: () => `e2e-same-file-reopen-${kind.toLowerCase()}-${Date.now()}`,
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: resolve(fixture)},
+        });
+        const {page} = session;
+        const waitForLoaded = kind === 'DjVu' ? waitForDjvuLoaded : waitForPdfLoaded;
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+        await waitForLoaded(page, 120_000);
+        await waitForViewerInteractive(page, 120_000);
+        await waitForViewportQuiet(page);
+        const tabId = await page.$eval('.editor-pane.is-active .tab.is-active', tab => tab.getAttribute('data-tab-id'));
+        const generation = await page.$eval('.editor-pane.is-active [data-open-surface-generation]', element => element.getAttribute('data-open-surface-generation'));
+
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+        // Do not accept readiness from the previous opening before its replacement starts.
+        await page.waitForFunction(previous => {
+            const current = document.querySelector('.editor-pane.is-active [data-open-surface-generation]')
+                ?.getAttribute('data-open-surface-generation');
+            return current !== undefined && current !== previous;
+        }, {timeout: 10_000}, generation);
+        try {
+            await waitForLoaded(page, 10_000);
+            await waitForViewerInteractive(page, 10_000);
+            // A PDF replacement can reacquire before its new working copy arrives.
+            // Observe the settled view, then require the painted page again.
+            await waitForViewportQuiet(page, 600, 10_000);
+            await waitForLoaded(page, 10_000);
+            await waitForViewerInteractive(page, 10_000);
+            expect(await page.$eval('.editor-pane.is-active .tab.is-active', tab => tab.getAttribute('data-tab-id'))).toBe(tabId);
+            expect(await page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length)).toBe(1);
+            expect(await page.$('.document-viewer-chassis__opening-page')).toBeNull();
+        } finally {
+            const directory = resolve('.devkit/sessions', session.name);
+            writeFileSync(join(directory, 'same-file-reopen.json'), JSON.stringify(await collectDocumentOpenDiagnostics(page), null, 2));
+            await page.screenshot({path: join(directory, 'same-file-reopen.png')});
+        }
+    }, 180_000);
 
     it('renders the requested two-page DjVu with trailing no-break space beside its one-page sibling', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-e2e-djvu-identity-'));

@@ -20,7 +20,6 @@ import {
 } from '@app/modules/document-viewer/lifecycle/createDocumentTransitionChannel';
 import { createDjvuPageSource } from '@app/modules/document-viewer/source/createDjvuPageSource';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
 import {
     createProvisionalDocumentPageMetrics,
     hydrateRemainingDocumentPageMetrics,
@@ -104,30 +103,28 @@ export function createDocumentPageSourceLifecycle(options: {
             {immediate: true},
         );
         watch(
-            () => [
-                options.chassisAuthority?.openSurface.snapshot.value.generation ?? null,
-                options.chassisAuthority?.openSurface.snapshot.value.identity?.documentId ?? null,
-                options.chassisAuthority?.openSurface.snapshot.value.identity?.documentRevision ?? null,
-                options.chassisAuthority?.openSurface.snapshot.value.openingPageFrame?.generation ?? null,
-            ] as const,
-            ([
-                generation,
-                documentId,
-                revision,
-                frameGeneration,
-            ]) => {
+            () => options.chassisAuthority?.openSurface.snapshot.value,
+            (snapshot) => {
+                const surface = options.chassisAuthority?.openSurface;
                 const src = options.readSrc();
+                const revision = documentRevision.value;
                 if (
-                    generation === null
-                    || frameGeneration !== generation
-                    || !src
-                    || documentId !== String(src)
-                    || revision !== documentRevision.value
-                    || generation === openSurfaceGeneration.value
+                    !surface || !snapshot || !src || !revision
+                    || snapshot.openingPageFrame?.generation !== snapshot.generation
+                    || snapshot.identity?.documentId !== String(src)
+                    || snapshot.identity.documentRevision !== revision && !snapshot.identity.provisional
+                    || snapshot.generation === openSurfaceGeneration.value
                 ) {
                     return;
                 }
-                openSurfaceGeneration.value = generation;
+                // A retained source still acquires each opening. Refine the
+                // host's provisional identity through the same surface owner
+                // used by a new source, then recommit its connected page.
+                openSurfaceGeneration.value = snapshot.generation;
+                openSurfaceGeneration.value = surface.acquireSource({
+                    documentId: String(src),
+                    documentRevision: revision,
+                }, snapshot.generation);
                 void channel.publish({
                     kind: 'settle',
                     fence: readFence(),
@@ -207,7 +204,6 @@ export async function openDocumentPageSource(
             source: IDocumentPageSource, loadGeneration: number, pageNumber: number,
             signal: AbortSignal, isCurrent: () => boolean,
         ) => Promise<IDocumentPageMetrics>;
-        getOpeningShellTarget: (pageNumber: number) => HTMLElement | null;
         layoutLifecycle: {
             beginLayoutTransaction: () => number;
             endLayoutTransaction: (transaction: number, restore: boolean) => Promise<void>;
@@ -369,21 +365,6 @@ export async function openDocumentPageSource(
         await nextTick();
         if (!transition.isCurrent()) {
             return false;
-        }
-        const target = context.getOpeningShellTarget(initialPage);
-        const rect = target?.getBoundingClientRect();
-        if (
-            !target
-            || !rect
-            || rect.width <= 0
-            || rect.height <= 0
-            || !surface.commitGeometry(generation, {
-                width: rect.width,
-                height: rect.height,
-                margin: DOCUMENT_PAGE_GUTTER_PX,
-            })
-        ) {
-            throw new Error('Unable to commit the initial document page shell');
         }
         await context.renderPage(initialPage);
         if (!transition.isCurrent()) {

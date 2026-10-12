@@ -268,6 +268,70 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
         expect(surface.viewportSession.value.committedPage).toBe(3);
     });
 
+    it('settles a retained source in a same-file replacement opening', async () => {
+        layOutLoadedPages();
+        const documentRef = '/documents/reopened.djvu' as TDocumentRef;
+        const source = createPageSource(documentRef);
+        mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
+        mocks.createDjvuPageSource.mockResolvedValue(source);
+        const surface = createDocumentOpenSurfaceSession();
+        surface.begin({
+            documentId: documentRef,
+            documentRevision: 'open-intent:first',
+            provisional: true,
+        });
+        const settle = createWorkspaceOpenSettleHarness();
+        const errors = ref<unknown[]>([]);
+        const root = document.createElement('div');
+        document.body.append(root);
+        const app = createApp(createFeaturePackHost(surface, documentRef, errors, settle, ref(false)));
+        app.component('USkeleton', defineComponent({setup: () => () => h('span')}));
+        app.mount(root);
+        const unmount = () => {
+            app.unmount();
+            root.remove();
+            mountedApps.delete(unmount);
+        };
+        mountedApps.add(unmount);
+        await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
+
+        const generation = surface.begin({
+            documentId: documentRef,
+            documentRevision: 'open-intent:reopen',
+            provisional: true,
+        }, {
+            documentId: documentRef,
+            pageNumber: 1,
+            pageCount: 1,
+            width: 600,
+            height: 800,
+            rotation: 0,
+        });
+        // The retained feature pack receives a new chassis-owned opening shell.
+        surface.commitOpeningPageFrame(generation, {
+            generation,
+            ownerId: 'reopen-frame',
+            pageNumber: 1,
+            intentKey: 'reopen',
+            style: {
+                width: '860px',
+                height: '1146px',
+            },
+        });
+        await vi.waitFor(() => expect(settle.documentOpenSettled.value).toBe(true));
+        expect(surface.snapshot.value).toMatchObject({
+            generation,
+            phase: 'ready',
+        });
+        expect(settle.initialVisualReady.value).toBe(true);
+        await nextTick();
+        // happy-dom does not load the image remounted after the shell retires.
+        root.querySelector<HTMLImageElement>('[data-testid="document-page-source-image"]')!
+            .dispatchEvent(new Event('load'));
+        await vi.waitFor(() => expect(root.querySelector('[data-page-source-visual="fresh"]')).not.toBeNull());
+        expect(errors.value).toEqual([]);
+    });
+
     it('settles a cold second workspace after its opening image is relocated', async () => {
         layOutLoadedPages();
         mocks.createDjvuPagePreviewSourceFromPath.mockImplementation(async (path: TDocumentRef) => ({path}));
