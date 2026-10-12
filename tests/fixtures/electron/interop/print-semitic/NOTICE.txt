@@ -17,6 +17,19 @@ red DA border/green background with an empty padded text area. Reference
 coordinates use a 32-point font, 0.3-em left inset and DejaVu's shared baseline.
 Font byte hashes and expected positions are recorded, not inferred from EVB.
 
+The embedded programs, partial ones included, are GID-stable subsets of the source
+fonts above, made with fontTools 4.66.1 and retain-gids. Each keeps the glyph count,
+every advance and side bearing, the name records, and the OS/2, hhea, maxp and hinting
+tables, so every glyph ID keeps its meaning. Each font's /W array keeps the widths of
+its retained glyph IDs only. Outlines remain for the glyphs a file draws, for the glyph
+IDs in harfbuzz.json (reference.pdf), and for the text of its annotations (reference.pdf:
+the harfbuzz.json texts), closed under GSUB. Cmap mappings remain for every retained
+glyph, so partial programs keep their single mapping (U+0628 in Source0 and Font0,
+U+0712 in Source1 and Font1). Other outlines are emptied and PostScript glyph names are
+dropped. DSIG signatures are removed, and kern or GDEF tables without entries are
+removed. The hashes in harfbuzz.json are those of public/fonts and are unchanged; the
+embedded programs have their own hashes.
+
 hebrew.pdf and hebrew-reference.pdf test the pointed/cantillated example and
 every U+0591-U+05AF mark attached separately to Beth. All five lines use the
 same independently shaped Noto Sans Hebrew positions. The mixed-script source
