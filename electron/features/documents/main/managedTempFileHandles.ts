@@ -319,7 +319,6 @@ interface ICreateTypedStagedArtifactOptions {
     trustedFingerprint?: {
         bytes: number;
         sha256: string;
-        contentFingerprint?: string;
     };
 }
 
@@ -380,7 +379,7 @@ async function createTypedStagedArtifactAtPath(
     ] = await Promise.all([
         trustedFingerprint === undefined
             ? fingerprintFileWithUtilityProcess(path)
-            : Promise.resolve(trustedFingerprint),
+            : Promise.resolve<Awaited<ReturnType<typeof fingerprintFileWithUtilityProcess>>>(trustedFingerprint),
         readWorkingCopyRevision(path),
     ]);
     const fileStat = await statRegularArtifact(path);
