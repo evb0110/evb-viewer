@@ -128,34 +128,6 @@ let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
 let lockHome: string | undefined;
 
-beforeAll(() => {
-    // Build one clean, tagged repository; each test gets a separate copy.
-    projectFixtureTemplate = createProjectFixture();
-    // The production deploy lock lives under the home directory: keep it out of the real one.
-    lockHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-home-'));
-    savedHome = process.env.HOME;
-    savedUserProfile = process.env.USERPROFILE;
-    process.env.HOME = lockHome;
-    process.env.USERPROFILE = lockHome;
-});
-
-afterAll(() => {
-    if (projectFixtureTemplate) {
-        rmSync(projectFixtureTemplate, {
-            recursive: true,
-            force: true,
-        });
-    }
-    restoreEnv('HOME', savedHome);
-    restoreEnv('USERPROFILE', savedUserProfile);
-    if (lockHome) {
-        rmSync(lockHome, {
-            recursive: true,
-            force: true,
-        });
-    }
-});
-
 // A separate deploy process that holds the production lock until it is killed.
 async function startProductionLockOwner(projectRoot: string) {
     const owner = spawn(process.execPath, [
@@ -428,7 +400,36 @@ function commitFixtureChanges(projectRoot: string) {
     ], {cwd: projectRoot});
 }
 
-describe('private Vercel deployment source', () => {
+// The deploy lock helper runs python3 with fcntl, which Windows lacks; deploys run from macOS and Linux.
+describe.skipIf(process.platform === 'win32')('private Vercel deployment source', () => {
+    beforeAll(() => {
+        // Build one clean, tagged repository; each test gets a separate copy.
+        projectFixtureTemplate = createProjectFixture();
+        // The production deploy lock lives under the home directory: keep it out of the real one.
+        lockHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-home-'));
+        savedHome = process.env.HOME;
+        savedUserProfile = process.env.USERPROFILE;
+        process.env.HOME = lockHome;
+        process.env.USERPROFILE = lockHome;
+    });
+
+    afterAll(() => {
+        if (projectFixtureTemplate) {
+            rmSync(projectFixtureTemplate, {
+                recursive: true,
+                force: true,
+            });
+        }
+        restoreEnv('HOME', savedHome);
+        restoreEnv('USERPROFILE', savedUserProfile);
+        if (lockHome) {
+            rmSync(lockHome, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
     it('removes Git identity and local secrets while preserving project linkage', () => {
         const projectRoot = createProjectFixture();
         let prepared: IPreparedPrivateDeploySource | undefined;

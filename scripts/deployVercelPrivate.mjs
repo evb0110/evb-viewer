@@ -915,5 +915,11 @@ const isMain = process.argv[1]
     && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isMain) {
-    process.exitCode = await runPrivateVercelDeploy();
+    // The production lock needs python3 with fcntl, so only macOS and Linux can deploy.
+    if (process.platform === 'win32') {
+        console.error('deployVercelPrivate supports macOS and Linux only; run this deploy from one of those hosts.');
+        process.exitCode = 1;
+    } else {
+        process.exitCode = await runPrivateVercelDeploy();
+    }
 }
