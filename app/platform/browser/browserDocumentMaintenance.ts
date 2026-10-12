@@ -116,55 +116,18 @@ export async function sweepBrowserDocumentMaintenance(
     // Retire the leases of owners that no longer exist before reading
     // protection, so a crashed window cannot pin its records forever.
     await reclaimOrphanedBrowserDocumentLiveLeases().catch(() => undefined);
-    const {
-        available,
+    const [
         records,
-    } = await loadBrowserPersistedDocumentRecordsResult();
-    if (!available) {
-        return;
-    }
+        chunks,
+    ] = await Promise.all([
+        loadAllRecordKeysAvailability(),
+        loadAllChunkKeysAvailability(),
+    ]);
+    if (!records.available || !chunks.available) return;
+    if (records.value?.length === 0 && chunks.value?.length === 0) return;
     const pendingRefs = new Set<string>(Array.from(entries.values())
         .filter((entry) => Boolean(entry.pendingLoad))
         .map((entry) => entry.ref));
-    const recordsByRef = new Map(records.map((record) => [
-        record.ref,
-        record,
-    ]));
-    const pendingChunkGenerationsByRef = new Map(
-        records
-            .filter(hasActivePendingChunkGeneration)
-            .flatMap(record => record.pendingChunkGeneration
-                ? [[
-                    record.ref,
-                    record.pendingChunkGeneration,
-                ] as const]
-                : []),
-    );
-    const rawChunkKeysResult = await loadAllChunkKeysAvailability();
-    if (!rawChunkKeysResult.available) {
-        return;
-    }
-    const rawChunkKeys = rawChunkKeysResult.value;
-    const chunkKeys = Array.isArray(rawChunkKeys)
-        ? rawChunkKeys.flatMap((key) => {
-            const parsedKey = typeof key === 'string' ? parseChunkKey(key) : null;
-            return parsedKey ? [parsedKey] : [];
-        })
-        : [];
-    const storedRecentFiles = tryReadRecentFilesFromStorage();
-    const currentRecentFiles = tryHasRecentFilesStorageSnapshot()
-        && storedRecentFiles
-        ? storedRecentFiles
-        : buildRecentFilesFromPersistedRecords(records);
-    const recentRefs = new Set<string>(currentRecentFiles.map((file) => file.originalPath));
-    const sourceDependentCounts = countSourceDependents(records);
-    const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
-    if (chunkKeys.length === 0 && !records.some(record => (
-        shouldRemovePersistedRecord(record, recentRefs, sourceDependentCounts)
-        || isBrokenChunkedRecord(record, chunkIndicesByRef)
-    ))) {
-        return;
-    }
 
     await hooks.beforeDestructiveTransaction?.();
 
@@ -174,10 +137,9 @@ export async function sweepBrowserDocumentMaintenance(
         }
         // Recent Files at admission, read after the documents lock: a
         // touch admitted before this transaction is already visible.
-        const recentFilesAtAdmission = tryHasRecentFilesStorageSnapshot()
-            ? tryReadRecentFilesFromStorage()
-            : currentRecentFiles;
-        let transactionRecentRefs = recentRefs;
+        const recentFilesAtAdmission = (tryHasRecentFilesStorageSnapshot() ? tryReadRecentFilesFromStorage() : null)
+            ?? buildRecentFilesFromPersistedRecords(authorities.documents);
+        let transactionRecentRefs = new Set<string>();
         if (recentFilesAtAdmission) {
             const {
                 recentFiles,
@@ -229,10 +191,11 @@ export async function sweepBrowserDocumentMaintenance(
         const finalRefs = new Set<string>();
         const chunkKeysRead = transaction.objectStore(DOCUMENT_CHUNKS_STORE).getAllKeys();
         chunkKeysRead.onsuccess = () => {
-            const currentChunkIndices = collectChunkIndicesByRef(chunkKeysRead.result.flatMap(key => {
+            const chunkKeys = chunkKeysRead.result.flatMap(key => {
                 const parsed = typeof key === 'string' ? parseChunkKey(key) : null;
                 return parsed ? [parsed] : [];
-            }));
+            });
+            const currentChunkIndices = collectChunkIndicesByRef(chunkKeys);
             authorities.documents
                 .filter(record => isUnprotected(record) && (shouldRemovePersistedRecord(record, transactionRecentRefs, transactionSourceDependentCounts)
                     || isBrokenChunkedRecord(record, currentChunkIndices)))
@@ -248,11 +211,9 @@ export async function sweepBrowserDocumentMaintenance(
                     chunkKey.generation,
                 )) continue;
                 if (liveLeaseProtectsChunk(authorities.transfers, chunkKey.ref, chunkKey.generation)) continue;
-                const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref)
-                    ?? pendingChunkGenerationsByRef.get(chunkKey.ref);
+                const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref);
                 if (pendingGeneration === chunkKey.generation) continue;
-                const record = transactionRecordsByRef.get(chunkKey.ref)
-                    ?? recordsByRef.get(chunkKey.ref);
+                const record = transactionRecordsByRef.get(chunkKey.ref);
                 if ((!record || finalRefs.has(chunkKey.ref) || record.storageMode !== 'chunked'
                     || chunkKey.generation !== (record.chunkGeneration ?? undefined) || chunkKey.index >= (record.chunkCount ?? 0))
                     && ((finalRefs.has(chunkKey.ref) && chunkKey.generation === record?.chunkGeneration)

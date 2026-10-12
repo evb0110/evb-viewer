@@ -897,14 +897,9 @@ function openTargetWindow(targetWindowId: number) {
 }
 
 function waitForDiscoverySettling() {
-    return new Promise<void>((resolve) => {
-        if (!hasBrowserWindowContext()) {
-            resolve();
-            return;
-        }
-
-        window.setTimeout(resolve, DISCOVERY_SETTLE_DELAY_MS);
-    });
+    return hasBrowserWindowContext()
+        ? new Promise<void>(resolve => window.setTimeout(resolve, DISCOVERY_SETTLE_DELAY_MS))
+        : Promise.resolve();
 }
 
 function pruneStaleTargetWindows(discoveryStartedAt: number) {
@@ -1020,13 +1015,16 @@ export function publishBrowserDocumentLiveLeases(
     const publication = previous.then(async (lease) => {
         ownerId ??= getBrowserWindowRecoveryOwnerId();
         if (!ownerId) return null;
-        const dependencies = documentDependencyReaders.size > 0
+        const dependencies = new Set<string>(documentDependencyReaders.size > 0
             ? [...documentDependencyReaders.values()].flatMap(read => read())
-            : refs;
-        if (dependencies.length === 0 && !lease) return null;
+            : refs);
+        if (dependencies.size === 0 && !lease) return null;
+        if (lease?.ownerId === ownerId && lease.status === 'active'
+            && lease.protectedDependencies.length === dependencies.size
+            && lease.protectedDependencies.every(dependency => dependency.chunkGeneration === undefined && dependencies.has(dependency.ref))) return lease;
         const generation = lease?.ownerId === ownerId ? lease.generation : 0;
-        return dependencies.length > 0
-            ? browserDocumentStore.heartbeatLiveLease(ownerId, generation, dependencies.map(ref => ({ref})))
+        return dependencies.size > 0
+            ? browserDocumentStore.heartbeatLiveLease(ownerId, generation, Array.from(dependencies, ref => ({ref})))
             : browserDocumentStore.releaseLiveLease(ownerId, generation);
     });
     // A rejected publication keeps the last committed authority and generation.

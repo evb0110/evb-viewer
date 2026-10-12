@@ -372,11 +372,24 @@ describe('browserWindowTabsCapability', () => {
         }]);
         const publication = expect(owner.publishBrowserDocumentLiveLeases(undefined, [source])).resolves.toMatchObject({
             ownerId: previous.ownerId,
-            generation: previous.generation + 1,
+            generation: previous.generation,
         });
         await expect(owner.browserWindowTabsCapability.claimWorkspaceCheckpoint()).resolves.toBe(checkpoint);
         await publication;
-        await expect(store.read(source)).resolves.toEqual(Uint8Array.of(10, 11));
+        await expect(owner.publishBrowserDocumentLiveLeases(undefined, [
+            source,
+            source,
+        ])).resolves.toMatchObject({generation: previous.generation});
+        const working = await store.cloneAsWorkingCopy(source);
+        await expect(owner.publishBrowserDocumentLiveLeases(undefined, [
+            source,
+            working,
+        ])).resolves.toMatchObject({generation: previous.generation + 1});
+        await store.clearRecentFiles();
+        await expect(store.read(working)).resolves.toEqual(Uint8Array.of(10, 11));
+        await owner.publishBrowserDocumentLiveLeases(undefined, []);
+        await expect(store.exists(working)).resolves.toBe(false);
+        await expect(store.exists(source)).resolves.toBe(false);
     });
 
     it('rekeys a duplicated live context before it can share a recovery owner', async () => {
