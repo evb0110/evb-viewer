@@ -135,12 +135,28 @@ its own child tree and removes the copied bundle after exit. It retains the
 task's profile for evidence or a later reopen. Choose a different directory for
 concurrent runs. Never use the default dev session or the user's normal profile.
 
-Scripts with their own process lifecycle use `preparePackagedAutomationLaunch`
-from `scripts/release/preparePackagedAutomationLaunch.ts`, then spawn its returned
-`executablePath` with its returned `env`. Remove its `bundleDirectory` after the
-owned process tree exits. The helper removes inherited `ELECTRON_RUN_AS_NODE`,
-forces hidden/no-focus settings, and prepares a unique APFS clone on macOS.
-Never replace the returned path or environment with the original inputs.
+A script that launches a packaged app uses `startOwnedPackagedProcess` from
+`scripts/release/runPackagedAutomation.ts`. It claims an empty task root and sets
+the task's profile and log folders. Its `stop()` ends the owned process tree, then
+unregisters the copy from LaunchServices, removes it, and removes the records that
+copy wrote under `~/Library`. A script
+that must spawn the process itself uses `preparePackagedAutomationLaunch` from
+`scripts/release/preparePackagedAutomationLaunch.ts`, spawns its returned
+`executablePath` with its returned `env`, removes its `bundleDirectory` after the
+owned process tree exits, and calls `removeMacOSAutomationCopyRecords` with its
+`bundleIdentifier`. The helper removes inherited `ELECTRON_RUN_AS_NODE`, forces
+hidden/no-focus settings, and prepares a unique APFS clone on macOS. Never replace
+the returned path or environment with the original inputs.
+
+On macOS the clone also gets its own bundle identifier, `<installed id>.automation-<8 hex>`. Each nested
+helper app in `Contents/Frameworks` gets that identifier plus the suffix it had after the installed one
+(for example `.helper` or `.helper.Renderer`), and the helpers are signed before the app. A clone whose
+helper keeps an installed identifier is refused. Its defaults, saved state, caches and recent-document
+records never share the installed app's records. Records named for the clone, and records left by earlier
+clones, are removed from the folders where a copy keeps them, when a clone is prepared and again when it
+stops. Those folders are read one level deep, and a folder that cannot be read is reported while the
+others are still cleaned. Entries named for the installed
+identifier itself are never matched.
 
 The original package remains unchanged. The automation copy has modified
 launch metadata, so report original artifact identity and copied launch path
@@ -148,7 +164,8 @@ separately. A hidden copy tests packaged application behavior. It does not prove
 the original signature, Gatekeeper startup, Dock registration, or activation.
 The `LSUIElement` edit breaks a Developer ID seal and macOS kills such an app
 about two seconds after launch, so the preparer re-signs the copy ad hoc without
-the hardened runtime; the original bundle is never touched.
+the hardened runtime; the original bundle is never touched. A copy under its own
+identifier also does not prove LaunchServices registration of the installed identifier.
 
 ## Visible acceptance and ownership
 

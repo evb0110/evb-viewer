@@ -157,7 +157,8 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
             + body, {mode: options.mode ?? 0o755});
         if (process.platform === 'darwin') {
             await writeFile(join(app, 'Contents', 'Info.plist'), '<?xml version="1.0"?>'
-                + '<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Fixture</string></dict></plist>');
+                + '<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Fixture</string>'
+                + '<key>CFBundleIdentifier</key><string>com.example.fixture</string></dict></plist>');
         }
         const workDirectory = workDirectoryOverride ?? join(root, 'run');
         const child = spawn(process.execPath, [
@@ -175,6 +176,8 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
                 ...process.env,
                 ELECTRON_RUN_AS_NODE: '1',
                 EVB_AUTOMATION_HIDE_WINDOW: '0',
+                // The owner's record cleanup reads the home directory, so keep it in this test's root.
+                HOME: root,
                 ...environment,
             },
             stdio: 'pipe',

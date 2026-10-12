@@ -1,4 +1,3 @@
-import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {
     access,
@@ -20,7 +19,8 @@ import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
-import {preparePackagedAutomationLaunch} from '@scripts/release/preparePackagedAutomationLaunch';
+import {startOwnedPackagedProcess} from '@scripts/release/runPackagedAutomation';
+import type {IOwnedPackagedProcess} from '@scripts/release/runPackagedAutomation';
 import {
     waitForPackagedCdpEndpoint,
     waitForPackagedRendererPage,
@@ -28,7 +28,6 @@ import {
 import {
     findFreePort,
     isProcessAlive,
-    killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
 import {capturePackagedCorePdfFailureArtifacts} from '@tests/e2e/electron/helpers/capturePackagedCorePdfFailureArtifacts';
 import {
@@ -208,42 +207,43 @@ async function assertPathAbsent(pathToCheck: string, description: string): Promi
 
 async function run() {
     const executablePath = parseExecutablePath(process.argv.slice(2));
+    // The owner claims each empty root and keeps the profile, logs and launch copy inside it.
     const workDirectory = await mkdtemp(path.join(tmpdir(), 'evb-packaged-core-smoke-'));
-    const fixturePath = path.join(workDirectory, 'packaged-core-smoke.pdf');
-    const ocrFixturePath = path.join(workDirectory, 'packaged-core-ocr-smoke.pdf');
-    const userDataPath = path.join(workDirectory, 'user-data');
+    const fixtureDirectory = await mkdtemp(path.join(tmpdir(), 'evb-packaged-core-fixtures-'));
+    const fixturePath = path.join(fixtureDirectory, 'packaged-core-smoke.pdf');
+    const ocrFixturePath = path.join(fixtureDirectory, 'packaged-core-ocr-smoke.pdf');
     const cdpPort = await findFreePort();
     await copyFile(PACKAGED_SMOKE_FIXTURE, fixturePath);
     await copyFile(PACKAGED_OCR_SMOKE_FIXTURE, ocrFixturePath);
 
-    const launch = preparePackagedAutomationLaunch({
+    // The owned launch is detached from this terminal, so an interrupt has to stop it here.
+    const starting = startOwnedPackagedProcess({
         executablePath,
         workDirectory,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            `--remote-debugging-port=${cdpPort}`,
+        ],
+        sessionName: 'packaged-core-pdf-smoke',
         env: {
             ...process.env,
-            EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_AUTOMATION_HIDE_WINDOW: '1',
-            EVB_AUTOMATION_NO_FOCUS: '1',
-            EVB_AUTOMATION_SESSION_NAME: 'packaged-core-pdf-smoke',
-            EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
             EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',
         },
-    });
-    const child = spawn(launch.executablePath, [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        `--remote-debugging-port=${cdpPort}`,
-        `--user-data-dir=${userDataPath}`,
-    ], {
-        env: launch.env,
         stdio: [
             'ignore',
             'pipe',
             'pipe',
         ],
     });
-    child.stdout?.pipe(process.stdout);
-    child.stderr?.pipe(process.stderr);
+    const stopOnSignal = (signal: NodeJS.Signals) => {
+        void starting
+            .then(owned => owned.stop())
+            .catch(error => console.error(error))
+            .finally(() => process.exit(signal === 'SIGINT' ? 130 : 143));
+    };
+    process.on('SIGINT', stopOnSignal);
+    process.on('SIGTERM', stopOnSignal);
     // Node prints a deprecation on the main process's stderr, once per launch.
     // Only a packaged app serves its renderer from app.asar, where a stat call
     // raised DEP0180 on every start.
@@ -258,8 +258,8 @@ async function run() {
             }
         }
     };
-    child.stderr?.on('data', (chunk: Buffer) => collectDeprecations(chunk.toString('utf8')));
 
+    let owned: IOwnedPackagedProcess | null = null;
     let browser: TConnectedBrowser | null = null;
     let page: Page | null = null;
     let primaryError: Error | null = null;
@@ -268,6 +268,11 @@ async function run() {
         cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
     };
     try {
+        owned = await starting;
+        const {child} = owned;
+        child.stdout?.pipe(process.stdout);
+        child.stderr?.pipe(process.stderr);
+        child.stderr?.on('data', (chunk: Buffer) => collectDeprecations(chunk.toString('utf8')));
         const browserWSEndpoint = await waitForPackagedCdpEndpoint(
             cdpPort,
             STARTUP_TIMEOUT_MS,
@@ -398,28 +403,32 @@ async function run() {
         }
     } finally {
         await quitAppGracefully(page);
-        if (typeof child.pid === 'number') {
-            if (!await waitForProcessExit(child.pid, 5_000)) {
-                await killProcessTree(child.pid, 3_000);
-                if (!await waitForProcessExit(child.pid, 5_000)) {
-                    recordCleanupError(new Error(`Packaged smoke child process ${child.pid} did not exit after cleanup`));
-                }
+        let launchStopped = true;
+        if (owned) {
+            // A quit normally exits the app by itself. The owner stops anything left
+            // and removes the launch copy and the records it wrote under ~/Library.
+            if (typeof owned.child.pid === 'number') {
+                await waitForProcessExit(owned.child.pid, 5_000);
+            }
+            try {
+                await owned.stop();
+            } catch (error) {
+                launchStopped = false;
+                recordCleanupError(error);
             }
         }
         await browser?.disconnect().catch(() => {});
-        if (typeof child.pid === 'number') {
-            if (isProcessAlive(child.pid)) {
-                await killProcessTree(child.pid, 3_000);
-            }
-        } else if (child.exitCode === null) {
-            child.kill('SIGKILL');
-        }
-        if (typeof child.pid === 'number' && isProcessAlive(child.pid)) {
-            recordCleanupError(new Error(`Packaged smoke process remained alive; preserving ${workDirectory}`));
-            console.error(`Packaged smoke process remained alive; preserving its launch copy at ${workDirectory}`);
-        } else {
+        process.off('SIGINT', stopOnSignal);
+        process.off('SIGTERM', stopOnSignal);
+        if (launchStopped) {
             try {
                 await rm(workDirectory, {
+                    force: true,
+                    maxRetries: 10,
+                    recursive: true,
+                    retryDelay: 200,
+                });
+                await rm(fixtureDirectory, {
                     force: true,
                     maxRetries: 10,
                     recursive: true,
@@ -429,6 +438,8 @@ async function run() {
             } catch (error) {
                 console.warn(`Packaged smoke cleanup left temporary files at ${workDirectory}:`, error);
             }
+        } else {
+            console.error(`Packaged smoke launch did not stop; preserving ${workDirectory} and ${fixtureDirectory}`);
         }
     }
 
