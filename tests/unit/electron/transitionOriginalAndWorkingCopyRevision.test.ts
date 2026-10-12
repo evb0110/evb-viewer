@@ -808,7 +808,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 }
             };
             await expect(readFile(journal.backupPath, 'utf8')).resolves.toBe('old-working');
-            await expect(readFile(journal.original.backupPath, 'utf8')).resolves.toBe('old-original');
+            // The restore moved the displaced original back, so its bytes are in the original, not beside it.
+            await expect(readFile(journal.original.backupPath, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
 
             failWorkingRollback = false;
             vi.resetModules();
@@ -1802,6 +1803,125 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             expect((await readFile(originalPath)).equals(saved)).toBe(true);
         } finally {
             vi.doUnmock('node:fs/promises');
+        }
+    });
+
+    it('reopens and refuses Save after a crash during copy-path staging and an edit elsewhere, leaving nothing beside the PDF', async () => {
+        let crashed = (): void => undefined;
+        vi.doMock('@electron/file-access/workingCopyDirectory', async importOriginal => {
+            const actual = await importOriginal<typeof WorkingCopyDirectoryModule>();
+            return {
+                ...actual,
+                copyFileCopyOnWrite: async (...args: Parameters<typeof actual.copyFileCopyOnWrite>) => {
+                    await actual.copyFileCopyOnWrite(...args);
+                    crashed();
+                    return new Promise<never>(() => undefined);
+                },
+            };
+        });
+        let originalPath = '';
+        let workingCopyPath = '';
+        let before: string[] = [];
+        let checkpointExpectation: unknown;
+        try {
+            ({
+                originalPath, workingCopyPath,
+            } = await prepareAnnotationSaves('pdf-work-crash-then-edit'));
+            await writeUnrelatedNeighbours(originalPath);
+            before = await readdir(dirname(originalPath));
+            const {getWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+            const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+            const bytes = await readFile(originalPath);
+            checkpointExpectation = {
+                ...getWorkingCopyOriginalFileExpectation(workingCopyPath, 7),
+                contentFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(bytes.byteLength).update(bytes).digest('hex')}`,
+            };
+            const {handleFileSaveStructured} = await import('@electron/features/documents/main/workingCopySave');
+            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            const {token} = await getWorkingCopyRevision(workingCopyPath, 7);
+            const crash = new Promise<void>(resolve => {
+                crashed = resolve;
+            });
+            void handleFileSaveStructured({senderId: 7}, workingCopyPath, {expectedDocumentRevisionToken: token});
+            await crash;
+        } finally {
+            vi.doUnmock('@electron/file-access/workingCopyDirectory');
+        }
+        // While EVB is stopped, another program saves the PDF.
+        await writeFile(originalPath, 'edited-elsewhere');
+
+        // EVB restarts and restores the tab from its checkpoint.
+        vi.resetModules();
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        await setWorkingCopyOriginalPath(workingCopyPath, originalPath, 7, {
+            backingState: 'materialized',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: checkpointExpectation as never,
+        });
+        const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+        const {handleFileSaveStructured} = await import('@electron/features/documents/main/workingCopySave');
+        const revision = await getWorkingCopyRevision(workingCopyPath, 7);
+        await expect(handleFileSaveStructured({senderId: 7}, workingCopyPath, {expectedDocumentRevisionToken: revision.token}))
+            .resolves.toMatchObject({
+                ok: false,
+                reason: 'original-changed',
+            });
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('edited-elsewhere');
+        expect((await readdir(dirname(originalPath))).sort()).toEqual([...before].sort());
+    });
+
+    it('leaves nothing beside the PDF when a crash interrupts the rollback of a failed save', async () => {
+        const fs = await import('node:fs/promises');
+        const paths = {
+            original: '',
+            working: '',
+        };
+        let fault: 'armed' | 'thrown' | 'idle' = 'idle';
+        let crashed = (): void => undefined;
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            rename: async (...args: Parameters<typeof fs.rename>) => {
+                if (fault === 'armed' && String(args[1]) === paths.working) {
+                    fault = 'thrown';
+                    throw Object.assign(new Error('Injected EIO while syncing the working copy'), {code: 'EIO'});
+                }
+                // The process dies as the rollback moves bytes back over the original.
+                if (fault === 'thrown' && String(args[1]) === paths.original) {
+                    crashed();
+                    return new Promise<never>(() => undefined);
+                }
+                return fs.rename(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-crash-during-rollback');
+            const readNeighbours = await writeUnrelatedNeighbours(originalPath);
+            const before = await readdir(dirname(originalPath));
+            paths.original = originalPath;
+            paths.working = workingCopyPath;
+            const crash = new Promise<void>(resolve => {
+                crashed = resolve;
+            });
+            fault = 'armed';
+            void saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 67));
+            await crash;
+            fault = 'idle';
+
+            vi.resetModules();
+            const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
+            await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
+            expect((await readdir(dirname(originalPath))).sort()).toEqual([...before].sort());
+            await expect(readNeighbours()).resolves.toEqual([
+                'another program',
+                'another program',
+                'another program',
+            ]);
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+        } finally {
+            vi.doUnmock('fs/promises');
         }
     });
 });

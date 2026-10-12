@@ -1,8 +1,7 @@
 import {stat} from 'node:fs/promises';
 import {
-    moveFileToMissingPath, recoverWindowsAtomicReplace,
+    atomicReplace, moveFileToMissingPath, recoverWindowsAtomicReplace,
 } from '@electron/utils/atomicReplace';
-import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {
     assertPathMatchesSaveWitnessSnapshot,
     capturePathSaveWitness,
@@ -57,14 +56,14 @@ async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
 }
 
 /**
- * Restores an interrupted publication, including a displaced original.
- * An existing destination must match the journal before it is overwritten.
+ * Restores an interrupted publication by moving the displaced backup back; without one, the original was never
+ * displaced or is already restored and is not EVB's to restore. A present destination must match the journal first.
  */
 export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
-    if (original.state === 'restored' || original.state === 'conflicted') {
+    if (process.platform === 'win32') await recoverWindowsAtomicReplace(original.path);
+    if (original.state === 'restored' || original.state === 'conflicted' || !await stat(original.backupPath).then(() => true, () => false)) {
         return;
     }
-    if (process.platform === 'win32') await recoverWindowsAtomicReplace(original.path);
     if (original.preparedSnapshot !== undefined) {
         try {
             await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true});
@@ -94,5 +93,5 @@ export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
     if (!witness) {
         throw new OriginalPathSaveConflictError();
     }
-    await copyFileAtomic(original.backupPath, original.path, {assertDestinationCurrent: () => witness.assertCurrent()});
+    await atomicReplace(original.backupPath, original.path, {assertDestinationCurrent: () => witness.assertCurrent()});
 }
