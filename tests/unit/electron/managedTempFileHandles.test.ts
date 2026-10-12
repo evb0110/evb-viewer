@@ -3,6 +3,7 @@ import {
     appendFileSync,
     chmodSync,
     copyFileSync,
+    existsSync,
     linkSync,
     mkdtempSync,
     mkdirSync,
@@ -77,6 +78,10 @@ describe('managed temporary file handles', () => {
         vi.useRealTimers();
         const { clearManagedTempFileHandlesForTests } = await import('@electron/features/documents/main/managedTempFileHandles');
         clearManagedTempFileHandlesForTests();
+        const {clearWorkingCopyOriginalPaths} = await import(
+            '@electron/file-access/workingCopyStore'
+        );
+        clearWorkingCopyOriginalPaths();
         rmSync(directory, {
             force: true,
             recursive: true,
@@ -101,6 +106,93 @@ describe('managed temporary file handles', () => {
         expect(releaseManagedTempFileHandle({senderId: 7}, handle.leaseId)).toBe(false);
         expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(true);
         expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(false);
+    });
+
+    it('fingerprints original-backed bytes without materializing the logical working copy', async () => {
+        const originalPath = join(directory, 'original.pdf');
+        renameSync(mocks.path, originalPath);
+        const {
+            captureWorkingCopyAdmissionSnapshot,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        await setWorkingCopyOriginalPath(mocks.path, originalPath, 42, {
+            admissionSnapshot: await captureWorkingCopyAdmissionSnapshot(originalPath),
+            backingState: 'lazy-original',
+            deferOriginalFileExpectation: true,
+        });
+        mocks.revision = {token: 'drt1:lazy-source'};
+        const {
+            createManagedTempFileHandle,
+            resolveManagedTempFileHandle,
+            releaseManagedTempFileHandle,
+        } = await import('@electron/features/documents/main/managedTempFileHandles');
+
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+
+        expect(handle).toMatchObject({
+            path: mocks.path,
+            size: Buffer.byteLength('managed-file-content'),
+            sha256: createHash('sha256').update('managed-file-content').digest('hex'),
+            revision: 'drt1:lazy-source',
+        });
+        await expect(resolveManagedTempFileHandle({senderId: 42}, handle)).resolves.toEqual(handle);
+        expect(existsSync(mocks.path)).toBe(false);
+        expect(releaseManagedTempFileHandle({senderId: 42}, handle.leaseId)).toBe(true);
+        expect(readFileSync(originalPath, 'utf8')).toBe('managed-file-content');
+    });
+
+    it('fingerprints the materialized working-copy bytes instead of the original', async () => {
+        const originalPath = join(directory, 'original.pdf');
+        writeFileSync(originalPath, 'original-file-content');
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        await setWorkingCopyOriginalPath(mocks.path, originalPath, 42, {
+            backingState: 'materialized',
+            deferOriginalFileExpectation: true,
+        });
+        const {createManagedTempFileHandle} = await import('@electron/features/documents/main/managedTempFileHandles');
+
+        const handle = await createManagedTempFileHandle({senderId: 42}, mocks.path);
+
+        expect(handle.sha256).toBe(createHash('sha256').update('managed-file-content').digest('hex'));
+    });
+
+    it.each([
+        'before',
+        'during',
+    ] as const)('rejects an original changed %s fingerprinting', async (when) => {
+        const originalPath = join(directory, 'original.pdf');
+        renameSync(mocks.path, originalPath);
+        const {
+            captureWorkingCopyAdmissionSnapshot,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        await setWorkingCopyOriginalPath(mocks.path, originalPath, 42, {
+            admissionSnapshot: await captureWorkingCopyAdmissionSnapshot(originalPath),
+            backingState: 'lazy-original',
+            deferOriginalFileExpectation: true,
+        });
+        const replaceOriginal = () => {
+            const replacementPath = join(directory, 'replacement.pdf');
+            writeFileSync(replacementPath, 'changed-source-bytes');
+            renameSync(replacementPath, originalPath);
+        };
+        if (when === 'before') {
+            replaceOriginal();
+        } else {
+            mocks.inspect.mockImplementationOnce(async (path: string) => {
+                const bytes = readFileSync(path);
+                replaceOriginal();
+                return {
+                    bytes: bytes.byteLength,
+                    sha256: createHash('sha256').update(bytes).digest('hex'),
+                };
+            });
+        }
+        const {createManagedTempFileHandle} = await import('@electron/features/documents/main/managedTempFileHandles');
+
+        await expect(createManagedTempFileHandle({senderId: 42}, mocks.path))
+            .rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+        expect(existsSync(mocks.path)).toBe(false);
     });
 
     it('retains a cleanup lease for retry when file removal fails', async () => {
