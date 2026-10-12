@@ -5426,220 +5426,215 @@ const RTL_SEARCH_PDF_BASE64 =
     'CnicJce5DYAwAATBO/N/EjKZgQBRD23QFAWQQg20Qk5OwGNdspoF8L4GDvChjyFqbcB8l0IWoxSxXKWYdpYS2kNK2TxSRjdJOd0mFT4l21tbsbsA9uefYQE+' +
     'QMUNBwplbmRzdHJlYW0KZW5kb2JqCgpzdGFydHhyZWYKODYwMwolJUVPRg==';
 
-it.each([
-    {
-        mode: 'dom',
-        regex: false,
-    },
-    {
-        mode: 'css',
-        regex: false,
-    },
-    {
-        mode: 'dom',
-        regex: true,
-    },
-    {
-        mode: 'css',
-        regex: true,
-    },
-])('ordinary RTL search uses logical text and glyph ranges ($mode, regex=$regex)', async ({
-    mode, regex,
-}) => {
-    const out = resolve('.devkit/core4-r7/app', process.env.PROOF_REVISION ?? 'head', `${mode}-${regex}`);
-    mkdirSync(out, {recursive: true});
-    const bytes = Buffer.from(RTL_SEARCH_PDF_BASE64, 'base64');
-    writeFileSync(resolve(out, 'fixture.pdf'), bytes);
-    let page: Page | undefined;
-    const observations: unknown[] = [];
-    try {
-        page = await browser.newPage({viewport: {
-            width: 1280,
-            height: 900,
-        }});
-        // Advance product timers without replacing search or render work.
-        await page.clock.install();
-        await page.addInitScript(highlightMode => {
-            Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-            window.localStorage.setItem('pdfHighlightMode', highlightMode);
-            window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-        }, mode);
-        await page.goto(origin, {waitUntil: 'domcontentloaded'});
-        await waitForOpenFileReady(page);
-        keepFileChooserInterceptionEnabled(page);
-        const chooser = page.waitForEvent('filechooser');
-        await page.getByRole('button', {
-            name: 'Open File',
-            exact: true,
-        }).first().click();
-        await (await chooser).setFiles({
-            name: 'rtl-search.pdf',
-            mimeType: 'application/pdf',
-            buffer: bytes,
-        });
-        await page.waitForFunction(() => document.querySelector('.page_container[data-page="1"] .textLayer')?.getAttribute('data-pdf-text-layer-ready') === 'true', undefined, {timeout: 30000});
-        if (!await page.getByRole('tab', {
-            name: 'Search',
-            exact: true,
-        }).isVisible()) {
-            await page.getByRole('button', {
-                name: 'Toggle Sidebar',
-                exact: true,
-            }).click();
-        }
-        await page.getByRole('tab', {
-            name: 'Search',
-            exact: true,
-        }).click();
-        if (regex) await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
-        const input = page.locator('.document-search-bar input:visible').first();
-        const current = () => page!.evaluate(highlightMode => {
-            const ranges = highlightMode === 'css'
-                ? [...CSS.highlights.get('pdf-search-current-match') ?? []].filter((range): range is Range => range instanceof Range)
-                : [...document.querySelectorAll('.pdf-search-highlight--current')].map(element => {
-                    const range = document.createRange();
-                    range.selectNodeContents(element);
-                    return range;
+describe.each([
+    'dom',
+    'css',
+] as const)('ordinary RTL search (%s)', (mode) => {
+    let page: Page;
+    // Both regex modes use the same unchanged two-page PDF and text layer.
+    // Every query is cleared before the next, including between these cases.
+
+    afterAll(async () => {
+        await page?.context().close();
+    });
+
+    it.each([
+        false,
+        true,
+    ])(`ordinary RTL search uses logical text and glyph ranges (${mode}, regex=%s)`, async (regex) => {
+        const out = resolve('.devkit/core4-r7/app', process.env.PROOF_REVISION ?? 'head', `${mode}-${regex}`);
+        mkdirSync(out, {recursive: true});
+        const bytes = Buffer.from(RTL_SEARCH_PDF_BASE64, 'base64');
+        writeFileSync(resolve(out, 'fixture.pdf'), bytes);
+        const observations: unknown[] = [];
+        try {
+            if (!page) {
+                page = await browser.newPage({viewport: {
+                    width: 1280,
+                    height: 900,
+                }});
+                // Advance product timers without replacing search or render work.
+                await page.clock.install();
+                await page.addInitScript(highlightMode => {
+                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                    window.localStorage.setItem('pdfHighlightMode', highlightMode);
+                    window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                }, mode);
+                await page.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(page);
+                keepFileChooserInterceptionEnabled(page);
+                const chooser = page.waitForEvent('filechooser');
+                await page.getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                }).first().click();
+                await (await chooser).setFiles({
+                    name: 'rtl-search.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: bytes,
                 });
-            return ranges.map(range => {
-                const layer = range.startContainer.parentElement?.closest('.textLayer');
-                const run = [...layer?.children ?? []].find(child => child.contains(range.startContainer));
-                const ink = document.createRange();
-                if (run) ink.selectNodeContents(run);
-                return {
-                    text: range.toString(),
-                    offset: (() => {
-                        const prefix = document.createRange();
-                        if (layer) prefix.setStart(layer, 0);
-                        prefix.setEnd(range.startContainer, range.startOffset);
-                        return prefix.toString().length;
-                    })(),
-                    sourceText: layer?.textContent ?? '',
-                    page: Number(layer?.closest<HTMLElement>('.page_container')?.dataset.page),
-                    ink: ink.getBoundingClientRect().toJSON(),
-                    rects: [...range.getClientRects()].map(rect => rect.toJSON()),
-                };
-            });
-        }, mode);
-        const cases = [
-            {
-                query: 'שלום',
-                text: 'שלום',
-                count: 2,
-            },
-            {
-                query: 'של',
-                text: 'של',
-                count: 2,
-            },
-            {
-                query: 'السلام',
-                text: 'السلام',
-                count: 2,
-            },
-            {
-                query: 'ܫܠܡܐ',
-                text: 'ܫܠܡܐ',
-                count: 2,
-            },
-            {
-                query: 'office',
-                text: 'oﬃce',
-                count: 4,
-            },
-            {
-                query: 'abc',
-                text: 'abc',
-                count: 2,
-            },
-            {
-                query: '123',
-                text: '123',
-                count: 4,
-            },
-            {
-                query: 'עולם123עולם',
-                text: 'עולם123עולם',
-                count: 2,
-            },
-            {
-                query: '123 עולם abc',
-                text: '123 עולם abc',
-                count: 2,
-            },
-            {
-                query: 'שָׁל֑וֹם',
-                text: 'שָׁל֑וֹם',
-                count: 2,
-            },
-            {
-                query: 'السَّلَام',
-                text: 'السَّلَام',
-                count: 2,
-            },
-            {
-                query: 'ܫܠܵܡܵܐ',
-                text: 'ܫܠܵܡܵܐ',
-                count: 2,
-            },
-        ];
-        for (const testCase of cases) {
-            await input.fill('');
-            await input.press('Enter');
-            await expect.poll(() => page!.locator('.document-search-results').innerText()).toContain('Enter a search term');
-            await input.fill(testCase.query);
-            await input.press('Enter');
-            await page.clock.fastForward(300);
-            await expect.poll(async () => {
-                const body = await page!.locator('.document-search-results').innerText();
-                return body.includes('No results found') || body.includes('results for');
-            }, {timeout: 30000}).toBe(true);
-            await expect.poll(() => page!.locator('.document-search-results-header-spinner:visible').count()).toBe(0);
-            const count = await page.locator('.document-search-result:visible').count();
-            observations.push({
-                query: testCase.query,
-                count,
-            });
-            writeFileSync(resolve(out, 'outcomes.json'), JSON.stringify(observations, null, 2));
-            expect.soft(count).toBe(testCase.count);
-            if (count !== testCase.count) continue;
-            for (const index of [
-                0,
-                testCase.count - 1,
-            ]) {
-                await page.locator('.document-search-result:visible').nth(index).click();
-                await expect.poll(async () => (await current()).map(range => range.text).join(''), {timeout: 10000}).toBe(testCase.text);
-                // The monitor still requires unchanged geometry and rendered
-                // pages; only its 500 ms no-input interval uses virtual time.
-                await page.clock.fastForward(600);
-                await page.evaluate(async () => {
-                    const monitor = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {timeoutMs: number}) => Promise<{
-                        settled: boolean;
-                        reason?: string
-                    }>};
-                    const outcome = await monitor.waitForSettled({timeoutMs: 10000});
-                    if (!outcome.settled) throw new Error(outcome.reason ?? 'Viewer did not settle');
+                await page.waitForFunction(() => document.querySelector('.page_container[data-page="1"] .textLayer')?.getAttribute('data-pdf-text-layer-ready') === 'true', undefined, {timeout: 30000});
+                if (!await page.getByRole('tab', {
+                    name: 'Search',
+                    exact: true,
+                }).isVisible()) {
+                    await page.getByRole('button', {
+                        name: 'Toggle Sidebar',
+                        exact: true,
+                    }).click();
+                }
+                await page.getByRole('tab', {
+                    name: 'Search',
+                    exact: true,
+                }).click();
+            }
+            if (regex) await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
+            const input = page.locator('.document-search-bar input:visible').first();
+            const current = () => page.evaluate(highlightMode => {
+                const ranges = highlightMode === 'css'
+                    ? [...CSS.highlights.get('pdf-search-current-match') ?? []].filter((range): range is Range => range instanceof Range)
+                    : [...document.querySelectorAll('.pdf-search-highlight--current')].map(element => {
+                        const range = document.createRange();
+                        range.selectNodeContents(element);
+                        return range;
+                    });
+                return ranges.map(range => {
+                    const layer = range.startContainer.parentElement?.closest('.textLayer');
+                    const run = [...layer?.children ?? []].find(child => child.contains(range.startContainer));
+                    const ink = document.createRange();
+                    if (run) ink.selectNodeContents(run);
+                    return {
+                        text: range.toString(),
+                        offset: (() => {
+                            const prefix = document.createRange();
+                            if (layer) prefix.setStart(layer, 0);
+                            prefix.setEnd(range.startContainer, range.startOffset);
+                            return prefix.toString().length;
+                        })(),
+                        sourceText: layer?.textContent ?? '',
+                        page: Number(layer?.closest<HTMLElement>('.page_container')?.dataset.page),
+                        ink: ink.getBoundingClientRect().toJSON(),
+                        rects: [...range.getClientRects()].map(rect => rect.toJSON()),
+                    };
                 });
-                const paint = await current();
-                expect([...new Set(paint.map(range => range.page))]).toEqual([index === 0 ? 1 : 2]);
-                expect(paint[0]?.offset).toBe(index === 0
-                    ? paint[0]?.sourceText.indexOf(testCase.text)
-                    : paint[0]?.sourceText.lastIndexOf(testCase.text));
-                expect(paint.every(range => range.rects.some(rect => rect.width > 0 && rect.height > 0)
-                    && range.rects.every(rect => rect.left >= range.ink.left - 1 && rect.right <= range.ink.right + 1))).toBe(true);
+            }, mode);
+            const cases = [
+                {
+                    query: 'שלום',
+                    text: 'שלום',
+                    count: 2,
+                },
+                {
+                    query: 'של',
+                    text: 'של',
+                    count: 2,
+                },
+                {
+                    query: 'السلام',
+                    text: 'السلام',
+                    count: 2,
+                },
+                {
+                    query: 'ܫܠܡܐ',
+                    text: 'ܫܠܡܐ',
+                    count: 2,
+                },
+                {
+                    query: 'office',
+                    text: 'oﬃce',
+                    count: 4,
+                },
+                {
+                    query: 'abc',
+                    text: 'abc',
+                    count: 2,
+                },
+                {
+                    query: '123',
+                    text: '123',
+                    count: 4,
+                },
+                {
+                    query: 'עולם123עולם',
+                    text: 'עולם123עולם',
+                    count: 2,
+                },
+                {
+                    query: '123 עולם abc',
+                    text: '123 עולם abc',
+                    count: 2,
+                },
+                {
+                    query: 'שָׁל֑וֹם',
+                    text: 'שָׁל֑וֹם',
+                    count: 2,
+                },
+                {
+                    query: 'السَّلَام',
+                    text: 'السَّلَام',
+                    count: 2,
+                },
+                {
+                    query: 'ܫܠܵܡܵܐ',
+                    text: 'ܫܠܵܡܵܐ',
+                    count: 2,
+                },
+            ];
+            for (const testCase of cases) {
+                await input.fill('');
+                await input.press('Enter');
+                await expect.poll(() => page.locator('.document-search-results').innerText()).toContain('Enter a search term');
+                await input.fill(testCase.query);
+                await input.press('Enter');
+                await page.clock.fastForward(300);
+                await expect.poll(async () => {
+                    const body = await page.locator('.document-search-results').innerText();
+                    return body.includes('No results found') || body.includes('results for');
+                }, {timeout: 30000}).toBe(true);
+                await expect.poll(() => page.locator('.document-search-results-header-spinner:visible').count()).toBe(0);
+                const count = await page.locator('.document-search-result:visible').count();
                 observations.push({
                     query: testCase.query,
-                    index,
-                    paint,
+                    count,
                 });
+                writeFileSync(resolve(out, 'outcomes.json'), JSON.stringify(observations, null, 2));
+                expect.soft(count).toBe(testCase.count);
+                if (count !== testCase.count) continue;
+                for (const index of [
+                    0,
+                    testCase.count - 1,
+                ]) {
+                    await page.locator('.document-search-result:visible').nth(index).click();
+                    await expect.poll(async () => (await current()).map(range => range.text).join(''), {timeout: 10000}).toBe(testCase.text);
+                    // The monitor still requires unchanged geometry and rendered
+                    // pages; only its 500 ms no-input interval uses virtual time.
+                    await page.clock.fastForward(600);
+                    await page.evaluate(async () => {
+                        const monitor = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {timeoutMs: number}) => Promise<{
+                            settled: boolean;
+                            reason?: string
+                        }>};
+                        const outcome = await monitor.waitForSettled({timeoutMs: 10000});
+                        if (!outcome.settled) throw new Error(outcome.reason ?? 'Viewer did not settle');
+                    });
+                    const paint = await current();
+                    expect([...new Set(paint.map(range => range.page))]).toEqual([index === 0 ? 1 : 2]);
+                    expect(paint[0]?.offset).toBe(index === 0
+                        ? paint[0]?.sourceText.indexOf(testCase.text)
+                        : paint[0]?.sourceText.lastIndexOf(testCase.text));
+                    expect(paint.every(range => range.rects.some(rect => rect.width > 0 && rect.height > 0)
+                    && range.rects.every(rect => rect.left >= range.ink.left - 1 && rect.right <= range.ink.right + 1))).toBe(true);
+                    observations.push({
+                        query: testCase.query,
+                        index,
+                        paint,
+                    });
+                }
             }
-        }
-    } finally {
-        writeFileSync(resolve(out, 'outcomes.json'), JSON.stringify(observations, null, 2));
-        if (page) {
+        } finally {
+            writeFileSync(resolve(out, 'outcomes.json'), JSON.stringify(observations, null, 2));
             await page.screenshot({path: resolve(out, 'final.png')}).catch(() => {});
-            await page.close();
         }
-        await Promise.all(browser.contexts().map(context => context.close()));
-    }
-}, 180000);
+    }, 180000);
+
+});
