@@ -1,3 +1,5 @@
+import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
+import { findInitialRenderAuthorityViolations } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 import type * as PdfPageRendererModule from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
@@ -564,6 +566,100 @@ describe('PdfViewportSession behavior', () => {
             await scheduler.dispose();
             fixture.container.remove();
             animation.mockRestore();
+        }
+    });
+
+    it('keeps the opening render authority when annotations become ready before its canvas', async () => {
+        const projectionReady = ref(false);
+        const firstRender = Promise.withResolvers<undefined>();
+        const preparationStarted = Promise.withResolvers<undefined>();
+        const traceWindow = Object.assign(window, {
+            __pdfRenderTrace: true,
+            __pdfRenderTraceBuffer: new Array<IPdfRenderTraceEntry>(),
+        });
+        const page = Object.assign(Object.create(null), {
+            pageNumber: 1,
+            rotate: 0,
+            getViewport: ({scale}: {scale: number}) => ({
+                width: 600 * scale,
+                height: 900 * scale,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 600,
+                    pageHeight: 900,
+                },
+            }),
+            render: ({
+                canvas, annotationMode,
+            }: {
+                canvas: HTMLCanvasElement;
+                annotationMode: number
+            }) => {
+                canvas.dataset.annotations = String(annotationMode !== 0);
+                if (annotationMode === 0) preparationStarted.resolve(undefined);
+                return {
+                    promise: annotationMode === 0 ? firstRender.promise : Promise.resolve(),
+                    cancel() {},
+                };
+            },
+        });
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: 'revision-1',
+            },
+            maxConcurrency: 1,
+            leasePage: async () => ({
+                page,
+                release() {},
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
+        });
+        const animation = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0);
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+        const fixture = createViewportFixture({
+            pageCount: 1,
+            bufferPages: 0,
+            rasterScheduler: scheduler,
+        });
+        document.body.append(fixture.container);
+        appendRasterTarget(fixture.container, 1);
+        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+        fixture.viewport.markPageMounted(requirePageNumber(1));
+        const rendering = fixture.rendering!;
+        rendering.attachAnnotationProjection({
+            annotationProjectionReady: projectionReady,
+            hiddenAnnotationIds: ref(new Set()),
+            canvasHiddenAnnotationIds: ref(new Set()),
+            thumbnailHiddenAnnotationIds: ref(new Set()),
+            pageCommitted() {},
+        });
+        try {
+            const raster = rendering.renderVisiblePages({
+                start: 1,
+                end: 1,
+            });
+            await preparationStarted.promise;
+            projectionReady.value = true;
+            firstRender.resolve(undefined);
+            await raster;
+            expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            const canvas = fixture.container.querySelector('canvas');
+            expect(canvas?.dataset.annotations).toBe('true');
+            expect((canvas?.width ?? 0) * (canvas?.height ?? 0)).toBeGreaterThan(0);
+            // The real-app opening contract counts authority through the first
+            // mounted pixels, including a preparation superseded by annotations.
+            expect(findInitialRenderAuthorityViolations(traceWindow.__pdfRenderTraceBuffer, 1)).toEqual([]);
+        } finally {
+            firstRender.resolve(undefined);
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            context.mockRestore();
+            animation.mockRestore();
+            traceWindow.__pdfRenderTrace = false;
+            traceWindow.__pdfRenderTraceBuffer = [];
         }
     });
 
