@@ -42,7 +42,6 @@ let flushDebouncedSettingsSave: (() => void) | null = null;
 let settingsSaveFlushListener: (() => void) | null = null;
 let unsubscribeSettingsChanges: (() => void) | null = null;
 const pendingSettingsIntent = new Map<keyof ISettingsData, unknown>();
-let settingsIntentRevision = 0;
 
 type TSettingsPersistenceFailureCode = 'SETTINGS_LOAD_FAILED' | 'SETTINGS_SAVE_FAILED';
 
@@ -204,6 +203,8 @@ export const useSettings = () => {
                 });
             }
             rememberSavedSettings(committed);
+            if (isLoaded.value && pendingSettingsIntent.size > 0) void getSettingsPersistenceQueue().save();
+            else if (settingsSaveStatus.value === 'saving') settingsSaveStatus.value = 'idle';
         });
     }
 
@@ -228,13 +229,8 @@ export const useSettings = () => {
             getSettingsSnapshot: () => toRaw(settings.value),
             getLastSavedSettings: () => lastSavedSettings.value,
             savePatch: patch => getSettingsCapability().save(patch),
-            // The owner's committed values reached lastSavedSettings before the save resolved.
             onSaved() {
                 refreshSettingsBootstrapCookieSnapshot();
-                // A no-op save acknowledges intents already equal to the owner's baseline.
-                for (const key of pendingSettingsIntent.keys()) {
-                    if (pendingSettingsIntent.get(key) === lastSavedSettings.value?.[key]) pendingSettingsIntent.delete(key);
-                }
                 settingsSaveFailure.value = null;
             },
             onSaveError(error) {
@@ -245,7 +241,7 @@ export const useSettings = () => {
                 );
             },
             onStatusChanged(status, error) {
-                settingsSaveStatus.value = status;
+                settingsSaveStatus.value = status === 'idle' && pendingSettingsIntent.size > 0 ? 'saving' : status;
                 settingsSaveError.value = error ? getErrorMessage(error) : null;
             },
         });
@@ -257,14 +253,7 @@ export const useSettings = () => {
         if (!isLoaded.value) {
             return true;
         }
-        const persistenceQueue = getSettingsPersistenceQueue();
-        let flushedRevision = settingsIntentRevision;
-        let saved = await persistenceQueue.save();
-        while (saved && flushedRevision !== settingsIntentRevision) {
-            flushedRevision = settingsIntentRevision;
-            saved = await persistenceQueue.save();
-        }
-        return saved;
+        return getSettingsPersistenceQueue().save();
     }
 
     // Trailing debounce: per-keystroke updates otherwise write storage plus
@@ -291,13 +280,14 @@ export const useSettings = () => {
     }
 
     function updateSetting<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
-        settingsIntentRevision += 1;
-        pendingSettingsIntent.set(key, value);
+        if (settingsSaveStatus.value === 'idle' && value === lastSavedSettings.value?.[key]) pendingSettingsIntent.delete(key);
+        else pendingSettingsIntent.set(key, value);
         Object.assign(settings.value, {[key]: value});
         if (key === 'clientDiagnosticsPreference') {
             setRendererDiagnosticsPreference(value);
         }
-        scheduleDebouncedSave();
+        if (settingsSaveStatus.value === 'saving') void getSettingsPersistenceQueue().save();
+        else scheduleDebouncedSave();
     }
 
     return {
@@ -326,6 +316,5 @@ if (import.meta.hot) {
         settingsPersistenceQueue = null;
         unsubscribeSettingsChanges?.();
         unsubscribeSettingsChanges = null;
-        settingsIntentRevision = 0;
     });
 }

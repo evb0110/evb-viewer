@@ -422,6 +422,41 @@ describe('useSettings', () => {
         expect(mockSave).toHaveBeenLastCalledWith({theme: 'dark'});
     });
 
+    it('preserves an edit-back when the invoke reply is delivered before its own committed event', async () => {
+        const baseline = {
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved author',
+            clientDiagnosticsPreference: 'denied' as const,
+        };
+        mockGet.mockResolvedValue(baseline);
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+        const pending = createDeferred();
+        mockSave.mockReturnValueOnce(pending.promise);
+        instance.updateSetting('authorName', 'First edit');
+        const saving = instance.save();
+        instance.updateSetting('authorName', 'Saved author');
+        pending.resolve();
+        await saving;
+        mockSave.mockImplementationOnce(async patch => { emitSettingsChange({
+            ...baseline,
+            ...patch,
+        }); });
+        emitSettingsChange({
+            ...baseline,
+            authorName: 'First edit',
+        });
+        expect(instance.settings.value.authorName).toBe('Saved author');
+        await vi.waitFor(() => expect(instance.settingsSaveStatus.value).toBe('idle'));
+        expect(mockSave).toHaveBeenLastCalledWith({authorName: 'Saved author'});
+        emitSettingsChange({
+            ...baseline,
+            authorName: 'Other window',
+        });
+        expect(instance.settings.value.authorName).toBe('Other window');
+    });
+
     it('releases an edit that returned to the committed value before any save started', async () => {
         mockGet.mockResolvedValue({
             ...DEFAULT_SETTINGS,

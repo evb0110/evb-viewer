@@ -10,8 +10,8 @@ export type TSettingsPersistenceStatus = 'idle' | 'saving' | 'failed';
 export interface ISettingsPersistenceQueueOptions {
     getSettingsSnapshot: () => unknown;
     getLastSavedSettings: () => ISettingsData | null;
-    // Resolves once the owner has committed the patch and sent it to this window, so
-    // the last saved settings already hold the committed values when it resolves.
+    // The reply confirms the operation completed. Only the ordered change stream
+    // acknowledges renderer intent; it can arrive after this reply.
     savePatch: (patch: TSettingsSavePatch) => Promise<void>;
     onSaved: () => void;
     onSaveError: (error: unknown) => void;
