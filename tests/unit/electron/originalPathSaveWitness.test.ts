@@ -359,7 +359,7 @@ describe('originalPathSaveBaseMatches', () => {
         }
     });
 
-    it('keeps a Windows external edit with complete stored identity', async () => {
+    it('admits a complete Windows identity without reading and keeps an edit it hides', async () => {
         const originalPlatform = process.platform;
         Object.defineProperty(process, 'platform', {
             configurable: true,
@@ -372,19 +372,19 @@ describe('originalPathSaveBaseMatches', () => {
             originalHash.update(originalBytes);
             const originalFingerprint = `sha256-full-v1:${originalHash.digest('hex')}`;
 
-            await writeFile(originalPath, originalBytes);
-            const originalStat = await stat(originalPath, {bigint: true});
             const changedBytes = Buffer.from(originalBytes);
             changedBytes[70_000] = 8;
+            // An edit in the registration's NTFS clock tick leaves file ID, size, mtime and ctime as registered.
             await writeFile(originalPath, changedBytes);
+            const registeredStat = await stat(originalPath, {bigint: true});
             const expected = {
                 contentFingerprint: originalFingerprint,
-                ctimeNs: originalStat.ctimeNs.toString(),
-                deviceId: originalStat.dev.toString(),
-                inode: originalStat.ino.toString(),
-                mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
-                mtimeNs: originalStat.mtimeNs.toString(),
-                size: Number(originalStat.size),
+                ctimeNs: registeredStat.ctimeNs.toString(),
+                deviceId: registeredStat.dev.toString(),
+                inode: registeredStat.ino.toString(),
+                mtimeMs: Number(registeredStat.mtimeNs) / 1_000_000,
+                mtimeNs: registeredStat.mtimeNs.toString(),
+                size: Number(registeredStat.size),
             };
             mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(expected);
             const workingPath = join(tempDir, 'working.pdf');
@@ -417,13 +417,10 @@ describe('originalPathSaveBaseMatches', () => {
                         destinationBackupPath,
                     }),
                 }).catch((error: unknown) => error);
-                if (outcome === null) {
-                    await expect(readFile(originalPath)).resolves.toEqual(changedBytes);
-                } else {
-                    expect(outcome).toBeInstanceOf(OriginalPathSaveConflictError);
-                    if (!(outcome instanceof OriginalPathSaveConflictError) || !outcome.keptFilePath) throw new Error('Save did not report the kept external version');
-                    await expect(readFile(outcome.keptFilePath)).resolves.toEqual(changedBytes);
-                }
+                expect(outcome).toBeInstanceOf(OriginalPathSaveConflictError);
+                if (!(outcome instanceof OriginalPathSaveConflictError) || !outcome.keptFilePath) throw new Error('Save did not report the kept external version');
+                await expect(readFile(outcome.keptFilePath)).resolves.toEqual(changedBytes);
+                await expect(readFile(originalPath, 'utf8')).resolves.toBe('EVB-PUBLISHED');
                 await expect(readFile(workingPath, 'utf8')).resolves.toBe('ACCEPTED');
             } finally {
                 clearWorkingCopyOriginalPaths();
