@@ -69,8 +69,8 @@ export interface IPdfRasterRenderTarget<TPrepared> {
     commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
     discard(prepared: TPrepared): void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
-    /** A current demand whose render kept throwing until its retries ran out. */
-    onRenderFailed?: ((demand: IPdfRasterDemand, error: unknown) => void) | undefined;
+    /** Every current demand settles when its bounded attempts run out. */
+    onRenderExhausted?: ((outcome: TPdfRasterOutcome) => void) | undefined;
     release(pageNumber: TPageNumber, reason: string): void;
 }
 
@@ -479,8 +479,7 @@ export function createPdfPageRasterScheduler(
             settleWork(work, exhausted);
             if (isDemandCurrent(work)) {
                 try {
-                    work.target.onRenderFailed?.(work.demand, exhausted.status === 'failed'
-                        ? exhausted.error : new Error('PDF raster attempts exhausted without a committed page'));
+                    work.target.onRenderExhausted?.(exhausted);
                 } catch (error) {
                     logPdfRenderTrace('pdf-raster-render-failed-callback-failed', {
                         error: getErrorMessage(error),
@@ -660,18 +659,15 @@ export function createPdfPageRasterScheduler(
                 discardPrepared(work);
             }
             releaseReservation(work);
-            if (!isDemandCurrent(work)) {
-                settleWork(work, {
+            scheduleReattempt(work, !isDemandCurrent(work)
+                || error instanceof Error && (error.name === 'AbortError' || error.name === 'RenderingCancelledException') ? {
                     status: 'cancelled',
                     demand: work.demand,
-                });
-            } else {
-                scheduleReattempt(work, {
+                } : {
                     status: 'failed',
                     demand: work.demand,
                     error,
                 });
-            }
         } finally {
             await releasePageLease(work);
             if (inFlight.get(work.key) === work) {

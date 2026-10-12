@@ -524,6 +524,51 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('settles an exhausted discarded viewport raster without presenting a failed page', async () => {
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: 'revision-1',
+            },
+            leasePage: async () => ({
+                page: Object.create(null),
+                release() {},
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
+        });
+        const animation = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0);
+        const fixture = createViewportFixture({
+            pageCount: 1,
+            bufferPages: 0,
+            rasterScheduler: scheduler,
+        });
+        document.body.append(fixture.container);
+        // The page remains demanded while its canvas host is being replaced.
+        appendPageBox(fixture.container, 1, {
+            height: 900,
+            top: 0,
+        });
+        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+        fixture.viewport.markPageMounted(requirePageNumber(1));
+        try {
+            let settled = false;
+            const raster = fixture.rendering!.renderVisiblePages({
+                start: 1,
+                end: 1,
+            }).then(() => {settled = true;});
+            await expect.poll(() => settled, {timeout: 500}).toBe(true);
+            await raster;
+            expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(false);
+            expect(fixture.container.querySelector('canvas')).toBeNull();
+        } finally {
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            animation.mockRestore();
+        }
+    });
+
     it.each([
         false,
         true,

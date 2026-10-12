@@ -754,19 +754,20 @@ describe('PdfPageRasterScheduler', () => {
         'lease',
         'prepare',
         'commit',
+        'cancelled',
     ] as const)('settles a current page whose %s attempts are exhausted', async (stage) => {
         vi.useFakeTimers();
         const harness = createHarness(stage === 'prepare' ? {prepare: async () => null} : {});
-        const failure = new Error('page render failed');
-        const onRenderFailed = vi.fn();
+        const failure = Object.assign(new Error('page render failed'), {name: stage === 'cancelled' ? 'RenderingCancelledException' : 'Error'});
+        const onRenderExhausted = vi.fn();
         const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
             ...harness.target,
             start: (prepared) => {
                 harness.started.push(prepared.pageNumber);
-                return createTask(stage === 'render' ? Promise.reject(failure) : Promise.resolve());
+                return createTask(stage === 'render' || stage === 'cancelled' ? Promise.reject(failure) : Promise.resolve());
             },
             commit: stage === 'commit' ? () => false : harness.target.commit,
-            onRenderFailed,
+            onRenderExhausted,
         };
         const scheduler = stage === 'lease' ? createPdfPageRasterScheduler({
             documentFence,
@@ -786,29 +787,41 @@ describe('PdfPageRasterScheduler', () => {
         publish([demand]);
         await vi.advanceTimersByTimeAsync(1_000);
 
-        expect(onRenderFailed).toHaveBeenCalledExactlyOnceWith(demand, expect.any(Error));
+        if (stage === 'render' || stage === 'lease') {
+            expect(onRenderExhausted).toHaveBeenCalledExactlyOnceWith({
+                status: 'failed',
+                demand,
+                error: failure,
+            });
+        } else {
+            expect(onRenderExhausted).toHaveBeenCalledExactlyOnceWith({
+                status: stage === 'cancelled' ? 'cancelled' : 'discarded',
+                demand,
+            });
+            expect(harness.released).toEqual([1]);
+        }
         expect(harness.committed).toEqual([]);
 
         // A page the viewport no longer asks for is not a failure to report.
-        onRenderFailed.mockClear();
+        onRenderExhausted.mockClear();
         const withdrawn = createDemand(2, 'viewport-visible');
         publish([withdrawn]);
         await vi.advanceTimersByTimeAsync(1);
-        if (stage === 'render' || stage === 'commit') expect(harness.started.at(-1)).toBe(2);
+        if (stage !== 'lease' && stage !== 'prepare') expect(harness.started.at(-1)).toBe(2);
         publish([]);
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(onRenderFailed).not.toHaveBeenCalled();
+        expect(onRenderExhausted).not.toHaveBeenCalled();
 
         // A report that throws stays the target's problem: rasters go on.
-        onRenderFailed.mockImplementation(() => {
+        onRenderExhausted.mockImplementation(() => {
             throw new Error('report failed');
         });
         publish([createDemand(3, 'viewport-visible')]);
         await vi.advanceTimersByTimeAsync(1_000);
-        expect(onRenderFailed).toHaveBeenCalledOnce();
+        expect(onRenderExhausted).toHaveBeenCalledOnce();
         publish([createDemand(4, 'viewport-visible')]);
         await vi.advanceTimersByTimeAsync(1);
-        if (stage === 'render' || stage === 'commit') expect(harness.started.at(-1)).toBe(4);
+        if (stage !== 'lease' && stage !== 'prepare') expect(harness.started.at(-1)).toBe(4);
     });
 
     it('gives up on a permanently rejected commit without leaking a lease or reservation', async () => {
