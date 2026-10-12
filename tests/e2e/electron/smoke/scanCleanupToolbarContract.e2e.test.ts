@@ -458,7 +458,7 @@ describe('scan cleanup completion Save As', () => {
             await clickToastSaveAs(session.page);
             await expect.poll(async () => ({
                 warned: await session.page.evaluate(() => document.body.innerText.includes(
-                    'The cleaned PDF is no longer open in this window. Use Save As from the window that shows it.',
+                    'Save As is no longer available from this notification. Use Save As in the cleaned PDF tab, or reopen the PDF.',
                 )),
                 saved: existsSync(savedPath),
             }), {timeout: 10_000}).toEqual({
@@ -491,12 +491,24 @@ describe('scan cleanup completion Save As', () => {
             await expect.poll(async () => (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath,
                 {timeout: 30_000}).toBe(savedPath);
             const firstSaveMtime = statSync(savedPath).mtimeMs;
-            await activateWorkspaceTab(session, 0);
+            await waitForPdfLoaded(session.page, 30_000);
+            await waitForViewerInteractive(session.page, 30_000);
             await clickToastSaveAs(session.page);
-            await waitForFunctionInPage(session.page, () => document.body.innerText.includes(
-                'The cleaned PDF is no longer open in this window. Use Save As from the window that shows it.',
-            ), {timeout: 10_000});
-            expect(statSync(savedPath).mtimeMs).toBe(firstSaveMtime);
+            await expect.poll(async () => ({
+                activePath: (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath,
+                rendered: await session.page.$eval('.workspace-host[data-workspace-active="true"]', host => (
+                    host.querySelectorAll('.page_container--rendered').length > 0
+                )),
+                unchanged: statSync(savedPath).mtimeMs === firstSaveMtime,
+                warning: await session.page.evaluate(() => document.body.innerText.includes(
+                    'Save As is no longer available from this notification. Use Save As in the cleaned PDF tab, or reopen the PDF.',
+                )),
+            }), {timeout: 10_000}).toEqual({
+                activePath: savedPath,
+                rendered: true,
+                unchanged: true,
+                warning: true,
+            });
         } finally {
             await session.stop();
             await rm(scratch, {

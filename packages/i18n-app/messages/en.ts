@@ -912,7 +912,7 @@ export default {
         'completedTitle': 'Scan cleanup complete',
         'completedPartialTitle': 'Selected pages cleaned',
         'openResultFailed': 'The cleaned PDF could not be opened',
-        'outputClosedBeforeSaveAs': 'The cleaned PDF is no longer open in this window. Use Save As from the window that shows it.',
+        'outputClosedBeforeSaveAs': 'Save As is no longer available from this notification. Use Save As in the cleaned PDF tab, or reopen the PDF.',
         'saveAs': 'Save as…',
         'cancel': 'Cancel cleanup',
         'canceling': 'Canceling…',

@@ -444,7 +444,7 @@ export default {
         'completedTitle': 'Nettoyage des scans terminé',
         'completedPartialTitle': 'Pages sélectionnées nettoyées',
         'openResultFailed': 'Le PDF nettoyé n\'a pas pu être ouvert',
-        'outputClosedBeforeSaveAs': 'Le PDF nettoyé n’est plus ouvert dans cette fenêtre. Utilisez Enregistrer sous dans la fenêtre qui l’affiche.',
+        'outputClosedBeforeSaveAs': 'Enregistrer sous n’est plus disponible depuis cette notification. Utilisez Enregistrer sous dans l’onglet du PDF nettoyé, ou rouvrez le PDF.',
         'saveAs': 'Enregistrer sous…',
         'cancel': 'Annuler le nettoyage',
         'canceling': 'Annulation…',

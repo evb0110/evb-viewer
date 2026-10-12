@@ -444,7 +444,7 @@ export default {
         'completedTitle': 'Scanbereinigung abgeschlossen',
         'completedPartialTitle': 'Ausgewählte Seiten bereinigt',
         'openResultFailed': 'Das bereinigte PDF konnte nicht geöffnet werden',
-        'outputClosedBeforeSaveAs': 'Das bereinigte PDF ist in diesem Fenster nicht mehr geöffnet. Verwenden Sie „Speichern unter“ in dem Fenster, das es anzeigt.',
+        'outputClosedBeforeSaveAs': '„Speichern unter“ ist über diese Benachrichtigung nicht mehr verfügbar. Verwenden Sie „Speichern unter“ im Tab des bereinigten PDFs oder öffnen Sie das PDF erneut.',
         'saveAs': 'Speichern unter…',
         'cancel': 'Bereinigung abbrechen',
         'canceling': 'Wird abgebrochen…',
