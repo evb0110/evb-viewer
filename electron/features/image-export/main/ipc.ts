@@ -8,11 +8,12 @@ import {
     type IpcMainInvokeEvent,
     type WebContents,
 } from 'electron';
-import {existsSync} from 'fs';
 import { extname } from 'path';
-import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { getAutomationSaveDialogPath } from '@electron/utils/dialogDefaultPaths';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
+import {
+    getAdmittedDjvuViewingSource, isAllowedDjvuViewingPath,
+} from '@electron/features/djvu/public';
 import {getWorkingCopyBackingEntry} from '@electron/file-access/workingCopyStore';
 import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
 import {
@@ -123,19 +124,16 @@ function validatePdfWorkingCopyRef(path: unknown, senderWebContentsId: number) {
     return normalizedPath;
 }
 
-async function validateDjvuWorkingPath(path: unknown, senderWebContentsId: number) {
+function validateDjvuSourcePath(path: unknown, senderWebContentsId: number) {
     if (!path || typeof path !== 'string' || path.trim() === '') {
         throw new Error('Invalid DjVu working copy path');
     }
-    if (!await ensureWorkingCopyDirectory(path, senderWebContentsId)) throw new Error('Path is not a managed working copy');
-    const resolvedPath = await resolveAllowedWritePath(path);
-    if (!resolvedPath || !existsSync(resolvedPath)) {
-        throw new Error('DjVu working copy is outside the allowed working directory');
-    }
-    if (!/\.djvu?$/iu.test(resolvedPath)) {
-        throw new Error('Working file must be a DjVu document');
-    }
-    return resolvedPath;
+    const normalizedPath = path.trim();
+    if (!/\.djvu?$/iu.test(normalizedPath)) throw new Error('Working file must be a DjVu document');
+    if (getWorkingCopyBackingEntry(normalizedPath, senderWebContentsId)) return normalizedPath;
+    const openPath = requireOpenPath(normalizedPath, senderWebContentsId);
+    if (!isAllowedDjvuViewingPath(openPath, senderWebContentsId)) throw new Error('DjVu viewing path is not active');
+    return openPath;
 }
 
 function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefined {
@@ -186,21 +184,30 @@ async function prepareImageExportSource(
 ) {
     const normalizedWorkingCopyPath = sourceKind === 'pdf'
         ? validatePdfWorkingCopyRef(workingCopyPath, senderWebContentsId)
-        : await validateDjvuWorkingPath(workingCopyPath, senderWebContentsId);
+        : validateDjvuSourcePath(workingCopyPath, senderWebContentsId);
     const normalizedPageNumbers = normalizeRequestedPageNumbers(pageNumbers);
+    type TReadOperation<T> = (physicalReadPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<T>;
+    const readSource = getWorkingCopyBackingEntry(normalizedWorkingCopyPath, senderWebContentsId)
+        ? <T>(operation: TReadOperation<T>) => runWithWorkingCopyReadBacking(
+            normalizedWorkingCopyPath, operation, {ownerWebContentsId: senderWebContentsId},
+        )
+        : async <T>(operation: TReadOperation<T>) => {
+            const assertOriginalUnchanged = async () => {
+                requireOpenPath(normalizedWorkingCopyPath, senderWebContentsId);
+                if (!await getAdmittedDjvuViewingSource(normalizedWorkingCopyPath, senderWebContentsId)) {
+                    throw new Error('DjVu viewing path is not active');
+                }
+            };
+            await assertOriginalUnchanged();
+            const result = await operation(normalizedWorkingCopyPath, assertOriginalUnchanged);
+            await assertOriginalUnchanged();
+            return result;
+        };
     if (sourceKind === 'pdf') {
-        await runWithWorkingCopyReadBacking(
-            normalizedWorkingCopyPath,
-            physicalReadPath => validateRequestedPageNumbersWithinPdf(
-                physicalReadPath,
-                normalizedPageNumbers,
-                operationOptions,
-            ),
-            {ownerWebContentsId: senderWebContentsId},
-        );
+        await readSource(physicalReadPath => validateRequestedPageNumbersWithinPdf(physicalReadPath, normalizedPageNumbers, operationOptions));
     }
     return {
-        normalizedWorkingCopyPath,
+        readSource,
         normalizedPageNumbers,
     };
 }
@@ -349,7 +356,7 @@ export async function handlePdfExportImages(
         reportProgress,
     ) => {
         const {
-            normalizedWorkingCopyPath,
+            readSource,
             normalizedPageNumbers,
         } = await prepareImageExportSource(workingCopyPath, context.senderId, sourceKind, pageNumbers, {
             cancelGroup,
@@ -377,24 +384,16 @@ export async function handlePdfExportImages(
             scratch: job.scratch,
             onProgress: reportProgress,
         };
-        const outputPaths = sourceKind === 'djvu'
-            ? await runWithWorkingCopyReadBacking(
-                normalizedWorkingCopyPath,
-                (physicalReadPath, assertOriginalUnchanged) => exportDjvuPagesAsImages(physicalReadPath, normalizedPath, {
-                    ...exportOptions,
-                    format: imageFormat,
-                    beforePublish: assertOriginalUnchanged,
-                }),
-                {ownerWebContentsId: context.senderId},
-            )
-            : await runWithWorkingCopyReadBacking(
-                normalizedWorkingCopyPath,
-                (physicalReadPath, assertOriginalUnchanged) => exportPdfPagesAsImages(physicalReadPath, normalizedPath, {
-                    ...exportOptions,
-                    beforePublish: assertOriginalUnchanged,
-                }),
-                {ownerWebContentsId: context.senderId},
-            );
+        const outputPaths = await readSource((physicalReadPath, assertOriginalUnchanged) => sourceKind === 'djvu'
+            ? exportDjvuPagesAsImages(physicalReadPath, normalizedPath, {
+                ...exportOptions,
+                format: imageFormat,
+                beforePublish: assertOriginalUnchanged,
+            })
+            : exportPdfPagesAsImages(physicalReadPath, normalizedPath, {
+                ...exportOptions,
+                beforePublish: assertOriginalUnchanged,
+            }));
         if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
             return {
@@ -454,7 +453,7 @@ export async function handlePdfExportMultiPageTiff(
         reportProgress,
     ) => {
         const {
-            normalizedWorkingCopyPath,
+            readSource,
             normalizedPageNumbers,
         } = await prepareImageExportSource(workingCopyPath, context.senderId, sourceKind, pageNumbers, {
             cancelGroup,
@@ -481,23 +480,11 @@ export async function handlePdfExportMultiPageTiff(
             scratch: job.scratch,
             onProgress: reportProgress,
         };
-        const outputPaths = sourceKind === 'djvu'
-            ? await runWithWorkingCopyReadBacking(
-                normalizedWorkingCopyPath,
-                (physicalReadPath, assertOriginalUnchanged) => exportDjvuAsMultiPageTiff(physicalReadPath, outputPath, {
-                    ...exportOptions,
-                    beforePublish: assertOriginalUnchanged,
-                }),
-                {ownerWebContentsId: context.senderId},
-            )
-            : await runWithWorkingCopyReadBacking(
-                normalizedWorkingCopyPath,
-                (physicalReadPath, assertOriginalUnchanged) => exportPdfAsMultiPageTiff(physicalReadPath, outputPath, {
-                    ...exportOptions,
-                    beforePublish: assertOriginalUnchanged,
-                }),
-                {ownerWebContentsId: context.senderId},
-            );
+        const exportTiff = sourceKind === 'djvu' ? exportDjvuAsMultiPageTiff : exportPdfAsMultiPageTiff;
+        const outputPaths = await readSource((physicalReadPath, assertOriginalUnchanged) => exportTiff(physicalReadPath, outputPath, {
+            ...exportOptions,
+            beforePublish: assertOriginalUnchanged,
+        }));
         if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
             return {
