@@ -7,10 +7,33 @@ import {
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {
     getDjvuNativeToolsBase,
+    needsDjvuPathAlias,
     resolveDjvuNativeToolPaths,
 } from '@electron/features/djvu/main/nativeToolPaths';
 
 describe('DjVu native tool path boundary', () => {
+    it.each([
+        'Гиргас Словарь',
+        'ספר שלום',
+        'ܟܬܒܐ ܫܠܡܐ',
+        'كتاب عربي',
+        'a\u0301 combining',
+        'cafe\u0301 NFD',
+        'café NFC',
+    ])('aliases non-ASCII Windows paths independently of the ANSI code page: %s', (name) => {
+        const filePath = `C:\\Users\\evb\\${name}.djvu`;
+        expect(needsDjvuPathAlias(filePath, 'win32')).toBe(true);
+        expect(needsDjvuPathAlias(filePath, 'linux')).toBe(false);
+        expect(needsDjvuPathAlias(filePath, 'darwin')).toBe(false);
+    });
+
+    it('aliases Unicode roots and long Windows paths, while preserving ASCII controls', () => {
+        expect(needsDjvuPathAlias('C:\\Users\\Евгений\\input.djvu', 'win32')).toBe(true);
+        expect(needsDjvuPathAlias(`C:\\${'x'.repeat(260)}.djvu`, 'win32')).toBe(true);
+        expect(needsDjvuPathAlias('C:\\scratch\\space name 100%20 literal.djvu', 'win32')).toBe(false);
+        expect(needsDjvuPathAlias('C:\\scratch\\ascii.djvu', 'win32')).toBe(false);
+    });
+
     it('resolves ddjvu, djvudump, and djvused from the DjVuLibre resource root', () => {
         const djvuBase = path.join('/repo/resources/djvulibre/darwin-arm64');
         const existingPaths = new Set([

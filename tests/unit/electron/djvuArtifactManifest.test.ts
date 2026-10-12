@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import {
+    linkSync,
     mkdtempSync,
+    renameSync,
+    statSync,
+    unlinkSync,
+    utimesSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -15,6 +20,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    assertDjvuSourceIdentity,
     createDjvuDiskQuotaMonitor,
     openDjvuArtifactJob,
 } from '@electron/features/djvu/main/djvuArtifactManifest';
@@ -30,6 +36,77 @@ describe('DjVu artifact manifests', () => {
             });
         }
         directories.length = 0;
+    });
+
+    it('keeps checkpoint source bytes valid across native input hard-link aliases', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-source-link-test-'));
+        directories.push(directory);
+        const sourcePath = join(directory, 'source.djvu');
+        const aliasPath = join(directory, 'input.djvu');
+        writeFileSync(sourcePath, 'source bytes');
+        const job = await openDjvuArtifactJob(sourcePath, [{
+            startPage: 1,
+            endPage: 1,
+        }], {});
+        try {
+            vi.stubGlobal('process', {
+                ...process,
+                platform: 'win32',
+            });
+            linkSync(sourcePath, aliasPath);
+            expect(readFileSync(aliasPath)).toEqual(readFileSync(sourcePath));
+            await expect(assertDjvuSourceIdentity(sourcePath, job.sourceIdentity)).resolves.toBeUndefined();
+            unlinkSync(aliasPath);
+            await expect(assertDjvuSourceIdentity(sourcePath, job.sourceIdentity)).resolves.toBeUndefined();
+        } finally {
+            vi.unstubAllGlobals();
+            await job.cleanup?.();
+        }
+    });
+
+    it('rejects byte edits to the same source file during a checkpoint export', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-source-write-test-'));
+        directories.push(directory);
+        const sourcePath = join(directory, 'source.djvu');
+        writeFileSync(sourcePath, 'AAAA');
+        const timestamp = new Date('2020-01-01T00:00:00Z');
+        utimesSync(sourcePath, timestamp, timestamp);
+        const job = await openDjvuArtifactJob(sourcePath, [{
+            startPage: 1,
+            endPage: 1,
+        }], {});
+        try {
+            writeFileSync(sourcePath, 'BBBB');
+            expect(statSync(sourcePath, {bigint: true}).ino).toBe(job.sourceIdentity.ino);
+            await expect(assertDjvuSourceIdentity(sourcePath, job.sourceIdentity)).rejects.toThrow('source changed');
+        } finally {
+            await job.cleanup?.();
+        }
+    });
+
+    it('rejects a replaced source even when its size and modification time match', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'evb-djvu-source-replace-test-'));
+        directories.push(directory);
+        const sourcePath = join(directory, 'source.djvu');
+        const replacementPath = join(directory, 'replacement.djvu');
+        writeFileSync(sourcePath, 'AAAA');
+        // An exact whole-second timestamp round trips on all three filesystems.
+        const timestamp = new Date('2020-01-01T00:00:00Z');
+        utimesSync(sourcePath, timestamp, timestamp);
+        const job = await openDjvuArtifactJob(sourcePath, [{
+            startPage: 1,
+            endPage: 1,
+        }], {});
+        try {
+            writeFileSync(replacementPath, 'BBBB');
+            utimesSync(replacementPath, timestamp, timestamp);
+            renameSync(replacementPath, sourcePath);
+            expect(statSync(sourcePath, {bigint: true}).mtimeNs).toBe(job.sourceIdentity.mtimeNs);
+            expect(readFileSync(sourcePath, 'utf8')).toBe('BBBB');
+            await expect(assertDjvuSourceIdentity(sourcePath, job.sourceIdentity)).rejects.toThrow('source changed');
+        } finally {
+            await job.cleanup?.();
+        }
     });
 
     it('reuses verified page ranges and resets interrupted ranges', async () => {

@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 import {
     copyFileSync,
     existsSync,
@@ -7,6 +8,7 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {
@@ -32,6 +34,8 @@ import {readPdfAnnotationIndex} from '@tests/e2e/electron/helpers/readPdfAnnotat
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
+    ensureSidebarOpen,
+    openDocumentSidebarTab,
     openDjvuInApp,
     waitForActiveDocumentSource,
     waitForDjvuLoaded,
@@ -203,4 +207,157 @@ describe('DjVu conversion scratch', () => {
         expect(listExportScratch(longPathRoot)).toEqual([]);
         expect(sourceHash()).toBe(hashBefore);
     }, 300_000);
+    it('opens, searches, converts and reopens Unicode DjVu names with a Unicode temp root', async () => {
+        const unicodeRoot = join(suiteRoot, 'Евгений-ספר-ܟܬܒܐ-كتاب');
+        mkdirSync(unicodeRoot, {recursive: true});
+        // Add searchable text to the ordinary two-page raster fixture. The
+        // generator uses ASCII paths, independent of the filenames under test.
+        const textSource = resolve('.devkit/tmp/djvuwin-text.djvu');
+        const textPath = resolve('.devkit/tmp/djvuwin-text.txt');
+        mkdirSync(join(textSource, '..'), {recursive: true});
+        copyFileSync(mixedDpiPath, textSource);
+        writeFileSync(textPath, '(page 0 0 256 256 (line 0 0 200 30 (word 0 0 200 30 "djvuwin")))');
+        const toolRoot = resolve('resources/djvulibre', `${process.platform}-${process.arch}`);
+        execFileSync(join(toolRoot, 'bin', process.platform === 'win32' ? 'djvused.exe' : 'djvused'), [
+            textSource,
+            '-s',
+            '-e',
+            `select 1; set-txt "${textPath.replaceAll('\\', '/')}"`,
+        ], {
+            cwd: join(toolRoot, 'bin'),
+            env: {
+                ...process.env,
+                Path: `${join(toolRoot, 'bin')};${join(toolRoot, 'lib')};${process.env.Path ?? ''}`,
+                LD_LIBRARY_PATH: join(toolRoot, 'lib'),
+                DYLD_LIBRARY_PATH: join(toolRoot, 'lib'),
+            },
+            windowsHide: true,
+        });
+        const names = [
+            'Гиргас Словарь',
+            'ספר שלום',
+            'ܟܬܒܐ ܫܠܡܐ',
+            'كتاب عربي',
+            'a\u0301 combining',
+            'cafe\u0301 NFD',
+            'ascii-control',
+            'café NFC',
+            'space name 100%20 literal',
+        ];
+        const tempRoot = process.env.DJVU_PROOF_ASCII_TEMP === '1' ? suiteRoot : unicodeRoot;
+        const savePath = join(tempRoot, process.env.DJVU_PROOF_ASCII_TEMP === '1' ? 'converted.pdf' : 'converted-ספר.pdf');
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvuwin-${Date.now()}`,
+            extraEnv: {
+                ...scratchEnv(tempRoot),
+                EVB_E2E_SAVE_DIALOG_PATH: savePath,
+            },
+        });
+        const evidenceRoot = resolve('.devkit/djvuwin-r1', process.env.DJVU_PROOF_LABEL ?? process.platform);
+        mkdirSync(evidenceRoot, {recursive: true});
+        const cdp = await session.page.createCDPSession();
+        const results: Array<{
+            name: string;
+            open: boolean;
+            search: boolean;
+            convert: boolean;
+            recent: boolean;
+            error?: string
+        }> = [];
+        for (const name of names) {
+            const inputPath = join(suiteRoot, `${name}.djvu`);
+            copyFileSync(textSource, inputPath);
+            const hashBefore = createHash('sha256').update(readFileSync(inputPath)).digest('hex');
+            const result: (typeof results)[number] = {
+                name,
+                open: false,
+                search: false,
+                convert: false,
+                recent: false,
+            };
+            results.push(result);
+            try {
+                await clickAsUser(session.page, '.tab-new');
+                const point = await session.page.evaluate(() => {
+                    const bounds = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"]')!.getBoundingClientRect();
+                    return {
+                        x: bounds.x + bounds.width / 2,
+                        y: bounds.y + bounds.height / 2,
+                    };
+                });
+                const data = {
+                    items: [],
+                    files: [inputPath],
+                    dragOperationsMask: 1,
+                };
+                await cdp.send('Input.dispatchDragEvent', {
+                    type: 'dragEnter',
+                    ...point,
+                    data,
+                });
+                await cdp.send('Input.dispatchDragEvent', {
+                    type: 'dragOver',
+                    ...point,
+                    data,
+                });
+                await cdp.send('Input.dispatchDragEvent', {
+                    type: 'drop',
+                    ...point,
+                    data,
+                });
+                await waitForActiveDocumentSource(session.page, inputPath, 60_000);
+                await waitForDjvuLoaded(session.page, 60_000);
+                expect((await readToolbarPageIndicator(session.page)).totalPagesText).toContain('2');
+                result.open = true;
+                // Dismiss the view-only hint before using the sidebar tabs.
+                await clickAsUser(session.page, '.editor-pane.is-active .djvu-banner-close');
+                await ensureSidebarOpen(session.page);
+                await openDocumentSidebarTab(session.page, 'Search');
+                await clickAsUser(session.page, '.editor-pane.is-active .document-search-bar input', {count: 3});
+                await session.page.keyboard.type('djvuwin');
+                await session.page.keyboard.press('Enter');
+                await session.page.waitForFunction(() => document.querySelector('.editor-pane.is-active .document-search-result')?.textContent?.includes('djvuwin'), {timeout: 30_000});
+                result.search = true;
+                await session.page.screenshot({path: join(evidenceRoot, `search-${names.indexOf(name)}.png`)});
+                await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
+                await session.page.waitForFunction((fileName: string) => !document.querySelector('.tab.is-active')?.textContent?.includes(fileName), {timeout: 10_000}, `${name}.djvu`);
+                await clickAsUser(session.page, '.tab-new');
+                await clickFoundAsUser(session.page, (source: string) => Array.from(document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"]')
+                    ?.querySelectorAll<HTMLElement>('.recent-row--data') ?? [])
+                    .find(row => row.dataset.recentSource === source)?.querySelector('button.recent-open'), inputPath, {
+                    description: 'Reopen the exact Unicode DjVu from Recent',
+                    timeoutMs: 30_000,
+                });
+                await waitForActiveDocumentSource(session.page, inputPath, 60_000);
+                await waitForDjvuLoaded(session.page, 60_000);
+                expect((await readToolbarPageIndicator(session.page)).totalPagesText).toContain('2');
+                result.recent = true;
+                rmSync(savePath, {force: true});
+                await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
+                await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
+                    .find(button => button.textContent?.trim() === 'Convert' && !button.disabled), null, {
+                    description: 'Convert the Unicode DjVu to PDF',
+                    timeoutMs: 60_000,
+                });
+                await waitForActiveDocumentSource(session.page, savePath, 180_000);
+                await waitForPdfLoaded(session.page, 60_000);
+                expect((await readPdfAnnotationIndex(savePath)).pageCount).toBe(2);
+                expect(readFileSync(savePath).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+                copyFileSync(savePath, join(evidenceRoot, `converted-${names.indexOf(name)}.pdf`));
+                result.convert = true;
+                expect(createHash('sha256').update(readFileSync(inputPath)).digest('hex')).toBe(hashBefore);
+                expect(listExportScratch(tempRoot)).toEqual([]);
+            } catch (error) {
+                result.error = String(error);
+                await session.page.screenshot({path: join(evidenceRoot, `failure-${names.indexOf(name)}.png`)}).catch(() => {});
+            }
+            writeFileSync(join(evidenceRoot, 'matrix.json'), JSON.stringify(results, null, 2));
+            console.log(JSON.stringify(result));
+        }
+        rmSync(textSource, {force: true});
+        rmSync(textPath, {force: true});
+        expect(results.filter(result => result.error)).toEqual([]);
+    }, 1_200_000);
+
 });

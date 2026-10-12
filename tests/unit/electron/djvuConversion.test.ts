@@ -9,7 +9,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import {toNamespacedPath} from 'node:path';
 
 type TMockListener = (...args: unknown[]) => void;
 
@@ -428,7 +427,7 @@ describe('convertDjvuToPdfFile', () => {
                 '-page=7',
                 '-mode=mask',
                 '/input.djvu',
-                toNamespacedPath('/mask.pbm'),
+                '/mask.pbm',
             ],
         });
     });

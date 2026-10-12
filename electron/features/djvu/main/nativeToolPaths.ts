@@ -1,6 +1,10 @@
 import { app } from 'electron';
 import { existsSync } from 'fs';
+import { randomUUID } from 'node:crypto';
 import {
+    copyFile,
+    link,
+    rename,
     symlink,
     unlink,
 } from 'fs/promises';
@@ -8,6 +12,7 @@ import {
     basename,
     dirname,
     join,
+    resolve,
 } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveNativeToolsBase } from '@electron/native-tools/resolveNativeToolsBase';
@@ -15,10 +20,15 @@ import {
     runNativeCommand,
     type IRunCommandOptions,
 } from '@electron/native-tools/runNativeCommand';
+import { isErrnoException } from '@contracts/runtimeGuards';
+import { getCommandDirectory } from '@electron/native-tools/toolRegistry';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
+import {
+    sweepStaleManagedScratchTempDirs,
+    usingManagedScratchScope,
+} from '@electron/utils/managedScratchTemp';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 
@@ -48,7 +58,7 @@ const DJVU_RESOURCE_NAME = 'djvulibre';
 // DjVuLibre on Windows opens its source with the ANSI file API, which stops at
 // MAX_PATH and does not accept the \\?\ form.
 const WINDOWS_MAX_PATH = 260;
-const SOURCE_FOLDER_ALIAS = 'source';
+
 const logger = createLogger('djvu-native-tools');
 
 function isElectronAppPackaged() {
@@ -143,13 +153,53 @@ export function getDjvuNativeToolPaths(): IDjvuNativeToolPaths {
     });
 }
 
+// ASCII is the common subset of every Windows ANSI code page. Aliasing all
+// other characters also covers machines whose locale differs from the user's.
+export function needsDjvuPathAlias(filePath: string, platform = process.platform) {
+    return platform === 'win32' && (filePath.length >= WINDOWS_MAX_PATH || /[^\x20-\x7e]/u.test(filePath));
+}
+
+async function getDjvuScratchRoot() {
+    const root = getAppTempDir();
+    // Reserve enough room for mkdtemp's suffix and the longest alias below.
+    const aliasSuffix = join('djvu-export-XXXXXX', 'output', `djvu-${'x'.repeat(36)}.tmp`);
+    if (!needsDjvuPathAlias(join(root, aliasSuffix))) {
+        return root;
+    }
+    // Node hands this environment value to PowerShell as UTF-16. No user path
+    // is interpolated into shell code, and a disabled 8.3 policy is harmless.
+    const shortPath = await runNativeCommand('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '$ErrorActionPreference="Stop"; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); '
+        + '(New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:EVB_DJVU_SCRATCH_ROOT).ShortPath',
+    ], {
+        env: {EVB_DJVU_SCRATCH_ROOT: root},
+        includeProcessEnv: true,
+        windowsHide: true,
+        timeoutMs: 15_000,
+    }).then(result => result.stdout.trim(), () => '');
+    if (shortPath && !needsDjvuPathAlias(join(shortPath, aliasSuffix))) {
+        return shortPath;
+    }
+    // Windows Temp allows each user to create private directories even when
+    // their profile and its temp root have no ASCII short name. Use the same
+    // managed markers, native-termination retention and stale sweep there.
+    const systemTemp = join(process.env.SystemRoot ?? 'C:\\Windows', 'Temp');
+    if (needsDjvuPathAlias(join(systemTemp, aliasSuffix))) {
+        throw new Error('No ASCII scratch root is available for Windows DjVuLibre');
+    }
+    await sweepStaleManagedScratchTempDirs(systemTemp);
+    return systemTemp;
+}
+
 /**
- * Runs a DjVuLibre tool whose `args[sourceIndex]` is the DjVu source. A Windows
- * source path too long for DjVuLibre is passed through a junction to its folder
- * in a managed scratch directory that lives only for this command. A child
- * whose exit was not proven keeps the junction and scratch while this app runs;
- * the general stale sweep removes them a day after the app is gone, which
- * checks age and the app's PID, not the native tree.
+ * Owns the ANSI filename boundary for all DjVuLibre commands. Windows inputs
+ * use a folder junction when the filename is ASCII, or a hard link (a copy
+ * only when linking is unavailable). Outputs use a junction to their managed
+ * destination folder and are renamed after a proven successful tool exit.
+ * Unproven native termination retains aliases under the managed scratch owner.
  */
 export async function runDjvuSourceCommand(
     command: string,
@@ -157,32 +207,82 @@ export async function runDjvuSourceCommand(
     sourceIndex: number,
     options: IRunCommandOptions = {},
 ) {
-    const sourcePath = args[sourceIndex];
-    if (process.platform !== 'win32' || sourcePath === undefined || sourcePath.length < WINDOWS_MAX_PATH) {
+    const requestedSource = args[sourceIndex];
+    if (process.platform !== 'win32' || requestedSource === undefined) {
         return runNativeCommand(command, args, options);
     }
-    const scratchRoot = getAppTempDir();
-    // mkdtemp appends six characters to the prefix.
-    if (join(scratchRoot, 'djvu-export-XXXXXX', SOURCE_FOLDER_ALIAS, basename(sourcePath)).length >= WINDOWS_MAX_PATH) {
-        throw new Error(`DjVu source path is too long for DjVuLibre: ${sourcePath}`);
+    const sourcePath = resolve(requestedSource);
+    // ddjvu's only other filename operand is its output, after the source.
+    // djvused/djvudump have no output operand in any of our calls.
+    const outputIndex = basename(command).toLowerCase().replace(/\.exe$/u, '') === 'ddjvu'
+        ? sourceIndex + 1 : -1;
+    const requestedOutput = args[outputIndex];
+    const outputPath = requestedOutput === undefined ? undefined : resolve(requestedOutput);
+    const commandDirectory = getCommandDirectory(command);
+    const cwd = resolve(options.cwd ?? (options.defaultCwdToCommandDir ? commandDirectory : null) ?? process.cwd());
+    // DjVuLibre also consults the ANSI working directory, even for absolute
+    // operands. A non-ASCII installation/profile must use the ASCII scope.
+    if (!needsDjvuPathAlias(sourcePath)
+        && (outputPath === undefined || !needsDjvuPathAlias(outputPath))
+        && !needsDjvuPathAlias(cwd)) {
+        return runNativeCommand(command, args, options);
     }
+    const scratchRoot = await getDjvuScratchRoot();
     return usingManagedScratchScope('djvu-export-', scratchRoot, async (scratchPath) => {
-        const sourceFolderAlias = join(scratchPath, SOURCE_FOLDER_ALIAS);
-        await symlink(dirname(sourcePath), sourceFolderAlias, 'junction');
-        const aliasArgs = args.map((arg, index) => index === sourceIndex
-            ? join(sourceFolderAlias, basename(sourcePath))
-            : arg);
-        // Unlinking removes only the junction, never the source folder's files.
-        const removeAlias = () => unlink(sourceFolderAlias).catch((error: unknown) => {
-            logger.warn(`Could not remove DjVu source junction "${sourceFolderAlias}": ${getErrorMessage(error)}`);
-        });
+        const aliasArgs = [...args];
+        aliasArgs[sourceIndex] = sourcePath;
+        if (outputPath !== undefined) aliasArgs[outputIndex] = outputPath;
+        const junctions: string[] = [];
+        let outputAlias: string | undefined;
+        const removeJunctions = () => Promise.all(junctions.map(alias => unlink(alias).catch((error: unknown) => {
+            logger.warn(`Could not remove DjVu junction "${alias}": ${getErrorMessage(error)}`);
+        })));
         try {
-            const result = await runNativeCommand(command, aliasArgs, options);
-            await removeAlias();
+            if (needsDjvuPathAlias(sourcePath)) {
+                const sourceFolderAlias = join(scratchPath, 'source');
+                if (!needsDjvuPathAlias(join(sourceFolderAlias, basename(sourcePath)))) {
+                    await symlink(dirname(resolve(sourcePath)), sourceFolderAlias, 'junction');
+                    junctions.push(sourceFolderAlias);
+                    aliasArgs[sourceIndex] = join(sourceFolderAlias, basename(sourcePath));
+                } else {
+                    const sourceAlias = join(scratchPath, 'input.djvu');
+                    await link(sourcePath, sourceAlias).catch(async (error: unknown) => {
+                        if (!isErrnoException(error) || ![
+                            'EXDEV',
+                            'EPERM',
+                            'EACCES',
+                            'ENOTSUP',
+                            'EMLINK',
+                        ].includes(String(error.code ?? ''))) {
+                            throw error;
+                        }
+                        await copyFile(sourcePath, sourceAlias);
+                    });
+                    aliasArgs[sourceIndex] = sourceAlias;
+                }
+            }
+            if (outputPath !== undefined && needsDjvuPathAlias(outputPath)) {
+                const outputFolderAlias = join(scratchPath, 'output');
+                await symlink(dirname(resolve(outputPath)), outputFolderAlias, 'junction');
+                junctions.push(outputFolderAlias);
+                // The temporary output stays on the destination volume, so the
+                // Unicode rename does not copy even a multi-gigabyte result.
+                outputAlias = join(outputFolderAlias, `djvu-${randomUUID()}.tmp`);
+                aliasArgs[outputIndex] = outputAlias;
+            }
+            const result = await runNativeCommand(commandDirectory ? resolve(command) : command, aliasArgs, {
+                ...options,
+                cwd: scratchPath,
+            });
+            if (outputAlias !== undefined && outputPath !== undefined) {
+                await rename(outputAlias, outputPath);
+            }
+            await removeJunctions();
             return result;
         } catch (error) {
             if (getUnprovenNativeTerminationDetail(error) === undefined) {
-                await removeAlias();
+                if (outputAlias !== undefined) await unlink(outputAlias).catch(() => {});
+                await removeJunctions();
             }
             throw error;
         }
