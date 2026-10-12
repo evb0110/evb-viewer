@@ -23,6 +23,7 @@ import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolve
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {decodePageSourceReferences} from '@contracts/pageOpsPlatformFeature';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {isRecord} from '@contracts/runtimeGuards';
 
 const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -59,7 +60,7 @@ function remapBookmarkItems(
     });
 }
 
-/** Resolve only unresolved source references, before qpdf renumbers objects. */
+/** Resolve accepted names and pending references before qpdf rewrites identities. */
 export async function resolvePageMetadataSourceTargets(
     metadata: IPageOpsMetadataSnapshot | undefined,
     sourcePath: string,
@@ -68,19 +69,16 @@ export async function resolvePageMetadataSourceTargets(
         cancelGroup: string
     },
 ): Promise<IPageOpsMetadataSnapshot | undefined> {
-    const wanted = new Set<string>();
-    const visit = (items: readonly IPdfBookmarkEntry[]) => {
-        for (const item of items) {
-            const target = item.originalDestination?.sourceTarget;
-            if (item.pageIndex === null && target && typeof target === 'object') wanted.add(`${target.num} ${target.gen}`);
-            visit(item.items);
-        }
-    };
-    visit(metadata?.bookmarks ?? []);
-    if (!metadata || wanted.size === 0) return metadata;
+    const needsResolution = (items: readonly IPdfBookmarkEntry[]): boolean => items.some(item => (
+        item.namedDest !== null
+        || (item.pageIndex === null && typeof item.originalDestination?.sourceTarget === 'object')
+        || needsResolution(item.items)
+    ));
+    if (!metadata || !needsResolution(metadata.bookmarks ?? [])) return metadata;
     const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
         '--json',
         '--json-key=pages',
+        '--json-key=qpdf',
         sourcePath,
     ], {
         ...options,
@@ -89,26 +87,69 @@ export async function resolvePageMetadataSourceTargets(
         rejectOnStdoutTruncation: true,
         commandLabel: 'qpdf(source-page-identities)',
     });
-    const indices = new Map<string, number>();
-    decodePageSourceReferences(JSON.parse(result.stdout)).forEach((reference, index) => {
-        const key = `${reference.num} ${reference.gen}`;
-        if (wanted.has(key)) indices.set(key, index);
-    });
+    const catalog: unknown = JSON.parse(result.stdout);
+    const indices = new Map(decodePageSourceReferences(catalog).map((reference, index) => [
+        `${reference.num} ${reference.gen} R`,
+        index,
+    ]));
+    const objects: Record<string, unknown> = isRecord(catalog) && Array.isArray(catalog.qpdf) && isRecord(catalog.qpdf[1])
+        ? catalog.qpdf[1] : {};
+    const dereference = (value: unknown): unknown => {
+        const visited = new Set<string>();
+        while (typeof value === 'string') {
+            const object = objects[`obj:${value}`];
+            if (!isRecord(object)) break;
+            if (visited.has(value)) return undefined;
+            visited.add(value);
+            value = object.value;
+        }
+        return value;
+    };
+    const trailer = isRecord(objects.trailer) ? objects.trailer.value : null;
+    const root = isRecord(trailer) ? dereference(trailer['/Root']) : null;
+    const destinations = new Map<string, unknown>();
+    const legacy = isRecord(root) ? dereference(root['/Dests']) : null;
+    if (isRecord(legacy)) for (const [
+        name,
+        value,
+    ] of Object.entries(legacy)) destinations.set(name.slice(1), value);
+    const names = isRecord(root) ? dereference(root['/Names']) : null;
+    const pending = isRecord(names) ? [names['/Dests']] : [];
+    const visited = new Set<object>();
+    while (pending.length) {
+        const node = dereference(pending.pop());
+        if (!isRecord(node) || visited.has(node)) continue;
+        visited.add(node);
+        const entries = dereference(node['/Names']);
+        if (Array.isArray(entries)) for (let i = 0; i + 1 < entries.length; i += 2) {
+            const key = dereference(entries[i]);
+            if (typeof key === 'string' && key.startsWith('u:') && !destinations.has(key.slice(2))) destinations.set(key.slice(2), entries[i + 1]);
+        }
+        const kids = dereference(node['/Kids']);
+        if (Array.isArray(kids)) for (const kid of kids) pending.push(kid);
+    }
+    const namedTarget = (name: string): unknown => {
+        let destination = dereference(destinations.get(name));
+        if (isRecord(destination)) destination = dereference(destination['/D']);
+        return Array.isArray(destination) ? destination[0] : undefined;
+    };
     const resolve = (items: readonly IPdfBookmarkEntry[]): IPdfBookmarkEntry[] => items.flatMap(item => {
         const children = resolve(item.items);
         const target = item.originalDestination?.sourceTarget;
-        if (item.pageIndex !== null || !target || typeof target !== 'object') return [{
+        const reference = item.namedDest !== null ? namedTarget(item.namedDest)
+            : item.pageIndex === null && target && typeof target === 'object' ? `${target.num} ${target.gen} R` : undefined;
+        if (reference === undefined) return [{
             ...item,
             items: children,
         }];
-        const index = indices.get(`${target.num} ${target.gen}`);
+        const index = typeof reference === 'string' ? indices.get(reference) : undefined;
         return index === undefined ? children : [{
             ...item,
             pageIndex: requirePageIndex(index),
-            originalDestination: {
+            ...(item.originalDestination ? {originalDestination: {
                 ...item.originalDestination,
                 sourceTarget: index,
-            },
+            }} : {}),
             items: children,
         }];
     });

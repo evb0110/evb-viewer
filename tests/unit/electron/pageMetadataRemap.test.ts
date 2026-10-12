@@ -125,6 +125,62 @@ describe('page metadata remap', () => {
         expect(deleted.bookmarks?.items[0]?.originalDestination?.sourceTarget).toBe(0);
     });
 
+    it('resolves an accepted name from the source catalog before deleting its page', async () => {
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stdout: JSON.stringify({
+                pages: [
+                    {object: '6 0 R'},
+                    {object: '7 0 R'},
+                    {object: '8 0 R'},
+                ],
+                qpdf: [
+                    {jsonversion: 2},
+                    {
+                        'obj:1 0 R': {value: {
+                            '/Type': '/Catalog',
+                            '/Dests': {'/chapter-two': [
+                                '8 0 R',
+                                '/FitH',
+                                null,
+                            ]},
+                        }},
+                        trailer: {value: {'/Root': '1 0 R'}},
+                    },
+                ],
+            }),
+            stderr: '',
+            exitCode: 0,
+        });
+        const source = await resolvePageMetadataSourceTargets({
+            bookmarks: [{
+                ...bookmark('Removed', null, [bookmark('Child', 0)]),
+                namedDest: 'chapter-two',
+            }],
+            untitledBookmarkLabel: 'Untitled',
+        }, '/source.pdf', {
+            signal: new AbortController().signal,
+            cancelGroup: 'test',
+        });
+        expect(source?.bookmarks?.[0]?.pageIndex).toBe(2);
+        const removed = remapPageMetadata(source!, {
+            previousPageCount: 3,
+            pages: [
+                {fromPageNumber: 1},
+                {fromPageNumber: 2},
+            ],
+        });
+        expect(removed.bookmarks?.items.map(item => item.title)).toEqual(['Child']);
+        const identity = remapPageMetadata(source!, {
+            previousPageCount: 3,
+            pages: [
+                {fromPageNumber: 1},
+                {fromPageNumber: 2},
+                {fromPageNumber: 3},
+            ],
+        });
+        expect(identity.bookmarks?.items[0]?.namedDest).toBe('chapter-two');
+    });
+
     it('remaps exact labels and bookmark destinations through reorder/delete/insert', () => {
         const result = remapPageMetadata({
             pageLabels: [

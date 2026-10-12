@@ -122,6 +122,68 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.screenshot({path: join(evidence, 'reopened.png')});
     }, 90_000);
 
+    it('review-b6yh removes an accepted named destination when its page is deleted', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`named-replacement-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        const importedOutline = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict);
+        importedOutline.lookup(PDFName.of('First'), PDFDict).set(PDFName.of('Dest'), pdf.context.obj([
+            pdf.getPages()[0]!.ref,
+            PDFName.of('FitH'),
+            null,
+        ]));
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [
+            pdf.getPages()[2]!.ref,
+            PDFName.of('FitH'),
+            null,
+        ]}));
+        await writeFile(fixture, await pdf.save());
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await activateBookmark(page, 'Imported');
+        await waitForToolbarCurrentPage(page, 1);
+        const previousTarget = await callWorkspaceCommand<{bookmarks: Array<{pageIndex: number | null}>}>(page, 'runAgentAction', [
+            'bookmarks.update',
+            {
+                path: [0],
+                page: 1,
+            },
+        ]);
+        expect(previousTarget.value?.bookmarks[0]?.pageIndex).toBe(0);
+        const result = await callWorkspaceCommand<{ok: boolean}>(page, 'runAgentAction', [
+            'bookmarks.update',
+            {
+                path: [0],
+                namedDest: 'chapter-two',
+            },
+        ]);
+        expect(result.value?.ok).toBe(true);
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickAsUser(page, '[data-thumbnail-page="3"]', {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete named bookmark target'});
+        await waitForFunctionInPage(page, () => document.querySelector('[data-thumbnail-page="3"]') === null, {timeout: 30_000});
+        await waitForPdfLoaded(page);
+        await saveViaVisibleToolbar(page, 90_000, fixture);
+        const saved = await PDFDocument.load(await readFile(fixture));
+        const catalog = await readPdfMetadataWithQpdf(fixture);
+        const pageRefs=saved.getPages().map(page=>page.ref.toString());
+        const dests=saved.catalog.lookupMaybe(PDFName.of('Dests'),PDFDict);
+        const named=dests?.lookupMaybe(PDFName.of('chapter-two'),PDFArray);
+        const target=named?.get(0)?.toString();
+        console.info('REVIEW_NAMED_DELETE '+JSON.stringify({
+            outlines:catalog.outlines,
+            pageRefs,
+            target,
+        }));
+        const evidence=await mkdtemp(join(tmpdir(),'evb-named-delete-'));
+        await copyFile(fixture,join(evidence,'saved.pdf'));
+        await page.screenshot({path:join(evidence,'after-delete.png')});
+        console.info('Named deletion evidence: '+evidence);
+        expect(catalog.outlines.some(item=>item.title==='Imported') && (!target || !pageRefs.includes(target)), 'No saved bookmark should name a removed page').toBe(false);
+    }, 90_000);
+
     it('keeps destination kinds and null coordinates when renaming a large outline', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`destination-fidelity-${Date.now()}.pdf`, []);
         const pdf = await PDFDocument.load(await readFile(fixture));
