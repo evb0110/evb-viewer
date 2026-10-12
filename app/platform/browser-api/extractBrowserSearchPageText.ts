@@ -121,7 +121,11 @@ export async function extractBrowserSearchPageData(
                 pageWidth: pageBox.pageWidth,
                 pageHeight: pageBox.pageHeight,
             };
-            if (hasUsableGeometry(pageData)) {
+            // Operator-list glyphs are in paint order. For bidi text, use the
+            // same PDF.js logical items as the rendered text layer and let its
+            // existing range mapping supply geometry, including mixed runs.
+            if (hasUsableGeometry(pageData)
+                && !/[\u0590-\u08AC\uFB1D-\uFDFF\uFE70-\uFEFF]/u.test(pageData.text)) {
                 return pageData;
             }
         }
