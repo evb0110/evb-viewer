@@ -11,13 +11,17 @@ import {
 import {
     basename,
     dirname,
+    extname,
     isAbsolute,
     join,
     resolve,
 } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import { atomicReplace } from '@electron/utils/atomicReplace';
+import {
+    atomicReplace,
+    moveFileToMissingPath,
+} from '@electron/utils/atomicReplace';
 import {
     isSameFileIdentity,
     readFileIdentity,
@@ -290,66 +294,86 @@ function parseManagedScratchRecordLine(line: string): TManagedScratchRecordEntry
     return value.kind === 'complete' ? {kind: 'complete'} : null;
 }
 
-export type TPublishedTargetOutcome = 'changed' | 'discarded' | 'gone' | 'removed' | 'restored';
+// A target someone changed after the export keeps that change. Its original
+// moves from the hidden backup to "<name> (original)" beside it, where the
+// person finds it next to the file it belongs to. The move never replaces a
+// file that took the name meanwhile.
+async function keepOriginalBeside(target: string, backupPath: string) {
+    const extension = extname(target);
+    const stem = target.slice(0, target.length - extension.length);
+    let keptPath = `${stem} (original)${extension}`;
+    for (let copy = 2; (await readFileIdentity(keptPath)) !== null; copy += 1) {
+        keptPath = `${stem} (original ${copy})${extension}`;
+    }
+    await moveFileToMissingPath(backupPath, keptPath);
+    return keptPath;
+}
 
-// Settles one target that an export published, or was about to publish. A backup
-// goes back over a target the export replaced, or over a missing target, with the
-// rename the rollback uses. A backup whose target still has its original is only
-// a copy and is discarded. A target the export made new is removed. Anything else
-// was changed by someone else, so nothing is touched. The in-process rollback and
-// the startup recovery both settle through here.
+// Settles one target that an export published, or was about to publish, and
+// returns where its original is kept when it stays beside the target. A backup
+// goes back over a target the export replaced, or over a missing target. A
+// backup whose target still has its original is only a copy and is discarded.
+// A target the export made new is removed. A target someone else changed is
+// left alone. The in-process rollback and the startup recovery both settle
+// through here, so a replay after either finds nothing left to do.
 export async function settlePublishedTarget(
     target: string,
     backupPath: string | null,
     original: IFileIdentity | null,
     published: IFileIdentity | null,
-): Promise<TPublishedTargetOutcome> {
+): Promise<string | null> {
     const current = await readFileIdentity(target);
     // Only a file that still has the identity the export published is the export's.
     // Null means nothing was published, so an edited target is never overwritten.
     const owned = isSameFileIdentity(current, published);
-    if (backupPath !== null) {
+    if (backupPath === null) {
+        if (owned) {
+            await rm(target, {force: true});
+        }
+        return null;
+    }
+    if ((await readFileIdentity(backupPath)) === null) {
+        // No copy was made, or it already went back. Only a replaced or missing
+        // target still needs it.
         if (current === null || owned) {
-            if ((await readFileIdentity(backupPath)) === null) {
-                throw new Error(`Backup is missing: ${backupPath}`);
-            }
-            await atomicReplace(backupPath, target);
-            return 'restored';
+            throw new Error(`Backup is missing: ${backupPath}`);
         }
-        if (isSameFileIdentity(current, original)) {
-            await rm(backupPath, {force: true});
-            return 'discarded';
-        }
-        return 'changed';
+        return null;
     }
-    if (current === null) {
-        return 'gone';
+    if (current === null || owned) {
+        await atomicReplace(backupPath, target);
+        return null;
     }
-    if (!owned) {
-        return 'changed';
+    if (isSameFileIdentity(current, original)) {
+        await rm(backupPath, {force: true});
+        return null;
     }
-    await rm(target, {force: true});
-    return 'removed';
+    return keepOriginalBeside(target, backupPath);
 }
 
-// A dead owner's record is applied whatever the age of its scratch. Only complete
-// lines count, since a crash can cut the last append short. Stages and writer
-// temporaries are removed. A completed export keeps its published files and
-// loses its backups. An unfinished export is rolled back: each replaced target
-// gets its original back, and each new target is removed. A record stays when an
-// action fails, so the next start tries again.
+// Applies a record and returns whether it is settled: absent, or applied in
+// full. Only complete lines count, since a crash can cut the last append short;
+// any other unreadable line keeps the whole record untouched, so a backup is
+// never mistaken for a new target. Stages and writer temporaries are removed. A
+// completed export keeps its published files and loses its backups. An
+// unfinished export is rolled back: each replaced target gets its original
+// back, and each new target is removed. A record stays when an action fails.
 async function applyManagedScratchRecord(scratchPath: string) {
     const recordPath = join(scratchPath, MANAGED_SCRATCH_RECORD_FILE);
-    const text = await readFile(recordPath, 'utf8').catch(() => null);
-    if (text === null) {
-        return;
-    }
-    const entries: TManagedScratchRecordEntry[] = [];
-    for (const line of text.split('\n').slice(0, -1)) {
-        const entry = parseManagedScratchRecordLine(line);
-        if (entry) {
-            entries.push(entry);
+    let text: string;
+    try {
+        text = await readFile(recordPath, 'utf8');
+    } catch (error) {
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return true;
         }
+        logger.warn(`Keeping managed scratch record "${recordPath}": ${getErrorMessage(error)}`);
+        return false;
+    }
+    const entries = text.split('\n').slice(0, -1).map(parseManagedScratchRecordLine);
+    if (!entries.every((entry): entry is TManagedScratchRecordEntry => entry !== null)) {
+        logger.warn(`Keeping managed scratch record "${recordPath}": a line is unreadable, so none is applied`);
+        return false;
     }
     const complete = entries.some(entry => entry.kind === 'complete');
     const publishes = new Map<string, IManagedScratchPublishEntry>();
@@ -382,9 +406,9 @@ async function applyManagedScratchRecord(scratchPath: string) {
                     return;
                 }
                 const publish = publishes.get(entry.target);
-                const outcome = await settlePublishedTarget(entry.target, entry.path, entry.original, publish?.published ?? null);
-                if (outcome === 'changed') {
-                    logger.warn(`Kept backup "${entry.path}": "${entry.target}" changed after the export`);
+                const keptPath = await settlePublishedTarget(entry.target, entry.path, entry.original, publish?.published ?? null);
+                if (keptPath) {
+                    logger.warn(`Kept the original of "${entry.target}" at "${keptPath}": the file changed after the export`);
                 }
             });
         } else if (entry.kind === 'publish' && !complete && !backedUp.has(entry.target)) {
@@ -392,16 +416,19 @@ async function applyManagedScratchRecord(scratchPath: string) {
         }
     }
     if (settled) {
-        await rm(recordPath, {force: true});
+        await attempt(recordPath, () => rm(recordPath, {force: true}));
     }
+    return settled;
 }
 
 /**
  * Runs `run` in a fresh managed scratch directory and removes it afterwards,
  * unless `run` failed while a native child it started may still be alive: the
  * child may still read or write there, so the directory stays for the stale
- * sweep. A failed removal also leaves it to the sweep instead of replacing the
- * outcome of `run`.
+ * sweep. Otherwise its record is applied first, and a record that is not
+ * settled keeps the directory, so the next start can still recover the
+ * originals it names. A failed removal also leaves it to the sweep instead of
+ * replacing the outcome of `run`.
  */
 export async function usingManagedScratchScope<T>(
     prefix: TManagedScratchPrefix,
@@ -416,7 +443,11 @@ export async function usingManagedScratchScope<T>(
         unprovenTermination = getUnprovenNativeTerminationDetail(error);
         throw error;
     } finally {
-        const keepReason = unprovenTermination ?? await rm(scratchPath, {
+        let keepReason = unprovenTermination;
+        if (keepReason === undefined && !(await applyManagedScratchRecord(scratchPath))) {
+            keepReason = 'its record is not settled';
+        }
+        keepReason ??= await rm(scratchPath, {
             force: true,
             recursive: true,
         }).then(() => undefined, (error: unknown) => `removal failed: ${getErrorMessage(error)}`);
@@ -454,7 +485,10 @@ export async function sweepStaleManagedScratchTempDirs(
             if (!marker || !entry.startsWith(marker.prefix) || isProcessAlive(marker.pid)) {
                 continue;
             }
-            await applyManagedScratchRecord(scratchPath);
+            // An unsettled record keeps its scratch whatever its age.
+            if (!(await applyManagedScratchRecord(scratchPath))) {
+                continue;
+            }
 
             // Date.now() has integer-millisecond precision, while filesystem
             // timestamps can retain a fractional millisecond. Compare both

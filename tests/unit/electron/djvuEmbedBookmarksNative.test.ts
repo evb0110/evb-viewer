@@ -64,16 +64,18 @@ vi.mock('fs/promises', () => ({
     }),
     copyFile: mocks.copyFile,
     mkdtemp: mocks.mkdtemp,
-    readFile: (path: string, ...args: unknown[]) => path.endsWith('.evb-managed-scratch.json')
-        ? Promise.resolve(JSON.stringify({
-            createdAt: 0,
-            pid: process.pid,
-            prefix: 'pdf-page-ops-',
-        }))
-        : Reflect.apply(mocks.readFile, undefined, [
-            path,
-            ...args,
-        ]),
+    readFile: (path: string, ...args: unknown[]) => path.endsWith('.evb-scratch-record')
+        ? Promise.reject(Object.assign(new Error('no scratch record'), {code: 'ENOENT'}))
+        : path.endsWith('.evb-managed-scratch.json')
+            ? Promise.resolve(JSON.stringify({
+                createdAt: 0,
+                pid: process.pid,
+                prefix: 'pdf-page-ops-',
+            }))
+            : Reflect.apply(mocks.readFile, undefined, [
+                path,
+                ...args,
+            ]),
     rm: mocks.rm,
     stat: mocks.stat,
     writeFile: mocks.writeFile,

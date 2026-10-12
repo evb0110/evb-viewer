@@ -434,15 +434,17 @@ export interface IStagedImageFile {
     targetPath: string;
 }
 
+// One publication, as the scratch record names it, so the rollback and the
+// startup recovery settle it the same way.
 interface IStagedFilePublication {
     targetPath: string;
     backupPath: string | null;
-    targetIdentity: IFileIdentity | null;
+    original: IFileIdentity | null;
+    published: IFileIdentity | null;
 }
 
 export interface IStagedFilePublicationLedger {
     promotedFiles: IStagedFilePublication[];
-    backupPaths: string[];
     // Where backups and publications are recorded, so a crash can roll them back.
     scratchPath: string | null;
 }
@@ -450,69 +452,61 @@ export interface IStagedFilePublicationLedger {
 export function createStagedFilePublicationLedger(scratchPath: string | null = null): IStagedFilePublicationLedger {
     return {
         promotedFiles: [],
-        backupPaths: [],
         scratchPath,
     };
 }
 
+// A settled publication leaves the ledger; one that fails stays in it and in
+// the scratch record, which the managed scratch owner then keeps for the next start.
 export async function rollbackStagedFilePublications(ledger: IStagedFilePublicationLedger) {
     const rollbackFailures: Error[] = [];
-    const restoredBackups = new Set<string>();
+    const retainedBackups: string[] = [];
     for (const promotedFile of [...ledger.promotedFiles].reverse()) {
         const {
             targetPath, backupPath,
         } = promotedFile;
         try {
-            const outcome = await settlePublishedTarget(targetPath, backupPath, null, promotedFile.targetIdentity);
-            if (outcome === 'restored' && backupPath) {
-                restoredBackups.add(backupPath);
-            } else if (outcome === 'changed') {
-                rollbackFailures.push(new Error(backupPath
-                    ? `Refusing to restore ${targetPath} after external modification`
-                    : `Refusing to remove ${targetPath} after external modification`));
+            const keptPath = await settlePublishedTarget(targetPath, backupPath, promotedFile.original, promotedFile.published);
+            ledger.promotedFiles.splice(ledger.promotedFiles.indexOf(promotedFile), 1);
+            if (keptPath) {
+                retainedBackups.push(keptPath);
+                rollbackFailures.push(new Error(`${targetPath} changed during the export`));
             }
         } catch (error) {
+            if (backupPath) retainedBackups.push(backupPath);
             rollbackFailures.push(new Error(backupPath
                 ? `Failed to restore ${targetPath} from ${backupPath}`
                 : `Failed to remove partially promoted ${targetPath}`, {cause: error}));
         }
     }
-    const retainedBackups = ledger.backupPaths.filter(backupPath => !restoredBackups.has(backupPath));
-    if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
+    if (rollbackFailures.length > 0) {
         const backupMessage = retainedBackups.length > 0
             ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
             : '';
         throw aggregateErrorsKeepingUnprovenTermination(rollbackFailures, `Image export rollback failed.${backupMessage}`);
     }
-    ledger.promotedFiles.length = 0;
-    ledger.backupPaths.length = 0;
 }
 
 export async function commitStagedFilePublications(ledger: IStagedFilePublicationLedger) {
     // Written after the last publication and before any backup is removed.
     await recordManagedScratchComplete(ledger.scratchPath);
-    await Promise.all(ledger.backupPaths.map(backupPath => rm(backupPath, {force: true}).catch(() => undefined)));
+    await Promise.all(ledger.promotedFiles.flatMap(file => file.backupPath ?? [])
+        .map(backupPath => rm(backupPath, {force: true}).catch(() => undefined)));
     ledger.promotedFiles.length = 0;
-    ledger.backupPaths.length = 0;
 }
 
+// A shared ledger collects this batch for its owner to commit or roll back. A
+// scratch path, or none, commits the batch here, inside its rollback boundary.
 export async function promoteStagedFiles(
     stagedFiles: IStagedImageFile[],
     signal?: AbortSignal,
-    ledger?: IStagedFilePublicationLedger,
+    publication: IStagedFilePublicationLedger | string | null = null,
 ) {
-    const scratchPath = ledger?.scratchPath ?? null;
-    const promotedFiles: IStagedFilePublication[] = [];
-    const backupPaths: string[] = [];
-    const batchLedger = {
-        promotedFiles,
-        backupPaths,
-        scratchPath: null,
-    };
-    let pendingBackupPath: string | null = null;
-    let pendingReplacementAttempted = false;
+    const sharedLedger = typeof publication === 'string' ? null : publication;
+    const batchLedger = createStagedFilePublicationLedger(typeof publication === 'string' ? publication : publication?.scratchPath);
+    const {scratchPath} = batchLedger;
     try {
-        const targetPaths = new Set(ledger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
+        const targetPaths = new Set(sharedLedger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
         for (const file of stagedFiles) {
             const targetPath = normalizePathForLookup(file.targetPath);
             if (targetPaths.has(targetPath)) {
@@ -526,74 +520,47 @@ export async function promoteStagedFiles(
         for (const stagedFile of stagedFiles) {
             throwIfAborted(signal);
             const original = await readFileIdentity(stagedFile.targetPath);
-            const backupPath = original ? makeSiblingTempPath(stagedFile.targetPath) : null;
-            pendingBackupPath = backupPath;
-            pendingReplacementAttempted = false;
-            if (backupPath && original) {
-                const temporaryPath = makeSiblingTempPath(backupPath);
-                await recordManagedScratchBackup(scratchPath, backupPath, stagedFile.targetPath, original);
+            const promotedFile: IStagedFilePublication = {
+                targetPath: stagedFile.targetPath,
+                backupPath: original ? makeSiblingTempPath(stagedFile.targetPath) : null,
+                original,
+                published: null,
+            };
+            batchLedger.promotedFiles.push(promotedFile);
+            if (promotedFile.backupPath && original) {
+                const temporaryPath = makeSiblingTempPath(promotedFile.backupPath);
+                await recordManagedScratchBackup(scratchPath, promotedFile.backupPath, stagedFile.targetPath, original);
                 await recordManagedScratchPath(scratchPath, 'writer', temporaryPath);
-                await copyFileAtomic(stagedFile.targetPath, backupPath, {
+                await copyFileAtomic(stagedFile.targetPath, promotedFile.backupPath, {
                     durable: true,
                     temporaryPath,
                 });
-                backupPaths.push(backupPath);
             }
             throwIfAborted(signal);
-            pendingReplacementAttempted = true;
             const published = await readFileIdentity(stagedFile.stagedPath);
             if (!published) throw new Error(`Image export staged output is missing: ${stagedFile.stagedPath}`);
+            promotedFile.published = published;
             await recordManagedScratchPublish(scratchPath, stagedFile.targetPath, published);
             await atomicReplace(stagedFile.stagedPath, stagedFile.targetPath);
-            promotedFiles.push({
-                targetPath: stagedFile.targetPath,
-                backupPath,
-                targetIdentity: null,
-            });
-            const promotedFile = promotedFiles.at(-1);
-            if (!promotedFile) throw new Error('Image export publication record is missing');
-            promotedFile.targetIdentity = await readFileIdentity(stagedFile.targetPath);
-            pendingBackupPath = null;
-            pendingReplacementAttempted = false;
+            promotedFile.published = await readFileIdentity(stagedFile.targetPath);
         }
         throwIfAborted(signal);
+        if (!sharedLedger) {
+            await commitStagedFilePublications(batchLedger);
+        }
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
-        if (pendingBackupPath && !pendingReplacementAttempted) {
-            await rm(pendingBackupPath, {force: true}).catch(() => undefined);
-            const pendingBackupIndex = backupPaths.indexOf(pendingBackupPath);
-            if (pendingBackupIndex >= 0) backupPaths.splice(pendingBackupIndex, 1);
-        }
-        const rollbackFailures: Error[] = [];
         try {
             await rollbackStagedFilePublications(batchLedger);
         } catch (rollbackError) {
-            if (rollbackError instanceof AggregateError) {
-                rollbackFailures.push(...rollbackError.errors.filter((entry): entry is Error => entry instanceof Error));
-            } else {
-                rollbackFailures.push(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
-            }
-        }
-        const retainedBackups = backupPaths;
-        if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
-            const primaryMessage = getErrorMessage(error);
-            const backupMessage = retainedBackups.length > 0
-                ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
-                : '';
             throw aggregateErrorsKeepingUnprovenTermination([
                 error,
-                ...rollbackFailures,
-            ], `Image export promotion failed: ${primaryMessage}.${backupMessage}`);
+                rollbackError,
+            ], `Image export promotion failed: ${getErrorMessage(error)}. ${getErrorMessage(rollbackError)}`);
         }
         throw error;
     }
-
-    if (ledger) {
-        ledger.promotedFiles.push(...promotedFiles);
-        ledger.backupPaths.push(...backupPaths);
-        return;
-    }
-    await commitStagedFilePublications(batchLedger);
+    sharedLedger?.promotedFiles.push(...batchLedger.promotedFiles);
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -1120,9 +1087,7 @@ export async function exportPdfPagesAsImages(
                     throw new Error('PDF image export did not render every planned page');
                 }
                 await options.beforePublish?.();
-                const publication = createStagedFilePublicationLedger(stageDir);
-                await promoteStagedFiles(stagedFiles, options.signal, publication);
-                await commitStagedFilePublications(publication);
+                await promoteStagedFiles(stagedFiles, options.signal, stageDir);
             } catch (error) {
                 await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
                 throw error;
@@ -1359,9 +1324,7 @@ export async function exportPdfAsMultiPageTiff(
                 });
                 throwIfAborted(options.signal);
                 await options.beforePublish?.();
-                const publication = createStagedFilePublicationLedger(tempDir);
-                await promoteStagedFiles(stagedFiles, options.signal, publication);
-                await commitStagedFilePublications(publication);
+                await promoteStagedFiles(stagedFiles, options.signal, tempDir);
                 for (const outputPath of outputPaths) {
                     if (!existsSync(outputPath)) {
                         throw new Error('Multi-page TIFF export did not produce an output file');

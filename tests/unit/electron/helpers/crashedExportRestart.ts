@@ -3,6 +3,7 @@ import {
     readdirSync,
 } from 'node:fs';
 import {
+    chmod,
     readFile,
     readdir,
     writeFile,
@@ -30,4 +31,12 @@ export async function restartAfterCrash(appTempRoot: string) {
         }
     }
     await sweepStaleManagedScratchTempDirs(appTempRoot, 0);
+}
+
+// An append hook that fails the completion line as a full or read-only scratch
+// would: the record turns read-only just before it, so the filesystem refuses it.
+export async function refuseCompletionAppend(path: string, data: string) {
+    if (data.includes('"kind":"complete"')) {
+        await chmod(path, 0o444);
+    }
 }

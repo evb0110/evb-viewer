@@ -429,9 +429,7 @@ export async function exportDjvuAsMultiPageTiff(
             });
             throwIfAborted(options.signal);
             await options.beforePublish?.();
-            const publication = createStagedFilePublicationLedger(tempDirectory);
-            await promoteStagedFiles(stagedFiles, options.signal, publication);
-            await commitStagedFilePublications(publication);
+            await promoteStagedFiles(stagedFiles, options.signal, tempDirectory);
             promoted = true;
             options.onProgress?.({
                 phase: 'combining',

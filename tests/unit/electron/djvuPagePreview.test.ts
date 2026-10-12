@@ -65,7 +65,13 @@ vi.mock('fs/promises', () => ({
     })),
     mkdtemp: mocks.mkdtemp,
     open: mocks.open,
-    readFile: mocks.readFile,
+    // The scope's recovery record: these previews never write one.
+    readFile: (path: string, ...args: unknown[]) => path.endsWith('.evb-scratch-record')
+        ? Promise.reject(Object.assign(new Error('no scratch record'), {code: 'ENOENT'}))
+        : Reflect.apply(mocks.readFile, undefined, [
+            path,
+            ...args,
+        ]),
     rm: mocks.rm,
     stat: mocks.stat,
 }));

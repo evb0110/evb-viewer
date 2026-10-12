@@ -225,7 +225,7 @@ describe('managed scratch temp cleanup', () => {
             kind: 'stage',
             path,
         });
-        await writeFile(join(ownerPath, '.evb-scratch-record'), `${stageEntry(stagePath)}\n${stageEntry(reportPath)}\n${stageEntry(truncatedPath)}`, 'utf8');
+        await writeFile(join(ownerPath, '.evb-scratch-record'), `${stageEntry(stagePath)}\n${stageEntry(truncatedPath)}`, 'utf8');
 
         await sweepStaleManagedScratchTempDirs(mocks.appTempDir);
 
@@ -233,6 +233,44 @@ describe('managed scratch temp cleanup', () => {
         expect(existsSync(reportPath)).toBe(true);
         expect(existsSync(unrecordedPath)).toBe(true);
         expect(existsSync(truncatedPath)).toBe(true);
+    });
+
+    it.each([
+        [
+            'a name that is not a stage',
+            (path: string) => JSON.stringify({
+                kind: 'stage',
+                path: join(path, 'report.pdf'),
+            }),
+        ],
+        [
+            'a corrupt line',
+            () => '{"kind":"stage","path":',
+        ],
+    ])('keeps a dead owner\'s whole record and everything it names when a complete line holds %s', async (_label, unreadableLine) => {
+        const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+        await writeFile(join(ownerPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+            createdAt: 0,
+            pid: 2_147_483_647,
+            prefix: 'pdfExport-',
+        })}\n`, 'utf8');
+        const folder = join(mocks.appTempDir, 'destination');
+        await mkdir(folder);
+        const stagePath = join(folder, '.0123456789abcdef.tmp');
+        await writeFile(stagePath, 'x', 'utf8');
+        await writeFile(join(folder, 'report.pdf'), 'report', 'utf8');
+        const recordPath = join(ownerPath, '.evb-scratch-record');
+        await writeFile(recordPath, `${JSON.stringify({
+            kind: 'stage',
+            path: stagePath,
+        })}\n${unreadableLine(folder)}\n`, 'utf8');
+
+        await expect(sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0)).resolves.toBe(0);
+
+        expect(existsSync(stagePath)).toBe(true);
+        await expect(readFile(join(folder, 'report.pdf'), 'utf8')).resolves.toBe('report');
+        expect(existsSync(recordPath)).toBe(true);
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining(recordPath));
     });
 
     it('leaves the stages recorded by a live owner alone', async () => {
