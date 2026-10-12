@@ -133,12 +133,11 @@ struct FullPageImage {
     height_points: f64,
 }
 
-fn resolved_dictionary<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Dictionary> {
-    match object {
-        Object::Dictionary(dictionary) => Some(dictionary),
-        Object::Reference(id) => document.get_dictionary(*id).ok(),
-        _ => None,
-    }
+pub(crate) fn resolved_dictionary<'a>(
+    document: &'a Document,
+    object: &'a Object,
+) -> Option<&'a Dictionary> {
+    document.resolved(object).ok()?.as_dict().ok()
 }
 
 fn collect_image_dimensions(

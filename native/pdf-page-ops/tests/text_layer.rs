@@ -525,6 +525,56 @@ fn save_identity_overlay_target(input: &Path, instructions: &Path) {
 }
 
 #[test]
+fn overlay_without_annotations_preserves_absent_and_empty_page_arrays() {
+    let source = path("no-annotations-source", "pdf");
+    let input = path("no-annotations-input", "pdf");
+    let output = path("no-annotations-output", "pdf");
+    let instructions = path("no-annotations-plan", "json");
+    save_empty_pages(&source, 2);
+    let mut target = save_pages(&input, (0..2).map(|_| None), Dictionary::new());
+    let empty_page = target.get_pages()[&2];
+    let empty_array = target.add_object(Object::Array(Vec::new()));
+    target
+        .get_dictionary_mut(empty_page)
+        .unwrap()
+        .set("Annots", empty_array);
+    target.save(&input).unwrap();
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0]},{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}]}"#,
+    )
+    .unwrap();
+
+    let result = run_overlay_text(&input, &source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    let pages = saved.get_pages();
+    assert!(
+        !saved.get_dictionary(pages[&1]).unwrap().has(b"Annots"),
+        "an unannotated page must not gain an empty /Annots array"
+    );
+    let existing = saved
+        .get_dictionary(pages[&2])
+        .unwrap()
+        .get(b"Annots")
+        .unwrap();
+    assert!(saved
+        .dereference(existing)
+        .unwrap()
+        .1
+        .as_array()
+        .unwrap()
+        .is_empty());
+    for file in [source, input, output, instructions] {
+        remove_file(file).unwrap();
+    }
+}
+
+#[test]
 fn overlay_text_repairs_visual_order_without_changing_glyph_positions() {
     let source = path("bidi-text-source", "pdf");
     let input = path("bidi-text-input", "pdf");

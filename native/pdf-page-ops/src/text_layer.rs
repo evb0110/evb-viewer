@@ -1,4 +1,5 @@
 use super::*;
+use crate::page_sizes::resolved_dictionary;
 use crate::split_pages::validate_crop_rect;
 use lopdf::{
     content::{Content, Operation as ContentOperation},
@@ -8,10 +9,6 @@ use std::{collections::VecDeque, rc::Rc};
 
 const MAX_TEXT_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_OBJECT_GRAPH_DEPTH: usize = 128;
-fn resolved_dictionary<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Dictionary> {
-    document.resolved(object).ok()?.as_dict().ok()
-}
-
 fn resolved_array<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Vec<Object>> {
     document.resolved(object).ok()?.as_array().ok()
 }
@@ -1850,8 +1847,10 @@ pub(crate) fn append_source_annotations(
         transform(target, annotation.as_dict_mut()?)?;
         output.push(target.add_object(annotation).into());
     }
-    target
-        .get_dictionary_mut(target_page_id)?
-        .set("Annots", output);
+    if !output.is_empty() {
+        target
+            .get_dictionary_mut(target_page_id)?
+            .set("Annots", output);
+    }
     Ok(())
 }
