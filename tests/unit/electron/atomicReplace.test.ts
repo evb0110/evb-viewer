@@ -296,4 +296,76 @@ describe('atomicReplace', () => {
             });
         }
     });
+    it.each([
+        [
+            'journal',
+            false,
+        ],
+        [
+            'journal',
+            true,
+        ],
+        [
+            'displace',
+            false,
+        ],
+        [
+            'displace',
+            true,
+        ],
+        [
+            'install',
+            false,
+        ],
+        [
+            'install',
+            true,
+        ],
+    ] as const)('restores a no-link Windows crash at %s, edited=%s', async (cut, edited) => {
+        setPlatform('win32');
+        const root = mkdtempSync(join(tmpdir(), 'evb-atomic-no-link-crash-'));
+        const fs = await vi.importActual<typeof TFsPromisesOriginalModule>('fs/promises');
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            link: async () => { throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'}); },
+        }));
+        try {
+            const destination = join(root, 'original.pdf');
+            const staged = join(root, 'staged.pdf');
+            const backup = `${destination}.bak-123456789abcdef0`;
+            await fs.writeFile(destination, 'original');
+            await fs.writeFile(staged, 'accepted-saved-work');
+            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const destinationSnapshot = (await capturePathSaveWitness(destination))!.getSnapshotForJournal();
+            const sourceSnapshot = (await capturePathSaveWitness(staged))!.getSnapshotForJournal();
+            await fs.writeFile(`${destination}.evb-atomic-replace.json`, JSON.stringify({
+                version: 1,
+                sourcePath: staged,
+                destinationPath: destination,
+                backupPath: backup,
+                destinationSnapshot,
+                sourceSnapshot,
+            }));
+            if (cut !== 'journal') {
+                if (edited) await fs.writeFile(destination, 'external');
+                await fs.rename(destination, backup);
+                if (cut === 'install') await fs.rename(staged, destination);
+            }
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+            await atomicReplace(staged, destination, {
+                durable: false,
+                assertDestinationCurrent: async () => { throw new Error('Stop after recovery'); },
+            }).catch(() => undefined);
+            expect(readFileSync(destination, 'utf8')).toBe(cut === 'install' ? 'accepted-saved-work'
+                : cut === 'displace' && edited ? 'external' : 'original');
+            if (cut === 'install' && edited) expect(readFileSync(backup, 'utf8')).toBe('external');
+        } finally {
+            vi.doUnmock('fs/promises');
+            rmSync(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
 });

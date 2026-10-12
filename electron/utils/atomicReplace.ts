@@ -159,7 +159,7 @@ async function readWindowsAtomicReplaceJournal(destinationPath: string) {
     return value as IWindowsAtomicReplaceJournal;
 }
 
-async function recoverWindowsAtomicReplace(destinationPath: string) {
+export async function recoverWindowsAtomicReplace(destinationPath: string) {
     const journal = await readWindowsAtomicReplaceJournal(destinationPath);
     if (!journal) {
         return;
@@ -194,13 +194,8 @@ async function recoverWindowsAtomicReplace(destinationPath: string) {
     if (!backupExists) {
         throw new Error(`Windows atomic replace recovery is missing its owned backup for "${destinationPath}"`);
     }
-    await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});
-
-    // A hard link is deliberately used for the missing-path case. It creates
-    // the destination only if it is still absent, so a third-party replacement
-    // cannot be overwritten between the witness and recovery.
-    await link(journal.backupPath, destinationPath);
-    await unlink(journal.backupPath);
+    await moveFileToMissingPath(journal.backupPath, destinationPath);
+    await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.destinationSnapshot, {contentOnly: true});
     await unlink(atomicReplaceJournalPath(destinationPath));
 }
 
@@ -453,19 +448,16 @@ export async function atomicReplace(
             sourceSnapshot: sourceWitness.getSnapshotForJournal(),
         } satisfies IWindowsAtomicReplaceJournal, {markMutationCommitStarted: false});
 
-        let hasBackup = false;
         try {
             // The witnesses above describe the bytes present now. The admitted
             // original is checked again right before it is moved aside.
             await options.assertDestinationCurrent?.();
             await rename(dst, backupPath);
-            hasBackup = true;
             await rename(srcTemp, dst);
         } catch (promotionError) {
-            if (!hasBackup) {
+            if (!(await fileExists(backupPath))) {
                 await unlink(atomicReplaceJournalPath(dst)).catch(() => undefined);
-            }
-            if (hasBackup) {
+            } else {
                 try {
                     await recoverWindowsAtomicReplace(dst);
                 } catch (restoreError) {

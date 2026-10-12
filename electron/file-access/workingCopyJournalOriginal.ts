@@ -1,7 +1,7 @@
+import {stat} from 'node:fs/promises';
 import {
-    link,
-    stat,
-} from 'node:fs/promises';
+    moveFileToMissingPath, recoverWindowsAtomicReplace,
+} from '@electron/utils/atomicReplace';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {
     assertPathMatchesSaveWitnessSnapshot,
@@ -57,15 +57,14 @@ async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
 }
 
 /**
- * Puts back the original of an interrupted transition. A crash can leave the
- * original as it was before publication, published, or (on the Windows
- * fallback) moved aside. Only an original that still matches the journaled
- * snapshot is overwritten, so a third-party replacement always wins.
+ * Restores an interrupted publication, including a displaced original.
+ * An existing destination must match the journal before it is overwritten.
  */
 export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
     if (original.state === 'restored' || original.state === 'conflicted') {
         return;
     }
+    if (process.platform === 'win32') await recoverWindowsAtomicReplace(original.path);
     if (original.preparedSnapshot !== undefined) {
         try {
             await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true});
@@ -86,7 +85,7 @@ export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
                 throw error;
             }
             // Restore the displaced bytes exclusively, including external edits.
-            await link(original.backupPath, original.path);
+            await moveFileToMissingPath(original.backupPath, original.path);
             await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot ?? expectedSnapshot, {contentOnly: true});
             return;
         }

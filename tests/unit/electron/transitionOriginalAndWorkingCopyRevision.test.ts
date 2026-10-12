@@ -421,9 +421,28 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
     });
 
     it.each([
-        false,
-        true,
-    ])('restores the actual displaced original after a crash, edited=%s', async edited => {
+        [
+            false,
+            false,
+        ],
+        [
+            true,
+            false,
+        ],
+        [
+            false,
+            true,
+        ],
+        [
+            true,
+            true,
+        ],
+    ])('restores the actual displaced original after a crash, edited=%s, noLinks=%s', async (edited, noLinks) => {
+        const fs = await import('node:fs/promises');
+        if (noLinks) vi.doMock('fs/promises', () => ({
+            ...fs,
+            link: async () => { throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'}); },
+        }));
         const fixture = await prepare('original-version', 'accepted-unsaved-work');
         const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
         const {restoreOriginal} = await import('@electron/file-access/workingCopyJournalOriginal');
@@ -433,16 +452,18 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         if (edited) await writeFile(fixture.originalPath, 'external-version');
         const backupPath = join(tempRoot, 'displaced.bak');
         await rename(fixture.originalPath, backupPath);
-        const recovery = restoreOriginal({
-            path: fixture.originalPath,
-            backupPath,
-            state: 'prepared',
-            preparedSnapshot,
-        });
-        if (edited) await expect(recovery).rejects.toThrow('Original file changed on disk');
-        else await expect(recovery).resolves.toBeUndefined();
-        expect(await readFile(fixture.originalPath, 'utf8')).toBe(edited ? 'external-version' : 'original-version');
-        expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
+        try {
+            const recovery = restoreOriginal({
+                path: fixture.originalPath,
+                backupPath,
+                state: 'prepared',
+                preparedSnapshot,
+            });
+            if (edited) await expect(recovery).rejects.toThrow('Original file changed on disk');
+            else await expect(recovery).resolves.toBeUndefined();
+            expect(await readFile(fixture.originalPath, 'utf8')).toBe(edited ? 'external-version' : 'original-version');
+            expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
+        } finally { vi.doUnmock('fs/promises'); }
     });
 
     it('stops proof reads promptly when save is cancelled and retains both revisions', async () => {
