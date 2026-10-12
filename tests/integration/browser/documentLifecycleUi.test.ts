@@ -3239,6 +3239,60 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
+    it('explains the missing components when an indirect DjVu index is picked alone', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-index-only-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext({
+            viewport: {
+                width: 1_280,
+                height: 900,
+            },
+            recordVideo: {dir: evidenceDir},
+        });
+        try {
+            const page = await context.newPage();
+            const pageErrors: string[] = [];
+            page.on('pageerror', error => pageErrors.push(error.message));
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.deleteProperty(window, 'showOpenFilePicker');
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.locator('.start-open-panel .open-panel-cta').click();
+            await (await chooserPromise).setFiles({
+                name: 'café-index.djvu',
+                mimeType: 'image/vnd.djvu',
+                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/djvu/sources/indirect/index.djvu')),
+            });
+            const toast = page.locator('.app-toast-failure');
+            await toast.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            const text = await toast.innerText();
+            writeFileSync(resolve(evidenceDir, 'visible.json'), JSON.stringify({
+                text,
+                pageErrors,
+            }, null, 2));
+            await page.screenshot({path: resolve(evidenceDir, 'toast.png')});
+
+            // C4: the failure itself explains why and gives the usable alternatives.
+            expect(text).toContain('This DjVu index needs separate component files. Open a bundled DjVu file or use the desktop app.');
+            expect(text).not.toContain('The file could not be opened.');
+            expect(await toast.count()).toBe(1);
+            expect(pageErrors).toEqual([]);
+        } finally {
+            await context.close();
+            await browser.close();
+        }
+    }, 120_000);
+
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         const browser = await chromium.launch({headless: true});
         try {

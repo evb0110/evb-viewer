@@ -11,6 +11,7 @@ export const DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA = v.object({
         'empty-pdf',
         'not-found',
         'invalid-djvu',
+        'djvu-components-required',
         'djvu-raster-limit',
     ]),
     message: v.string(),

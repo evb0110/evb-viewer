@@ -1717,6 +1717,7 @@ export default {
             'unsupportedEncryption': 'This PDF uses an encryption method that EVB Viewer cannot open.',
             'encryptedTooLarge': 'This encrypted PDF exceeds the 512 MiB limit and cannot be opened.',
             'djvuRasterLimit': 'This DjVu page is too large to display at full resolution.',
+            'djvuComponentsRequired': 'This DjVu index needs separate component files. Open a bundled DjVu file or use the desktop app.',
             'changedWhileOpening': 'The file changed while it was being opened. Open it again.',
             'invalid': 'The file is damaged or is not a supported document.',
             'emptyPdf': 'The PDF file is empty (0 bytes)',

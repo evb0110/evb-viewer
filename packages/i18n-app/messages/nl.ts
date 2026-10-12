@@ -1717,6 +1717,7 @@ export default {
             'unsupportedEncryption': 'Deze PDF gebruikt versleuteling die EVB Viewer niet kan openen.',
             'encryptedTooLarge': 'Deze versleutelde pdf overschrijdt de limiet van 512 MiB en kan niet worden geopend.',
             'djvuRasterLimit': 'Deze DjVu-pagina is te groot om op volledige resolutie weer te geven.',
+            'djvuComponentsRequired': 'Deze DjVu-index heeft afzonderlijke componentbestanden nodig. Open een gebundeld DjVu-bestand of gebruik de desktopapp.',
             'changedWhileOpening': 'Het bestand is gewijzigd terwijl het werd geopend. Open het opnieuw.',
             'invalid': 'Het bestand is beschadigd of geen ondersteund document.',
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',

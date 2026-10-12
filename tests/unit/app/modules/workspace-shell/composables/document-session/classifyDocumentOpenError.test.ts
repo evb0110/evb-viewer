@@ -40,6 +40,10 @@ describe('classifyDocumentOpenError', () => {
             'errors.file.invalid',
         ],
         [
+            'djvu-components-required',
+            'errors.file.djvuComponentsRequired',
+        ],
+        [
             'djvu-raster-limit',
             'errors.file.djvuRasterLimit',
         ],
