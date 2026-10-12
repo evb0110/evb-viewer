@@ -26,8 +26,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     signal?: AbortSignal;
     captureOriginalWitness: () => Promise<IOriginalPathSaveWitness | null>;
     publishOriginal: (assertDestinationCurrent: () => Promise<void>, destinationBackupPath: string) => Promise<void>;
-    publishedSourcePath: string;
-    publishedContentFingerprint?: string;
+    stagePublication: (backupPath: string) => Promise<{path: string} & {contentFingerprint?: string}>;
     refreshOriginalExpectation?: (expected: ReturnType<IOriginalPathSaveWitness['getOriginalFileExpectation']>) => Promise<void>;
     onPhase?: (phase: string, durationMs: number) => void;
 }) {
@@ -57,12 +56,14 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                     const original = {
                         path: input.originalPath,
                         backupPath: originalBackupPath,
-                        state: 'prepared',
+                        state: 'prepared' as const,
                         preparedSnapshot: witness.getSnapshotForJournal(),
-                        intendedFingerprint: input.publishedContentFingerprint ?? await captureIntendedContentFingerprint(input.publishedSourcePath, input.signal),
-                    } as const;
-                    await measurePhase('transition-journal-prepared', () =>
-                        recordWorkingCopyJournalOriginal(transitionJournal, original));
+                        intendedFingerprint: undefined as string | undefined,
+                    };
+                    await recordWorkingCopyJournalOriginal(transitionJournal, original);
+                    const staged = await measurePhase('transition-stage-publication', () => input.stagePublication(originalBackupPath));
+                    original.intendedFingerprint = staged.contentFingerprint ?? await captureIntendedContentFingerprint(staged.path, input.signal);
+                    await recordWorkingCopyJournalOriginal(transitionJournal, original);
                     await measurePhase('transition-rebase-original-witness-after-working-backup',
                         async () => witness.rebaseOnUnchangedContent(undefined, input.signal));
                     await measurePhase('transition-publish-original', () =>
@@ -73,7 +74,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                     try {
                         await assertPathMatchesSaveWitnessSnapshot(originalBackupPath, original.preparedSnapshot, {contentOnly: true});
                         await measurePhase('transition-rebase-original-witness-after-publish',
-                            async () => witness.rebaseAfterPublish(original.intendedFingerprint));
+                            async () => witness.rebaseAfterPublish(original.intendedFingerprint!));
                         await measurePhase('transition-journal-original-published', () =>
                             recordWorkingCopyJournalOriginal(transitionJournal, {
                                 ...original,
@@ -104,14 +105,12 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             committed = true;
             return event;
         } catch (error) {
-            if (error instanceof OriginalPathSaveConflictError) {
-                if (journal?.original) {
-                    if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(journal.original.backupPath);
-                    await recordWorkingCopyJournalOriginal(journal, {
-                        ...journal.original,
-                        state: 'restored',
-                    });
-                }
+            if (error instanceof OriginalPathSaveConflictError && journal?.original) {
+                if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(journal.original.backupPath);
+                await recordWorkingCopyJournalOriginal(journal, {
+                    ...journal.original,
+                    state: 'restored',
+                });
                 return null;
             }
             throw error;

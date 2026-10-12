@@ -408,7 +408,7 @@ describe('originalPathSaveBaseMatches', () => {
                 const outcome: unknown = await transitionOriginalAndWorkingCopyRevision({
                     workingCopyPath: workingPath,
                     originalPath,
-                    publishedSourcePath: stagedPath,
+                    stagePublication: () => Promise.resolve({path: stagedPath}),
                     senderId: 12,
                     reason: 'save-sync',
                     captureOriginalWitness: () => captureOriginalPathSaveWitness(workingPath, originalPath, 12),

@@ -496,8 +496,7 @@ export async function handleCommitStagedPdfNativeMutations(
                 reason: 'native-mutation',
                 senderId,
                 signal: operation.signal,
-                publishedSourcePath: stagedOutput.path,
-                ...(stagedOutput.contentFingerprint === undefined ? {} : {publishedContentFingerprint: stagedOutput.contentFingerprint}),
+                stagePublication: () => Promise.resolve(stagedOutput),
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(
                     normalizedWorkingPath,
                     originalPath,

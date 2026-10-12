@@ -1,5 +1,4 @@
 import { existsSync } from 'fs';
-import {rm} from 'fs/promises';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type {
     IDocumentMutationRevisionOptions,
@@ -7,10 +6,8 @@ import type {
     TDocumentSaveFailureReason,
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {atomicReplace} from '@electron/utils/atomicReplace';
+import {getPublicationTemporaryPath} from '@electron/file-access/documentFileWriteAtomic';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     ensureWorkingCopyMaterialized,
@@ -145,60 +142,61 @@ async function replaceOriginalWithValidatedTemp(
         validation?: TPdfSaveValidation;
     } = {},
 ): Promise<IReplaceOriginalWithValidatedTempResult> {
-    const tempPath = makeSiblingTempPath(originalPath);
-    try {
-        const copied = await writeTemp(tempPath);
-        const optimizedValidation = options.optimize === 'force'
-            ? await optimizePdfForSave(tempPath, {
-                force: true,
-                label: 'qpdf(optimize-current-pdf)',
-            })
-            : options.optimize === 'large'
-                ? await optimizeLargePdfForOrdinarySave(tempPath)
-                : null;
-        const validation = optimizedValidation ?? (options.validation === 'structural'
-            ? await validatePdfFileForSave(tempPath)
-            : await validatePdfFile(tempPath));
-        if (!validation.isValid) {
-            return {
-                validation,
-                optimized: false,
-            };
-        }
-
-        const transition = await transitionOriginalAndWorkingCopyRevision({
-            workingCopyPath: workingPath,
+    let result: IReplaceOriginalWithValidatedTempResult = {
+        validation: createOriginalChangedValidationResult(),
+        optimized: false,
+    };
+    const invalidStage = new Error('The staged PDF failed validation');
+    const transition = await transitionOriginalAndWorkingCopyRevision({
+        workingCopyPath: workingPath,
+        originalPath,
+        reason: 'save-sync',
+        senderId: senderWebContentsId,
+        captureOriginalWitness: () => captureOriginalPathSaveWitness(
+            workingPath,
             originalPath,
-            reason: 'save-sync',
-            senderId: senderWebContentsId,
-            captureOriginalWitness: () => captureOriginalPathSaveWitness(
-                workingPath,
-                originalPath,
-                senderWebContentsId,
-                options.signal,
-            ),
-            ...(options.signal === undefined ? {} : {signal: options.signal}),
-            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(tempPath, originalPath, {
-                assertDestinationCurrent,
-                destinationBackupPath,
-            }),
-            publishedSourcePath: tempPath,
-            ...(optimizedValidation === null && copied ? {publishedContentFingerprint: copied.contentFingerprint} : {}),
-            refreshOriginalExpectation: expectation => refreshWorkingCopyOriginalFileExpectationForSave(workingPath, senderWebContentsId, expectation),
-        });
-        if (!transition) {
-            return {
-                validation: createOriginalChangedValidationResult(),
-                optimized: false,
+            senderWebContentsId,
+            options.signal,
+        ),
+        ...(options.signal === undefined ? {} : {signal: options.signal}),
+        // The journal names this stage before it exists; recovery removes one a crash left.
+        stagePublication: async backupPath => {
+            const tempPath = getPublicationTemporaryPath(originalPath, backupPath);
+            const copied = await writeTemp(tempPath);
+            const optimizedValidation = options.optimize === 'force'
+                ? await optimizePdfForSave(tempPath, {
+                    force: true,
+                    label: 'qpdf(optimize-current-pdf)',
+                })
+                : options.optimize === 'large'
+                    ? await optimizeLargePdfForOrdinarySave(tempPath)
+                    : null;
+            const validation = optimizedValidation ?? (options.validation === 'structural'
+                ? await validatePdfFileForSave(tempPath)
+                : await validatePdfFile(tempPath));
+            result = {
+                validation,
+                optimized: validation.isValid && optimizedValidation !== null,
             };
-        }
-        return {
-            validation,
-            optimized: optimizedValidation !== null,
-        };
-    } finally {
-        await rm(tempPath, { force: true }).catch(() => undefined);
-    }
+            if (!validation.isValid) throw invalidStage;
+            return {
+                path: tempPath,
+                ...(optimizedValidation === null && copied ? {contentFingerprint: copied.contentFingerprint} : {}),
+            };
+        },
+        publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(getPublicationTemporaryPath(originalPath, destinationBackupPath), originalPath, {
+            assertDestinationCurrent,
+            destinationBackupPath,
+        }),
+        refreshOriginalExpectation: expectation => refreshWorkingCopyOriginalFileExpectationForSave(workingPath, senderWebContentsId, expectation),
+    }).catch((error: unknown) => {
+        if (error !== invalidStage) throw error;
+        return null;
+    });
+    return transition || !result.validation.isValid ? result : {
+        validation: createOriginalChangedValidationResult(),
+        optimized: false,
+    };
 }
 
 async function runNativePdfSaveMutation(
