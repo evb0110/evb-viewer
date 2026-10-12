@@ -195,7 +195,7 @@ describe('workingCopy', () => {
         const workingDirectoryEntries = readdirSync(dirname(workingPath));
 
         expect(readFileSync(workingPath)).toEqual(originalBytes);
-        expect(getWorkingCopyOriginalPath(workingPath, 17)?.originalPath).toBe(realpathSync.native(originalPath));
+        expect(getWorkingCopyOriginalPath(workingPath, 17)?.originalPath).toBe(originalPath);
         expect(basename(workingPath)).toBe('document.pdf');
         expect(Buffer.byteLength(basename(workingPath), 'utf8')).toBeLessThan(100);
         expect(existsSync(getWorkingCopyManifestPath(workingPath))).toBe(true);
@@ -251,7 +251,7 @@ describe('workingCopy', () => {
         expect(getWorkingCopyBackingEntry(workingPath, 7)).toMatchObject({
             admissionSnapshot: {size: BigInt(originalBytes.byteLength)},
             backingState: 'lazy-original',
-            originalPath: realpathSync.native(originalPath),
+            originalPath,
         });
         // The registration keeps the witnessed revision; the copy that reads
         // the source in full is the one that fingerprints it.
@@ -831,7 +831,6 @@ describe('workingCopy', () => {
             Buffer.alloc(8 * 1024 * 1024, 23),
         ]);
         writeFileSync(originalPath, originalBytes);
-        const resolvedOriginalPath = realpathSync.native(originalPath);
         let originalBytesRead = 0;
         vi.doMock('fs/promises', async (importOriginal) => {
             const original = await importOriginal<typeof FsPromises>();
@@ -839,7 +838,7 @@ describe('workingCopy', () => {
                 ...original,
                 open: vi.fn(async (...args: Parameters<typeof original.open>) => {
                     const handle = await original.open(...args);
-                    if (String(args[0]) !== resolvedOriginalPath) {
+                    if (String(args[0]) !== originalPath) {
                         return handle;
                     }
                     return Object.assign(Object.create(handle), {
@@ -869,7 +868,7 @@ describe('workingCopy', () => {
             const {getWorkingCopyBackingEntry} = await import('@electron/file-access/workingCopyStore');
             const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
             const trustedOriginalPath = allowOpenPath(originalPath);
-            expect(trustedOriginalPath).toBe(resolvedOriginalPath);
+            expect(trustedOriginalPath).toBe(originalPath);
 
             const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
 
@@ -904,7 +903,6 @@ describe('workingCopy', () => {
         writeFileSync(originalPath, originalBytes);
         const pinnedMtime = new Date('2026-01-02T03:04:05.000Z');
         utimesSync(originalPath, pinnedMtime, pinnedMtime);
-        const resolvedOriginalPath = realpathSync.native(originalPath);
         // Bytes the copy has already read change in place, outside the
         // witness samples, with size and mtime restored: only ctime moves.
         const changedBytes = Buffer.from(originalBytes);
@@ -916,7 +914,7 @@ describe('workingCopy', () => {
                 ...original,
                 open: vi.fn(async (...args: Parameters<typeof original.open>) => {
                     const handle = await original.open(...args);
-                    if (String(args[0]) !== resolvedOriginalPath) {
+                    if (String(args[0]) !== originalPath) {
                         return handle;
                     }
                     return Object.assign(Object.create(handle), {
@@ -1184,21 +1182,20 @@ describe('workingCopy', () => {
         ]));
         const trustedOriginalPath = allowOpenPath(originalPath);
         expect(trustedOriginalPath).not.toBeNull();
-        const canonicalOriginalPath = realpathSync.native(originalPath);
 
         const workingPath = await createWorkingCopyFromPath(trustedOriginalPath!);
         await cleanupWorkingCopy(workingPath);
         expect(existsSync(dirname(workingPath))).toBe(false);
 
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
-            originalPath: canonicalOriginalPath,
+            originalPath,
             retired: true,
         });
         claimWorkingCopyRecovery(workingPath);
         await expect(ensureWorkingCopyDirectory(workingPath)).resolves.toBe(true);
 
         expect(getWorkingCopyOriginalPath(workingPath)).toEqual({
-            originalPath: canonicalOriginalPath,
+            originalPath,
             retired: false,
         });
         expect(readFileSync(workingPath)).toEqual(Buffer.from([
@@ -1358,7 +1355,7 @@ describe('workingCopy', () => {
             {ownerWebContentsId: 7},
         );
 
-        expect(physicalReadPath).toBe(realpathSync.native(originalPath));
+        expect(physicalReadPath).toBe(originalPath);
         expect(Buffer.from(result).equals(originalBytes)).toBe(true);
         expect(existsSync(workingPath)).toBe(false);
         await clearAllWorkingCopies();

@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { Page } from 'puppeteer-core';
 import type {
     IEvbAutomationEvent,
@@ -366,10 +366,8 @@ export async function waitForAutomationEvent(
 ): Promise<IEvbAutomationEvent | null> {
     const afterEventId = options.afterEventId ?? 0;
     const timeoutMs = options.timeoutMs ?? 30_000;
-    // The app reports the path it opened by its real location, so a path
-    // through a symlink (macOS's /var is /private/var) is compared the same way.
     const {path} = options;
-    const expectedPath = path === undefined ? null : await realpath(path).catch(() => path);
+    const expectedPath = path === undefined ? null : resolve(path);
     const normalizedPath = expectedPath?.replace(/\\/gu, '/').toLowerCase() ?? null;
     const deadline = Date.now() + timeoutMs;
 

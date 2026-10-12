@@ -7,7 +7,6 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
-    realpathSync,
     rmSync,
     statSync,
     symlinkSync,
@@ -263,14 +262,13 @@ describe('registerDjvuIpcAdapter', () => {
         );
     });
 
-    it('releases symlinked viewing paths using the granted realpath while the source still exists', async () => {
+    it('releases symlinked viewing paths using the opened spelling while the source still exists', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-djvu-release-test-'));
         try {
             const realPath = join(tempRoot, 'real.djvu');
             const symlinkPath = join(tempRoot, 'link.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
             symlinkSync(realPath, symlinkPath);
-            const canonicalRealPath = realpathSync.native(realPath);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(1);
@@ -285,7 +283,7 @@ describe('registerDjvuIpcAdapter', () => {
                     sender: event.sender,
                     senderId: 1,
                 }),
-                canonicalRealPath,
+                symlinkPath,
             );
         } finally {
             rmSync(tempRoot, {
@@ -421,7 +419,6 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const canonicalRealPath = realpathSync.native(realPath);
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(1);
             allowOpenPath(realPath, event.sender as never);
@@ -451,7 +448,7 @@ describe('registerDjvuIpcAdapter', () => {
                 sourceModifiedAt: expect.any(Number),
             });
 
-            expect(mocks.getDjvuPageSourceInfoForViewing).toHaveBeenCalledWith(canonicalRealPath, 7);
+            expect(mocks.getDjvuPageSourceInfoForViewing).toHaveBeenCalledWith(realPath, 7);
             expect(mocks.getDjvuPageSizesForViewing).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
@@ -466,7 +463,6 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'recent.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const canonicalRealPath = realpathSync.native(realPath);
             mocks.getRecentFiles.mockResolvedValue([{
                 originalPath: realPath,
                 fileName: 'recent.djvu',
@@ -483,7 +479,7 @@ describe('registerDjvuIpcAdapter', () => {
                 pageNumber: 1,
             });
 
-            expect(mocks.getDjvuPageSourceInfoForViewing).toHaveBeenCalledWith(canonicalRealPath, 1);
+            expect(mocks.getDjvuPageSourceInfoForViewing).toHaveBeenCalledWith(realPath, 1);
             expect(mocks.isAllowedDjvuViewingPath).not.toHaveBeenCalled();
         } finally {
             rmSync(tempRoot, {
@@ -632,7 +628,6 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const canonicalRealPath = realpathSync.native(realPath);
 
             const { allowOpenPath } = await import('@electron/file-access/openPathCapabilities');
             const event = createIpcEvent(1);
@@ -647,7 +642,7 @@ describe('registerDjvuIpcAdapter', () => {
             });
 
             expect(mocks.renderDjvuPagePreview).toHaveBeenCalledWith(
-                canonicalRealPath,
+                realPath,
                 1,
                 expect.objectContaining({
                     previewRequestId: expect.stringMatching(/^djvu-preview-/u),
@@ -840,7 +835,6 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const canonicalRealPath = realpathSync.native(realPath);
             const [
                 firstPreview,
                 secondPreview,
@@ -879,7 +873,7 @@ describe('registerDjvuIpcAdapter', () => {
             await Promise.resolve();
 
             expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3);
-            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 1, {
+            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, realPath, 1, {
                 previewRequestId: 'preview-4',
                 subsample: 3,
             }, expect.objectContaining({
@@ -1035,7 +1029,6 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const canonicalRealPath = realpathSync.native(realPath);
             const [
                 firstPreview,
                 secondPreview,
@@ -1075,7 +1068,7 @@ describe('registerDjvuIpcAdapter', () => {
             resolvePreview(firstPreview!, 1);
 
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3));
-            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 3, {
+            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, realPath, 3, {
                 previewPriority: 20,
                 previewRequestId: '1:3:1',
                 subsample: 3,
@@ -1087,7 +1080,7 @@ describe('registerDjvuIpcAdapter', () => {
             resolvePreview(secondPreview!, 2);
 
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(4));
-            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(4, canonicalRealPath, 8, {
+            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(4, realPath, 8, {
                 previewPriority: 1,
                 previewRequestId: '1:8:1',
                 subsample: 3,
@@ -1116,7 +1109,6 @@ describe('registerDjvuIpcAdapter', () => {
         try {
             const realPath = join(tempRoot, 'real.djvu');
             writeFileSync(realPath, new Uint8Array([1]));
-            const canonicalRealPath = realpathSync.native(realPath);
             const [
                 firstPreview,
                 secondPreview,
@@ -1157,7 +1149,7 @@ describe('registerDjvuIpcAdapter', () => {
             resolvePreview(firstPreview!, 1);
 
             await vi.waitFor(() => expect(mocks.renderDjvuPagePreview).toHaveBeenCalledTimes(3));
-            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, canonicalRealPath, 3, {
+            expect(mocks.renderDjvuPagePreview).toHaveBeenNthCalledWith(3, realPath, 3, {
                 previewPriority: 20,
                 previewRequestId: '2:3:1',
                 subsample: 3,
