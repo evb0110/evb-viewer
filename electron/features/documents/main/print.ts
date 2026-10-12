@@ -20,7 +20,6 @@ import type {
     IPdfPathPrintOptions,
 } from '@contracts/electronApiDocuments';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import type {
     IDocumentsSenderIdContext,
@@ -37,7 +36,10 @@ import {
     validatePdfBytesForHandoff,
     type IPrintPdfResult,
 } from '@electron/utils/printHandoff';
-import { buildPrintablePdfPath } from '@electron/features/documents/main/buildPrintablePdfPath';
+import {
+    buildPrintablePdfPath,
+    pdfPagesNeedPrintAppearances,
+} from '@electron/features/documents/main/buildPrintablePdfPath';
 
 const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
 const PRINT_DATA_TEMP_PREFIX = 'print-data-';
@@ -303,16 +305,12 @@ export async function handlePrintPdfPath(
         ? undefined
         : () => context.onNativePrintDialogOpened?.(requestId);
     const normalizedPageNumbers = normalizedOptions.pageNumbers;
-    const requiresLayoutComposition = normalizedOptions.viewMode !== 'single'
-        || normalizedOptions.orientation !== 'auto';
     const operationId = randomUUID();
     const cancelGroup = `print-selected-pages:${operationId}`;
     const operation = registerPdfPrintOperation(
         context,
         requestId,
-        normalizedPageNumbers && !requiresLayoutComposition
-            ? () => cancelNativeCommandGroup(cancelGroup)
-            : undefined,
+        () => cancelNativeCommandGroup(cancelGroup),
     );
     let tempPath: string | null = null;
     let shouldRetainTempPdf = false;
@@ -320,11 +318,10 @@ export async function handlePrintPdfPath(
         const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId, operation.signal);
         await assertPdfPathWithinSizeLimit(resolvedPath);
         operation.signal.throwIfAborted();
+        const requiresLayoutComposition = normalizedOptions.viewMode !== 'single'
+            || normalizedOptions.orientation !== 'auto'
+            || await pdfPagesNeedPrintAppearances(resolvedPath, normalizedPageNumbers, operation.signal);
         if (requiresLayoutComposition) {
-            const sourceStat = await stat(resolvedPath);
-            if (sourceStat.size > PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES) {
-                throw new Error('PDF is too large for advanced print layout');
-            }
             tempPath = buildOpaquePrintTempPath(PRINT_LAYOUT_TEMP_PREFIX, operationId);
             await buildPrintablePdfPath({
                 inputPath: resolvedPath,
@@ -334,50 +331,24 @@ export async function handlePrintPdfPath(
             });
             operation.signal.throwIfAborted();
             await assertPdfPathWithinSizeLimit(tempPath);
-            const result = await openNativePrintDialogForPath(
-                ownerWindow,
-                tempPath,
-                {},
-                _fileName,
-                {
-                    ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
-                    signal: operation.signal,
-                },
-            );
-            if (result.success) {
-                shouldRetainTempPdf = true;
-                schedulePrintTempCleanup(tempPath);
-            }
-            return result;
+        } else if (normalizedPageNumbers) {
+            tempPath = buildOpaquePrintTempPath(PRINT_PAGE_TEMP_PREFIX, operationId);
+            await extractPages(resolvedPath, tempPath, normalizedPageNumbers, {
+                cancelGroup,
+                signal: operation.signal,
+            });
         }
-        if (!normalizedPageNumbers) {
-            return await openNativePrintDialogForPath(
-                ownerWindow,
-                resolvedPath,
-                buildNativePathPrintOptions(),
-                _fileName,
-                {
-                    ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
-                    signal: operation.signal,
-                },
-            );
-        }
-        tempPath = buildOpaquePrintTempPath(PRINT_PAGE_TEMP_PREFIX, operationId);
-        await extractPages(resolvedPath, tempPath, normalizedPageNumbers, {
-            cancelGroup,
-            signal: operation.signal,
-        });
         const result = await openNativePrintDialogForPath(
             ownerWindow,
-            tempPath,
-            buildNativePathPrintOptions(normalizedPageNumbers.length),
+            tempPath ?? resolvedPath,
+            buildNativePathPrintOptions(requiresLayoutComposition ? undefined : normalizedPageNumbers?.length),
             _fileName,
             {
                 ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
                 signal: operation.signal,
             },
         );
-        if (result.success) {
+        if (result.success && tempPath !== null) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(tempPath);
         }

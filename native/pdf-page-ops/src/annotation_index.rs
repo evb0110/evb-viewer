@@ -33,15 +33,62 @@ pub(crate) struct AnnotationIndexEntry {
     pub(crate) name: Option<String>,
     pub(crate) popup_ref: Option<AnnotationIndexReference>,
     pub(crate) parent_ref: Option<AnnotationIndexReference>,
+    pub(crate) needs_print_appearance: bool,
+}
+
+/// The stored normal appearance, shared by print admission and composition.
+/// Structural sources keep stream dictionaries without reading their bytes.
+pub(crate) fn annotation_normal_appearance<'a>(
+    document: &'a impl PdfObjectSource,
+    annotation: &'a Dictionary,
+) -> Option<&'a Stream> {
+    let appearances = document
+        .resolved(annotation.get(b"AP").ok()?)
+        .ok()?
+        .as_dict()
+        .ok()?;
+    let normal = document.resolved(appearances.get(b"N").ok()?).ok()?;
+    let stream = if let Ok(stream) = normal.as_stream() {
+        stream
+    } else {
+        let state = document
+            .resolved(annotation.get(b"AS").ok()?)
+            .ok()?
+            .as_name()
+            .ok()?;
+        document
+            .resolved(normal.as_dict().ok()?.get(state).ok()?)
+            .ok()?
+            .as_stream()
+            .ok()?
+    };
+    if !stream.content.is_empty() {
+        let bbox = numbers(document, stream.dict.get(b"BBox").ok()?, 4)?;
+        if !bbox.iter().all(|v| v.is_finite()) || bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
+            return None;
+        }
+        if let Ok(matrix) = stream.dict.get(b"Matrix") {
+            let m = numbers(document, matrix, 6)?;
+            if !m.iter().all(|v| v.is_finite()) || m[0] * m[3] - m[1] * m[2] == 0.0 {
+                return None;
+            }
+        }
+    }
+    Some(stream)
 }
 
 fn annotation_index_entry(
+    document: &impl PdfObjectSource,
     page_index: u64,
     object_number: u64,
     generation_number: u64,
     annotation: &Dictionary,
 ) -> AnnotationIndexEntry {
     AnnotationIndexEntry {
+        needs_print_appearance: annotation_print_flags(document, annotation) & 7
+            == ANNOTATION_FLAG_PRINT
+            && annotation_subtype_text(annotation) != "Popup"
+            && annotation_normal_appearance(document, annotation).is_none(),
         page_index,
         object_number,
         generation_number,
@@ -141,6 +188,7 @@ fn write_annotation_name_index_with_chunk_limit(
                     continue;
                 };
                 writer.push(annotation_index_entry(
+                    document,
                     page_index,
                     u64::from(object_id.0),
                     u64::from(object_id.1),
@@ -154,7 +202,9 @@ fn write_annotation_name_index_with_chunk_limit(
             // pages that the structural scan proved have no annotations,
             // without inventing a PDF.js identity for an unreferenced object.
             if let Ok(annotation) = object.as_dict() {
-                writer.push(annotation_index_entry(page_index, 0, 0, annotation))?;
+                writer.push(annotation_index_entry(
+                    document, page_index, 0, 0, annotation,
+                ))?;
             }
         }
     }
@@ -431,6 +481,10 @@ mod tests {
                 Object::Reference(popup_id),
             ]),
         );
+        document
+            .get_dictionary_mut(free_text_id)
+            .unwrap()
+            .set("F", 4);
         let output = temporary_path("named", "json");
 
         write_annotation_name_index(&document, &output).unwrap();
@@ -449,6 +503,8 @@ mod tests {
         assert_eq!(entries[0]["popupRef"]["objectNumber"], popup_id.0);
         assert_eq!(entries[0]["popupRef"]["generationNumber"], popup_id.1);
         assert_eq!(entries[0]["parentRef"], Value::Null);
+        assert_eq!(entries[0]["needsPrintAppearance"], true);
+        assert_eq!(entries[1]["needsPrintAppearance"], false);
         assert_eq!(entries[1]["subtype"], "Popup");
         assert_eq!(entries[1]["name"], Value::Null);
         assert_eq!(entries[1]["parentRef"]["objectNumber"], free_text_id.0);
@@ -459,6 +515,19 @@ mod tests {
         assert_eq!(
             fs::metadata(&output).unwrap().permissions().mode() & 0o777,
             0o600
+        );
+        let appearance = document.add_object(Stream::new(
+            dictionary! {"BBox" => vec![0.into(), 0.into(), 20.into(), 10.into()]},
+            b"q 0 0 20 10 re S Q".to_vec(),
+        ));
+        document
+            .get_dictionary_mut(free_text_id)
+            .unwrap()
+            .set("AP", dictionary! {"N" => appearance});
+        write_annotation_name_index(&document, &output).unwrap();
+        assert_eq!(
+            read_sidecar(&output)[1]["entries"][0]["needsPrintAppearance"],
+            false
         );
         fs::remove_file(output).unwrap();
     }

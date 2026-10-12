@@ -24,7 +24,10 @@ import {
 } from 'node:fs/promises';
 import { decode as decodePng } from 'fast-png';
 import {
+    decodePDFRawStream,
+    PDFDict,
     PDFDocument,
+    PDFRawStream,
     PDFHexString,
     PDFName,
     PDFString,
@@ -5810,6 +5813,40 @@ describe('Electron E2E - Viewer Smoke', () => {
 describe('Electron E2E - Document Output', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-document-output-${Date.now()}`});
 
+    const rasterizer = resolve(process.cwd(), 'resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftoppm.exe' : 'pdftoppm');
+    function rasterizePrint(pdfPath: string, prefix: string) {
+        return execFileAsync(rasterizer, [
+            '-r',
+            '72',
+            '-png',
+            pdfPath,
+            prefix,
+        ]);
+    }
+
+    async function printFixture(fixturePath: string, printedPath: string, orientation: 'auto' | 'portrait') {
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-document-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await clickVisibleToolbarButton(session.page, 'Print');
+        if (orientation === 'portrait') {
+            const portrait = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Portrait"])', {visible: true});
+            await clickAsUser(session.page, portrait!);
+        }
+        const submit = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])', {visible: true});
+        await clickAsUser(session.page, submit!);
+        await expect.poll(() => existsSync(printedPath), {timeout: 30_000}).toBe(true);
+        return session;
+    }
+
     it('prints appearance-less annotation styles through advanced print', async () => {
         const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `annotation-print-${Date.now()}`);
         await mkdir(printDirectory, {recursive: true});
@@ -5830,6 +5867,29 @@ describe('Electron E2E - Document Output', () => {
             'U',
             'Mystery',
         ];
+        const line = {
+            Subtype: 'Line',
+            L: [
+                120,
+                550,
+                280,
+                650,
+            ],
+        };
+        const inset = [
+            30,
+            30,
+            30,
+            30,
+        ];
+        const vertices = [
+            120,
+            520,
+            200,
+            680,
+            280,
+            520,
+        ];
         const controls = styles.map(style => ({
             Subtype: 'Square',
             BS: {
@@ -5849,7 +5909,7 @@ describe('Electron E2E - Document Output', () => {
                 ],
             },
         });
-        const annotations = [
+        const printAnnotations = [
             ...controls,
             {
                 Subtype: 'Square',
@@ -5877,27 +5937,15 @@ describe('Electron E2E - Document Output', () => {
                 2,
             ].map(intensity => ({
                 Subtype: 'Circle',
-                BS: {W: 4},
                 BE: {
                     S: 'C',
                     I: intensity,
                 },
-                RD: [
-                    30,
-                    30,
-                    30,
-                    30,
-                ],
+                RD: inset,
             })),
             {
                 Subtype: 'Square',
-                RD: [
-                    30,
-                    30,
-                    30,
-                    30,
-                ],
-                BS: {W: 4},
+                RD: inset,
             },
             ...[
                 'Square',
@@ -5912,13 +5960,7 @@ describe('Electron E2E - Document Output', () => {
                 'Slash',
             ]
                 .map(ending => ({
-                    Subtype: 'Line',
-                    L: [
-                        120,
-                        550,
-                        280,
-                        650,
-                    ],
+                    ...line,
                     LE: [
                         ending,
                         ending,
@@ -5946,7 +5988,6 @@ describe('Electron E2E - Document Output', () => {
                     'OpenArrow',
                     'OpenArrow',
                 ],
-                BS: {W: 4},
             },
             ...[
                 [],
@@ -5956,43 +5997,20 @@ describe('Electron E2E - Document Output', () => {
                     1,
                 ],
             ].map(interior => ({
-                Subtype: 'Line',
-                L: [
-                    120,
-                    550,
-                    280,
-                    650,
-                ],
+                ...line,
                 LE: [
                     'ClosedArrow',
                     'ClosedArrow',
                 ],
                 IC: interior,
-                BS: {W: 4},
             })),
             {
                 Subtype: 'Polygon',
-                Vertices: [
-                    120,
-                    520,
-                    200,
-                    680,
-                    280,
-                    520,
-                ],
-                BS: {W: 4},
+                Vertices: vertices,
             },
             {
                 Subtype: 'Ink',
-                InkList: [[
-                    120,
-                    520,
-                    200,
-                    680,
-                    280,
-                    520,
-                ]],
-                BS: {W: 4},
+                InkList: [vertices],
             },
             ...styles.map(style => ({
                 Subtype: 'FreeText',
@@ -6009,9 +6027,6 @@ describe('Electron E2E - Document Output', () => {
                     10,
                 ],
             })),
-        ];
-        const printAnnotations = [
-            ...annotations,
             {
                 Subtype: 'FreeText',
                 Contents: PDFHexString.fromText('Latin abc ܐ xyz'),
@@ -6051,6 +6066,7 @@ describe('Electron E2E - Document Output', () => {
                     0,
                 ],
                 F: 4,
+                BS: {W: 4},
                 ...annotation,
             }));
             page.node.set(PDFName.of('Annots'), pdf.context.obj([reference]));
@@ -6061,14 +6077,7 @@ describe('Electron E2E - Document Output', () => {
             await mkdir(evidenceDirectory, {recursive: true});
             await copyFile(fixturePath, join(evidenceDirectory, 'annotations.pdf'));
         }
-        const session = await sessionFixture.restart({
-            clean: true,
-            sessionName: () => `e2e-annotation-print-${Date.now()}`,
-            extraEnv: {
-                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
-                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
-            },
-        });
+        const session = await printFixture(fixturePath, printedPath, 'portrait');
         if (evidenceDirectory) {
             onTestFinished(async () => {
                 await sessionFixture.stop({preserveArtifacts: true});
@@ -6077,15 +6086,6 @@ describe('Electron E2E - Document Output', () => {
                 await sessionFixture.start({clean: true});
             });
         }
-        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await clickVisibleToolbarButton(session.page, 'Print');
-        const portrait = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Portrait"])', {visible: true});
-        await clickAsUser(session.page, portrait!);
-        const submit = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])', {visible: true});
-        await clickAsUser(session.page, submit!);
-        await expect.poll(async () => existsSync(printedPath), {timeout: 30_000}).toBe(true);
         const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
         await execFileAsync(resolveNativePageOpsPath()!, [
             'print-layout',
@@ -6099,21 +6099,8 @@ describe('Electron E2E - Document Output', () => {
             'portrait',
         ]);
         expect((await PDFDocument.load(await readFile(printedPath))).getPageCount()).toBe(printAnnotations.length);
-        const rasterizer = resolve(process.cwd(), 'resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftoppm.exe' : 'pdftoppm');
-        await execFileAsync(rasterizer, [
-            '-r',
-            '72',
-            '-png',
-            printedPath,
-            join(printDirectory, 'app'),
-        ]);
-        await execFileAsync(rasterizer, [
-            '-r',
-            '72',
-            '-png',
-            expectedPath,
-            join(printDirectory, 'native'),
-        ]);
+        await rasterizePrint(printedPath, join(printDirectory, 'app'));
+        await rasterizePrint(expectedPath, join(printDirectory, 'native'));
         for (const name of (await readdir(printDirectory)).filter(name => name.startsWith('app-') && name.endsWith('.png'))) {
             expect(await readFile(join(printDirectory, name))).toEqual(await readFile(join(printDirectory, name.replace('app-', 'native-'))));
         }
@@ -6141,63 +6128,73 @@ describe('Electron E2E - Document Output', () => {
         }
     }, 180_000);
 
-    it('prints joined Semitic words, cantillation and collapsed FreeText colors', async () => {
+    it('prints Auto Semitic annotations and preserves appearance-bearing PDF bytes', async () => {
         const fixtureDirectory = resolve(process.cwd(), 'tests/fixtures/electron/interop/print-semitic');
-        const fixturePath = join(fixtureDirectory, 'semitic.pdf');
-        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `semitic-print-${Date.now()}`);
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `auto-print-${Date.now()}`);
         await mkdir(printDirectory, {recursive: true});
-        const printedPath = join(printDirectory, 'printed.pdf');
         onTestFinished(() => rm(printDirectory, {
             force: true,
             recursive: true,
         }));
-        const session = await sessionFixture.restart({
-            clean: true,
-            sessionName: () => `e2e-semitic-print-${Date.now()}`,
-            extraEnv: {
-                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
-                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
-            },
-        });
-        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
-        await clickVisibleToolbarButton(session.page, 'Print');
-        const portrait = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Portrait"])', {visible: true});
-        await clickAsUser(session.page, portrait!);
-        const submit = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])', {visible: true});
-        await clickAsUser(session.page, submit!);
-        await expect.poll(async () => existsSync(printedPath), {timeout: 30_000}).toBe(true);
-        const rasterizer = resolve(process.cwd(), 'resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftoppm.exe' : 'pdftoppm');
-        await execFileAsync(rasterizer, [
-            '-r',
-            '72',
-            '-singlefile',
-            '-png',
-            printedPath,
-            join(printDirectory, 'printed'),
-        ]);
-        await execFileAsync(rasterizer, [
-            '-r',
-            '72',
-            '-singlefile',
-            '-png',
-            join(fixtureDirectory, 'reference.pdf'),
-            join(printDirectory, 'reference'),
-        ]);
-        const evidenceDirectory = process.env.EVB_AU66BR7_EVIDENCE_DIR;
-        if (evidenceDirectory) {
-            await mkdir(evidenceDirectory, {recursive: true});
-            await copyFile(printedPath, join(evidenceDirectory, 'printed.pdf'));
-            await copyFile(join(printDirectory, 'printed.png'), join(evidenceDirectory, 'printed-page.png'));
-            await session.page.screenshot({path: join(evidenceDirectory, 'completed.png')});
+        const printedPath = join(printDirectory, 'printed.pdf');
+        const controlPath = join(printDirectory, 'control.pdf');
+        const control = await PDFDocument.load(await readFile(resolve('tests/fixtures/electron/freetext-lifecycle-test.pdf')));
+        for (const page of control.getPages()) {
+            const annotations = page.node.Annots()?.asArray() ?? [];
+            page.node.set(PDFName.of('Annots'), control.context.obj(annotations.filter(reference =>
+                control.context.lookup(reference, PDFDict).has(PDFName.of('AP')))));
         }
-        // Reference text was independently shaped with HarfBuzz, including
-        // every mark offset, then painted as ordinary PDF page content.
-        const pixelHash = (bytes: Buffer) => createHash('sha256').update(decodePng(bytes).data).digest('hex');
-        expect(pixelHash(await readFile(join(printDirectory, 'printed.png'))))
-            .toBe(pixelHash(await readFile(join(printDirectory, 'reference.png'))));
-    }, 120_000);
+        await writeFile(controlPath, await control.save());
+        const evidenceDirectory = process.env.EVB_PRINTAUTO_EVIDENCE_DIR;
+        const glyphCodes = async (path: string) => {
+            const pdf = await PDFDocument.load(await readFile(path));
+            return pdf.context.enumerateIndirectObjects().flatMap(([
+                , object,
+            ]) => {
+                if (!(object instanceof PDFRawStream)) return [];
+                const content = Buffer.from(decodePDFRawStream(object).decode()).toString('latin1');
+                return [...content.matchAll(/<([\da-f]+)>\s*Tj/giu)]
+                    .flatMap(match => match[1]!.match(/.{4}/gu)?.map(code => Number.parseInt(code, 16)) ?? []);
+            }).sort((left, right) => left - right);
+        };
+        // The byte control runs first so a missing Semitic print still records it.
+        for (const name of [
+            'control',
+            'semitic',
+            'portrait',
+        ] as const) {
+            const source = name === 'control' ? controlPath : join(fixtureDirectory, 'semitic.pdf');
+            await rm(printedPath, {force: true});
+            const session = await printFixture(source, printedPath, name === 'portrait' ? 'portrait' : 'auto');
+            if (evidenceDirectory) {
+                await mkdir(evidenceDirectory, {recursive: true});
+                await copyFile(source, join(evidenceDirectory, `${name}-source.pdf`));
+                await copyFile(printedPath, join(evidenceDirectory, `${name}-printed.pdf`));
+            }
+            if (name === 'control') {
+                expect.soft(await readFile(printedPath)).toEqual(await readFile(source));
+                console.info('[Auto print] appearance control byte comparison complete');
+                continue;
+            }
+            const codes = await glyphCodes(printedPath);
+            const expectedCodes = await glyphCodes(join(fixtureDirectory, 'reference.pdf'));
+            console.info('[Auto print] glyph codes', JSON.stringify({
+                codes,
+                expectedCodes,
+            }));
+            expect.soft(codes).toEqual(expectedCodes);
+            await rasterizePrint(printedPath, join(printDirectory, 'printed'));
+            await rasterizePrint(join(fixtureDirectory, 'reference.pdf'), join(printDirectory, 'reference'));
+            if (evidenceDirectory) {
+                await copyFile(join(printDirectory, 'printed-1.png'), join(evidenceDirectory, `${name}-printed.png`));
+                await copyFile(join(printDirectory, 'reference-1.png'), join(evidenceDirectory, 'semitic-reference.png'));
+                await session.page.screenshot({path: join(evidenceDirectory, `${name}-completed.png`)});
+            }
+            const pixelHash = (bytes: Buffer) => createHash('sha256').update(decodePng(bytes).data).digest('hex');
+            expect(pixelHash(await readFile(join(printDirectory, 'printed-1.png'))))
+                .toBe(pixelHash(await readFile(join(printDirectory, 'reference-1.png'))));
+        }
+    }, 180_000);
 
     it('hands off the first dirty path-backed print without saving the original', async () => {
         const fixturePath = await createLargeScannedFixturePdf(`viewer-smoke-dirty-print-${Date.now()}.pdf`, 1, 17 * 1024 * 1024);

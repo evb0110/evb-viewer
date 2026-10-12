@@ -2,44 +2,9 @@
 
 use super::*;
 
-/// Resolve a usable normal appearance; synthesis handles missing or damaged AP.
 fn normal_appearance(document: &mut Document, annotation: &Dictionary) -> Option<ObjectId> {
-    let appearances = document
-        .dereference(annotation.get(b"AP").ok()?)
-        .ok()?
-        .1
-        .as_dict()
-        .ok()?;
-    let normal = appearances.get(b"N").ok()?;
-    let (id, resolved) = document.dereference(normal).ok()?;
-    let (id, stream) = if let Ok(stream) = resolved.as_stream() {
-        (id, stream)
-    } else {
-        let state = document
-            .dereference(annotation.get(b"AS").ok()?)
-            .ok()?
-            .1
-            .as_name()
-            .ok()?;
-        let (id, value) = document
-            .dereference(resolved.as_dict().ok()?.get(state).ok()?)
-            .ok()?;
-        (id, value.as_stream().ok()?)
-    };
-    if !stream.content.is_empty() {
-        let bbox = numbers(document, stream.dict.get(b"BBox").ok()?, 4)?;
-        if !bbox.iter().all(|v| v.is_finite()) || bbox[2] <= bbox[0] || bbox[3] <= bbox[1] {
-            return None;
-        }
-        if let Ok(matrix) = stream.dict.get(b"Matrix") {
-            let m = numbers(document, matrix, 6)?;
-            if !m.iter().all(|v| v.is_finite()) || m[0] * m[3] - m[1] * m[2] == 0.0 {
-                return None;
-            }
-        }
-    }
-    let stream = stream.clone();
-    Some(id.unwrap_or_else(|| document.add_object(stream)))
+    let stream = annotation_normal_appearance(document, annotation)?.clone();
+    Some(document.add_object(stream))
 }
 
 #[path = "print_free_text.rs"]

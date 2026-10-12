@@ -452,19 +452,16 @@ fn unused_resource_name(category: &Dictionary, prefix: &str) -> String {
         .expect("an unused resource name exists")
 }
 
-pub(crate) fn numbers(document: &Document, object: &Object, count: usize) -> Option<Vec<f64>> {
-    let values = document.dereference(object).ok()?.1.as_array().ok()?;
-    if values.len() != count {
-        return None;
-    }
+pub(crate) fn numbers(
+    document: &impl PdfObjectSource,
+    object: &Object,
+    count: usize,
+) -> Option<Vec<f64>> {
+    let values = document.resolved(object).ok()?.as_array().ok()?;
+    (values.len() == count).then_some(())?;
     values
         .iter()
-        .map(|value| {
-            document
-                .dereference(value)
-                .ok()
-                .and_then(|(_, value)| object_to_f64(value).ok())
-        })
+        .map(|value| object_to_f64(document.resolved(value).ok()?).ok())
         .collect()
 }
 

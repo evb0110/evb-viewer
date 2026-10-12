@@ -49,3 +49,13 @@ export const PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA = v.object({requestId: 
 export type IPdfPathPrintOptions = v.InferOutput<typeof PDF_PATH_PRINT_OPTIONS_SCHEMA>;
 export type IPdfDataPrintOptions = v.InferOutput<typeof PDF_DATA_PRINT_OPTIONS_SCHEMA>;
 export type IPdfNativePrintDialogOpenedEvent = v.InferOutput<typeof PDF_NATIVE_PRINT_DIALOG_OPENED_EVENT_SCHEMA>;
+
+export const PDF_PRINT_ANNOTATION_INDEX_HEADER_SCHEMA = v.object({
+    format: v.literal('evb-pdf-annotation-name-index'),
+    schemaVersion: v.literal(1),
+    pageCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+});
+export const PDF_PRINT_ANNOTATION_INDEX_CHUNK_SCHEMA = v.object({entries: v.array(v.object({
+    pageIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    needsPrintAppearance: v.boolean(),
+}))});
