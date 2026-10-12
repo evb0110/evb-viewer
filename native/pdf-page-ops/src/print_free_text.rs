@@ -89,28 +89,7 @@ pub(super) fn missing_free_text_appearance(
         .ok()
         .and_then(|v| pdf_string_to_text(document.dereference(v).ok()?.1))
         .unwrap_or_default();
-    let page = materialized_page_dictionary(document, page_id)?;
-    let catalog = document.catalog()?;
-    let acroform = catalog
-        .get(b"AcroForm")
-        .ok()
-        .and_then(|v| document.dereference(v).ok()?.1.as_dict().ok());
-    let font_resources: Vec<_> = [
-        annotation.get(b"DR").ok(),
-        page.get(b"Resources").ok(),
-        acroform.and_then(|d| d.get(b"DR").ok()),
-    ]
-    .into_iter()
-    .filter_map(|r| {
-        let r = document.dereference(r?).ok()?.1.as_dict().ok()?;
-        document
-            .dereference(r.get(b"Font").ok()?)
-            .ok()?
-            .1
-            .as_dict()
-            .ok()
-    })
-    .collect();
+    let font_resources = free_text_fonts(document, annotation, page_id)?;
     let mut resources = Dictionary::new();
     let width = shape_stroke_width(document, annotation)
         .filter(|w| w.is_finite() && *w >= 0.0)
@@ -171,30 +150,10 @@ pub(super) fn missing_free_text_appearance(
                     .chain(fonts.iter().filter(|(name, _)| *name != &font_name))
                 {
                     let program = (|| -> Result<Vec<u8>> {
-                        let mut font = document.dereference(font)?.1.as_dict()?;
-                        if let Ok(descendants) = font.get(b"DescendantFonts") {
-                            font = document
-                                .dereference(
-                                    document
-                                        .dereference(descendants)?
-                                        .1
-                                        .as_array()?
-                                        .first()
-                                        .ok_or("No descendant font")?,
-                                )?
-                                .1
-                                .as_dict()?;
-                        }
-                        let descriptor = document
-                            .dereference(font.get(b"FontDescriptor")?)?
-                            .1
-                            .as_dict()?;
-                        let stream = document
-                            .dereference(descriptor.get(b"FontFile2")?)?
-                            .1
-                            .as_stream()?;
+                        let id = font_program_id(document, font).ok_or("No font program")?;
+                        let stream = document.get_object(id)?.as_stream()?;
                         let bytes =
-                            crate::decompressed_stream_with_limit(stream, 16 * 1024 * 1024)?;
+                            crate::decompressed_stream_with_limit(stream, FONT_PROGRAM_BYTES)?;
                         use skrifa::{raw::TableProvider, MetadataProvider};
                         let face = skrifa::FontRef::from_index(&bytes, 0)?;
                         let metrics = face.metrics(

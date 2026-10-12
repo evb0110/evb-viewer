@@ -1,0 +1,13 @@
+Public FreeText printing fixture font for NP-06 (#1366).
+
+NotoSansDevanagari-subset.ttf is a subset of Noto Sans Devanagari Regular 2.001
+(source SHA-256 79a470365ccb210fa3c7d8d8ff2e005ef9d983cfd067f735a0caf7e15070ca9f),
+copyright 2015 Google Inc., SIL Open Font License 1.1 (http://scripts.sil.org/OFL;
+the license text is the one in public/fonts/annotation/NotoSansSyriac-OFL.txt).
+It was made with fontTools 4.66.1:
+
+    pyftsubset NotoSansDevanagari-Regular.ttf --text='हिन्दी नमस्ते' \
+        --layout-features='*' --no-hinting --drop-tables+=DSIG
+
+It keeps the outlines, cmap and GSUB/GPOS shaping for that text, which none of the
+bundled annotation fonts can draw. Tests embed it as a FreeText's FontFile2.

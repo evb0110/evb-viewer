@@ -6209,6 +6209,98 @@ describe('Electron E2E - Document Output', () => {
             }))]));
         }
         await writeFile(mixedPath, await mixed.save({useObjectStreams: false}));
+        // FreeText drawn only by its embedded Devanagari font, in an image-heavy
+        // file whose dictionaries load structurally. The native layout of a small
+        // copy, which loads eagerly, is the expected drawing.
+        const devanagariFont = await readFile(resolve('tests/fixtures/electron/interop/print-devanagari/NotoSansDevanagari-subset.ttf'));
+        const writeDevanagariPdf = async (path: string, imageBytes: number) => {
+            const pdf = await PDFDocument.create();
+            const page = pdf.addPage([
+                612,
+                792,
+            ]);
+            const program = pdf.context.register(pdf.context.stream(devanagariFont, {Length1: devanagariFont.length}));
+            const descriptor = pdf.context.register(pdf.context.obj({
+                Type: 'FontDescriptor',
+                FontName: 'NotoSansDevanagari',
+                FontFile2: program,
+                Flags: 32,
+                FontBBox: [
+                    -1000,
+                    -1000,
+                    2000,
+                    2000,
+                ],
+                ItalicAngle: 0,
+                Ascent: 1000,
+                Descent: -500,
+                CapHeight: 900,
+                StemV: 80,
+            }));
+            const descendant = pdf.context.register(pdf.context.obj({
+                Type: 'Font',
+                Subtype: 'CIDFontType2',
+                BaseFont: 'NotoSansDevanagari',
+                CIDSystemInfo: {
+                    Registry: PDFString.of('Adobe'),
+                    Ordering: PDFString.of('Identity'),
+                    Supplement: 0,
+                },
+                FontDescriptor: descriptor,
+                CIDToGIDMap: 'Identity',
+            }));
+            const font = pdf.context.register(pdf.context.obj({
+                Type: 'Font',
+                Subtype: 'Type0',
+                BaseFont: 'NotoSansDevanagari',
+                Encoding: 'Identity-H',
+                DescendantFonts: [descendant],
+            }));
+            const image = pdf.context.register(pdf.context.stream(new Uint8Array(imageBytes), {
+                Type: 'XObject',
+                Subtype: 'Image',
+                Width: 1,
+                Height: 1,
+                ColorSpace: 'DeviceGray',
+                BitsPerComponent: 8,
+            }));
+            page.node.set(PDFName.of('Resources'), pdf.context.obj({
+                Font: {DocFont: font},
+                XObject: {Im: image},
+            }));
+            page.node.set(PDFName.of('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'FreeText',
+                Rect: [
+                    60,
+                    120,
+                    550,
+                    220,
+                ],
+                F: 4,
+                Contents: PDFHexString.fromText('हिन्दी नमस्ते'),
+                DA: PDFString.of('/DocFont 28 Tf 0 g'),
+                BS: {W: 0},
+                P: page.ref,
+            }))]));
+            await writeFile(path, await pdf.save({useObjectStreams: false}));
+        };
+        const devanagariPath = join(printDirectory, 'devanagari.pdf');
+        const devanagariExpectedPath = join(printDirectory, 'devanagari-expected.pdf');
+        await writeDevanagariPdf(devanagariPath, 18 * 1024 * 1024);
+        await writeDevanagariPdf(join(printDirectory, 'devanagari-small.pdf'), 1);
+        const {resolveNativePageOpsPath} = await import('@electron/features/page-ops/public/nativePageOpsPath');
+        await execFileAsync(resolveNativePageOpsPath()!, [
+            'print-layout',
+            '--input',
+            join(printDirectory, 'devanagari-small.pdf'),
+            '--output',
+            devanagariExpectedPath,
+            '--view-mode',
+            'single',
+            '--orientation',
+            'auto',
+        ]);
         // A filled form that relies on NeedAppearances, beside a FreeText without /AP.
         const formPath = join(printDirectory, 'form.pdf');
         const form = await PDFDocument.create();
@@ -6305,6 +6397,7 @@ describe('Electron E2E - Document Output', () => {
             'control',
             'mixed',
             'form',
+            'devanagari',
             'semitic',
             'portrait',
         ] as const) {
@@ -6312,6 +6405,7 @@ describe('Electron E2E - Document Output', () => {
                 control: controlPath,
                 mixed: mixedPath,
                 form: formPath,
+                devanagari: devanagariPath,
                 semitic: semiticPath,
                 portrait: semiticPath,
             }[name];
@@ -6334,6 +6428,14 @@ describe('Electron E2E - Document Output', () => {
                 expect.soft(printed.subarray(0, sourceBytes.length)).toEqual(sourceBytes);
                 const square = (await PDFDocument.load(printed)).getPage(1).node.Annots()?.lookup(0, PDFDict);
                 expect.soft(square?.has(PDFName.of('AP')), 'page 2 Square gains its appearance').toBe(true);
+                continue;
+            }
+            if (name === 'devanagari') {
+                expect.soft(await glyphCodes(printedPath), 'the FreeText draws its embedded font').toEqual(await glyphCodes(devanagariExpectedPath));
+                await rasterizePrint(printedPath, join(printDirectory, 'devanagari-printed'));
+                await rasterizePrint(devanagariExpectedPath, join(printDirectory, 'devanagari-expected'));
+                const pagePixels = async (png: string) => createHash('sha256').update(decodePng(await readFile(join(printDirectory, png))).data).digest('hex');
+                expect.soft(await pagePixels('devanagari-printed-1.png')).toBe(await pagePixels('devanagari-expected-1.png'));
                 continue;
             }
             if (name === 'form') {

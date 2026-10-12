@@ -61,6 +61,100 @@ const EVB_DRAWN_SUBTYPES: [&[u8]; 8] = [
     b"Ink",
 ];
 
+/// The ceiling for one embedded font program FreeText synthesis reads.
+const FONT_PROGRAM_BYTES: usize = 16 * 1024 * 1024;
+
+/// The font dictionaries a FreeText's text may use, in order: its own /DR, its
+/// page's resources and the AcroForm /DR.
+fn free_text_fonts(
+    document: &Document,
+    annotation: &Dictionary,
+    page_id: ObjectId,
+) -> Result<Vec<Dictionary>> {
+    let page = materialized_page_dictionary(document, page_id)?;
+    let acroform = document
+        .catalog()?
+        .get(b"AcroForm")
+        .ok()
+        .and_then(|v| document.dereference(v).ok()?.1.as_dict().ok());
+    let resources = [
+        annotation.get(b"DR").ok(),
+        page.get(b"Resources").ok(),
+        acroform.and_then(|d| d.get(b"DR").ok()),
+    ];
+    Ok(resources
+        .into_iter()
+        .filter_map(|r| {
+            let r = document.dereference(r?).ok()?.1.as_dict().ok()?;
+            document
+                .dereference(r.get(b"Font").ok()?)
+                .ok()?
+                .1
+                .as_dict()
+                .ok()
+                .cloned()
+        })
+        .collect())
+}
+
+/// A font's embedded TrueType program, through its first descendant font.
+fn font_program_id(document: &Document, font: &Object) -> Option<ObjectId> {
+    let mut font = document.dereference(font).ok()?.1.as_dict().ok()?;
+    if let Ok(descendants) = font.get(b"DescendantFonts") {
+        let first = document
+            .dereference(descendants)
+            .ok()?
+            .1
+            .as_array()
+            .ok()?
+            .first()?;
+        font = document.dereference(first).ok()?.1.as_dict().ok()?;
+    }
+    let descriptor = document
+        .dereference(font.get(b"FontDescriptor").ok()?)
+        .ok()?
+        .1;
+    descriptor
+        .as_dict()
+        .ok()?
+        .get(b"FontFile2")
+        .ok()?
+        .as_reference()
+        .ok()
+}
+
+/// The embedded font programs a missing FreeText appearance on the page may
+/// draw with: the only source streams Auto reads from a structural load.
+fn free_text_font_programs(document: &Document, page_id: ObjectId) -> Result<Vec<ObjectId>> {
+    let Ok(annots) = document.get_dictionary(page_id)?.get(b"Annots") else {
+        return Ok(Vec::new());
+    };
+    let mut programs = Vec::new();
+    for item in document
+        .dereference(annots)?
+        .1
+        .as_array()
+        .map_or(&[][..], Vec::as_slice)
+    {
+        let Ok(annotation) = document.dereference(item).and_then(|(_, v)| v.as_dict()) else {
+            continue;
+        };
+        if annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText")
+            && is_printed(document, annotation)
+            && annotation_normal_appearance(document, annotation).is_none()
+        {
+            for fonts in free_text_fonts(document, annotation, page_id)? {
+                programs.extend(
+                    fonts
+                        .iter()
+                        .filter_map(|(_, font)| font_program_id(document, font)),
+                );
+            }
+        }
+    }
+    Ok(programs)
+}
+
 /// Gives each printed annotation on the page that lacks a usable normal
 /// appearance the one a stock reader would draw, with the annotation's opacity
 /// and blend mode inside it, as readers expect of a stored appearance. Without
@@ -154,14 +248,28 @@ pub(crate) fn write_print_appearances_path(
 ) -> Result<()> {
     let mut incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    let document = &mut incremental.previous_document;
-    assert_plaintext_base(document, "Encrypted PDFs cannot be laid out for printing")?;
-    let base_max_id = document.max_id;
+    assert_plaintext_base(
+        &incremental.previous_document,
+        "Encrypted PDFs cannot be laid out for printing",
+    )?;
+    let base_max_id = incremental.previous_document.max_id;
     let mut text_font = None;
     let mut changed = Vec::new();
-    for page_id in document.get_pages().into_values() {
+    for page_id in incremental.previous_document.get_pages().into_values() {
+        if let Some(qpdf_path) = qpdf_path {
+            // A program that cannot be read stays unread, as an eager load's
+            // unusable one is skipped, and synthesis uses its fallback fonts.
+            for program in free_text_font_programs(&incremental.previous_document, page_id)? {
+                let _ = incremental.materialize_base_stream(
+                    input_path,
+                    qpdf_path,
+                    program,
+                    FONT_PROGRAM_BYTES,
+                );
+            }
+        }
         changed.extend(materialize_print_appearances(
-            document,
+            &mut incremental.previous_document,
             page_id,
             &mut text_font,
             false,
@@ -171,6 +279,7 @@ pub(crate) fn write_print_appearances_path(
         return Ok(());
     }
     // The synthesized objects move into the revision with the rewritten ones.
+    let document = &mut incremental.previous_document;
     let added = document.objects.split_off(&(base_max_id + 1, 0));
     let revision = &mut incremental.new_document;
     revision.objects.extend(added);
