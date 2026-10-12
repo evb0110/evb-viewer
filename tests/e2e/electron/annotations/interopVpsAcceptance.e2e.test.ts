@@ -25,7 +25,7 @@ import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import {
-    degrees, PDFDocument, PDFString, StandardFonts,
+    degrees, PDFArray, PDFDict, PDFDocument, PDFName, PDFString, StandardFonts,
 } from 'pdf-lib';
 import {verifyInteropRendering} from '@scripts/verify-interop-rendering.mjs';
 import {inspectPdf} from '@scripts/verify-interop-corpus.mjs';
@@ -920,9 +920,22 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         expect(new Set(reopened.canonicalEntities.map(entity => entity.id)).size).toBe(3_200);
     }, 300_000);
 
-    it('imports replies under their supported parents and keeps them after save and reopen', async () => {
+    it('imports cross-page replies under their parents and keeps them after save and reopen', async () => {
         const {page} = sessionFixture.getSession();
         const fixture = copyFreshFixture(resolve('tests/fixtures/electron/reader-highlight-replies.pdf'), 'reader-replies');
+        const pdf = await PDFDocument.load(readFileSync(fixture));
+        const firstPage = pdf.getPage(0);
+        const annots = firstPage.node.lookup(PDFName.of('Annots'), PDFArray).asArray();
+        const replyRef = annots.find(ref => pdf.context.lookup(ref, PDFDict)
+            .lookupMaybe(PDFName.of('Contents'), PDFString)?.decodeText() === 'Reader reply on highlight')!;
+        const secondPage = pdf.addPage([
+            612,
+            792,
+        ]);
+        firstPage.node.set(PDFName.of('Annots'), pdf.context.obj(annots.filter(ref => ref !== replyRef)));
+        secondPage.node.set(PDFName.of('Annots'), pdf.context.obj([replyRef]));
+        pdf.context.lookup(replyRef, PDFDict).set(PDFName.of('P'), secondPage.ref);
+        writeFileSync(fixture, await pdf.save({useObjectStreams: false}));
         const artifactDirectory = resolve('.devkit/artifacts', `reader-replies-${Date.now()}`);
         mkdirSync(artifactDirectory, {recursive: true});
         const expectThreads = async (entityCount: number) => {
@@ -1006,6 +1019,12 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         await expectThreads(3);
         const saved = await readPdfTextAnnotationRecords(fixture);
         expect(saved.filter(annotation => annotation.contents.startsWith('Reader reply on'))).toHaveLength(2);
+        const reopened = await PDFDocument.load(readFileSync(fixture));
+        const reply = reopened.getPage(1).node.lookup(PDFName.of('Annots'), PDFArray).asArray();
+        expect(reply.map(ref => ref.toString())).toEqual([replyRef.toString()]);
+        expect(reopened.context.lookup(reply[0]!, PDFDict).lookup(PDFName.of('Contents'), PDFString).decodeText())
+            .toBe('Reader reply on highlight');
+        copyFileSync(fixture, join(artifactDirectory, 'saved.pdf'));
         console.log(`READER_REPLY_EVIDENCE ${artifactDirectory}`);
     }, ACCEPTANCE_TIMEOUT_MS);
 });

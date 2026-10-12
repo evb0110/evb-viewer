@@ -195,6 +195,39 @@ where
     let mut scan = AnnotationParseScan::default();
     let mut page_index = 0_u64;
     let mut existing_names = HashSet::new();
+    let mut reply_children: HashMap<ObjectId, Vec<(ObjectId, u64)>> = HashMap::new();
+    let mut reply_count = 0;
+    resolver.for_each_page_id(document, |page_id| {
+        let annots = get_page_annots(document, page_id)?;
+        if annots.len() > MAX_PAGE_ANNOTATIONS {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                "PDF page annotation array exceeds the admission ceiling",
+            ));
+        }
+        for object in annots {
+            let Ok(reply_id) = object.as_reference() else {
+                continue;
+            };
+            let dict = document.dictionary(reply_id)?;
+            if let Some(parent_id) = annotation_related_ref(dict, b"IRT") {
+                reply_count += 1;
+                if reply_count > MAX_PAGE_ANNOTATIONS {
+                    return Err(domain_error(
+                        NativeErrorCode::TooLarge,
+                        "PDF document reply index exceeds the admission ceiling",
+                    ));
+                }
+                reply_children
+                    .entry(parent_id)
+                    .or_default()
+                    .push((reply_id, page_index));
+            }
+        }
+        page_index += 1;
+        Ok(())
+    })?;
+    page_index = 0;
     scan.page_count = resolver.for_each_page_id_with_count(document, |page_id| {
         let current_page_index = page_index;
         scan_page_annotations(
@@ -204,6 +237,7 @@ where
             &mut on_entry,
             &mut scan.entry_count,
             &mut existing_names,
+            &reply_children,
         )?;
         page_index = page_index
             .checked_add(1)
@@ -431,6 +465,7 @@ fn scan_page_annotations<F>(
     on_entry: &mut F,
     entry_count: &mut u64,
     existing_names: &mut HashSet<String>,
+    reply_children: &HashMap<ObjectId, Vec<(ObjectId, u64)>>,
 ) -> Result<()>
 where
     F: FnMut(PdfAnnotationParseEntry) -> Result<()>,
@@ -438,46 +473,15 @@ where
     let page_view = resolve_page_view(document, page_id)?;
     let page_rotation = resolve_page_rotation(document, page_id)?;
     let annots = get_page_annots(document, page_id)?;
-    if annots.len() > MAX_PAGE_ANNOTATIONS {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            "PDF page annotation array exceeds the admission ceiling",
-        ));
-    }
-
-    let mut page_annotations = HashMap::with_capacity(annots.len());
-    for object in &annots {
-        if let Ok(object_id) = object.as_reference() {
-            page_annotations.insert(object_id, document.dictionary(object_id)?);
-        }
-    }
-
-    let mut reply_children: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
-    for object in &annots {
-        let Ok(reply_id) = object.as_reference() else {
-            continue;
-        };
-        let dict = page_annotations[&reply_id];
-        let Some(parent_id) = annotation_related_ref(dict, b"IRT") else {
-            continue;
-        };
-        if page_annotations.contains_key(&parent_id) {
-            reply_children.entry(parent_id).or_default().push(reply_id);
-        }
-    }
-
     for object in &annots {
         let object_id = object.as_reference().ok();
         let dict = match object_id {
-            Some(id) => page_annotations.get(&id).copied(),
+            Some(id) => Some(document.dictionary(id)?),
             None => object.as_dict().ok(),
         };
         let Some(dict) = dict else { continue };
         let subtype = annotation_subtype_name(document, dict);
-        // `/IRT` marks an annotation as a reply regardless of whether its
-        // parent is present on this page, recognized by us, or present at all.
-        // A recognized same-page parent may emit the reply below itself, but
-        // a reply must never also appear as a top-level entity.
+        // Replies belong only to a supported parent's document-wide thread.
         if subtype.eq_ignore_ascii_case("Popup") || dict.get(b"IRT").is_ok() {
             continue;
         }
@@ -561,14 +565,13 @@ where
             _ => Err(format!("Unsupported annotation subtype /{subtype}")),
         };
 
-        let replies = if entry.is_ok() {
+        let replies = if entry.is_ok() && object_id != (0, 0) {
             parse_replies(
                 document,
                 object_id,
-                &reply_children,
-                &page_annotations,
-                |reply_id, reason| {
-                    let dict = page_annotations[&reply_id];
+                reply_children,
+                |reply_id, page_index, reason| {
+                    let dict = document.dictionary(reply_id)?;
                     let subtype = annotation_subtype_name(document, dict);
                     let name =
                         resolve_or_mint_name(dict, existing_names, page_index, reply_id, &subtype);
@@ -1125,9 +1128,8 @@ fn canonical_shape_subtype_name(subtype: &str) -> &'static str {
 fn parse_replies(
     document: &impl PdfObjectSource,
     parent_id: ObjectId,
-    reply_children: &HashMap<ObjectId, Vec<ObjectId>>,
-    page_annotations: &HashMap<ObjectId, &Dictionary>,
-    mut on_unreadable: impl FnMut(ObjectId, &str) -> Result<()>,
+    reply_children: &HashMap<ObjectId, Vec<(ObjectId, u64)>>,
+    mut on_unreadable: impl FnMut(ObjectId, u64, &str) -> Result<()>,
 ) -> Result<std::result::Result<Vec<PdfAnnotationParseReply>, String>> {
     let mut replies = Vec::new();
     let mut pending = reply_children
@@ -1137,7 +1139,7 @@ fn parse_replies(
         .into_iter()
         .collect::<VecDeque<_>>();
     let mut seen = HashSet::new();
-    while let Some(reply_id) = pending.pop_front() {
+    while let Some((reply_id, page_index)) = pending.pop_front() {
         if !seen.insert(reply_id) {
             continue;
         }
@@ -1146,9 +1148,7 @@ fn parse_replies(
                 "Annotation reply chain exceeds the admission ceiling".to_string()
             ));
         }
-        let Some(dict) = page_annotations.get(&reply_id) else {
-            continue;
-        };
+        let dict = document.dictionary(reply_id)?;
         let reply: std::result::Result<_, String> = (|| {
             Ok(PdfAnnotationParseReply {
                 object_number: u64::from(reply_id.0),
@@ -1162,7 +1162,7 @@ fn parse_replies(
         })();
         match reply {
             Ok(reply) => replies.push(reply),
-            Err(reason) => on_unreadable(reply_id, &reason)?,
+            Err(reason) => on_unreadable(reply_id, page_index, &reason)?,
         }
         if let Some(children) = reply_children.get(&reply_id) {
             pending.extend(children.iter().copied());
@@ -1820,6 +1820,16 @@ mod tests {
             panic!("expected the cross-page parent note, got {:?}", entries[0]);
         };
         assert_eq!(parent.contents, "parent contents");
+        assert_eq!(parent.replies.len(), 1);
+        assert_eq!(parent.replies[0].contents, "reply to another page");
+        assert_eq!(
+            parent.replies[0].object_number,
+            u64::from(cross_page_reply_id.0)
+        );
+        assert_eq!(
+            parent.replies[0].generation_number,
+            u64::from(cross_page_reply_id.1)
+        );
         assert!(entries.iter().all(|entry| {
             !matches!(entry, PdfAnnotationParseEntry::TextBox(text_box)
                 if text_box.text.contains("reply"))
@@ -2301,9 +2311,7 @@ mod tests {
 
     #[test]
     fn reports_unknown_stamp_forms_as_foreign() {
-        let mut document = Document::with_version("1.7");
-        let pages_id = document.new_object_id();
-        let page_id = document.new_object_id();
+        let (mut document, page_id) = single_page_writer_document();
         let flate_image_id = document.add_object(Stream::new(
             dictionary! {
                 "Type" => "XObject",
@@ -2329,29 +2337,10 @@ mod tests {
             Object::Reference(document.add_object(Object::Dictionary(no_image))),
             Object::Reference(document.add_object(Object::Dictionary(not_jpeg))),
         ];
-        document.set_object(
-            page_id,
-            dictionary! {
-                "Type" => "Page",
-                "Parent" => pages_id,
-                "MediaBox" => rect(0.0, 0.0, 200.0, 100.0),
-                "Annots" => Object::Array(annots),
-            },
-        );
-        document.set_object(
-            pages_id,
-            dictionary! {
-                "Type" => "Pages",
-                "Kids" => vec![Object::Reference(page_id)],
-                "Count" => 1,
-                "MediaBox" => rect(0.0, 0.0, 200.0, 100.0),
-            },
-        );
-        let catalog_id = document.add_object(dictionary! {
-            "Type" => "Catalog",
-            "Pages" => pages_id,
-        });
-        document.trailer.set("Root", catalog_id);
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", annots);
 
         let entries = collect_parsed_annotations(&document, "D:20260830130000Z").unwrap();
         assert_eq!(entries.len(), 2);
