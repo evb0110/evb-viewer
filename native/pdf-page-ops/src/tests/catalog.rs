@@ -1445,17 +1445,37 @@ fn saved_bookmark_anchor_uses_rotated_crop_coordinates() {
 }
 
 #[test]
+fn saved_resolved_named_bookmark_keeps_source_name() {
+    let (mut document, page_id) = create_test_document();
+    document.get_dictionary_mut(document.root_id().unwrap()).unwrap().set("Dests", dictionary! {"chapter" => vec![page_id.into(), Object::Name(b"FitH".to_vec()), Object::Null]});
+    let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks":{
+        "totalPages":1,"untitledLabel":"Untitled","items":[{"title":"Named","pageIndex":0,"pageYRatio":0.2,"namedDest":"chapter","items":[]}]
+    }})).unwrap()).unwrap();
+    let mut input = Vec::new(); document.save_to(&mut input).unwrap();
+    let output = append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap();
+    for saved in [Document::load_mem(&output.data).unwrap(), {
+        set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).unwrap(); document
+    }] {
+        let outlines = saved.get_dictionary(saved.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap();
+        let bookmark = saved.get_dictionary(outlines.get(b"First").unwrap().as_reference().unwrap()).unwrap();
+        assert_eq!(bookmark.get(b"Dest").unwrap().as_str().unwrap(), b"chapter");
+    }
+}
+
+#[test]
 fn saved_bookmark_refuses_a_page_dictionary_outside_the_page_tree() {
     let (mut document, page_id) = create_test_document();
     let orphan = document.add_object(document.get_dictionary(page_id).unwrap().clone());
+    for name in [serde_json::Value::Null, serde_json::json!(""), serde_json::json!("  ")] {
     let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks":{
-        "totalPages":1,"untitledLabel":"Untitled","items":[{"title":"Deleted","pageIndex":null,
+        "totalPages":1,"untitledLabel":"Untitled","items":[{"title":"Deleted","pageIndex":null,"namedDest":name,
         "originalDestination":{"sourceTarget":{"num":orphan.0,"gen":orphan.1},"kind":"Fit","coordinates":[]},"items":[]}]
     }})).unwrap()).unwrap();
     let mut input = Vec::new(); document.save_to(&mut input).unwrap();
     let error = append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").err().unwrap();
     assert!(error.to_string().contains("not in the current page tree"));
     assert!(set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).is_err());
+    }
 }
 
 #[test]

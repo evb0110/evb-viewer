@@ -14,6 +14,9 @@ import {
 } from '@napi-rs/canvas';
 import {
     PDFDocument,
+    PDFDict,
+    PDFArray,
+    PDFString,
     PDFName,
     StandardFonts,
 } from 'pdf-lib';
@@ -676,6 +679,109 @@ if (process.versions.electron && process.type === 'browser') {
         await copyFile(sourcePath, join(evidence, 'saved.pdf'));
         await page.screenshot({path: join(evidence, 'reopened.png')});
         console.info(`OCR metadata evidence: ${evidence}`);
+    }, 420_000);
+
+    it('retains untouched remote, launch and named outline intent through OCR and Save', async () => {
+        const {page} = await sessionFixture.resetForE2E();
+        const sourcePath = await createScannedTextFixturePdf('ocr-source-intent.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
+        const pdf = await PDFDocument.load(await readFile(sourcePath));
+        const outlines = pdf.context.obj({Type: PDFName.of('Outlines')});
+        const outlinesRef = pdf.context.register(outlines);
+        const definitions = [
+            {
+                Title: PDFString.of('Remote'),
+                A: {
+                    S: PDFName.of('GoToR'),
+                    F: PDFString.of('other.pdf'),
+                    D: PDFString.of('remote-chapter'),
+                    NewWindow: true,
+                },
+            },
+            {
+                Title: PDFString.of('Launch'),
+                A: {
+                    S: PDFName.of('Launch'),
+                    F: PDFString.of('tool.exe'),
+                },
+            },
+            {
+                Title: PDFString.of('Named'),
+                Dest: PDFString.of('chapter'),
+            },
+        ];
+        const nodes = definitions.map(definition => {const node = pdf.context.obj({
+            ...definition,
+            Parent: outlinesRef,
+        }); return {
+            node,
+            ref: pdf.context.register(node),
+        };});
+        nodes.forEach(({node}, index) => {
+            if (index > 0) node.set(PDFName.of('Prev'), nodes[index - 1]!.ref);
+            if (index + 1 < nodes.length) node.set(PDFName.of('Next'), nodes[index + 1]!.ref);
+        });
+        outlines.set(PDFName.of('First'), nodes[0]!.ref);
+        outlines.set(PDFName.of('Last'), nodes.at(-1)!.ref);
+        outlines.set(PDFName.of('Count'), pdf.context.obj(3));
+        pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({chapter: [
+            pdf.getPages()[0]!.ref,
+            PDFName.of('FitH'),
+            null,
+        ]}));
+        await writeFile(sourcePath, await pdf.save());
+        const readIntent = async () => {
+            const document = await PDFDocument.load(await readFile(sourcePath));
+            let node = document.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+            return Array.from({length: 3}, (_, index) => {
+                const intent = {
+                    action: node.get(PDFName.of('A'))?.toString(),
+                    dest: node.get(PDFName.of('Dest'))?.toString(),
+                };
+                if (index < 2) node = node.lookup(PDFName.of('Next'), PDFDict);
+                return intent;
+            });
+        };
+        const expected = await readIntent();
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        for (const title of [
+            'Remote',
+            'Launch',
+            'Named',
+        ]) await waitForBookmarkRow(page, title);
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+        const item = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.trim() === 'OCR' && item.checkVisibility()));
+        await clickAsUser(page, item.asElement() as ElementHandle<HTMLElement>);
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await waitForFunctionInPage(page, () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true, {timeout: OCR_TIMEOUT_MS});
+        await clickVisibleButton(page, '[role="dialog"]', 'Close');
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await waitForViewerInteractive(page, 90_000);
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        expect(await readIntent()).toEqual(expected);
+        const saved = await PDFDocument.load(await readFile(sourcePath));
+        const destination = saved.catalog.lookup(PDFName.of('Dests'), PDFDict).lookup(PDFName.of('chapter'), PDFArray).asArray();
+        expect(destination.slice(1).map(value => value.toString())).toEqual([
+            '/FitH',
+            'null',
+        ]);
+        await clickVisibleButton(page, 'body', 'Close Tab');
+        await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        for (const title of [
+            'Remote',
+            'Launch',
+            'Named',
+        ]) await waitForBookmarkRow(page, title);
+        const evidence = join(process.cwd(), '.devkit/core3-r3/media/ocr-source-intent');
+        await mkdir(evidence, {recursive: true});
+        await copyFile(sourcePath, join(evidence, 'saved.pdf'));
+        await page.screenshot({path: join(evidence, 'reopened.png')});
     }, 420_000);
 
     it('review-b6zk preserves a label accepted during background OCR', async () => {

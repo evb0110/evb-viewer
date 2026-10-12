@@ -50,7 +50,6 @@ function remapBookmarkItems(
         return [{
             ...item,
             pageIndex: pageNumberToPageIndex(mappedPageNumber),
-            namedDest: null,
             ...(item.originalDestination ? {originalDestination: {
                 ...item.originalDestination,
                 sourceTarget: pageNumberToPageIndex(mappedPageNumber),

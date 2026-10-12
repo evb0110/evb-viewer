@@ -222,6 +222,26 @@ describe('page metadata remap', () => {
         })]);
     });
 
+    it('retains a resolved named destination under an identity delta', () => {
+        const result = remapPageMetadata({
+            bookmarks: [{
+                ...bookmark('Named', 0),
+                namedDest: 'chapter',
+            }],
+            untitledBookmarkLabel: 'Untitled',
+        }, {
+            previousPageCount: 1,
+            nextPageCount: 1,
+            ranges: [{
+                kind: 'retain',
+                fromPageNumber: 1,
+                toPageNumber: 1,
+                count: 1,
+            }],
+        });
+        expect(result.bookmarks?.items[0]?.namedDest).toBe('chapter');
+    });
+
     it('does not turn unknown metadata into deletion mutations', () => {
         const result = remapPageMetadata({untitledBookmarkLabel: 'Untitled'}, {
             previousPageCount: 2,

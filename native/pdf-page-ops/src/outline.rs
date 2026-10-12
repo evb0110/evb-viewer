@@ -428,7 +428,7 @@ fn validate_bookmark_source_references(
 ) -> Result<()> {
     fn collect(items: &[BookmarkEntry], references: &mut HashSet<ObjectId>) {
         for item in items {
-            if item.page_index.is_none() {
+            if item.page_index.is_none() && item.named_dest.is_none() {
                 if let Some(BookmarkOriginalDestination {
                     source_target: BookmarkSourceTarget::Reference { num, gen },
                     ..
@@ -448,12 +448,18 @@ fn validate_bookmark_source_references(
     Ok(())
 }
 
-fn original_bookmark_destination(
+fn source_bookmark_destination(
     document: &impl PdfObjectSource,
     page_resolver: &PageTreeResolver,
     item: &BookmarkEntry,
 ) -> Result<Option<Object>> {
     use evb_native_support::pdf_catalog::BookmarkSourceTarget;
+    if let Some(name) = item.named_dest.as_deref() {
+        return Ok(Some(Object::String(
+            name.as_bytes().to_vec(),
+            StringFormat::Literal,
+        )));
+    }
     let Some(original) = &item.original_destination else {
         return Ok(None);
     };
@@ -487,7 +493,7 @@ pub(crate) fn validate_bookmark_destination(
     bookmark: &Dictionary,
     item: &BookmarkEntry,
 ) -> Result<()> {
-    if let Some(destination) = original_bookmark_destination(document, page_resolver, item)? {
+    if let Some(destination) = source_bookmark_destination(document, page_resolver, item)? {
         if bookmark.get(b"Dest")? != &destination {
             return Err("Bookmark original destination did not match the request".into());
         }
@@ -522,11 +528,7 @@ pub(crate) fn validate_bookmark_destination(
         return Ok(());
     }
 
-    if let Some(named_dest) = item.named_dest.as_deref() {
-        if bookmark.get(b"Dest")?.as_str()? != named_dest.as_bytes() {
-            return Err("Bookmark named destination did not match the request".into());
-        }
-    } else if bookmark.get(b"Dest").is_ok() {
+    if bookmark.get(b"Dest").is_ok() {
         return Err("Bookmark unexpectedly retained a destination".into());
     }
     Ok(())
@@ -560,7 +562,7 @@ pub(crate) fn set_bookmark_destination(
     dict: &mut Dictionary,
     item: &BookmarkEntry,
 ) -> Result<()> {
-    if let Some(destination) = original_bookmark_destination(base_document, page_resolver, item)? {
+    if let Some(destination) = source_bookmark_destination(base_document, page_resolver, item)? {
         dict.set("Dest", destination);
         return Ok(());
     }
@@ -586,12 +588,6 @@ pub(crate) fn set_bookmark_destination(
         return Ok(());
     }
 
-    if let Some(named_dest) = item.named_dest.as_deref() {
-        dict.set(
-            "Dest",
-            Object::String(named_dest.as_bytes().to_vec(), StringFormat::Literal),
-        );
-    }
     Ok(())
 }
 
@@ -770,7 +766,6 @@ pub(crate) fn set_bookmarks_on_catalog(
     document: &mut Document,
     bookmarks: &BookmarksMutation,
 ) -> Result<()> {
-    validate_bookmark_source_references(document, &bookmarks.items)?;
     let page_resolver = PageTreeResolver::new(document)?;
     assert_mutation_page_count_with_resolver(
         &page_resolver,
@@ -782,6 +777,7 @@ pub(crate) fn set_bookmarks_on_catalog(
         bookmarks.total_pages,
         &bookmarks.untitled_label,
     );
+    validate_bookmark_source_references(document, &normalized)?;
     let catalog_id = document.root_id()?;
     if normalized.is_empty() {
         let catalog = document.get_dictionary_mut(catalog_id)?;
@@ -817,7 +813,6 @@ pub(crate) fn set_bookmarks_incremental(
     bookmarks: &BookmarksMutation,
     continuation: Option<&NativeMutationContinuation>,
 ) -> Result<()> {
-    validate_bookmark_source_references(incremental.get_prev_documents(), &bookmarks.items)?;
     let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     assert_mutation_page_count_with_resolver(
         &page_resolver,
@@ -829,6 +824,7 @@ pub(crate) fn set_bookmarks_incremental(
         bookmarks.total_pages,
         &bookmarks.untitled_label,
     );
+    validate_bookmark_source_references(incremental.get_prev_documents(), &normalized)?;
     let catalog_id = incremental.get_prev_documents().root_id()?;
     if continuation.is_some_and(|value| value.family == NativeMutationContinuationFamily::Bookmarks)
     {

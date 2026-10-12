@@ -160,9 +160,35 @@ describe('Electron E2E - bookmark destination round trip', () => {
                 coordinates: [],
             },
         ];
+        definitions.push(
+            {
+                title: 'Fit vertical',
+                page: 0,
+                kind: 'FitV',
+                coordinates: [100],
+            },
+            {
+                title: 'Fit bounding',
+                page: 1,
+                kind: 'FitB',
+                coordinates: [],
+            },
+            {
+                title: 'Fit bounding horizontal',
+                page: 2,
+                kind: 'FitBH',
+                coordinates: [null],
+            },
+            {
+                title: 'Fit bounding vertical',
+                page: 3,
+                kind: 'FitBV',
+                coordinates: [null],
+            },
+        );
         const outlines = pdf.context.obj({Type: PDFName.of('Outlines')});
         const outlinesRef = pdf.context.register(outlines);
-        const entries = Array.from({length: 4_999}, (_, index) => {
+        const entries = Array.from({length: 10_000}, (_, index) => {
             const definition = definitions[index] ?? {
                 title: `Section ${index + 1}`,
                 page: index % 4,
@@ -212,7 +238,19 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.keyboard.down('Control'); await page.keyboard.press('A'); await page.keyboard.up('Control');
         await page.keyboard.type('XYZ renamed'); await page.keyboard.press('Enter');
         await findBookmarkRow(page, 'XYZ renamed');
+        const memoryLoaded = await page.metrics();
+        const saveStart = performance.now();
         await saveViaVisibleToolbar(page, 90_000, fixture);
+        const saveMs = performance.now() - saveStart;
+        const memorySaved = await page.metrics();
+        const saved = await PDFDocument.load(await readFile(fixture));
+        expect(saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('Count'), PDFNumber).asNumber()).toBe(10_000);
+        console.info('CORE3_LARGE_OUTLINE ' + JSON.stringify({
+            count: 10_000,
+            saveMs,
+            heapLoaded: memoryLoaded.JSHeapUsedSize,
+            heapSaved: memorySaved.JSHeapUsedSize,
+        }));
         expect(await readOriginalDestinationSamples(fixture)).toEqual(expectedDestinations);
         await clickAsUser(page, 'button[aria-label="Close Tab"]');
         await page.waitForSelector('.page_container', {hidden: true});
@@ -234,6 +272,12 @@ describe('Electron E2E - bookmark destination round trip', () => {
             await waitForToolbarCurrentPage(page, index + 1);
         }
         const evidence = await mkdtemp(join(tmpdir(), 'evb-destination-fidelity-'));
+        await writeFile(join(evidence, 'metrics.json'), JSON.stringify({
+            count: 10_000,
+            saveMs,
+            heapLoaded: memoryLoaded.JSHeapUsedSize,
+            heapSaved: memorySaved.JSHeapUsedSize,
+        }, null, 2));
         await copyFile(fixture, join(evidence, 'saved.pdf'));
         await scrollBookmarkListToTop(page);
         await page.screenshot({path: join(evidence, 'reopened.png')});
@@ -390,7 +434,7 @@ async function readOriginalDestinationSamples(path: string) {
     const outlines = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict);
     let entry = outlines.lookup(PDFName.of('First'), PDFDict);
     const samples = [];
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
         const destination = entry.lookup(PDFName.of('Dest'), PDFArray).asArray();
         samples.push({
             pageIndex: pdf.getPages().findIndex(page => page.ref.toString() === destination[0]!.toString()),
@@ -401,7 +445,7 @@ async function readOriginalDestinationSamples(path: string) {
                 return value.asNumber();
             }),
         });
-        if (index < 3) entry = entry.lookup(PDFName.of('Next'), PDFDict);
+        if (index < 7) entry = entry.lookup(PDFName.of('Next'), PDFDict);
     }
     return samples;
 }
