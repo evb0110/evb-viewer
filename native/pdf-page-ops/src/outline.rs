@@ -339,25 +339,24 @@ fn source_bookmark_destination(
     item: &BookmarkEntry,
 ) -> Result<Option<Object>> {
     use evb_native_support::pdf_catalog::BookmarkSourceTarget;
+    // Readers match a name by its bytes: an ASCII name keeps its literal bytes,
+    // and any other is the UTF-16 text string producers write for it.
     if let Some(name) = item.named_dest.as_deref() {
-        return Ok(Some(Object::String(
-            name.as_bytes().to_vec(),
-            StringFormat::Literal,
-        )));
+        return Ok(Some(match name.is_ascii() {
+            true => Object::String(name.as_bytes().to_vec(), StringFormat::Literal),
+            false => Object::String(encode_pdf_text_string(name), StringFormat::Hexadecimal),
+        }));
     }
     let Some(original) = &item.original_destination else {
         return Ok(None);
     };
     let page_id = match (item.page_index, &original.source_target) {
-        (Some(index), _) => page_resolver.page_id(
-            document,
-            index.checked_add(1).ok_or("Invalid bookmark page index")?,
-        )?,
-        (None, BookmarkSourceTarget::PageIndex(index)) => page_resolver.page_id(
-            document,
-            index.checked_add(1).ok_or("Invalid bookmark page index")?,
-        )?,
         (None, BookmarkSourceTarget::Reference { num, gen }) => (*num, *gen),
+        (Some(index), _) | (None, &BookmarkSourceTarget::PageIndex(index)) => page_resolver
+            .page_id(
+                document,
+                index.checked_add(1).ok_or("Invalid bookmark page index")?,
+            )?,
     };
     let mut destination = vec![
         Object::Reference(page_id),

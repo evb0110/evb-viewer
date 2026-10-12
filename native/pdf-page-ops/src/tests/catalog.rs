@@ -1681,3 +1681,43 @@ fn dangling_destination_stays_local_to_its_entry() {
     assert!(parts["bookmarks"][0]["pageIndex"].is_null() && parts["bookmarks"][0].get("originalDestination").is_none());
     assert_eq!(parts["bookmarks"][1]["namedDest"], "chapter");
 }
+fn save_outline_entries(document: &mut Document, items: serde_json::Value, append: bool) -> Document {
+    let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks": {
+        "totalPages": 1, "untitledLabel": "Untitled", "items": items,
+    }})).unwrap()).unwrap();
+    if append {
+        let mut input = Vec::new();
+        document.save_to(&mut input).unwrap();
+        Document::load_mem(&append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap().data).unwrap()
+    } else {
+        set_bookmarks(document, mutations.bookmarks.as_ref().unwrap()).unwrap();
+        document.clone()
+    }
+}
+
+#[test]
+fn saved_unicode_named_destination_keeps_its_bytes() {
+    for append in [false, true] {
+        let (mut document, page_id) = create_test_document();
+        let key = Object::String(encode_pdf_text_string("caf\u{e9}"), StringFormat::Hexadecimal);
+        let outlines_id = document.new_object_id();
+        let item = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Named"), "Parent" => outlines_id, "Dest" => key.clone(),
+        });
+        document.set_object(outlines_id, dictionary! {"Type" => "Outlines", "First" => item, "Last" => item, "Count" => 1});
+        let catalog = document.get_dictionary_mut(document.root_id().unwrap()).unwrap();
+        catalog.set("Outlines", outlines_id);
+        catalog.set("Names", dictionary! {"Dests" => dictionary! {
+            "Names" => vec![key.clone(), vec![page_id.into(), Object::Name(b"FitH".to_vec()), Object::Null].into()],
+        }});
+        let mut items = serde_json::to_value(read_pdf_outline(&document, true).unwrap()).unwrap();
+        assert_eq!(items[0]["namedDest"], "caf\u{e9}");
+        items[0]["title"] = "Named renamed".into();
+        items.as_array_mut().unwrap().push(serde_json::json!({"title": "Typed", "pageIndex": null, "namedDest": "na\u{ef}ve", "items": []}));
+        let saved = save_outline_entries(&mut document, items, append);
+        let targets = outline_targets(&saved);
+        assert_eq!(targets[0].1, Some(key), "append {append}");
+        assert_eq!(targets[1].1, Some(Object::String(encode_pdf_text_string("na\u{ef}ve"), StringFormat::Hexadecimal)));
+    }
+}
+

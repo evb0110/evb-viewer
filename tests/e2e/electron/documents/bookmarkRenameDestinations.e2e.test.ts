@@ -321,6 +321,59 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await waitForToolbarCurrentPage(page, 3);
     }, 90_000);
 
+    it('review-b6yr keeps a Unicode named destination after another bookmark is renamed', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`unicode-name-${Date.now()}.pdf`, []);
+        await writeOutlineFixture(fixture, (pdf, pages) => {
+            pdf.catalog.set(PDFName.of('Names'), pdf.context.obj({Dests: {Names: [
+                PDFHexString.fromText('caf\u00e9'),
+                [
+                    pages[2]!.ref,
+                    PDFName.of('FitH'),
+                    null,
+                ],
+            ]}}));
+            return [
+                {
+                    Title: PDFString.of('Chapter'),
+                    Dest: [
+                        pages[1]!.ref,
+                        PDFName.of('Fit'),
+                    ],
+                },
+                {
+                    Title: PDFString.of('Named'),
+                    Dest: PDFHexString.fromText('caf\u00e9'),
+                },
+            ];
+        });
+        const source = await readOutlineTargets(fixture);
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await renameBookmarkAsUser(page, 'Chapter', 'Chapter renamed');
+        await saveViaVisibleToolbar(page, 90_000, fixture);
+        const saved = await readOutlineTargets(fixture);
+        console.info('UNICODE_NAME_SAVE ' + JSON.stringify({
+            source,
+            saved,
+        }));
+        expect(saved).toEqual([
+            {
+                ...source[0]!,
+                title: 'Chapter renamed',
+            },
+            source[1],
+        ]);
+        await clickAsUser(page, 'button[aria-label="Close Tab"]');
+        await page.waitForSelector('.page_container', {hidden: true});
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await activateBookmark(page, 'Named');
+        await waitForToolbarCurrentPage(page, 3);
+    }, 90_000);
+
     it('keeps destination kinds and null coordinates when renaming a large outline', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`destination-fidelity-${Date.now()}.pdf`, []);
         const pdf = await PDFDocument.load(await readFile(fixture));
