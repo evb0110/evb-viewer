@@ -3989,9 +3989,6 @@ describe('browser document lifecycle UI', () => {
         const releaseWorker = Promise.withResolvers<undefined>();
         try {
             const page = await browser.newPage();
-            page.on('console', message => {
-                if (message.text().startsWith('Search ')) console.info(message.text());
-            });
             await page.goto(origin, {waitUntil: 'domcontentloaded'});
             const bytes = [...readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'))];
             await page.evaluate(`(async () => {
@@ -4009,8 +4006,6 @@ describe('browser document lifecycle UI', () => {
                 Worker.prototype.postMessage = function(message, options) {
                     if (message.type === 'matchPageText') {
                         window.__searchPosted += 1;
-                        console.info('Search admission', JSON.stringify(message.payload));
-                        this.addEventListener('message', event => console.info('Search reply', JSON.stringify(event.data)));
                     }
                     return post.call(this, message, options);
                 };
