@@ -3384,6 +3384,25 @@ describe('browser document lifecycle UI', () => {
                 path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-pdf-reopen.png'),
                 fullPage: true,
             });
+            await page.getByRole('button', {name: 'Close tab'}).last().click();
+            await page.reload({waitUntil: 'domcontentloaded'});
+            const recentPdf = page.locator('[data-recent-open-actionable="true"] .recent-open')
+                .filter({hasText: 'bitonal-faint-pencil.pdf'});
+            await recentPdf.waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await recentPdf.click();
+            await renderedPdf.waitFor({
+                state: 'visible',
+                timeout: 60_000,
+            });
+            await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent())
+                .toContain('bitonal-faint-pencil.pdf');
+            await page.screenshot({
+                path: resolve(process.cwd(), '.devkit/browser-djvu-viewer-reloaded.png'),
+                fullPage: true,
+            });
         } finally {
             await browser.close();
         }

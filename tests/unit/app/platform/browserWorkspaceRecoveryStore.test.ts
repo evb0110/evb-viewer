@@ -442,7 +442,7 @@ describe('browserWorkspaceRecoveryStore', () => {
 
         it('does not reclaim a lease whose owner holds its lock, even under an earlier lock snapshot', async () => {
             await liveLeases.holdLeaseOwnerLock('window:new');
-            await liveLeases.createBrowserDocumentLiveLease('window:new', [{ref: requireDocumentRef('browser://documents/source.pdf')}]);
+            await liveLeases.saveBrowserDocumentLiveLease('window:new', 0, 'active', [{ref: requireDocumentRef('browser://documents/source.pdf')}]);
             // A snapshot taken before the owner published, reporting no held owner.
             vi.spyOn(locks, 'query').mockResolvedValue({held: []});
 

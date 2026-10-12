@@ -814,10 +814,11 @@ describe('BrowserDocumentStore', () => {
         const workingRef = await store.cloneAsWorkingCopy(sourceRef);
 
         await store.touchRecentFile(sourceRef);
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(7, 8));
         await store.removeRecentFile(sourceRef);
         await store.remove(workingRef);
 
-        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(true);
+        await store.cleanupDetachedDocument(sourceRef);
         await expect(store.exists(sourceRef)).resolves.toBe(false);
     });
 

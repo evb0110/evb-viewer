@@ -493,6 +493,32 @@ describe('BrowserDocumentStore source registration', () => {
         expect(handle.requestPermission).toHaveBeenCalledExactlyOnceWith({mode: 'read'});
     });
 
+    it('keeps unpublished conversion bytes while leases add or retain readers', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const source = await store.createStoredDocument('input.djvu', Uint8Array.of(1, 2), {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+        });
+        let lease = await store.createLiveLease('window:conversion', [{ref: source}]);
+        const output = await store.createStoredDocument('converted.pdf', Uint8Array.of(3, 4), {
+            mimeType: 'application/pdf',
+            kind: 'output',
+            retention: 'transient',
+        });
+        lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: source}]);
+        store.unload(output);
+        await expect(store.read(output)).resolves.toEqual(Uint8Array.of(3, 4));
+        lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [
+            {ref: source},
+            {ref: output},
+        ]);
+        const reopened = await store.cloneAsWorkingCopy(output);
+        await expect(store.read(reopened)).resolves.toEqual(Uint8Array.of(3, 4));
+        await store.releaseLiveLease(lease.ownerId, lease.generation);
+        await expect(store.exists(output)).resolves.toBe(false);
+    });
+
     it('collects retired working bytes after 30 lease replacements in one session', async () => {
         vi.stubGlobal('navigator', {});
         const store = new BrowserDocumentStore();
@@ -541,6 +567,21 @@ describe('BrowserDocumentStore source registration', () => {
         await store.releaseLiveLease(successor.ownerId, successor.generation);
         await expect(store.exists(working)).resolves.toBe(false);
         await expect(store.exists(proxy)).resolves.toBe(false);
+    });
+
+    it('refuses an unclaimed active owner and leaves its bytes protected without Web Locks', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const source = await store.createStoredDocument('owned.pdf', Uint8Array.of(7, 8), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+        });
+        const lease = await store.createLiveLease('window:owned', [{ref: source}]);
+        await expect(store.createLiveLease(lease.ownerId, [])).rejects.toThrow('live lease mutation');
+        store.unload(source);
+        await expect(store.read(source)).resolves.toEqual(Uint8Array.of(7, 8));
+        await store.releaseLiveLease(lease.ownerId, lease.generation);
+        await expect(store.exists(source)).resolves.toBe(false);
     });
 
     it('fences live lease lifecycle transitions through the repository owner', async () => {

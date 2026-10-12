@@ -25,7 +25,6 @@ import {
     readBrowserDocumentChunkedEntryRange,
 } from '@app/platform/browser/browserDocumentChunkStorage';
 import {
-    cleanupBrowserEvictedRecentRefs,
     loadBrowserPersistedDocumentRecordsResult,
     sweepBrowserDocumentMaintenance,
 } from '@app/platform/browser/browserDocumentMaintenance';
@@ -100,12 +99,7 @@ export class BrowserDocumentRecordStore {
     private readonly recentFilesStore = new BrowserRecentFilesStore({
         requireEntry: (ref) => this.requireEntry(ref),
         getAllPersistedRecords: () => loadBrowserPersistedDocumentRecordsResult(),
-        cleanupEvictedRecentRefs: (refs) => cleanupBrowserEvictedRecentRefs(
-            refs,
-            async (ref) => {
-                await this.cleanupDetachedDocument(ref);
-            },
-        ),
+        cleanupEvictedRecentRefs: refs => refs.length > 0 ? this.collectUnretainedDocuments() : Promise.resolve(),
     });
     private maintenancePromise: Promise<void> | null = null;
 
@@ -117,14 +111,8 @@ export class BrowserDocumentRecordStore {
 
     private async saveLiveLease(...args: Parameters<typeof saveBrowserDocumentLiveLease>) {
         const lease = await saveBrowserDocumentLiveLease(...args);
-        // Publication is committed even if storage maintenance cannot complete.
-        try {
-            await this.maintenancePromise?.catch(() => undefined);
-            this.maintenancePromise = null;
-            await this.ensureMaintenance();
-        } catch (error) {
-            BrowserLogger.warn('browser-document-maintenance', 'Collection after lease publication failed', error);
-        }
+        if (lease.status !== 'dead' && lease.droppedRefs.length === 0) return lease;
+        await this.collectUnretainedDocuments();
         return lease;
     }
 
@@ -484,6 +472,17 @@ export class BrowserDocumentRecordStore {
 
     public async clearRecentFiles() {
         await this.recentFilesStore.clearRecentFiles();
+    }
+
+    private async collectUnretainedDocuments() {
+        // Publications and Recent Files evictions stay committed if collection fails.
+        try {
+            await this.maintenancePromise?.catch(() => undefined);
+            this.maintenancePromise = null;
+            await this.ensureMaintenance();
+        } catch (error) {
+            BrowserLogger.warn('browser-document-maintenance', 'Collection after protection removal failed', error);
+        }
     }
 
     protected async ensureMaintenance() {

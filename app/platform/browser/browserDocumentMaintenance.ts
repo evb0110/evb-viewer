@@ -5,7 +5,6 @@ import {
     DOCUMENT_CHUNKS_STORE,
     BROWSER_TRANSFER_AUTHORITY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
-import { uniq } from 'es-toolkit/array';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
 import {
     collectChunkIndicesByRef,
@@ -284,16 +283,4 @@ export async function sweepBrowserDocumentMaintenance(
             );
         });
     }
-}
-
-export async function cleanupBrowserEvictedRecentRefs(
-    refs: string[],
-    cleanupRef: (ref: string) => Promise<void>,
-) {
-    const uniqueRefs = uniq(refs.filter(ref => ref.length > 0));
-    await Promise.allSettled(
-        uniqueRefs.map(async (ref) => {
-            await cleanupRef(ref);
-        }),
-    );
 }

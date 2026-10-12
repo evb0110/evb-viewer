@@ -12,12 +12,7 @@ import {
 } from '@app/platform/browser/browserDocumentIdb';
 import {loadAllChunkKeysAvailability} from '@app/platform/browser/browserDocumentChunks';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
-import {
-    createBrowserDocumentLiveLease,
-    releaseBrowserDocumentLiveLease,
-    saveBrowserDocumentLiveLease,
-    setBrowserDocumentLiveLeaseSuspended,
-} from '@app/platform/browser/browserDocumentLeaseStore';
+import {saveBrowserDocumentLiveLease} from '@app/platform/browser/browserDocumentLeaseStore';
 import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
 import {writeRecentFilesToStorage} from '@app/platform/browser/browserRecentFilesStore';
 import {
@@ -117,7 +112,7 @@ async function inspectRefs(refs: string[]) {
 
 async function setupLiveLeaseAcceptance() {
     writeRecentFilesToStorage([]);
-    const created = await createBrowserDocumentLiveLease(OWNER_ID);
+    const created = await saveBrowserDocumentLiveLease(OWNER_ID, 0, 'active', []);
     const inlineSource = await browserDocumentStore.createStoredDocument(
         'live-lease-inline.pdf',
         INLINE_BYTES,
@@ -190,10 +185,10 @@ async function suspendLiveLeaseAcceptance() {
     if (ownerGeneration === null || !liveRefs) {
         throw new Error('Live lease acceptance was not initialized');
     }
-    const suspended = await setBrowserDocumentLiveLeaseSuspended(
+    const suspended = await saveBrowserDocumentLiveLease(
         OWNER_ID,
         ownerGeneration,
-        true,
+        'suspended',
         [
             {ref: liveRefs.inlineSource},
             {ref: liveRefs.chunkedSource},
@@ -212,10 +207,10 @@ async function resumeLiveLeaseAcceptance() {
     if (ownerGeneration === null || !liveRefs) {
         throw new Error('Live lease acceptance was not initialized');
     }
-    const resumed = await setBrowserDocumentLiveLeaseSuspended(
+    const resumed = await saveBrowserDocumentLiveLease(
         OWNER_ID,
         ownerGeneration,
-        false,
+        'active',
         [
             {ref: liveRefs.inlineSource},
             {ref: liveRefs.chunkedSource},
@@ -290,7 +285,7 @@ async function reclaimAfterConfirmedDeath() {
     if (ownerGeneration === null || !liveRefs) {
         throw new Error('Live lease acceptance was not initialized');
     }
-    const released = await releaseBrowserDocumentLiveLease(OWNER_ID, ownerGeneration);
+    const released = await saveBrowserDocumentLiveLease(OWNER_ID, ownerGeneration, 'dead', []);
     ownerGeneration = released.generation;
     const originalDateNow = Date.now;
     Date.now = () => originalDateNow() + 11 * 60 * 1_000;
@@ -474,7 +469,8 @@ async function cleanOpenDocument() {
     });
     const working = await browserDocumentStore.cloneAsWorkingCopy(source);
     const recovery = browserWindowTabsCapability.browserRecovery!;
-    const saved = await recovery.save('window:clean-source', 0, {
+    const ownerId = recovery.getOwnerId()!;
+    const saved = await recovery.save(ownerId, 0, {
         version: 1,
         capturedAt: requireEpochMs(Date.now()),
         activePaneId: null,
@@ -486,7 +482,7 @@ async function cleanOpenDocument() {
         source,
         working,
     ]);
-    await recovery.clear('window:clean-source', saved.generation);
+    await recovery.clear(ownerId, saved.generation);
     return {
         source,
         working,
@@ -495,10 +491,10 @@ async function cleanOpenDocument() {
 }
 Reflect.set(globalThis, '__evbCleanOpenDocument', cleanOpenDocument);
 Reflect.set(globalThis, '__evbPublishOpenDocument', (refs: string) => publishBrowserDocumentLiveLeases(
-    'window:clean-target', (JSON.parse(refs) as string[]).map(ref => requireDocumentRef(ref)),
+    undefined, (JSON.parse(refs) as string[]).map(ref => requireDocumentRef(ref)),
 ).then(() => true));
-Reflect.set(globalThis, '__evbCloseCleanSource', () => publishBrowserDocumentLiveLeases('window:clean-source', []).then(() => true));
-Reflect.set(globalThis, '__evbCloseCleanTarget', () => publishBrowserDocumentLiveLeases('window:clean-target', []).then(() => true));
+Reflect.set(globalThis, '__evbCloseCleanSource', () => publishBrowserDocumentLiveLeases(undefined, []).then(() => true));
+Reflect.set(globalThis, '__evbCloseCleanTarget', () => publishBrowserDocumentLiveLeases(undefined, []).then(() => true));
 
 Reflect.set(globalThis, '__evbCloseTransferredDocument', async (transferId: string) => {
     await publishBrowserDocumentLiveLeases(undefined, []);

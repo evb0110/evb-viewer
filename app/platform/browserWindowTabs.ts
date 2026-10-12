@@ -32,6 +32,7 @@ import {
     holdLeaseOwnerLock,
     holdsLeaseOwnerLock,
     loadLiveLeaseOwnerIds,
+    loadBrowserDocumentLiveLease,
 } from '@app/platform/browser/browserDocumentLeaseStore';
 import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -260,15 +261,6 @@ let currentWindowId = -1;
 let currentRecoveryInstanceNonce = '';
 let isCurrentWindowReady = false;
 let cleanupRegistered = false;
-
-type TBrowserWindowTabsMessageHandlers = {
-    [TType in TBrowserWindowTabsMessage['type']]: (
-        message: Extract<
-            TBrowserWindowTabsMessage,
-            { type: TType }
-        >,
-    ) => void;
-};
 
 function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage | null {
     const result = v.safeParse(browserWindowTabsMessageSchema, data, {abortEarly: true});
@@ -769,28 +761,10 @@ async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessa
     if (authority?.state === 'committed') {
         // The durable decision protects bytes while the receiver adopts its reader.
         authority.backingRefs.forEach(({ref}) => documentDependencyReaders.delete(ref));
-        await publishBrowserDocumentLiveLeases();
         finishTransfer(message.ack.transferId, {success: true});
+        await publishBrowserDocumentLiveLeases();
     }
 }
-
-const browserWindowTabsMessageHandlers: TBrowserWindowTabsMessageHandlers = {
-    discover: () => {
-        announceCurrentWindow();
-    },
-    announce: handleWindowAnnouncement,
-    unregister: (message) => {
-        if (message.windowId === currentWindowId) {
-            return;
-        }
-        markWindowUnavailable(
-            message.windowId,
-            'Target browser window closed before transfer completed.',
-        );
-    },
-    transfer: handleIncomingTransferMessage,
-    ack: message => { void handleTransferAckMessage(message); },
-};
 
 function handleMessage(data: unknown) {
     const message = parseBrowserWindowTabsMessage(data);
@@ -803,19 +777,19 @@ function handleMessage(data: unknown) {
 
     switch (message.type) {
         case 'discover':
-            browserWindowTabsMessageHandlers.discover(message);
+            announceCurrentWindow();
             break;
         case 'announce':
-            browserWindowTabsMessageHandlers.announce(message);
+            handleWindowAnnouncement(message);
             break;
         case 'unregister':
-            browserWindowTabsMessageHandlers.unregister(message);
+            if (message.windowId !== currentWindowId) markWindowUnavailable(message.windowId, 'Target browser window closed before transfer completed.');
             break;
         case 'transfer':
-            browserWindowTabsMessageHandlers.transfer(message);
+            handleIncomingTransferMessage(message);
             break;
         case 'ack':
-            browserWindowTabsMessageHandlers.ack(message);
+            void handleTransferAckMessage(message);
             break;
     }
 }
@@ -990,7 +964,27 @@ async function holdRecoveryOwnerLock() {
 }
 // Recovery records and their live document leases share this platform owner.
 const documentDependencyReaders = new Map<string | (() => TDocumentRef[]), () => TDocumentRef[]>();
-let recoveryLiveLease = Promise.resolve<Awaited<ReturnType<typeof browserDocumentStore.heartbeatLiveLease>> | null>(null);
+let recoveryLiveLease: Promise<Awaited<ReturnType<typeof loadBrowserDocumentLiveLease>>> | null = null;
+
+async function claimRecoveryLiveLease() {
+    if (!await holdRecoveryOwnerLock()) {
+        return null;
+    }
+    if (ensureChannel()) {
+        const discoveryStartedAt = Date.now();
+        postMessage({
+            type: 'discover',
+            windowId: currentWindowId,
+            instanceNonce: currentRecoveryInstanceNonce,
+        });
+        await waitForDiscoverySettling();
+        pruneStaleTargetWindows(discoveryStartedAt);
+    }
+
+    const ownerId = await holdRecoveryOwnerLock();
+    if (!ownerId) return null;
+    return loadBrowserDocumentLiveLease(ownerId);
+}
 
 export function registerBrowserDocumentDependencyReader(read: () => TDocumentRef[]) {
     documentDependencyReaders.set(read, read);
@@ -1019,12 +1013,13 @@ export async function retireBrowserDocumentWorkingCopy(ref: TDocumentRef) {
 }
 
 export function publishBrowserDocumentLiveLeases(
-    ownerId = getBrowserWindowRecoveryOwnerId(),
+    ownerId?: string | null,
     refs: TDocumentRef[] = [],
 ) {
-    if (!ownerId) return recoveryLiveLease;
-    const previous = recoveryLiveLease;
+    const previous = recoveryLiveLease ??= claimRecoveryLiveLease();
     const publication = previous.then(async (lease) => {
+        ownerId ??= getBrowserWindowRecoveryOwnerId();
+        if (!ownerId) return null;
         const dependencies = documentDependencyReaders.size > 0
             ? [...documentDependencyReaders.values()].flatMap(read => read())
             : refs;
@@ -1062,21 +1057,8 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
     claimWorkspaceCheckpoint: async () => {
-        if (!await holdRecoveryOwnerLock()) {
-            return null;
-        }
-        if (ensureChannel()) {
-            const discoveryStartedAt = Date.now();
-            postMessage({
-                type: 'discover',
-                windowId: currentWindowId,
-                instanceNonce: currentRecoveryInstanceNonce,
-            });
-            await waitForDiscoverySettling();
-            pruneStaleTargetWindows(discoveryStartedAt);
-        }
-
-        const ownerId = await holdRecoveryOwnerLock();
+        await (recoveryLiveLease ??= claimRecoveryLiveLease());
+        const ownerId = getBrowserWindowRecoveryOwnerId();
         if (!ownerId) return null;
         const records = await loadBrowserWorkspaceRecoveries();
         const exact = records.find(record => record.ownerId === ownerId)

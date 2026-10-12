@@ -180,6 +180,7 @@ describe('browserWindowTabsCapability', () => {
             ),
         );
         stubBrowserGlobals();
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
     });
 
     afterEach(() => {
@@ -190,6 +191,7 @@ describe('browserWindowTabsCapability', () => {
 
     it('collects the creator copy after durable handoff and the receiver final close', async () => {
         vi.useRealTimers();
+        stubBrowserGlobals();
         vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
         const storage = new MemoryStorage();
         vi.stubGlobal('localStorage', storage);
@@ -239,7 +241,15 @@ describe('browserWindowTabsCapability', () => {
             label: 'Receiver',
             ready: true,
         });
-        await expect(owner.browserWindowTabsCapability.transfer({
+        let resumeCollection!: () => void;
+        const collection = new Promise<void>(resolve => { resumeCollection = resolve; });
+        const releaseLease = store.releaseLiveLease.bind(store);
+        vi.spyOn(store, 'releaseLiveLease').mockImplementationOnce(async (...args) => {
+            await collection;
+            return releaseLease(...args);
+        });
+        let transferred = false;
+        const transfer = owner.browserWindowTabsCapability.transfer({
             target: {
                 kind: 'window',
                 windowId: 200,
@@ -257,7 +267,13 @@ describe('browserWindowTabsCapability', () => {
                 snapshotPath: successor,
                 isDirty: true,
             },
-        })).resolves.toMatchObject({success: true});
+        }).then(result => { transferred = result.success; });
+        try {
+            await vi.waitFor(() => expect(transferred, 'Durable transfer success is independent of collection').toBe(true));
+        } finally {
+            resumeCollection();
+            await transfer;
+        }
         store.unload(successor);
         await expect(store.read(successor)).resolves.toEqual(Uint8Array.of(23, 24, 25));
         await store.releaseLiveLease(receiver.ownerId, receiver.generation);
@@ -320,6 +336,47 @@ describe('browserWindowTabsCapability', () => {
         await vi.advanceTimersByTimeAsync(70);
         await expect(secondClaim).resolves.toBe(checkpoint);
         expect(secondModule.getBrowserWindowRecoveryOwnerId()).toBe('window:321');
+    });
+
+    it('leaves startup unclaimed when IndexedDB is unavailable', async () => {
+        vi.useRealTimers();
+        stubBrowserGlobals();
+        vi.stubGlobal('indexedDB', undefined);
+        const owner = await import('@app/platform/browserWindowTabs');
+        await expect(owner.browserWindowTabsCapability.claimWorkspaceCheckpoint()).resolves.toBeNull();
+        await expect(owner.publishBrowserDocumentLiveLeases()).resolves.toBeNull();
+    });
+
+    it('adopts the proven reload lease before an eager publication without Web Locks', async () => {
+        vi.useRealTimers();
+        stubBrowserGlobals('http://localhost:3235/?evbWindowId=321');
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        Object.assign(window, {localStorage: new MemoryStorage()});
+        const owner = await import('@app/platform/browserWindowTabs');
+        const {browserDocumentStore: store} = await import('@app/platform/browser/browserDocumentRepository');
+        const source = await store.createStoredDocument('reload.pdf', Uint8Array.of(10, 11), {
+            mimeType: 'application/pdf',
+            kind: 'source',
+        });
+        const previous = await store.createLiveLease('window:321', [{ref: source}]);
+        const checkpoint = {
+            version: 1,
+            tabs: [],
+        };
+        recoveryMocks.loadBrowserWorkspaceRecoveries.mockResolvedValue([{
+            ownerId: previous.ownerId,
+            checkpoint,
+            updatedAt: Date.now(),
+            leaseRevision: 1,
+            generation: 1,
+        }]);
+        const publication = expect(owner.publishBrowserDocumentLiveLeases(undefined, [source])).resolves.toMatchObject({
+            ownerId: previous.ownerId,
+            generation: previous.generation + 1,
+        });
+        await expect(owner.browserWindowTabsCapability.claimWorkspaceCheckpoint()).resolves.toBe(checkpoint);
+        await publication;
+        await expect(store.read(source)).resolves.toEqual(Uint8Array.of(10, 11));
     });
 
     it('rekeys a duplicated live context before it can share a recovery owner', async () => {

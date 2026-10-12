@@ -112,7 +112,7 @@ export async function saveBrowserDocumentLiveLease(
     // own or a previous page's, as after a reload. Without a lock manager only
     // a dead lease is replaced.
     const replacesLease = expectedGeneration === 0 && ownerLock !== null;
-    const result = await runObjectStoreTransaction<IBrowserDocumentLiveLease | null>(
+    const result = await runObjectStoreTransaction<(IBrowserDocumentLiveLease & {droppedRefs: string[]}) | null>(
         BROWSER_LIVE_LEASES_STORE,
         'readwrite',
         (store, setResult) => {
@@ -141,7 +141,12 @@ export async function saveBrowserDocumentLiveLease(
                     ).values()),
                 };
                 store.put(next);
-                setResult(next);
+                // Return collection admission to the store owner; persist only the lease.
+                const keptRefs = new Set(next.protectedDependencies.map(dependency => `${dependency.ref}::${dependency.chunkGeneration ?? ''}`));
+                setResult({
+                    ...next,
+                    droppedRefs: (current?.protectedDependencies ?? []).filter(dependency => !keptRefs.has(`${dependency.ref}::${dependency.chunkGeneration ?? ''}`)).map(dependency => dependency.ref),
+                });
             };
         },
     );
@@ -149,24 +154,9 @@ export async function saveBrowserDocumentLiveLease(
     return result;
 }
 
-export async function createBrowserDocumentLiveLease(
-    ownerId: string,
-    protectedDependencies: IBrowserDocumentLeaseDependency[] = [],
-) {
-    return saveBrowserDocumentLiveLease(ownerId, 0, 'active', protectedDependencies);
-}
-
-export async function releaseBrowserDocumentLiveLease(ownerId: string, generation: number) {
-    return saveBrowserDocumentLiveLease(ownerId, generation, 'dead', []);
-}
-
-export async function setBrowserDocumentLiveLeaseSuspended(
-    ownerId: string,
-    generation: number,
-    suspended: boolean,
-    protectedDependencies: IBrowserDocumentLeaseDependency[],
-) {
-    return saveBrowserDocumentLiveLease(ownerId, generation, suspended ? 'suspended' : 'active', protectedDependencies);
+export async function loadBrowserDocumentLiveLease(ownerId: string) {
+    const result = await withObjectStoreReadResult(BROWSER_LIVE_LEASES_STORE, store => store.get(leaseId(ownerId)));
+    return decodeLease(result.value);
 }
 
 // The owners whose context is alive, or null where the browser has no lock
