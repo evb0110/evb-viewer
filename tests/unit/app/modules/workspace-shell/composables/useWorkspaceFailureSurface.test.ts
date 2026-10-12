@@ -13,7 +13,6 @@ import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/pub
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { SerializableError } from '@contracts/serializableError';
 import {formatFailurePresentationCopy} from '@app/composables/useFailureToast';
-import EN_MESSAGES from '@i18n-app/messages/en';
 import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
 import * as v from 'valibot';
 import {
@@ -22,9 +21,7 @@ import {
 } from '@contracts/documentsPlatformFeatureSchemas';
 
 const toastAddMock = vi.fn();
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, params?: {path: string}) => key === 'errors.file.originalSavedOtherKept'
-    ? EN_MESSAGES.errors.file.originalSavedOtherKept.replace('{path}', params?.path ?? '')
-    : key})}));
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
 const { useWorkspaceFailureSurface } = await import(
@@ -51,7 +48,8 @@ function expectedAnnotationReport(
     };
 }
 
-// The toast stub outlives each test and is dropped once for the file.
+// The composable resolves both globals on every call, so the stubs have to
+// outlive each test and are dropped once for the file.
 afterAll(() => {
     vi.unstubAllGlobals();
 });
@@ -290,9 +288,10 @@ describe('useWorkspaceFailureSurface', () => {
             message,
         }, () => {destination = 'saved-as.pdf';});
 
-        expect(surface.saveFailurePresentation.value?.description).toBe(message);
+        const description = `errors.file.originalSavedOtherKept:${JSON.stringify({path: keptFilePath})}`;
+        expect(surface.saveFailurePresentation.value?.description).toBe(description);
         const toast = toastAddMock.mock.calls[0]?.[0];
-        expect(toast.description).toEqual(toastDescriptionContaining(message));
+        expect(toast.description).toEqual(toastDescriptionContaining(description));
         expect(toast.actions.map((action: {label: string}) => action.label)).toEqual([
             'toolbar.saveAs',
             'errors.runtime.copy',
