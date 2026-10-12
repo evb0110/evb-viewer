@@ -263,6 +263,18 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             && prepared.canvasHost.closest('.page_container') === prepared.container
             && isViewportRasterDemanded(prepared.job.demand.pageNumber, prepared.job.demand.lane);
     }
+    function beginViewportRaster(job: IPdfViewportRasterJob, container: HTMLElement | null) {
+        const requestId = ++visibleRenderRequestId;
+        pageRenderState.beginRender(
+            job.demand.pageNumber, job.demand.consumerGeneration, requestId,
+            getRenderDocumentToken(), job.targetScale, job.targetOutputScale, container,
+            {
+                preserveCommittedVisual: pageRenderState.getSlot(job.demand.pageNumber).canvasReadiness === 'ready',
+                targetViewRotation: job.targetViewRotation,
+            },
+        );
+        return requestId;
+    }
     const viewportRasterTarget: IPdfRasterRenderTarget<IPreparedViewportRaster> = {
         id: viewportRasterSourceId,
         async prepare(demand, page, signal, captureSettlement) {
@@ -279,20 +291,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }
             const version = demand.consumerGeneration;
             const scale = job.targetScale;
-            const requestId = ++visibleRenderRequestId;
-            pageRenderState.beginRender(
-                demand.pageNumber,
-                version,
-                requestId,
-                getRenderDocumentToken(),
-                scale,
-                job.targetOutputScale,
-                target.container,
-                {
-                    preserveCommittedVisual: pageRenderState.getSlot(demand.pageNumber).canvasReadiness === 'ready',
-                    targetViewRotation: job.targetViewRotation,
-                },
-            );
+            const requestId = beginViewportRaster(job, target.container);
             const shouldContinue = () => (
                 !signal.aborted && version === renderVersion
                 && viewportRasterJobs.get(demand.renderKey) === job
@@ -336,14 +335,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         onRenderFailed(demand, error) {
             const pageNumber = demand.pageNumber;
             const job = viewportRasterJobs.get(demand.renderKey);
-            const requestId = pageRenderState.getSlot(pageNumber).requestId;
-            if (
-                !job
-                || requestId === null
-                || demand.consumerGeneration !== renderVersion
-            ) {
-                return;
-            }
+            if (!job || demand.consumerGeneration !== renderVersion) return;
+            const requestId = beginViewportRaster(job, pageRenderState.getSlot(pageNumber).container);
             pageRenderState.markRenderFailed(pageNumber, demand.consumerGeneration, requestId);
             resolveViewportRasterWaiters(pageNumber);
             renderedPageStateVersion.value += 1;

@@ -477,15 +477,14 @@ export function createPdfPageRasterScheduler(
     function scheduleReattempt(work: IRasterWork, exhausted: TPdfRasterOutcome) {
         if (!isDemandCurrent(work) || work.retryCount >= MAX_RETRIES) {
             settleWork(work, exhausted);
-            if (exhausted.status === 'failed' && isDemandCurrent(work)) {
-                // The target's report must not reject this unawaited execution.
+            if (isDemandCurrent(work)) {
                 try {
-                    work.target.onRenderFailed?.(work.demand, exhausted.error);
+                    work.target.onRenderFailed?.(work.demand, exhausted.status === 'failed'
+                        ? exhausted.error : new Error('PDF raster attempts exhausted without a committed page'));
                 } catch (error) {
                     logPdfRenderTrace('pdf-raster-render-failed-callback-failed', {
                         error: getErrorMessage(error),
-                        pageNumber: work.demand.pageNumber,
-                        targetId: work.target.id,
+                        demand: work.demand,
                     });
                 }
             }
