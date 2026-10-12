@@ -1,4 +1,6 @@
-import {createHash} from 'node:crypto';
+import {
+    createHash, randomBytes,
+} from 'node:crypto';
 import {
     mkdirSync, readFileSync, writeFileSync,
 } from 'node:fs';
@@ -61,7 +63,7 @@ interface IBrowserLifecycleTestApi {
     }>;
 }
 
-async function readPersistedDocumentBytes(page: Page, ref: string): Promise<number[]> {
+async function readPersistedDocumentBytes(page: Page, ref: string, sha256 = false): Promise<number[]> {
     // Read persisted bytes without creating another document/maintenance lifecycle.
     // Keep browser imports outside Vitest's server-side module transform.
     return page.evaluate(`(async () => {
@@ -71,9 +73,10 @@ async function readPersistedDocumentBytes(page: Page, ref: string): Promise<numb
         const record = await loadRecord(${JSON.stringify(ref)});
         if (!record) return [];
         const entry = createEntryFromPersistedRecord(record);
-        return Array.from(entry.storageMode === 'chunked'
+        const bytes = entry.storageMode === 'chunked'
             ? await readBrowserDocumentChunkedEntryBytes(entry)
-            : entry.data);
+            : entry.data;
+        return Array.from(${sha256} ? new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)) : bytes);
     })()`);
 }
 
@@ -3289,6 +3292,169 @@ describe('browser document lifecycle UI', () => {
             expect(pageErrors).toEqual([]);
         } finally {
             await context.close();
+            await browser.close();
+        }
+    }, 120_000);
+
+    // A committed producer target must survive peer collection until its consumer adopts it.
+    it.each([
+        'conversion',
+        'save-as',
+    ] as const)('retains pending %s bytes through peer Recent clearing', async operation => {
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
+        const page = await context.newPage();
+        const peer = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        let savedDigest: number[] | null = null;
+        try {
+            for (const participant of [
+                page,
+                peer,
+            ]) {
+                await participant.addInitScript(() => {
+                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                    Reflect.set(window, 'showSaveFilePicker', undefined);
+                    sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                });
+                await participant.goto(origin, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(participant);
+                keepFileChooserInterceptionEnabled(participant);
+            }
+            const peerChooser = peer.waitForEvent('filechooser');
+            await peer.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await peerChooser).setFiles(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'));
+            await peer.locator('.page_container--rendered canvas').first().waitFor();
+            await peer.getByRole('button', {name: 'Close tab'}).last().click();
+            // Observe completion of the actual UI-triggered collection, not just the list repaint.
+            await peer.evaluate(`(async () => {
+                const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                const clear = store.clearRecentFiles.bind(store);
+                store.clearRecentFiles = async () => {await clear(); window.__peerClearCompleted = true;};
+            })()`);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            if (operation === 'conversion') {
+                await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu'));
+                await page.locator('[data-testid="document-page-source-image"]').first().waitFor({timeout: 90_000});
+                await page.evaluate(`(async () => {
+                    const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                    const retain = store.setRetention.bind(store);
+                    store.setRetention = async (ref, retention) => {
+                        const result = await retain(ref, retention);
+                        if ((await store.requireEntry(ref)).kind === 'output' && retention === 'durable') {
+                            window.__pendingTargetRef = ref;
+                            await new Promise(resolve => {window.__resumeTarget = resolve;});
+                        }
+                        return result;
+                    };
+                })()`);
+                await page.getByRole('button', {name: /Convert to PDF/}).filter({visible: true}).first().click();
+                await page.getByRole('dialog').getByRole('button', {
+                    name: 'Convert',
+                    exact: true,
+                }).click();
+            } else {
+                const input = await PDFDocument.load(readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')));
+                await input.attach(randomBytes(4 * 1024 * 1024 + 64 * 1024), 'public-padding.bin');
+                await (await chooser).setFiles({
+                    name: 'pending-save.pdf',
+                    mimeType: 'application/pdf',
+                    buffer: Buffer.from(await input.save()),
+                });
+                await page.locator('.page_container--rendered canvas').first().waitFor();
+                await addNote(page, 'Pending source retained note', {
+                    x: 160,
+                    y: 180,
+                });
+                await page.evaluate(`(async () => {
+                    const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                    const create = store.createStoredDocument.bind(store);
+                    store.createStoredDocument = async (name, bytes, options) => {
+                        const ref = await create(name, bytes, options);
+                        if (options.kind === 'source') {
+                            window.__pendingTargetRef = ref;
+                            await new Promise(resolve => {window.__resumeTarget = resolve;});
+                        }
+                        return ref;
+                    };
+                })()`);
+                const download = page.waitForEvent('download');
+                await page.getByRole('button', {
+                    name: 'Save options',
+                    exact: true,
+                }).click();
+                await page.getByRole('menuitem', {name: /^Save As/u}).click();
+                const savedPath = await (await download).path();
+                const savedBytes = readFileSync(savedPath!);
+                savedDigest = Array.from(createHash('sha256').update(savedBytes).digest());
+                expect(noteTexts(await PDFDocument.load(savedBytes))).toContain('Pending source retained note');
+            }
+            await page.waitForFunction(() => Boolean(Reflect.get(window, '__resumeTarget')));
+            const ref: string = await page.evaluate(() => Reflect.get(window, '__pendingTargetRef'));
+            const before = await readPersistedDocumentBytes(peer, ref, operation === 'save-as');
+            if (operation === 'conversion') expect(before.slice(0, 5)).toEqual([
+                37,
+                80,
+                68,
+                70,
+                45,
+            ]);
+            else {
+                expect(before).toEqual(savedDigest);
+                expect(await peer.evaluate(`(async () => {
+                    const {loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                    const row = await loadRecord(${JSON.stringify(ref)});
+                    return {mode: row?.storageMode, chunks: row?.chunkCount};
+                })()`)).toEqual({
+                    mode: 'chunked',
+                    chunks: 2,
+                });
+            }
+            await peer.getByRole('button', {
+                name: 'Clear Recent Files',
+                exact: true,
+            }).click();
+            await peer.getByRole('button', {
+                name: 'Clear History',
+                exact: true,
+            }).click();
+            await peer.waitForFunction(() => Reflect.get(window, '__peerClearCompleted') === true);
+            const after = await readPersistedDocumentBytes(peer, ref, operation === 'save-as');
+            await page.evaluate(() => Reflect.get(window, '__resumeTarget')());
+            expect(createHash('sha256').update(Uint8Array.from(after)).digest('hex'),
+                'Committed target bytes survive collection before adoption')
+                .toBe(createHash('sha256').update(Uint8Array.from(before)).digest('hex'));
+            if (operation === 'conversion') expect((await PDFDocument.load(Uint8Array.from(after))).getPageCount()).toBe(2);
+            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
+            await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '', {timeout: 30_000}).not.toMatch(/unsaved/iu);
+            await page.getByRole('button', {name: 'Close tab'}).last().click();
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await page.locator('[data-recent-open-actionable="true"] .recent-open')
+                .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'}).click();
+            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
+            if (operation === 'save-as') {
+                await page.getByRole('button', {
+                    name: 'Open Note',
+                    exact: true,
+                }).first().click();
+                expect(await page.getByRole('textbox', {
+                    name: 'Write annotation note',
+                    exact: true,
+                }).inputValue()).toBe('Pending source retained note');
+            }
+            await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-pending-${operation}-reloaded.png`)});
+            expect(problems).toEqual([]);
+        } finally {
             await browser.close();
         }
     }, 120_000);

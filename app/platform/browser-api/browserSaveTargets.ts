@@ -20,6 +20,9 @@ import {
     writeDocumentRefToHandle,
     writeBytesToHandleInSaveLock,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
+import {
+    reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
+} from '@app/platform/browserWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 
 export class BrowserExternalSaveSyncRequiredError extends Error {
@@ -236,35 +239,13 @@ export async function savePdfAsFromWorkingCopy(
                 const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
                 let normalizedFileName = ensurePdfExtension(saveResult.fileName);
                 let savedHandle = saveResult.handle;
-                let sourceRef: TDocumentRef;
-
+                let bytes: Uint8Array = new Uint8Array();
+                let fileSize: number;
                 if (saveResult.handle) {
                     if (staged) await writeBytesToHandleInSaveLock(saveResult.handle, staged.bytes);
                     else await writeDocumentRefToHandle(saveResult.handle, workingCopyPath);
                     externalWriteCommitted = true;
-                    const size = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
-                    sourceRef = await browserDocumentStore.createStoredDocument(
-                        normalizedFileName,
-                        new Uint8Array(),
-                        {
-                            mimeType: 'application/pdf',
-                            saveKind: 'pdf',
-                            kind: 'source',
-                            saveHandle: saveResult.handle,
-                            storageMode: 'handle',
-                        },
-                    );
-                    await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
-                        fileSize: size,
-                        saveHandle: saveResult.handle,
-                        saveName: normalizedFileName,
-                    });
-                    await browserDocumentStore.assignSaveTarget(
-                        sourceRef,
-                        normalizedFileName,
-                        'pdf',
-                        saveResult.handle,
-                    );
+                    fileSize = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
                 } else {
                     if (!staged) {
                         await assertBrowserPathWithinFullReadBudget(
@@ -273,40 +254,47 @@ export async function savePdfAsFromWorkingCopy(
                             useNativeAppMessage,
                         );
                     }
-                    const bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
+                    bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
                     const downloadResult = await saveBytesToPickerOrDownload(bytes, {
                         suggestedName,
                         mimeType: 'application/pdf',
                         pickerTypes: buildPdfSaveTypes(),
                         downloadFallbackLabel: 'Saving documents',
                     });
-
-                    if (downloadResult.canceled) {
-                        return null;
-                    }
-
+                    if (downloadResult.canceled) return null;
                     externalWriteCommitted = true;
                     normalizedFileName = ensurePdfExtension(downloadResult.fileName);
                     savedHandle = downloadResult.handle;
-                    sourceRef = await browserDocumentStore.createStoredDocument(
-                        normalizedFileName,
-                        bytes,
-                        {
-                            mimeType: 'application/pdf',
-                            saveKind: 'pdf',
-                            kind: 'source',
-                            saveHandle: downloadResult.handle,
-                        },
-                    );
+                    fileSize = bytes.byteLength;
                 }
-                await mutation.replaceWorkingCopySource(
-                    sourceRef,
-                    normalizedFileName,
-                    savedHandle,
-                );
-                await browserDocumentStore.touchRecentFile(sourceRef);
-                browserDocumentStore.unload(sourceRef);
-                return sourceRef;
+                const sourceRef = await reserveBrowserDocumentWorkingCopy(normalizedFileName);
+                try {
+                    await browserDocumentStore.createStoredDocument(normalizedFileName, bytes, {
+                        ref: sourceRef,
+                        mimeType: 'application/pdf',
+                        saveKind: 'pdf',
+                        kind: 'source',
+                        saveHandle: savedHandle,
+                        ...(savedHandle ? {storageMode: 'handle' as const} : {}),
+                    });
+                    if (savedHandle) {
+                        await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
+                            fileSize,
+                            saveHandle: savedHandle,
+                            saveName: normalizedFileName,
+                        });
+                    }
+                    await mutation.replaceWorkingCopySource(
+                        sourceRef,
+                        normalizedFileName,
+                        savedHandle,
+                    );
+                    await browserDocumentStore.touchRecentFile(sourceRef);
+                    browserDocumentStore.unload(sourceRef);
+                    return sourceRef;
+                } finally {
+                    await retireBrowserDocumentWorkingCopy(sourceRef);
+                }
             },
         );
     } catch (error) {

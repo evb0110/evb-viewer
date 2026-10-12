@@ -132,6 +132,30 @@ export function createBrowserDocumentsFileCapability(
     }
 
 
+    async function pickOutputTarget(suggestedName: string, saveKind: 'pdf' | 'docx') {
+        const normalizeName = saveKind === 'pdf' ? ensurePdfExtension : ensureDocxExtension;
+        const saveResult = await pickSaveTarget({
+            suggestedName: normalizeName(suggestedName),
+            pickerTypes: saveKind === 'pdf' ? buildPdfSaveTypes() : buildDocxSaveTypes(),
+        });
+        if (saveResult.canceled) return null;
+        const name = normalizeName(saveResult.fileName);
+        const ref = await reserveBrowserDocumentWorkingCopy(name);
+        try {
+            return await browserDocumentStore.createStoredDocument(name, new Uint8Array(), {
+                ref,
+                mimeType: saveKind === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                saveKind,
+                kind: 'output',
+                retention: 'transient',
+                saveHandle: saveResult.handle,
+            });
+        } catch (error) {
+            await retireBrowserDocumentWorkingCopy(ref);
+            throw error;
+        }
+    }
+
     const capability: TCanonicalDocumentsFileCapability = {
         async openDocumentDialog() {
             const pickedFiles = await pickFiles({
@@ -219,6 +243,8 @@ export function createBrowserDocumentsFileCapability(
                 }
 
                 throw error;
+            } finally {
+                await retireBrowserDocumentWorkingCopy(path);
             }
         },
         async openDocumentDirectBatch(paths, requestId) {
@@ -239,58 +265,18 @@ export function createBrowserDocumentsFileCapability(
                 }
 
                 throw error;
+            } finally {
+                await Promise.all(paths.map(retireBrowserDocumentWorkingCopy));
             }
         },
         async savePdfAs(workingCopyPath, saveOptions, revisionOptions?) {
             return savePdfAsFromWorkingCopy(workingCopyPath, revisionOptions, saveOptions?.stagedOutput, browserUseNativeAppMessageProvider());
         },
-        async savePdfDialog(suggestedName) {
-            const nextName = ensurePdfExtension(suggestedName);
-            const saveResult = await pickSaveTarget({
-                suggestedName: nextName,
-                pickerTypes: buildPdfSaveTypes(),
-            });
-            if (saveResult.canceled) {
-                return null;
-            }
-
-            return browserDocumentStore.createStoredDocument(
-                ensurePdfExtension(saveResult.fileName),
-                new Uint8Array(),
-                {
-                    mimeType: 'application/pdf',
-                    saveKind: 'pdf',
-                    kind: 'output',
-                    retention: 'transient',
-                    saveHandle: saveResult.handle,
-                },
-            );
-        },
-        async saveDocxAs(workingCopyPath) {
-            const fallbackName = ensureDocxExtension(
-                getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''),
-            );
-            const saveResult = await pickSaveTarget({
-                suggestedName: fallbackName,
-                pickerTypes: buildDocxSaveTypes(),
-            });
-            if (saveResult.canceled) {
-                return null;
-            }
-
-            return browserDocumentStore.createStoredDocument(
-                ensureDocxExtension(saveResult.fileName),
-                new Uint8Array(),
-                {
-                    mimeType:
-                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    saveKind: 'docx',
-                    kind: 'output',
-                    retention: 'transient',
-                    saveHandle: saveResult.handle,
-                },
-            );
-        },
+        savePdfDialog: suggestedName => pickOutputTarget(suggestedName, 'pdf'),
+        saveDocxAs: workingCopyPath => pickOutputTarget(
+            getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''),
+            'docx',
+        ),
         async readFile(path) {
             return browserDocumentStore.read(path);
         },
