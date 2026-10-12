@@ -1723,7 +1723,7 @@ export default {
             'noPages': 'Il PDF non contiene pagine',
             'folderEmpty': 'Nessun documento supportato trovato nella cartella selezionata',
             'save': 'Impossibile salvare il file',
-            'originalSavedOtherKept': 'L’originale è stato modificato in un altro programma. Una versione è stata conservata in {path}.',
+            'originalSavedOtherKept': 'Il PDF è stato modificato altrove durante il salvataggio. Il file com’era subito prima di questo salvataggio è stato conservato in {path}. Le modifiche sono ancora aperte qui; usa «Salva con nome» per conservarle.',
             'browserStorageTitle': 'Lo spazio di archiviazione del browser non è disponibile',
             'browserStorageDescription': '“{name}” è aperto in memoria, ma non riapparirà dopo il ricaricamento.',
         },

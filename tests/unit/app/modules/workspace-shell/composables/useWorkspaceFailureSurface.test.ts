@@ -14,6 +14,9 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { SerializableError } from '@contracts/serializableError';
 import {formatFailurePresentationCopy} from '@app/composables/useFailureToast';
 import { toastDescriptionContaining } from '@tests/helpers/toastDescription';
+import {formatTranslationLeaf} from '@i18n-core';
+import {LOCALE_CODES} from '@i18n-core/localeCodes';
+import {LOCALE_MESSAGES} from '@i18n-app';
 import * as v from 'valibot';
 import {
     documentSaveResult,
@@ -299,6 +302,15 @@ describe('useWorkspaceFailureSurface', () => {
         toast.actions[0].onClick();
         expect(destination).toBe('saved-as.pdf');
         expect(formatFailurePresentationCopy(surface.saveFailurePresentation.value!)).toContain(keptFilePath);
+    });
+
+    it.each(LOCALE_CODES)('tells where the earlier file was kept and how to keep the changes in %s', locale => {
+        const keptFilePath = '/documents/report.pdf.evb-transition-123.bak';
+        const messages = LOCALE_MESSAGES[locale];
+        const text = formatTranslationLeaf(messages.errors.file.originalSavedOtherKept, {path: keptFilePath}, locale);
+        expect(text).toContain(keptFilePath);
+        expect(text).toContain(messages.toolbar.saveAs.replace(/(?:…|\.\.\.)$/u, ''));
+        expect(text).not.toMatch(/\{\w+\}/u);
     });
 
     it('keeps a genuine write failure separate from a changed original', () => {

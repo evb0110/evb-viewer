@@ -1723,7 +1723,7 @@ export default {
             'noPages': 'Die PDF-Datei enthält keine Seiten',
             'folderEmpty': 'Im ausgewählten Ordner wurden keine unterstützten Dokumente gefunden',
             'save': 'Datei konnte nicht gespeichert werden',
-            'originalSavedOtherKept': 'Das Original wurde anderweitig geändert. Eine Version wurde unter {path} aufbewahrt.',
+            'originalSavedOtherKept': 'Die PDF-Datei wurde während des Speicherns anderweitig geändert. Die Datei im Zustand direkt vor diesem Speichern wurde unter {path} aufbewahrt. Ihre Änderungen sind hier noch geöffnet; verwenden Sie „Speichern unter“, um sie zu behalten.',
             'browserStorageTitle': 'Browserspeicher ist nicht verfügbar',
             'browserStorageDescription': '„{name}“ ist im Arbeitsspeicher geöffnet, erscheint nach dem Neuladen aber nicht wieder.',
         },

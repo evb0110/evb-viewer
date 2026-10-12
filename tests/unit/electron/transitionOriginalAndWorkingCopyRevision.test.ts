@@ -216,8 +216,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const error: unknown = await transition.catch((failure: unknown) => failure);
         expect(error).toBeInstanceOf(OriginalPathSaveConflictError);
         if (!(error instanceof OriginalPathSaveConflictError)) throw new Error('Save did not report the external conflict');
-        expect(error.keptFilePath).toBeTruthy();
-        await expect(readFile(error.keptFilePath!, 'utf8')).resolves.toBe('old-working');
+        expect(dirname(error.keptFilePath!)).toBe(dirname(originalPath));
+        await expect(readFile(error.keptFilePath!, 'utf8')).resolves.toBe('old-original');
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
         const external = Buffer.from(publication);
         external.write('EXTERNAL', 262144);
@@ -468,11 +468,12 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
             const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
             const journal = JSON.parse(await readFile(getWorkingCopyJournalPath(fixture.workingCopyPath), 'utf8')) as WorkingCopyJournalModule.IWorkingCopyJournal;
-            expect(result).toMatchObject({keptFilePath: journal.backupPath});
-            expect(await readFile(journal.backupPath, 'utf8')).toBe('accepted-unsaved-work');
+            expect(result).toMatchObject({keptFilePath: journal.original!.backupPath});
+            expect(await readFile(journal.original!.backupPath, 'utf8')).toBe('old-original');
             const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
             await recoverWorkingCopyTransition(fixture.workingCopyPath);
-            expect(await readFile(journal.backupPath, 'utf8')).toBe('accepted-unsaved-work');
+            expect(await readFile(journal.original!.backupPath, 'utf8')).toBe('old-original');
+            expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
             expect(await readFile(fixture.originalPath, 'utf8')).toBe('external-after-publication');
         },
     );
@@ -1606,6 +1607,53 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
         } finally {
             vi.doUnmock('fs/promises');
+        }
+    });
+
+    it.each([
+        'publication',
+        'working-copy sync',
+    ] as const)('names the file as it was before an annotation save another program edits right after %s', async moment => {
+        let workingPath = '';
+        let edit = (): void => undefined;
+        vi.doMock('@electron/file-access/documentFileWriteAtomic', async importOriginal => {
+            const actual = await importOriginal<typeof DocumentFileWriteAtomicModule>();
+            return {
+                ...actual,
+                publishImmutableFileAtomic: async (...args: Parameters<typeof actual.publishImmutableFileAtomic>) => {
+                    await actual.publishImmutableFileAtomic(...args);
+                    if (moment === 'publication') edit();
+                },
+                copyFileAtomic: async (...args: Parameters<typeof actual.copyFileAtomic>) => {
+                    await actual.copyFileAtomic(...args);
+                    if (moment === 'working-copy sync' && args[1] === workingPath) edit();
+                },
+            };
+        });
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-edit-after-publication');
+            workingPath = workingCopyPath;
+            const external = Buffer.alloc(2 * 1024 * 1024, 67);
+            external.write('EXTERNAL', 262144);
+            edit = () => {
+                edit = () => undefined;
+                writeExternally(originalPath);
+            };
+
+            const result = await saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 67));
+            expect(result).toMatchObject({
+                applied: false,
+                reason: 'original-changed',
+            });
+            if (!result.keptFilePath) throw new Error('The conflict named no kept file');
+            expect(dirname(result.keptFilePath)).toBe(dirname(originalPath));
+            await expect(readFile(result.keptFilePath, 'utf8')).resolves.toBe('old-original');
+            expect((await readFile(originalPath)).equals(external)).toBe(true);
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+        } finally {
+            vi.doUnmock('@electron/file-access/documentFileWriteAtomic');
         }
     });
 });

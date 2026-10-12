@@ -73,7 +73,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                     try {
                         await assertPathMatchesSaveWitnessSnapshot(originalBackupPath, original.preparedSnapshot, {contentOnly: true});
                         await measurePhase('transition-rebase-original-witness-after-publish',
-                            async () => witness.rebaseAfterPublish(original.intendedFingerprint, transitionJournal.backupPath));
+                            async () => witness.rebaseAfterPublish(original.intendedFingerprint));
                         await measurePhase('transition-journal-original-published', () =>
                             recordWorkingCopyJournalOriginal(transitionJournal, {
                                 ...original,
@@ -106,8 +106,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         } catch (error) {
             if (error instanceof OriginalPathSaveConflictError) {
                 if (journal?.original) {
-                    if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(error.keptFilePath
-                        ?? (journal.original.publishedSnapshot ? journal.backupPath : journal.original.backupPath));
+                    if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(journal.original.backupPath);
                     await recordWorkingCopyJournalOriginal(journal, {
                         ...journal.original,
                         state: 'restored',

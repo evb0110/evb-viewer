@@ -1734,7 +1734,7 @@ export default {
             'noPages': 'O PDF não contém páginas',
             'folderEmpty': 'Não foram encontrados documentos compatíveis na pasta selecionada',
             'save': 'Falha ao guardar ficheiro',
-            'originalSavedOtherKept': 'O original foi alterado noutro programa. Uma versão foi conservada em {path}.',
+            'originalSavedOtherKept': 'O PDF foi alterado noutro programa durante a gravação. O ficheiro tal como estava imediatamente antes desta gravação foi conservado em {path}. As suas alterações continuam abertas aqui; use «Guardar Como» para as conservar.',
             'browserStorageTitle': 'O armazenamento do navegador não está disponível',
             'browserStorageDescription': '“{name}” está aberto na memória, mas não reaparecerá após recarregar.',
         },

@@ -1067,7 +1067,8 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         const pdfPath = createFixturePath(`save-refresh-race-${Date.now()}.pdf`);
         const pdf = await PDFDocument.load(await readFile(GENERATED_TEXT_FIXTURE));
         pdf.catalog.set(PDFName.of('RefreshRacePadding'), PDFString.of('A'.repeat(1024 * 1024)));
-        await writeFile(pdfPath, await pdf.save({useObjectStreams: false}));
+        const beforeSave = Buffer.from(await pdf.save({useObjectStreams: false}));
+        await writeFile(pdfPath, beforeSave);
         const mainPath = join(process.cwd(), 'dist-electron', 'main.js');
         const main = await readFile(mainPath);
         const seamPath = createFixturePath(`save-refresh-seam-${Date.now()}.mjs`);
@@ -1133,13 +1134,14 @@ syncBuiltinESMExports();
             expect(outcome).toBe('refused');
             expect(await isSaveButtonEnabled(page)).toBe(true);
             const text = await page.evaluate(() => document.body.textContent ?? '');
-            expect(text).toContain('The original changed elsewhere. A version was kept at');
-            const journal: unknown = JSON.parse(await readFile(join(dirname(workingPath!), 'journal.json'), 'utf8'));
-            if (typeof journal !== 'object' || journal === null || !('backupPath' in journal) || typeof journal.backupPath !== 'string') {
-                throw new Error('Save did not retain a named working backup');
-            }
-            await expect(readFile(journal.backupPath)).resolves.toEqual(await readFile(workingPath!));
-            expect(text).toContain(journal.backupPath);
+            expect(text).toContain('The PDF changed elsewhere while it was being saved. The file as it was just before this save was kept at');
+            expect(text).toContain('Your changes are still open here; use Save As to keep them.');
+            const journal = JSON.parse(await readFile(join(dirname(workingPath!), 'journal.json'), 'utf8')) as {original?: {backupPath?: unknown}};
+            const keptPath = journal.original?.backupPath;
+            if (typeof keptPath !== 'string') throw new Error('Save did not name the file as it was before the save');
+            expect(dirname(keptPath)).toBe(dirname(pdfPath));
+            await expect(readFile(keptPath)).resolves.toEqual(beforeSave);
+            expect(text).toContain(keptPath);
             await page.screenshot({path: createFixturePath('save-refresh-race-kept.png')});
         } finally {
             await session?.stop();

@@ -1734,7 +1734,7 @@ export default {
             'noPages': 'Le PDF ne contient aucune page',
             'folderEmpty': 'Aucun document pris en charge n’a été trouvé dans le dossier sélectionné',
             'save': 'Échec de l’enregistrement du fichier',
-            'originalSavedOtherKept': 'L’original a été modifié dans un autre programme. Une version a été conservée à l’emplacement {path}.',
+            'originalSavedOtherKept': 'Le PDF a été modifié ailleurs pendant l’enregistrement. Le fichier tel qu’il était juste avant cet enregistrement a été conservé à l’emplacement {path}. Vos modifications sont toujours ouvertes ici ; utilisez « Enregistrer sous » pour les conserver.',
             'browserStorageTitle': 'Le stockage du navegador est indisponible',
             'browserStorageDescription': '« {name} » est ouvert en mémoire, mais ne réapparaîtra pas après rechargement.',
         },
