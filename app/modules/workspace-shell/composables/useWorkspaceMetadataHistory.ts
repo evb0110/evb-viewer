@@ -51,7 +51,6 @@ export const useWorkspaceMetadataHistory = (deps: {
 }) => {
     const currentSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
     const cleanSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
-    const preservedReloadSnapshot = shallowRef<IWorkspaceMetadataSnapshot | null>(null);
     const isApplyingSnapshot = ref(false);
 
     function cloneSnapshot(
@@ -136,25 +135,6 @@ export const useWorkspaceMetadataHistory = (deps: {
         syncDirtyFlags(snapshot);
     }
 
-    function preserveCurrentStateForNextSourceReload() {
-        preservedReloadSnapshot.value = captureCurrentSnapshot();
-    }
-
-    function clearPreservedSourceReloadState() {
-        preservedReloadSnapshot.value = null;
-    }
-
-    function consumePreservedSourceReloadState() {
-        const snapshot = preservedReloadSnapshot.value;
-        preservedReloadSnapshot.value = null;
-        if (!snapshot) {
-            return false;
-        }
-
-        applySnapshot(snapshot);
-        return true;
-    }
-
     function recordCurrentState() {
         if (isApplyingSnapshot.value) {
             return;
@@ -204,9 +184,6 @@ export const useWorkspaceMetadataHistory = (deps: {
         resetToCurrentState,
         restoreCurrentState,
         markCurrentStateClean,
-        clearPreservedSourceReloadState,
-        consumePreservedSourceReloadState,
-        preserveCurrentStateForNextSourceReload,
         recordCurrentState,
     };
 };

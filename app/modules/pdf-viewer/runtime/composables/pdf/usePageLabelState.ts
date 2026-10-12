@@ -27,6 +27,7 @@ export const usePageLabelState = (deps: {
     workingCopyPath?: Ref<TDocumentRef | null>;
     documentRevisionToken?: Readonly<Ref<TDocumentRevisionToken | null>>;
     readPageLabelRanges?: () => Promise<IPdfPageLabelRange[]>;
+    preservesSourceReload?: () => boolean;
     onPageLabelsSynchronized?: () => void;
     onPageLabelsDirty?: () => void;
     onPageLabelsSaved?: () => void;
@@ -118,21 +119,12 @@ export const usePageLabelState = (deps: {
             && (documentRevisionToken === undefined || documentRevisionToken.value === sourceRevision)
         );
 
-        if (!isCurrentSync()) {
+        if (!isCurrentSync() || (pageLabelsResolved.value && deps.preservesSourceReload?.())) {
             return;
         }
 
         if (!doc) {
-            if (totalPages.value <= 0) {
-                pageLabels.value = null;
-                pageLabelRanges.value = [];
-                pageLabelModel.value = createPageLabelModel(0, []);
-            } else {
-                pageLabelModel.value = createPageLabelModel(
-                    totalPages.value,
-                    pageLabelRanges.value,
-                );
-            }
+            updatePageLabelModel(Math.max(0, totalPages.value), totalPages.value > 0 ? pageLabelRanges.value : []);
             pageLabelsDirty.value = false;
             pageLabelsResolved.value = true;
             resolvedDocumentBytes = sourceBytes;
@@ -235,10 +227,7 @@ export const usePageLabelState = (deps: {
             }
             return;
         }
-        updatePageLabelModel(totalPages.value, normalized);
-        pageLabelsDirty.value = true;
-        pageLabelRevision += 1;
-        onPageLabelsDirty?.();
+        applyAcceptedPageLabels(normalized);
     }
 
     function getPageLabelsRevision() {
@@ -253,15 +242,20 @@ export const usePageLabelState = (deps: {
         } : undefined;
     }
 
-    function restoreRecovery(recovery: NonNullable<IWorkspaceMetadataRecovery['pageLabels']>) {
-        // An in-flight read of the admitted base bytes must not overwrite the
-        // edit replayed onto those same bytes. Reuse the source-sync owner.
+    function retainAcceptedRevision(revision = documentRevisionToken?.value) {
+        const path = workingCopyPath?.value;
+        noticedDocumentBytes = resolvedDocumentBytes = path && revision
+            ? `${path}\n${revision}` : documentBytesOf(pdfDocument.value);
+    }
+
+    function applyAcceptedPageLabels(ranges: readonly IPdfPageLabelRange[], revision = pageLabelRevision + 1) {
+        // An earlier catalog read cannot overwrite accepted ranges.
         pageLabelSyncGeneration += 1;
-        noticedDocumentBytes = resolvedDocumentBytes = documentBytesOf(pdfDocument.value);
-        updatePageLabelModel(totalPages.value, recovery.ranges);
+        retainAcceptedRevision();
+        updatePageLabelModel(totalPages.value, ranges);
         pageLabelsResolved.value = true;
         pageLabelsDirty.value = true;
-        pageLabelRevision = Math.max(pageLabelRevision + 1, recovery.revision);
+        pageLabelRevision = Math.max(pageLabelRevision + 1, revision);
         onPageLabelsDirty?.();
     }
 
@@ -291,16 +285,27 @@ export const usePageLabelState = (deps: {
     }
 
     watch(
-        pdfDocument,
-        (doc) => {
+        () => [
+            pdfDocument.value,
+            documentRevisionToken?.value,
+        ] as const,
+        ([
+            doc,
+            revision,
+        ]) => {
             // A view switch does not change the bytes: the labels read from
             // them, and any edit made since, stay. A view still presenting
             // the document, or a document of older bytes, shows the same
             // working copy.
+            const bytes = documentBytesOf(doc);
+            if (pageLabelsResolved.value && deps.preservesSourceReload?.()) {
+                pageLabelSyncGeneration += 1;
+                retainAcceptedRevision(revision);
+                return;
+            }
             if ((!doc && isWorkingCopyRevisionKnown()) || (doc && holdsOlderBytes(doc))) {
                 return;
             }
-            const bytes = documentBytesOf(doc);
             if (bytes !== noticedDocumentBytes) {
                 noticedDocumentBytes = bytes;
                 onDocumentBytesChanged?.();
@@ -352,6 +357,6 @@ export const usePageLabelState = (deps: {
         getPageLabelsRevision,
         handlePageLabelRangesUpdate,
         captureRecovery,
-        restoreRecovery,
+        restoreRecovery: (recovery: NonNullable<IWorkspaceMetadataRecovery['pageLabels']>) => applyAcceptedPageLabels(recovery.ranges, recovery.revision),
     };
 };

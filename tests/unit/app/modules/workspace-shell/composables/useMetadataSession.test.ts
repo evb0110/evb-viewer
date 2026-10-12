@@ -31,14 +31,60 @@ function createSession() {
         totalPages: ref(1),
         workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
         markDirty: vi.fn(),
-        fileHistoryMutationVersion: ref(0),
-        fileHistorySessionVersion: ref(0),
-        undoFile: vi.fn(async () => true),
-        redoFile: vi.fn(async () => true),
     });
 }
 
 describe('useMetadataSession', () => {
+    it('keeps accepted metadata and its inverse commands across an OCR revision and its file history', async () => {
+        const session = createSession();
+        const bookmark = createBookmark('Accepted');
+        session.bookmarkState.handleBookmarksChange({
+            bookmarks: [bookmark],
+            dirty: true,
+        });
+        session.pageLabelState.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'D',
+            prefix: 'Accepted-',
+            startNumber: 1,
+        }]);
+        const loadOriginalMetadata = async () => {
+            session.bookmarkState.handleBookmarksChange({
+                bookmarks: [],
+                dirty: false,
+            });
+            await session.pageLabelState.syncPageLabelsFromDocument(null);
+            return true;
+        };
+        await session.runWithPreservedMetadataReload(async () => {
+            await loadOriginalMetadata();
+            session.workspaceCommandSink.register({
+                source: 'file',
+                undo: loadOriginalMetadata,
+                cmd: loadOriginalMetadata,
+            });
+        }, () => ({
+            promise: Promise.resolve(),
+            cancel: () => {},
+        }));
+        expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
+        expect(session.pageLabelState.labelAt(1)).toBe('Accepted-1');
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
+        expect(session.pageLabelState.pageLabelsDirty.value).toBe(true);
+        expect(await session.workspaceUndoTimeline.undoTimeline()).toBe(true);
+        expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
+        expect(session.pageLabelState.labelAt(1)).toBe('Accepted-1');
+        expect(await session.workspaceUndoTimeline.redoTimeline()).toBe(true);
+        expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
+        expect(session.pageLabelState.labelAt(1)).toBe('Accepted-1');
+        expect(await session.workspaceUndoTimeline.undoTimeline()).toBe(true);
+        expect(await session.workspaceUndoTimeline.undoTimeline()).toBe(true);
+        expect(session.pageLabelState.labelAt(1)).toBe('1');
+        expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
+        expect(await session.workspaceUndoTimeline.undoTimeline()).toBe(true);
+        expect(session.bookmarkState.bookmarkItems.value).toEqual([]);
+    });
+
     it('recovers metadata against the admitted saved baseline without manufacturing undo history', async () => {
         const source = createSession();
         source.bookmarkState.handleBookmarksChange({
@@ -128,14 +174,18 @@ describe('useMetadataSession', () => {
             dirty: true,
             history: 'record',
         });
-        session.preserveMetadataForNextSourceReload();
-
-        session.bookmarkState.bookmarkItems.value = [];
-        session.bookmarkState.bookmarksDirty.value = false;
-
-        expect(session.consumePreservedSourceReloadMetadata()).toBe(true);
-        expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
-        expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
+        await session.runWithPreservedMetadataReload(async () => {
+            session.bookmarkState.handleBookmarksChange({
+                bookmarks: [],
+                dirty: false,
+            });
+            expect(session.consumePreservedSourceReloadMetadata()).toBe(true);
+            expect(session.bookmarkState.bookmarkItems.value).toEqual([bookmark]);
+            expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
+        }, () => ({
+            promise: Promise.resolve(),
+            cancel: () => {},
+        }));
 
         session.bookmarkState.markBookmarksSaved();
 

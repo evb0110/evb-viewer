@@ -41,6 +41,61 @@ function createPdfDocumentRef(
 }
 
 describe('usePageLabelState', () => {
+    it('keeps accepted labels when the document arrives after the preserved revision scope ends', async () => {
+        const pdfDocument = createPdfDocumentRef(1, async () => null);
+        const revision = ref(requireDocumentRevisionToken('revision-1'));
+        recordPdfDocumentLoadedRevision(pdfDocument.value!, revision.value);
+        let preserving = false;
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(1),
+            markDirty: vi.fn(),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
+            documentRevisionToken: revision,
+            preservesSourceReload: () => preserving,
+        });
+        await state.syncPageLabelsFromDocument(pdfDocument.value);
+        state.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'D',
+            prefix: 'Accepted-',
+            startNumber: 1,
+        }]);
+        preserving = true;
+        revision.value = requireDocumentRevisionToken('revision-2');
+        await nextTick();
+        preserving = false;
+        pdfDocument.value = createPdfDocumentRef(1, async () => null).value;
+        recordPdfDocumentLoadedRevision(pdfDocument.value!, revision.value);
+        await nextTick();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(state.labelAt(1)).toBe('Accepted-1');
+        expect(state.pageLabelsDirty.value).toBe(true);
+    });
+
+    it('keeps accepted ranges when an earlier catalog read finishes', async () => {
+        const pending = createDeferred<string[] | null>();
+        const pdfDocument = createPdfDocumentRef(1, () => pending.promise);
+        const state = usePageLabelState({
+            pdfDocument,
+            totalPages: ref(1),
+            markDirty: vi.fn(),
+        });
+        const reading = state.syncPageLabelsFromDocument(pdfDocument.value);
+        state.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'D',
+            prefix: 'Accepted-',
+            startNumber: 1,
+        }]);
+        expect(state.labelAt(1)).toBe('Accepted-1');
+        pending.resolve(null);
+        await reading;
+        expect(state.labelAt(1)).toBe('Accepted-1');
+        expect(state.pageLabelsDirty.value).toBe(true);
+    });
+
     it.each([
         {ranges: []},
         {ranges: [{

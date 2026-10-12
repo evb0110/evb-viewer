@@ -609,10 +609,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         clearAnnotationComments: annotations.clearAnnotationComments,
         annotationActiveCommentStableKey: annotations.annotationActiveCommentStableKey,
         annotationEditorState: annotations.annotationEditorState,
-        ...bookmarkState,
-        consumePreservedSourceReloadMetadata: metadata.consumePreservedSourceReloadMetadata,
+        metadata,
         navigationTicket: computed(() => commandOpenSurface.navigationTicket.value),
-        ...pageLabelState,
         resetAnnotationTracking: annotations.resetAnnotationTracking,
         resetSearchCache: resetSearchCaches,
         closeSearch: closeSearches,
@@ -624,7 +622,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         clearOcrCache,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory: file.reloadWorkingCopyIntoHistory,
-        waitForPdfReload: pdfHistory.waitForPdfReload,
+        preparePdfReloadWaiter: pdfHistory.preparePdfReloadWaiter,
         runWithDocumentOperationLease: runExclusive,
     });
 
