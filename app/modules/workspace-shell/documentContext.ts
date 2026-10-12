@@ -423,7 +423,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         // Page operations already own the lease. Preparing their input must
         // leave the original and the user's Save/Discard decision untouched.
         ensureWorkingCopyFreshForRead: preparePageOperationWorkingCopy,
-        preparePdfReloadWaiter: pdfHistory.preparePdfReloadWaiter,
         clearOcrCache,
         resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,

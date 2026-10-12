@@ -59,7 +59,6 @@ export interface IPageOperationPresentation {
 
 interface IPdfViewerForPageOps {
     invalidatePages: (pages: number[]) => void;
-    remapPageIdentityDelta?: (delta: IPageIdentityDelta) => void;
     beginPageRotationPreview?: (input: {
         invalidatedPages: readonly number[];
         rotationDelta: TPageRotationDelta;
@@ -100,13 +99,6 @@ export interface IPageOpsHandlersDeps {
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     saveAnnotationsForPageMutation: () => Promise<boolean>;
     reloadWorkingCopyIntoHistory: (opts?: { markDirty?: boolean }) => Promise<boolean>;
-    preparePdfReloadWaiter: (
-        pageToRestore: number,
-        opts?: { captureScrollSnapshot?: boolean },
-    ) => {
-        promise: Promise<void>;
-        cancel: () => void;
-    };
     clearOcrCache: (path: TDocumentRef) => void;
     resetSearchCache: () => void;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean>;
@@ -139,13 +131,11 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ensureHistoryBaselineForMutation,
         saveAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
-        preparePdfReloadWaiter,
         clearOcrCache,
         resetSearchCache,
         ensureWorkingCopyFreshForRead,
         runWithDocumentOperationLease,
     } = deps;
-    const currentPage = views.commandViewRef(port => port.view.currentPage, 1);
     const pdfViewerRef = views.commandViewRef<IPdfViewerForPageOps | null>(port => port.view.pdfViewerRef, null);
     let stagedPageIdentityDelta: IPageIdentityDelta | null = null;
 
@@ -194,7 +184,15 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         ...(bookmarksResolved !== undefined ? {bookmarksResolved} : {}),
         ensureHistoryBaselineForMutation,
         saveAnnotationsForPageMutation,
-        reloadWorkingCopyIntoHistory,
+        reloadWorkingCopyIntoHistory: async (options) => {
+            const reloaded = await reloadWorkingCopyIntoHistory(options);
+            if (reloaded) {
+                await Promise.all([...views.viewPorts.value.values()].map(async (port) => {
+                    await port.view.pdfViewerRef.value?.waitForViewerLoadSettled?.();
+                }));
+            }
+            return reloaded;
+        },
         clearOcrCache,
         resetSearchCache,
         ...(ensureWorkingCopyFreshForRead !== undefined ? { ensureWorkingCopyFreshForRead } : {}),
@@ -355,8 +353,6 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                         mapViewPages(delta);
                     }
                     stagedPageIdentityDelta = null;
-                    // The annotations are the document's: remap them once.
-                    pdfViewerRef.value?.remapPageIdentityDelta?.(delta);
                 }
                 setSelectedThumbnailPages(remapSelection(selectedThumbnailPages.value));
             } else {
@@ -570,7 +566,6 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                     // The page operation remains authoritative if the viewer
                     // cannot stage its immediate visual preview.
                 }
-                const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
                 try {
                     const didRotate = await pageOpsRotate(
                         selection,
@@ -578,14 +573,11 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                         angle,
                     );
                     if (!didRotate) {
-                        reloadWaiter.cancel();
                         await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
                         return false;
                     }
-                    await reloadWaiter.promise;
                     return true;
                 } catch (error) {
-                    reloadWaiter.cancel();
                     await pdfViewerRef.value?.cancelPageRotationPreview?.({invalidatedPages});
                     throw error;
                 }
@@ -685,18 +677,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pageCount === 0) {
             return false;
         }
-        return runTrackedPageOperation('crop', pageCount, async () => {
-            // Cropping changes page geometry, so forcing selective rerendering
-            // reuses stale layout metrics and can visibly stretch pages.
-            const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
-            const didCrop = await pageOpsCrop(pages, totalPages.value, margins);
-            if (!didCrop) {
-                reloadWaiter.cancel();
-                return false;
-            }
-            await reloadWaiter.promise;
-            return true;
-        });
+        return runTrackedPageOperation('crop', pageCount, () => pageOpsCrop(pages, totalPages.value, margins));
     }
 
     async function handleRemoveCrop(pages: number[] | TPageSelection) {
@@ -707,17 +688,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (pageCount === 0) {
             return false;
         }
-        return runTrackedPageOperation('removeCrop', pageCount, async () => {
-            // Removing crop also changes the effective viewport size.
-            const reloadWaiter = preparePdfReloadWaiter(currentPage.value, { captureScrollSnapshot: false });
-            const didRemoveCrop = await pageOpsRemoveCrop(pages, totalPages.value);
-            if (!didRemoveCrop) {
-                reloadWaiter.cancel();
-                return false;
-            }
-            await reloadWaiter.promise;
-            return true;
-        });
+        return runTrackedPageOperation('removeCrop', pageCount, () => pageOpsRemoveCrop(pages, totalPages.value));
     }
 
     return {

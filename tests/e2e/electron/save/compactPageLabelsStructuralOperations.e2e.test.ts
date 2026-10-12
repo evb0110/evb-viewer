@@ -434,6 +434,77 @@ describe('Electron E2E, compact page labels through structural operations', () =
         preserveFailureArtifacts = false;
     });
 
+    // Completion must describe the document a person can act on (A3, I1).
+    it('keeps page controls busy until the deleted revision is shown', async () => {
+        const pdfPath = await createMultiPageTextFixturePdf(`page-operation-completion-${Date.now()}.pdf`, 8);
+        session = await startElectronE2ESession(`e2e-page-operation-completion-${Date.now()}`, {initialOpenPaths: [pdfPath]});
+        const {page} = session;
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await goToPageViaToolbar(page, 8);
+        await waitForToolbarCurrentPage(page, 8);
+        await clickAsUser(page, '[data-thumbnail-page="8"]', {button: 'right'});
+
+        const observation = page.evaluate(async () => {
+            const samples: Array<{
+                elapsedMs: number;
+                busy: boolean;
+                enabled: boolean;
+                total: string;
+                current: string;
+                thumbnails: number[];
+            }> = [];
+            const started = performance.now();
+            let sawBusy = false;
+            return new Promise<typeof samples>((resolve) => {
+                const timer = setInterval(() => {
+                    const state = (window as IE2EWindow).__evbTestApi?.readActiveWorkspaceStateValues(['isPageOperationInProgress']);
+                    const busy = state?.isPageOperationInProgress === true;
+                    sawBusy ||= busy;
+                    const controls = [...document.querySelectorAll<HTMLButtonElement>('.page-selection-bar-actions button, .page-context-menu button')]
+                        .filter(button => /^(?:delete|rotate|insert)/iu.test(button.textContent?.trim() || button.getAttribute('aria-label') || ''));
+                    samples.push({
+                        elapsedMs: performance.now() - started,
+                        busy,
+                        enabled: controls.some(button => !button.disabled),
+                        total: document.querySelector('.page-controls-total')?.textContent?.trim() ?? '',
+                        current: document.querySelector('.page-controls-current-primary')?.textContent?.trim() ?? '',
+                        thumbnails: [...document.querySelectorAll<HTMLElement>('.pdf-thumbnails [data-thumbnail-page]')].map(element => Number(element.dataset.thumbnailPage)),
+                    });
+                    if (sawBusy && !busy && samples.at(-1)?.total === '7') {
+                        clearInterval(timer);
+                        resolve(samples);
+                    }
+                }, 25);
+            });
+        });
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete the last page'});
+        // Reopen controls as soon as the operation says they are available.
+        await page.waitForFunction(() => (window as IE2EWindow).__evbTestApi?.readActiveWorkspaceStateValues(['isPageOperationInProgress']).isPageOperationInProgress === false, {
+            polling: 25,
+            timeout: 60_000,
+        });
+        await clickAsUser(page, '[data-thumbnail-page="7"]', {button: 'right'});
+        const samples = await observation;
+        const completed = samples.find((sample, index) => index > 0 && samples[index - 1]!.busy && !sample.busy);
+        console.log('[pageopdone]', JSON.stringify({
+            completed,
+            samples,
+        }));
+        expect(completed).toMatchObject({
+            total: '7',
+            current: '7',
+        });
+        expect(completed?.thumbnails).toContain(7);
+        expect(completed?.thumbnails).not.toContain(8);
+        expect(samples.filter(sample => sample.enabled && sample.total === '8' && sample.elapsedMs > (samples.find(entry => entry.busy)?.elapsedMs ?? Infinity))).toEqual([]);
+        await page.keyboard.press('Escape');
+        await clickToolbarButtonWhenEnabled(page, 'Undo');
+        await waitForToolbarCurrentPage(page, 7);
+        await expect.poll(async () => page.$eval('.page-controls-total', element => element.textContent?.trim())).toBe('8');
+    }, 90_000);
+
     it.each([
         'fit-width',
         'custom',
