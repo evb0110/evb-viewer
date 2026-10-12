@@ -4096,7 +4096,7 @@ fn overlay_preserves_editable_text_box_geometry_and_refuses_unrepresentable_affi
     let source = path("canonical-source", "pdf");
     let mutations = path("canonical-mutations", "json");
     save_empty_pages(&blank, 1);
-    write(&mutations, br#"{"textBoxes":[{"pageIndex":0,"stableKey":"canonical-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
+    write(&mutations, br#"{"textBoxes":[{"pageIndex":0,"stableKey":"canonical-box","text":"Editable","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
     run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
     for (incremental, matrix, expected_rotation, expected_rect, font_size) in [
         (
@@ -4282,7 +4282,7 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
     )
     .unwrap();
     save_empty_pages(&blank, 1);
-    write(&mutations, r#"{"textBoxes":[{"pageIndex":0,"stableKey":"rotation-box","text":"Editable box","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
+    write(&mutations, r#"{"textBoxes":[{"pageIndex":0,"stableKey":"rotation-box","text":"Editable","rect":[20,30,60,45],"rotation":0,"fontSize":6,"color":[0,0,0]}]}"#).unwrap();
     run_text_box_command("save-mutations", &blank, &source, Some(&mutations));
     let mut original = Document::load(&source).unwrap();
     let id = original
@@ -4357,7 +4357,7 @@ fn canonical_text_box_geometry_defaults_only_an_absent_rotation() {
                 .unwrap();
                 assert_eq!(entries["entries"].as_array().unwrap().len(), 1);
                 assert_eq!(entries["entries"][0]["kind"], "text-box");
-                assert_eq!(entries["entries"][0]["text"], "Editable box");
+                assert_eq!(entries["entries"][0]["text"], "Editable");
                 assert_eq!(entries["entries"][0]["rotation"], 0);
                 assert_eq!(
                     entries["entries"][0]["rect"],

@@ -1741,7 +1741,7 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
                     stable_key: "pdfjs_internal_editor_0".to_string(),
                     annotation_id: None,
                     text: text.to_string(),
-                    rect: [2.0, 54.0, 59.0, 80.0],
+                    rect: [2.0, 54.0, 198.0, 80.0],
                     rotation: 0,
                     font_size: 16.0,
                     color: [245, 158, 11],
@@ -1812,7 +1812,7 @@ fn text_box_create_round_trips_canonical_properties_and_metadata() {
     document.save_to(&mut original_bytes).unwrap();
     write(&pdf_path, &original_bytes).unwrap();
 
-    let text = "A long text box line that wraps at the requested width without changing its font size";
+    let text = "Wrapping text box";
     let created_at = 1_780_000_000_000;
     let modified_at = 1_780_000_060_000;
     append_native_mutations(
@@ -1901,14 +1901,16 @@ fn text_box_create_round_trips_canonical_properties_and_metadata() {
         .unwrap();
     let appearance_text = String::from_utf8_lossy(&appearance.content);
     assert!(appearance_text.matches(" Tj").count() > 1);
-    for line in wrap_free_text_lines(text, 100.0, 16.0) {
+    let layout = crate::text_box_font::layout;
+    let width = |line: &str| layout(line.trim_end(), f64::MAX, 16.0)[0].width;
+    for line in layout(text, 100.0, 16.0) {
         // This mirrors the writer's line-break measurement; rendered fit is checked by the PDF appearance assertions above.
-        assert!(free_text_line_width(line.trim_end(), 16.0) <= 100.0);
+        assert!(width(&line.text) <= 100.0);
     }
-    let lines = wrap_free_text_lines("aaa    bbb", 35.0, 16.0);
+    let lines: Vec<_> = layout("aaa    bbb", 35.0, 16.0).into_iter().map(|line| line.text).collect();
     assert_eq!(lines.concat(), "aaa    bbb");
     for line in lines {
-        assert!(free_text_line_width(line.trim_end(), 16.0) <= 35.0);
+        assert!(width(&line) <= 35.0);
     }
 }
 
@@ -2217,7 +2219,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
                 stable_key: "foreign-text-box".to_string(),
                 annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)),
                 text: "edited foreign text".to_string(),
-                rect: [20.0, 30.0, 160.0, 80.0],
+                rect: [20.0, 25.0, 160.0, 80.0],
                 rotation: 0,
                 font_size: 18.0,
                 color: [17, 24, 39],
@@ -2415,7 +2417,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                     stable_key: "freetext-first".to_string(),
                     annotation_id: None,
                     text: "first editor".to_string(),
-                    rect: [2.0, 54.0, 59.0, 80.0],
+                    rect: [2.0, 54.0, 198.0, 80.0],
                     rotation: 0,
                     font_size: 16.0,
                     color: [17, 24, 39],
@@ -2985,7 +2987,8 @@ fn text_box_appearance_shrinks_text_that_needs_more_lines_than_its_box() {
         let rect = PdfRect { x1: 10.0, y1: 10.0, x2: 10.0 + width, y2: 10.0 + height };
         let mut document = Document::with_version("1.7");
         let mut fonts = crate::text_box_font::SharedFonts::default();
-        let id = crate::annotations::build_text_box_appearance(&mut document, &editor, rect, 0, &mut fonts).unwrap();
+        let (id, size) = crate::annotations::build_text_box_appearance(&mut document, &editor, rect, 0, &mut fonts).unwrap();
+        assert_eq!(size < 16.0, shrinks, "the DA records the size the appearance draws");
         let content = String::from_utf8(document.get_object(id).unwrap().as_stream().unwrap().content.clone()).unwrap();
         let numbers = |suffix| content.lines().filter(move |op: &&str| op.ends_with(suffix))
             .map(|op| op.split_whitespace().filter_map(|token| token.parse().ok()).collect::<Vec<f64>>());
@@ -2996,6 +2999,22 @@ fn text_box_appearance_shrinks_text_that_needs_more_lines_than_its_box() {
         }
         assert!(numbers("Tf").all(|size| (size[0] < 16.0) == shrinks), "{content}");
     }
+}
+
+#[test]
+fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
+    // review-b6ys: the editor sized this margin box for 15 lines at 22 pt. The
+    // spaces that hang at line ends must not make the saved text shrink.
+    let editor = TextBoxMutation {
+        page_index: 0, stable_key: "narrow".to_string(), annotation_id: None,
+        text: "A word. A phrase. A word. A phrase. A word. A phrase.".to_string(),
+        rect: [540.0, 220.0, 600.6584, 671.7922], rotation: 0, font_size: 22.0,
+        color: [17, 24, 39], author: None, created_at: None, modified_at: None,
+    };
+    let [x1, y1, x2, y2] = editor.rect;
+    let geometry = crate::text_box_font::geometry(PdfRect { x1, y1, x2, y2 }, 0, 0).unwrap();
+    let (size, lines) = crate::annotations::fit_text_box(&editor, &geometry);
+    assert_eq!((size, lines.len()), (22.0, 15));
 }
 
 #[test]

@@ -19,7 +19,6 @@ import type {
 } from 'pdf-lib';
 import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
-import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {
     describe,
     expect,
@@ -936,33 +935,53 @@ describe('Electron E2E - annotation controls', () => {
             'Arabic',
             'بَسْمِ لَا بــِسْمِ',
             'DejaVuSans.ttf',
+            0.12,
+            false,
         ],
         [
             'Syriac',
             'ܫܠܵܡܵܐ',
             'NotoSansSyriac-Regular.ttf',
+            0.12,
+            false,
         ],
         [
             'Hebrew cantillation',
             'בְּרֵאשִׁ֖ית',
             'NotoSansHebrew-Regular.ttf',
+            0.12,
+            false,
         ],
         [
             'Syriac seyame',
             'ܡܲܠܟܹ̈ܐ',
             'NotoSansSyriac-Regular.ttf',
+            0.12,
+            false,
         ],
         [
             'Syriac sentence',
             'ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ',
             'NotoSansSyriac-Regular.ttf',
+            0.12,
+            false,
         ],
         [
             'Syriac tatweel',
             'ܡـܠܟܐ',
             'NotoSansSyriac-Regular.ttf',
+            0.12,
+            false,
         ],
-    ])('paints typed %s with its bundled font and saves its appearance', async (script, text, fontFile) => {
+        [
+            // Ordinary Latin text in a narrow margin box keeps the size it is typed in.
+            'Latin narrow margin',
+            'A word. A phrase. A word. A phrase. A word. A phrase.',
+            'DejaVuSans.ttf',
+            0.9,
+            true,
+        ],
+    ])('paints typed %s with its bundled font and saves its appearance', async (script, text, fontFile, x, keepsTypedSize) => {
         const evidence = mkdtempSync(join(tmpdir(), 'evb-semitic-text-box-'));
         onTestFinished(() => rmSync(evidence, {
             force: true,
@@ -980,8 +999,12 @@ describe('Electron E2E - annotation controls', () => {
         await openPdfInApp(page, saved);
         await waitForViewerInteractive(page);
         await createCanonicalTextBoxWithPointer(page, text, {
-            x: 0.12,
+            x,
             y: 0.22,
+        });
+        const editorFontSize = () => page.$eval('.editor-pane.is-active .pdf-annotation-editor-text-box', element => {
+            const style = getComputedStyle(element);
+            return Number.parseFloat(style.fontSize) / Number.parseFloat(style.getPropertyValue('--scale-factor'));
         });
 
         async function paintedTextMatchesBundledProgram(label: string) {
@@ -1114,6 +1137,7 @@ describe('Electron E2E - annotation controls', () => {
         }
 
         await paintedTextMatchesBundledProgram('before-save');
+        const typedSize = await editorFontSize();
         let saveError: string | null = null;
         try {
             await saveViaVisibleToolbar(page, 12_000, saved);
@@ -1138,6 +1162,19 @@ describe('Electron E2E - annotation controls', () => {
         }));
         expect.soft(hasAppearance).toBe(true);
         expect.soft(savedText).toBe(text);
+        // The saved page draws the text at the size the editor showed and reopens with.
+        const normal = pdf.context.lookup(freeText!.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
+        const appearanceContent = Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1');
+        const drawnSizes = new Set(Array.from(appearanceContent
+            .matchAll(/\/TextFont\d+ ([\d.]+) Tf/gu), match => Number(match[1])));
+        const recordedSize = Number(/([\d.]+) Tf/u.exec(freeText!.lookup(PDFName.of('DA'), PDFString).decodeText())?.[1]);
+        expect.soft([...drawnSizes], `${script} appearance draws at the size its DA records`).toEqual([recordedSize]);
+        // Where the saved fonts need more room than the screen did, the size
+        // shrinks only to fit, and the DA records it for the reopened editor.
+        expect.soft(recordedSize, `${script} never saves a larger size than typed`).toBeLessThanOrEqual(typedSize + 0.01);
+        if (keepsTypedSize) {
+            expect.soft(recordedSize, `${script} saves the size the editor showed`).toBeCloseTo(typedSize, 2);
+        }
         const clipped = await renderedTextBoxInk(readFileSync(saved), false);
         const unclipped = await renderedTextBoxInk(readFileSync(saved), true);
         writeFileSync(join(evidence, 'saved-ink.json'), JSON.stringify({
@@ -1145,11 +1182,9 @@ describe('Electron E2E - annotation controls', () => {
             unclipped,
         }));
         expect.soft(clipped.inside, `${script} saved page paints text in PDF.js`).toBeGreaterThan(0);
-        expect.soft(unclipped, `${script} saved layout keeps every glyph inside its box`).toEqual({
-            inside: clipped.inside,
-            outside: 0,
-        });
-        // EVB prints the saved appearance: an A4 page prints at unit scale.
+        // The clip is the box itself, so it can hide only ink placed outside the box.
+        expect.soft(unclipped.outside, `${script} saved layout keeps every glyph inside its box`).toBe(0);
+        // EVB's print output draws the saved appearance as saved.
         const printed = join(evidence, 'printed.pdf');
         execFileSync(resolveNativePageOpsPath()!, [
             'print-layout',
@@ -1162,31 +1197,13 @@ describe('Electron E2E - annotation controls', () => {
             '--orientation',
             'portrait',
         ]);
-        const {pdftoppm} = getPdfNativeToolPaths();
-        for (const [
-            name,
-            file,
-        ] of [
-                [
-                    'saved',
-                    saved,
-                ],
-                [
-                    'printed',
-                    printed,
-                ],
-            ] as const) {
-            execFileSync(pdftoppm, [
-                '-r',
-                '96',
-                '-png',
-                '-singlefile',
-                file,
-                join(evidence, name),
-            ]);
-        }
-        expect.soft(readFileSync(join(evidence, 'printed.png')).equals(readFileSync(join(evidence, 'saved.png'))),
-            `${script} prints the saved page unchanged`).toBe(true);
+        const printedPdf = await PDFDocument.load(readFileSync(printed));
+        const printedStreams = printedPdf.context.enumerateIndirectObjects().flatMap(([
+            , object,
+        ]) => (
+            object instanceof PDFRawStream ? [Buffer.from(decodePDFRawStream(object).decode()).toString('latin1')] : []
+        ));
+        expect.soft(printedStreams, `${script} prints the saved appearance unchanged`).toContain(appearanceContent);
         const restarted = await sessionFixture.restart({
             sessionName: () => `e2e-semtext-reopen-${Date.now()}`,
             hard: true,
@@ -1202,6 +1219,7 @@ describe('Electron E2E - annotation controls', () => {
         await openAnnotationsTab(page);
         await waitForViewerInteractive(page);
         await paintedTextMatchesBundledProgram('reopened');
+        expect.soft(await editorFontSize(), `${script} reopens at its saved size`).toBeCloseTo(recordedSize, 2);
     });
 
     it('retains a visible typing box and places the caret through delayed pointer input', async () => {

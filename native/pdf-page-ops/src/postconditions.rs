@@ -533,103 +533,52 @@ pub(crate) fn validate_text_box_document_postconditions(
         }
         let actual_rect = parse_rect(dict.get(b"Rect")?)?;
         validate_rect_approximately(actual_rect, expected_rect, "FreeText editor Rect")?;
+        let page_rotation = resolve_page_rotation(document, page_id)?;
+        let rotation = i64::from(editor.rotation);
         let (source_rect, _) = crate::text_box_font::stored_editor_geometry(
             document,
             dict,
             actual_rect,
-            i64::from(editor.rotation),
-            resolve_page_rotation(document, page_id)?,
+            rotation,
+            page_rotation,
         )?;
-        validate_rect_approximately(
-            source_rect,
-            PdfRect {
-                x1: editor.rect[0],
-                y1: editor.rect[1],
-                x2: editor.rect[2],
-                y2: editor.rect[3],
-            },
-            "FreeText canonical Rect",
-        )?;
-        if dict.get(b"Rotate")?.as_i64()? != i64::from(editor.rotation) {
+        let [x1, y1, x2, y2] = editor.rect;
+        let requested = PdfRect { x1, y1, x2, y2 };
+        validate_rect_approximately(source_rect, requested, "FreeText canonical Rect")?;
+        if dict.get(b"Rotate")?.as_i64()? != rotation {
             return Err("FreeText editor rotation did not match the requested rotation".into());
         }
-        let default_appearance = dict
-            .get(b"DA")
-            .ok()
-            .and_then(|object| object.as_str().ok())
-            .ok_or("FreeText editor is missing DA")?;
-        let expected_color = editor.color.map(|component| f64::from(component) / 255.0);
-        validate_text_box_default_appearance(default_appearance, editor.font_size, expected_color)?;
-        validate_appearance(document, dict)?;
-    }
-    Ok(())
-}
-
-fn validate_text_box_default_appearance(
-    default_appearance: &[u8],
-    expected_font_size: f64,
-    expected_color: [f64; 3],
-) -> Result<()> {
-    const EPSILON: f64 = 0.0001;
-
-    let tokens = tokenize_default_appearance(default_appearance);
-    let mut actual_font_size = None;
-    let mut actual_color = None;
-    for (index, &(start, end)) in tokens.iter().enumerate() {
-        let token = &default_appearance[start..end];
-        if token == b"Tf" {
-            let size = index
-                .checked_sub(1)
-                .and_then(|operand_index| tokens.get(operand_index))
-                .and_then(|&(operand_start, operand_end)| {
-                    std::str::from_utf8(&default_appearance[operand_start..operand_end])
-                        .ok()
-                        .and_then(|value| value.parse::<f64>().ok())
-                });
-            if let Some(size) = size.filter(|value| value.is_finite() && *value > 0.0) {
-                actual_font_size = Some(size);
-            }
-        } else if token == b"rg" {
-            let Some(first_operand) = index.checked_sub(3) else {
-                continue;
-            };
-            let mut color = [0.0; 3];
-            let mut operands_are_valid = true;
-            for (component, &(operand_start, operand_end)) in
-                color.iter_mut().zip(tokens[first_operand..index].iter())
-            {
-                let value = std::str::from_utf8(&default_appearance[operand_start..operand_end])
-                    .ok()
-                    .and_then(|value| value.parse::<f64>().ok())
-                    .filter(|value| value.is_finite() && (0.0..=1.0).contains(value));
-                let Some(value) = value else {
-                    operands_are_valid = false;
-                    break;
-                };
-                *component = value;
-            }
-            if operands_are_valid {
-                actual_color = Some(color);
-            }
+        // The box reopens at the size its appearance draws, and in its color.
+        let reopened = crate::annotation_parse::parse_text_box_entry(
+            document,
+            dict,
+            matching_refs[0],
+            0,
+            page_view,
+            page_rotation,
+            &expected_name,
+        )?;
+        let appearance = document.resolved(dict.get(b"AP")?)?.as_dict()?;
+        let content = &document
+            .resolved(appearance.get(b"N")?)?
+            .as_stream()?
+            .content;
+        let drawn = String::from_utf8_lossy(content)
+            .split_once(" Tf")
+            .map(|(operands, _)| {
+                operands
+                    .rsplit(char::is_whitespace)
+                    .next()
+                    .and_then(|size| size.parse().ok())
+            });
+        let [r, g, b] = editor.color;
+        if drawn.is_some_and(|size| size != Some(reopened.font_size))
+            || reopened.font_size > editor.font_size + 0.0001
+            || reopened.color != format!("#{r:02x}{g:02x}{b:02x}")
+        {
+            return Err("FreeText editor does not reopen at its saved size and color".into());
         }
-    }
-
-    let Some(actual_font_size) = actual_font_size else {
-        return Err("FreeText editor DA is missing Tf operands".into());
-    };
-    if (actual_font_size - expected_font_size).abs() > EPSILON {
-        return Err("FreeText editor DA font size did not match the requested size".into());
-    }
-
-    let Some(actual_color) = actual_color else {
-        return Err("FreeText editor DA is missing rg operands".into());
-    };
-    if actual_color
-        .into_iter()
-        .zip(expected_color)
-        .any(|(actual, expected)| (actual - expected).abs() > EPSILON)
-    {
-        return Err("FreeText editor DA color did not match the requested color".into());
+        validate_appearance(document, dict)?;
     }
     Ok(())
 }
@@ -1639,45 +1588,4 @@ fn validate_new_markup_target(
         .ok_or("New text-markup annotation is missing Rect")?;
     validate_rect_approximately(actual_rect, expected_rect, "Text-markup annotation Rect")?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn text_box_default_appearance_requires_requested_font_size_and_color() {
-        let expected_color = [17.0 / 255.0, 24.0 / 255.0, 39.0 / 255.0];
-        validate_text_box_default_appearance(
-            b"/Courier 18 Tf 0.0667 0.0941 0.1529 rg 2 Tc",
-            18.0,
-            expected_color,
-        )
-        .unwrap();
-
-        assert!(validate_text_box_default_appearance(
-            b"/Courier 17 Tf 0.0667 0.0941 0.1529 rg",
-            18.0,
-            expected_color,
-        )
-        .is_err());
-        assert!(validate_text_box_default_appearance(
-            b"/Courier 18 Tf 0.0667 0.0941 rg",
-            18.0,
-            expected_color,
-        )
-        .is_err());
-        validate_text_box_default_appearance(
-            b"/Helv invalid Tf 0 0 rg /Helv 18 Tf 0.0667 0.0941 0.1529 rg",
-            18.0,
-            expected_color,
-        )
-        .unwrap();
-        validate_text_box_default_appearance(
-            b"/Helv 18 Tf 0.0667 0.0941 0.1529 rg /Helv invalid Tf",
-            18.0,
-            expected_color,
-        )
-        .unwrap();
-    }
 }

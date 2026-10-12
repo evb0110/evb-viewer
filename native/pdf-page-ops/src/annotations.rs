@@ -753,7 +753,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
         let rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let name = text_box_name(editor);
-        let appearance_ref =
+        let appearance =
             build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts)?;
         let existing_annotation_ref = resolve_text_box_target(document, page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
@@ -769,7 +769,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
                 &name,
                 rect,
                 modified_at,
-                appearance_ref,
+                appearance,
                 page_rotation,
                 Some(existing),
             );
@@ -783,7 +783,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
             &name,
             rect,
             modified_at,
-            appearance_ref,
+            appearance,
             page_rotation,
             None,
         );
@@ -830,7 +830,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
         let rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let name = text_box_name(editor);
-        let appearance_ref = build_text_box_appearance(
+        let appearance = build_text_box_appearance(
             &mut incremental.new_document,
             editor,
             rect,
@@ -856,7 +856,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
                 &name,
                 rect,
                 modified_at,
-                appearance_ref,
+                appearance,
                 page_rotation,
                 Some(existing),
             );
@@ -870,7 +870,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
             &name,
             rect,
             modified_at,
-            appearance_ref,
+            appearance,
             page_rotation,
             None,
         );
@@ -1030,19 +1030,34 @@ pub(crate) fn validate_text_box_rect(
     Ok(rect)
 }
 
-#[cfg(test)]
-pub(crate) fn free_text_line_width(line: &str, font_size: f64) -> f64 {
-    crate::text_box_font::layout(line, f64::MAX, font_size)
-        .first()
-        .map_or(0.0, |line| line.width)
-}
-
-#[cfg(test)]
-pub(crate) fn wrap_free_text_lines(text: &str, width: f64, font_size: f64) -> Vec<String> {
-    crate::text_box_font::layout(text, width, font_size)
-        .into_iter()
-        .map(|line| line.text)
-        .collect()
+/// The editor grows a box to the text it shows, and wrapping never counts the
+/// spaces that hang at line ends. Where the saved fonts still need more lines
+/// than the box holds, the size shrinks until they fit. The appearance and the
+/// DA, which the reopened editor reads, both use that size.
+pub(crate) fn fit_text_box(
+    editor: &TextBoxMutation,
+    geometry: &crate::text_box_font::Geometry,
+) -> (f64, Vec<crate::text_box_font::Line>) {
+    use crate::text_box_font::{layout, LINE_HEIGHT, PADDING_X, PADDING_Y};
+    let layout = |size| layout(&editor.text, geometry.width - 2.0 * PADDING_X * size, size);
+    let fits = |size, lines: usize| {
+        (lines as f64 * LINE_HEIGHT + PADDING_Y) * size <= geometry.height + 0.01
+    };
+    let lines = layout(editor.font_size);
+    if fits(editor.font_size, lines.len()) {
+        return (editor.font_size, lines);
+    }
+    let mut range = (0.0, editor.font_size);
+    for _ in 0..10 {
+        let middle = (range.0 + range.1) / 2.0;
+        range = if fits(middle, layout(middle).len()) {
+            (middle, range.1)
+        } else {
+            (range.0, middle)
+        };
+    }
+    let size = (range.0 * 100.0).floor() / 100.0;
+    (size, layout(size))
 }
 
 pub(crate) fn build_text_box_appearance(
@@ -1051,8 +1066,8 @@ pub(crate) fn build_text_box_appearance(
     rect: PdfRect,
     page_rotation: i64,
     shared: &mut crate::text_box_font::SharedFonts,
-) -> Result<ObjectId> {
-    use crate::text_box_font::{self, LINE_HEIGHT, PADDING_X, PADDING_Y};
+) -> Result<(ObjectId, f64)> {
+    use crate::text_box_font::{self, LINE_HEIGHT, PADDING_X};
     let source = PdfRect {
         x1: editor.rect[0],
         y1: editor.rect[1],
@@ -1070,31 +1085,10 @@ pub(crate) fn build_text_box_appearance(
         number_to_content(height),
         format_operands(&color),
     );
-    // The editor grows a box to the text it shows. Where the saved layout still
-    // needs more room, its text shrinks to fit rather than losing lines to the clip.
-    let content_width = |size: f64| (width - 2.0 * PADDING_X * size).max(0.0);
-    let layout = |size| text_box_font::layout(&editor.text, content_width(size), size);
-    let fits = |size, lines: &[text_box_font::Line]| {
-        (lines.len() as f64 * LINE_HEIGHT + PADDING_Y) * size <= height + 0.01
-            && lines
-                .iter()
-                .all(|line| line.width <= content_width(size) + 0.01)
-    };
-    let (mut size, mut lines) = (editor.font_size, layout(editor.font_size));
-    if !fits(size, &lines) {
-        let mut range = (0.0, size);
-        for _ in 0..16 {
-            let middle = (range.0 + range.1) / 2.0;
-            range = if fits(middle, &layout(middle)) {
-                (middle, range.1)
-            } else {
-                (range.0, middle)
-            };
-        }
-        (size, lines) = (range.0, layout(range.0));
-    }
-    let content_width = content_width(size);
+    let (size, lines) = fit_text_box(editor, &geometry);
+    let content_width = (width - 2.0 * PADDING_X * size).max(0.0);
     let fonts = shared.resources(document, &lines);
+    let mut font = None;
     for (index, line) in lines.iter().enumerate() {
         let left = PADDING_X * size
             + if line.rtl {
@@ -1109,8 +1103,11 @@ pub(crate) fn build_text_box_appearance(
             text_box_font::unicode_hex(&line.text, true)
         ));
         for run in line.glyphs.chunk_by(|a, b| a.font == b.font) {
-            let size = number_to_content(size);
-            content.push_str(&format!("/TextFont{} {size} Tf\n", run[0].font));
+            // Text state lasts through BT: select a font only where it changes.
+            if font.replace(run[0].font) != Some(run[0].font) {
+                let size = number_to_content(size);
+                content.push_str(&format!("/TextFont{} {size} Tf\n", run[0].font));
+            }
             for glyph in run {
                 content.push_str(&format!(
                     "1 0 0 1 {} {} Tm <{:04X}> Tj\n",
@@ -1123,11 +1120,11 @@ pub(crate) fn build_text_box_appearance(
         content.push_str("EMC\n");
     }
     content.push_str("ET\nQ");
-    Ok(document.add_object(Stream::new(lopdf::dictionary! {
+    Ok((document.add_object(Stream::new(lopdf::dictionary! {
         "Type" => "XObject", "Subtype" => "Form", "FormType" => 1,
         "BBox" => rect_object(rect), "Resources" => lopdf::dictionary! {"Font" => fonts},
         "Matrix" => vec![number_object(1.0), number_object(0.0), number_object(0.0), number_object(1.0), number_object(-rect.x1), number_object(-rect.y1)],
-    }, content.into_bytes())))
+    }, content.into_bytes())), size))
 }
 
 fn existing_text_box_values(
@@ -1272,7 +1269,7 @@ fn set_text_box_fields(
     name: &str,
     rect: PdfRect,
     modified_at: &str,
-    appearance_ref: ObjectId,
+    (appearance_ref, font_size): (ObjectId, f64),
     page_rotation: i64,
     existing: Option<(Option<Dictionary>, Option<Vec<u8>>)>,
 ) {
@@ -1307,16 +1304,12 @@ fn set_text_box_fields(
     let default_appearance = if is_new {
         format!(
             "/Helv {} Tf {} rg",
-            number_to_content(editor.font_size),
+            number_to_content(font_size),
             format_operands(&color),
         )
         .into_bytes()
     } else {
-        patch_default_appearance(
-            existing_default_appearance.as_deref(),
-            editor.font_size,
-            color,
-        )
+        patch_default_appearance(existing_default_appearance.as_deref(), font_size, color)
     };
     dict.set("DA", Object::string_literal(default_appearance));
     dict.set(
