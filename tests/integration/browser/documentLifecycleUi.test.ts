@@ -339,19 +339,10 @@ describe('browser document lifecycle UI', () => {
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), source);
         const observations: unknown[] = [];
-        const context = await browser.newContext({
-            viewport: {
-                width: 1280,
-                height: 800,
-            },
-            recordVideo: {
-                dir: evidenceDir,
-                size: {
-                    width: 1280,
-                    height: 800,
-                },
-            },
-        });
+        const context = await browser.newContext({viewport: {
+            width: 1280,
+            height: 800,
+        }});
         let problems: string[] = [];
         try {
             const page = await context.newPage();
@@ -550,19 +541,10 @@ describe('browser document lifecycle UI', () => {
                 false,
                 true,
             ]) {
-                const context = await browser.newContext({
-                    viewport: {
-                        width: 1280,
-                        height: 800,
-                    },
-                    recordVideo: {
-                        dir: evidenceDir,
-                        size: {
-                            width: 1280,
-                            height: 800,
-                        },
-                    },
-                });
+                const context = await browser.newContext({viewport: {
+                    width: 1280,
+                    height: 800,
+                }});
                 let problems: string[] = [];
                 try {
                     const page = await context.newPage();
@@ -765,13 +747,6 @@ describe('browser document lifecycle UI', () => {
                     'clipboard-read',
                     'clipboard-write',
                 ],
-                recordVideo: {
-                    dir: evidenceDir,
-                    size: {
-                        width: 1280,
-                        height: 800,
-                    },
-                },
             });
             const page = await context.newPage();
             problems = collectConsoleProblems(page);
@@ -940,19 +915,10 @@ describe('browser document lifecycle UI', () => {
                 step:'retry-saved',
                 contents,
             });
-            const reopenedContext = await browser.newContext({
-                viewport: {
-                    width: 1280,
-                    height: 800,
-                },
-                recordVideo: {
-                    dir: evidenceDir,
-                    size: {
-                        width: 1280,
-                        height: 800,
-                    },
-                },
-            });
+            const reopenedContext = await browser.newContext({viewport: {
+                width: 1280,
+                height: 800,
+            }});
             try {
                 const reopened = await reopenedContext.newPage();
                 const reopenedProblems = collectConsoleProblems(reopened);
@@ -1037,13 +1003,10 @@ describe('browser document lifecycle UI', () => {
         const evidenceDir = resolve(process.cwd(), '.devkit/lane-a-rux2', `app-${String(process.pid)}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
-        const page = await browser.newPage({
-            viewport: {
-                width: 900,
-                height: 700,
-            },
-            recordVideo: {dir: evidenceDir},
-        });
+        const page = await browser.newPage({viewport: {
+            width: 900,
+            height: 700,
+        }});
         const problems = collectConsoleProblems(page);
         const observations: unknown[] = [];
         try {
@@ -1186,13 +1149,10 @@ describe('browser document lifecycle UI', () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-rux3/app-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
-        const page = await browser.newPage({
-            viewport: {
-                width: 1280,
-                height: 800,
-            },
-            recordVideo: {dir: evidenceDir},
-        });
+        const page = await browser.newPage({viewport: {
+            width: 1280,
+            height: 800,
+        }});
         const problems = collectConsoleProblems(page);
         try {
             const cdp = await page.context().newCDPSession(page);
@@ -1302,7 +1262,6 @@ describe('browser document lifecycle UI', () => {
         } finally {
             try {
                 writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
-                // Finalize the renderer recording before the browser process exits.
                 await page.context().close();
             } finally {
                 await Promise.all(browser.contexts().map(context => context.close()));
@@ -1414,13 +1373,10 @@ describe('browser document lifecycle UI', () => {
         const fixtureBytes = Buffer.from(await pdf.save());
         writeFileSync(resolve(process.cwd(), `.devkit/browser-foreign-attachment-${process.pid}.pdf`), fixtureBytes);
         try {
-            const page = await browser.newPage({
-                viewport: {
-                    width: 1280,
-                    height: 800,
-                },
-                recordVideo: {dir: resolve(process.cwd(), `.devkit/browser-annotation-icons-${process.pid}`)},
-            });
+            const page = await browser.newPage({viewport: {
+                width: 1280,
+                height: 800,
+            }});
             const cpu = await page.context().newCDPSession(page);
             await cpu.send('Emulation.setCPUThrottlingRate', {rate: 6});
             const consoleProblems = collectConsoleProblems(page);
@@ -1572,13 +1528,10 @@ describe('browser document lifecycle UI', () => {
             })).toContain('Own saved highlight comment');
             // Opening the actual downloaded bytes in a fresh browser page
             // proves this is the saved surface, not the unsaved overlay.
-            const reopened = await browser.newPage({
-                viewport: {
-                    width: 1280,
-                    height: 800,
-                },
-                recordVideo: {dir: resolve(process.cwd(), `.devkit/browser-annotation-icons-saved-${process.pid}`)},
-            });
+            const reopened = await browser.newPage({viewport: {
+                width: 1280,
+                height: 800,
+            }});
             try {
                 await reopened.addInitScript(() => {
                     Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
@@ -1693,7 +1646,7 @@ describe('browser document lifecycle UI', () => {
 
     it('keeps the performance restart notice through Settings remount until reload', async () => {
         try {
-            const page = await browser.newPage({recordVideo: {dir: resolve(process.cwd(), '.devkit/lane-b/evidence/op-03-video')}});
+            const page = await browser.newPage();
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
             });
@@ -1864,7 +1817,7 @@ describe('browser document lifecycle UI', () => {
     }, 120000);
     it('withdraws hosted diagnostics in another open window and allows an explicit regrant', async () => {
         try {
-            const context = await browser.newContext({recordVideo: {dir: resolve(process.cwd(), '.devkit/lane-b/evidence/op-02-video')}});
+            const context = await browser.newContext();
             const envelopes: string[] = [];
             await context.route('**/api/1/envelope/**', async (route) => {
                 envelopes.push(route.request().postData() ?? '');
@@ -1959,13 +1912,10 @@ describe('browser document lifecycle UI', () => {
     // T2/T4: reading an information page keeps accepted work and both live views.
     it('preserves an unsaved note and linked view zoom through Privacy and About routes', async () => {
         try {
-            const page = await browser.newPage({
-                viewport: {
-                    width: 1_600,
-                    height: 900,
-                },
-                recordVideo: {dir: resolve(process.cwd(), '.devkit/browser-information-video')},
-            });
+            const page = await browser.newPage({viewport: {
+                width: 1_600,
+                height: 900,
+            }});
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
@@ -2149,13 +2099,10 @@ describe('browser document lifecycle UI', () => {
     it('prints existing FreeText without AP and preserves explicit appearances', async () => {
         const evidence = resolve(process.cwd(), `.devkit/1037/browser-${process.pid}`);
         mkdirSync(evidence, {recursive: true});
-        const page = await browser.newPage({
-            viewport: {
-                width: 1_280,
-                height: 800,
-            },
-            recordVideo: {dir: evidence},
-        });
+        const page = await browser.newPage({viewport: {
+            width: 1_280,
+            height: 800,
+        }});
         const problems = collectConsoleProblems(page);
         let printStartedAt: number | undefined;
         try {
@@ -3231,13 +3178,10 @@ describe('browser document lifecycle UI', () => {
     it('explains the missing components when an indirect DjVu index is picked alone', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-index-only-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
-        const context = await browser.newContext({
-            viewport: {
-                width: 1_280,
-                height: 900,
-            },
-            recordVideo: {dir: evidenceDir},
-        });
+        const context = await browser.newContext({viewport: {
+            width: 1_280,
+            height: 900,
+        }});
         try {
             const page = await context.newPage();
             const pageErrors: string[] = [];
@@ -4484,13 +4428,10 @@ describe('optional search-cache mutation completion proof', () => {
         writeFileSync(resolve(evidenceDir, `${fault}-source.pdf`), bytes);
         let page: Page | undefined;
         try {
-            page = await browser.newPage({
-                viewport: {
-                    width: 1280,
-                    height: 900,
-                },
-                recordVideo: {dir: evidenceDir},
-            });
+            page = await browser.newPage({viewport: {
+                width: 1280,
+                height: 900,
+            }});
             const problems = collectConsoleProblems(page);
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
@@ -4615,9 +4556,7 @@ describe('optional search-cache mutation completion proof', () => {
             if (page) {
                 await page.screenshot({path: resolve(evidenceDir, `${fault}-final.png`)}).catch(() => {});
                 await page.evaluate(() => Reflect.get(window, '__br02ReleaseCache')?.()).catch(() => {});
-                const video = page.video();
                 await page.close();
-                await video?.saveAs(resolve(evidenceDir, `${fault}-proof.webm`));
             }
             await Promise.all(browser.contexts().map(context => context.close()));
         }
@@ -4643,13 +4582,10 @@ describe('optional search-cache mutation completion proof', () => {
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
         let page: Page | undefined;
         try {
-            page = await browser.newPage({
-                viewport: {
-                    width: 1280,
-                    height: 900,
-                },
-                recordVideo: {dir: evidenceDir},
-            });
+            page = await browser.newPage({viewport: {
+                width: 1280,
+                height: 900,
+            }});
             const problems = collectConsoleProblems(page);
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
@@ -4793,9 +4729,7 @@ describe('optional search-cache mutation completion proof', () => {
             try {
                 if (page) {
                     await page.screenshot({path: resolve(evidenceDir, 'final.png')}).catch(() => {});
-                    const video = page.video();
                     await page.close();
-                    await video?.saveAs(resolve(evidenceDir, 'proof.webm'));
                 }
             } finally {
                 await Promise.all(browser.contexts().map(context => context.close()));
@@ -5087,13 +5021,10 @@ it.each([
     writeFileSync(resolve(out, 'fixture.pdf'), bytes);
     let page: Page | undefined;
     try {
-        page = await browser.newPage({
-            viewport: {
-                width: 1280,
-                height: 900,
-            },
-            recordVideo: {dir: out},
-        });
+        page = await browser.newPage({viewport: {
+            width: 1280,
+            height: 900,
+        }});
         // Setup supplies the reviewer's known backend extraction coordinates,
         // without geometry, at the result-to-UI boundary. The actual fixture,
         // PDF.js text layer, search controls and compositor remain real.
@@ -5170,9 +5101,7 @@ it.each([
                 current: [...document.querySelectorAll('.pdf-search-highlight--current')].map(el => el.textContent).join(''),
                 all: [...document.querySelectorAll('.textLayer')].map(el => el.textContent),
             })).catch(() => null), null, 2));
-            const video = page.video();
             await page.close();
-            await video?.saveAs(resolve(out, 'proof.webm'));
         }
         await Promise.all(browser.contexts().map(context => context.close()));
     }
@@ -5287,13 +5216,10 @@ end
     writeFileSync(resolve(out, 'fixture.pdf'), bytes);
     let page: Page | undefined;
     try {
-        page = await browser.newPage({
-            viewport: {
-                width: 1280,
-                height: 900,
-            },
-            recordVideo: {dir: out},
-        });
+        page = await browser.newPage({viewport: {
+            width: 1280,
+            height: 900,
+        }});
         // Geometry-free results exercise the actual text-layer compositor.
         // The matcher still supplies all four real normalized regex ranges.
         await page.route('**/runtime/composables/usePdfSearch.ts*', async route => {
@@ -5391,9 +5317,7 @@ end
     } finally {
         if (page) {
             await page.screenshot({path: resolve(out, 'final.png')}).catch(() => {});
-            const video = page.video();
             await page.close();
-            await video?.saveAs(resolve(out, 'proof.webm'));
         }
         await Promise.all(browser.contexts().map(context => context.close()));
     }
