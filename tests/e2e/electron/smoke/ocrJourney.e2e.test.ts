@@ -678,6 +678,95 @@ if (process.versions.electron && process.type === 'browser') {
         console.info(`OCR metadata evidence: ${evidence}`);
     }, 420_000);
 
+    it('review-b6zk preserves a label accepted during background OCR', async () => {
+        const session = await sessionFixture.resetForE2E();
+        const {page} = session;
+        const sourcePath = await createScannedPagesFixturePdf('ocr-live-metadata.pdf', 20);
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1200,
+            700,
+        ]);
+
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
+        await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type(ACCEPTED_BOOKMARK);
+        await page.keyboard.press('Enter');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+        await openDocumentSidebarTab(page, 'Pages');
+        const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
+        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+            await clickAsUser(page, disclosure);
+        }
+        await clickAsUser(page, '#page-label-prefix-input');
+        await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
+        await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
+            .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+
+        const running=callWorkspaceCommand(page,'runAgentAction',[
+            'ocr.start',
+            {
+                pageRange:'all',
+                open:false,
+            },
+        ]);
+        const settled=running.then(value=>value,error=>({error:String(error)}));
+        await vi.waitFor(async()=>{
+            const status=await callWorkspaceCommand<{ocr?:{
+                isRunning?:boolean;
+                processedCount?:number;
+                totalPages?:number
+            }}>(page,'runAgentAction',[
+                'ocr.status',
+                {},
+            ]);
+            expect(status.value?.ocr?.isRunning).toBe(true);
+            expect(status.value?.ocr?.processedCount ?? 0).toBeGreaterThan(0);
+            expect(status.value?.ocr?.processedCount ?? 0).toBeLessThan((status.value?.ocr?.totalPages ?? 0)-3);
+            console.info('REVIEW_PROCESSING '+JSON.stringify(status.value?.ocr));
+        },{timeout:30_000});
+        expect(await page.$$eval('[role="dialog"]',dialogs=>dialogs.some(dialog=>(dialog as HTMLElement).checkVisibility()))).toBe(false);
+        await clickAsUser(page,'#page-label-prefix-input');
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+A'});
+        await page.keyboard.type('Late-');
+        await clickAsUser(page,`${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
+        await expect.poll(async()=>(await readToolbarPageIndicator(page)).primaryText,{timeout:15_000}).toBe('Late-1');
+        console.info('REVIEW_LATE_ACCEPTED Late-1');
+        await settled;
+        await vi.waitFor(async()=>{
+            const status=await callWorkspaceCommand<{ocr?:{isRunning?:boolean}}>(page,'runAgentAction',[
+                'ocr.status',
+                {},
+            ]);
+            expect(status.value?.ocr?.isRunning).toBe(false);
+        },{timeout:OCR_TIMEOUT_MS});
+        await waitForViewerInteractive(page,90_000);
+        await waitForTextLayerWord(page);
+        const displayed=(await readToolbarPageIndicator(page)).primaryText;
+        await saveViaVisibleToolbar(page,90_000,sourcePath);
+        const labels=(await readPdfCatalogWithPdfjs(sourcePath)).pageLabels;
+        await copyFile(sourcePath,join(process.cwd(),'.devkit/core3-r3/late-ocr-saved.pdf'));
+        await page.screenshot({path:join(process.cwd(),'.devkit/core3-r3/late-ocr.png')});
+        await clickVisibleButton(page,'body','Close Tab');
+        await page.waitForSelector(`${ACTIVE_HOST} .page_container`,{hidden:true});
+        await openPdfInApp(page,sourcePath,90_000);
+        await waitForViewerInteractive(page,90_000);
+        const reopened=(await readToolbarPageIndicator(page)).primaryText;
+        await page.screenshot({path:join(process.cwd(),'.devkit/core3-r3/late-ocr-reopened.png')});
+        console.info('REVIEW_LATE_RESULT '+JSON.stringify({
+            displayed,
+            labels,
+            reopened,
+        }));
+        expect(displayed,'OCR must retain an edit accepted while it was recognizing pages').toBe('Late-1');
+        expect(labels?.[0]).toBe('Late-1');
+    },420_000);
+
     it('review-b6zk preserves accepted metadata when undoing OCR', async () => {
         const session = await sessionFixture.resetForE2E();
         const {page} = session;

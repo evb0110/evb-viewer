@@ -10,54 +10,11 @@ import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
 import {requireRequestId} from '@contracts/shared';
-import {validateCreateSearchablePdfPayload} from '@electron/features/ocr/contracts';
 
 const channels = OCR_PLATFORM_FEATURE.invokeChannels;
 const eventChannels = OCR_PLATFORM_FEATURE.eventChannels;
 
 describe('OCR platform feature', () => {
-    it('retains accepted page metadata in OCR requests and rejects malformed snapshots', () => {
-        const codec = OCR_PLATFORM_FEATURE.ipcCodecs[channels.createSearchablePdf];
-        const metadataSnapshot = {
-            bookmarks: [{
-                title: 'Accepted',
-                pageIndex: 0,
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }],
-            pageLabelRanges: [{
-                startPage: 1,
-                style: 'D',
-                prefix: 'Accepted-',
-                startNumber: 1,
-            }],
-            untitledBookmarkLabel: 'Untitled',
-        };
-        const args = [
-            '/tmp/scan.pdf',
-            [{
-                pageNumber: 1,
-                languages: ['eng'],
-            }],
-            'ocr-metadata',
-            {metadataSnapshot},
-        ];
-        const decoded = codec.decodeArgs(args);
-        expect(decoded[3]).toEqual({metadataSnapshot});
-        expect(validateCreateSearchablePdfPayload(decoded[0], decoded[1], decoded[2], decoded[3]).options).toEqual({metadataSnapshot});
-        expect(() => validateCreateSearchablePdfPayload(decoded[0], decoded[1], decoded[2], {metadataSnapshot: {bookmarks: [{title: 'invalid'}]}})).toThrow();
-        expect(() => codec.decodeArgs([
-            ...args.slice(0, 3),
-            {metadataSnapshot: {
-                ...metadataSnapshot,
-                bookmarks: [{title: 'invalid'}],
-            }},
-        ])).toThrow();
-    });
-
     it('carries model byte progress and retry state through the existing progress contract', () => {
         const progressSchema = OCR_PLATFORM_FEATURE.events.onProgress.payload;
         const payload = {

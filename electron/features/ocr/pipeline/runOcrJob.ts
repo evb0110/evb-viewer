@@ -1,4 +1,3 @@
-import {persistOcrPageMetadata} from '@electron/features/ocr/pipeline/persistOcrPageMetadata';
 /**
  * One OCR job: select the pages that need recognition, render and recognize
  * each page under a broker lease, checkpoint every recognized page, write the
@@ -980,7 +979,6 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
                 ],
             };
         }
-        await persistOcrPageMetadata(mergedPdfPath, options.metadataSnapshot, jobSignal, sessionId);
         await storageBudget.assertWithinBudget();
         await durableManifest.markNode('assembled-document', 'verified');
         const resultSha256 = await hashFileSha256(mergedPdfPath, jobSignal);

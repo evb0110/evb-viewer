@@ -1,4 +1,3 @@
-import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
 import {
     parseDocumentRef,
     type TDocumentRef,
@@ -231,16 +230,6 @@ export const OCR_SEARCHABLE_PDF_OPTIONS_SCHEMA = v.pipe(
         pageSegmentationMode: v.optional(safeIntegerSchema(0)),
         supersessionPolicy: v.optional(v.picklist(OCR_TEXT_SUPERSESSION_POLICIES)),
         replaceAllAcknowledged: v.optional(v.boolean()),
-        metadataSnapshot: v.optional(v.pipe(v.unknown(), v.rawTransform(({
-            dataset, addIssue, NEVER,
-        }) => {
-            try {
-                return decodeMetadataSnapshot(dataset.value);
-            } catch (error) {
-                addIssue({message: error instanceof Error ? error.message : 'Invalid OCR page metadata snapshot'});
-                return NEVER;
-            }
-        }))),
     }),
     v.check(options => options.supersessionPolicy !== 'replace-all' || options.replaceAllAcknowledged === true, 'replace-all OCR requires acknowledgement'),
 );

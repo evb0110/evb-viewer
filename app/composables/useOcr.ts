@@ -1,4 +1,3 @@
-import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
 import { uniq } from 'es-toolkit/array';
 import { createRequestId } from '@contracts/shared';
@@ -60,7 +59,7 @@ type TOcrCompleteResult = Parameters<IOcrCapability['onComplete']>[0] extends (
     result: infer TResult,
 ) => void ? TResult : never;
 
-export const useOcr = (captureMetadataSnapshot?: () => IPageOpsMetadataSnapshot | undefined) => {
+export const useOcr = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const { localizeOcrError } = useOcrErrorLocalizer();
@@ -507,7 +506,6 @@ export const useOcr = (captureMetadataSnapshot?: () => IPageOpsMetadataSnapshot 
         selection: TOcrPageSelectionScope,
         workingCopyPath: TDocumentRef,
         runSettings: IOcrSettings,
-        metadataSnapshot?: IPageOpsMetadataSnapshot,
     ) {
         const ocr = getOcrCapability();
         return runJob(ocr, {
@@ -520,10 +518,7 @@ export const useOcr = (captureMetadataSnapshot?: () => IPageOpsMetadataSnapshot 
                     workingCopyPath,
                     buildPageSelection(selection, runSettings),
                     requestId,
-                    {
-                        ...buildSearchablePdfOptions(runSettings),
-                        ...(metadataSnapshot ? {metadataSnapshot} : {}),
-                    },
+                    buildSearchablePdfOptions(runSettings),
                 );
                 BrowserLogger.debug('ocr', 'Job started', {
                     requestId,
@@ -565,7 +560,6 @@ export const useOcr = (captureMetadataSnapshot?: () => IPageOpsMetadataSnapshot 
             return;
         }
 
-        const metadataSnapshot = captureMetadataSnapshot?.();
         const runToken = Symbol('ocr-run');
         pendingRunToken = runToken;
         beginRunProgress(selection, runSettings);
@@ -577,7 +571,7 @@ export const useOcr = (captureMetadataSnapshot?: () => IPageOpsMetadataSnapshot 
         pendingRunToken = null;
 
         const requestId = createOcrRequestId(selection);
-        const run = startOcrJob(requestId, selection, workingCopyPath, runSettings, metadataSnapshot);
+        const run = startOcrJob(requestId, selection, workingCopyPath, runSettings);
         activeRun = run;
         try {
             const response = await run.result;

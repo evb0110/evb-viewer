@@ -1,4 +1,3 @@
-import {buildPageMetadataSnapshot} from '@app/modules/pdf-viewer/public';
 import type { Ref } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
@@ -95,10 +94,10 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
 
     const {
         bookmarkState: {
-            bookmarkItems, bookmarksDirty, bookmarkEditMode, bookmarksResolved,
+            bookmarkItems, bookmarksDirty, bookmarkEditMode,
         },
         pageLabelState: {
-            pageLabels, pageLabelRanges, pageLabelsDirty, pageLabelsResolved,
+            pageLabels, pageLabelRanges, pageLabelsDirty,
         },
         consumePreservedSourceReloadMetadata,
     } = metadata;
@@ -377,14 +376,6 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
             documentRevision: documentRevisionToken,
             busy: options.isBusy,
         },
-        captureMetadataSnapshot: () => buildPageMetadataSnapshot({
-            pageLabels: pageLabels.value,
-            pageLabelRanges: pageLabelRanges.value,
-            pageLabelsResolved: pageLabelsResolved.value,
-            bookmarks: bookmarkItems.value,
-            bookmarksResolved: bookmarksResolved.value,
-            untitledBookmarkLabel: t('bookmarks.untitled'),
-        }),
         applyResult: handleOcrComplete,
     });
 
