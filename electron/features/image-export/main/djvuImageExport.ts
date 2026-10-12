@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import {normalizeImageExportFileName} from '@pdf-core/imageExportFileName';
 import {
     copyFile,
     mkdir,
@@ -19,6 +18,7 @@ import {
 import {
     commitStagedFilePublications,
     convertRenderedPpmToImage,
+    validateImageExportPath,
     createStagedFilePublicationLedger,
     type TImageExportFormat,
     promoteStagedFiles,
@@ -145,17 +145,12 @@ async function assertDjvuExportPageRasterBudget(
 }
 
 function buildImageOutputPath(templatePath: string, page: number, outputCount: number, format: TImageExportFormat) {
-    return buildOutputPathWithSuffix(
-        normalizeImageExportFileName(templatePath, format),
-        outputCount === 1 ? '' : `-page-${String(page).padStart(3, '0')}`,
-    );
+    const targetPath = validateImageExportPath(templatePath, format);
+    return outputCount === 1 ? targetPath : buildOutputPathWithSuffix(targetPath, `-page-${String(page).padStart(3, '0')}`);
 }
 
 function buildDjvuTiffOutputPath(templatePath: string, partNumber: number, splitOutput: boolean) {
-    return buildOutputPathWithSuffix(
-        templatePath,
-        splitOutput ? `-part-${String(partNumber).padStart(3, '0')}` : '',
-    );
+    return splitOutput ? buildOutputPathWithSuffix(templatePath, `-part-${String(partNumber).padStart(3, '0')}`) : templatePath;
 }
 
 async function renderDjvuImagePages(
@@ -202,7 +197,7 @@ async function renderDjvuImagePages(
                     totalPages,
                     format,
                 );
-                const outputPath = resolveOutputPathConflicts([plannedOutputPath], false)[0];
+                const outputPath = resolveOutputPathConflicts([plannedOutputPath], totalPages === 1)[0];
                 if (!outputPath) throw new Error('DjVu image export target is missing');
                 const brokerLease = await mainJobBroker.acquire({
                     ownerId: options.cancelGroup ?? `djvu-image-export:${djvuPath}`,
@@ -295,24 +290,6 @@ async function renderDjvuImagePages(
     });
 }
 
-export async function exportDjvuPagesAsPng(
-    djvuPath: string,
-    outputTemplatePath: string,
-    options: IDjvuImageExportOptions = {},
-) {
-    const {
-        pageCount,
-        pages,
-    } = await resolvePages(djvuPath, options.pageNumbers, options.signal);
-    const pageDpiByNumber = await assertDjvuExportPageRasterBudget(
-        djvuPath,
-        pageCount,
-        pages,
-        options.signal,
-    );
-    return renderDjvuImagePages(djvuPath, outputTemplatePath, pageCount, pages, options, pageDpiByNumber);
-}
-
 export async function exportDjvuPagesAsImages(
     djvuPath: string,
     outputTemplatePath: string,
@@ -331,6 +308,7 @@ export async function exportDjvuAsMultiPageTiff(
     outputPath: string,
     options: IDjvuImageExportOptions = {},
 ) {
+    const targetPath = validateImageExportPath(outputPath, 'tiff');
     const {
         pageCount,
         pages,
@@ -350,7 +328,6 @@ export async function exportDjvuAsMultiPageTiff(
         const totalPages = exportPages.length;
         const hasMixedPageDpi = new Set(exportPages.map(page => pageDpiByNumber.get(page) ?? null)).size > 1;
         const splitOutput = totalPages > DJVU_TIFF_BATCH_MAX_PAGES || hasMixedPageDpi;
-        const targetPath = normalizeImageExportFileName(outputPath, 'tiff');
         const stagedGroups: Array<{stagedPath: string}> = [];
         const combineBatch = async () => {
             if (pagePaths.length === 0) {
@@ -450,7 +427,6 @@ export async function exportDjvuAsMultiPageTiff(
         await combineBatch();
         const outputPaths = resolveOutputPathConflicts(
             stagedGroups.map((_, index) => buildDjvuTiffOutputPath(targetPath, index + 1, splitOutput)),
-            false,
         );
         const stagedFiles = stagedGroups.map(({stagedPath}, index) => {
             const targetOutputPath = outputPaths[index];
@@ -483,3 +459,5 @@ export async function exportDjvuAsMultiPageTiff(
         return outputPaths;
     });
 }
+
+export {exportDjvuPagesAsImages as exportDjvuPagesAsPng};

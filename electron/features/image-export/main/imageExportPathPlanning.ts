@@ -69,7 +69,7 @@ export function resolveSuffixedOutputPathConflicts(targets: IOutputPathTarget[],
     return targets.map(({
         path, suffix, 
     }) => (targets.length === 1 && allowSingleOverwrite
-        ? buildOutputPathWithSuffix(path, suffix)
+        ? (suffix ? buildOutputPathWithSuffix(path, suffix) : path)
         : buildNonConflictingOutputPath(path, suffix, reservedPaths)));
 }
 
@@ -81,10 +81,7 @@ export function resolveOutputPathConflicts(targetPaths: string[], allowSingleOve
 }
 
 export function buildMultiPageTiffOutputPaths(targetPath: string, partCount: number) {
-    if (partCount <= 1) {
-        return [buildOutputPathWithSuffix(targetPath, '')];
-    }
-    return range(1, partCount + 1).map(partNumber =>
+    return partCount <= 1 ? [targetPath] : range(1, partCount + 1).map(partNumber =>
         buildOutputPathWithSuffix(
             targetPath,
             `-part-${String(partNumber).padStart(3, '0')}`,

@@ -251,7 +251,6 @@ const {
     createPageRanges,
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
-    normalizeImageExportPath,
     promoteStagedFiles,
     createStagedFilePublicationLedger,
     rollbackStagedFilePublications,
@@ -1149,11 +1148,9 @@ describe('image export', () => {
         expect(existsSync(tempPath)).toBe(false);
     });
 
-    it('normalizes extensionless image targets with a JPEG fallback when requested', () => {
-        expect(normalizeImageExportPath(join(tempDir, 'exported'), 'jpeg')).toEqual({
-            normalizedPath: join(tempDir, 'exported.jpg'),
-            format: 'jpeg',
-        });
+    it('refuses an extensionless accepted image destination', async () => {
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', join(tempDir, 'exported')))
+            .rejects.toThrow('Choose a file name ending in');
     });
 
     it('exports JPEG page images when the target extension is JPG', async () => {
@@ -1702,18 +1699,26 @@ describe('image export', () => {
             'document',
             'document.tif',
         ],
-        [
-            'doc.TIF',
-            'doc.TIF',
-        ],
-        [
-            'doc.TiFf',
-            'doc.TiFf',
-        ],
-    ])('saves a multipage TIFF picked as %s at %s', async (picked, expected) => {
-        const paths = await exportPdfAsMultiPageTiff('/tmp/input.pdf', join(tempDir, picked));
-        expect(paths).toEqual([join(tempDir, expected)]);
-        expect(UTIF.decode(await readFile(paths[0]!))).toHaveLength(2);
+    ])('refuses TIFF destination %s and preserves the unchosen %s', async (picked, unchosen) => {
+        const pickedPath = join(tempDir, picked);
+        const unchosenPath = join(tempDir, unchosen);
+        await writeFile(pickedPath, 'chosen original');
+        await writeFile(unchosenPath, 'unchosen original');
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', pickedPath))
+            .rejects.toThrow('Choose a file name ending in .tif, .tiff');
+        expect(await readFile(pickedPath, 'utf8')).toBe('chosen original');
+        expect(await readFile(unchosenPath, 'utf8')).toBe('unchosen original');
+    });
+
+    it.each([
+        'doc.TIF',
+        'doc.TiFf',
+        '日本語 ё.tiff',
+    ])('saves TIFF at the accepted %s', async (picked) => {
+        const pickedPath = join(tempDir, picked);
+        const paths = await exportPdfAsMultiPageTiff('/tmp/input.pdf', pickedPath);
+        expect(paths).toEqual([pickedPath]);
+        expect(UTIF.decode(await readFile(pickedPath))).toHaveLength(2);
     });
 
     it.each([

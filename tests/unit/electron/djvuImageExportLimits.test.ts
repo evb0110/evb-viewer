@@ -1,4 +1,5 @@
 import type * as TViMockOriginalModule from '@electron/resources/jobBroker';
+import type * as TImageExportModule from '@electron/features/image-export/main/export';
 
 import {
     mkdtemp,
@@ -54,7 +55,8 @@ vi.mock('@electron/features/djvu/public', () => ({
     getDjvuPageSizeWindowsForViewing: mocks.getPageSizeWindows,
 }));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.appTempDir}));
-vi.mock('@electron/features/image-export/main/export', () => ({
+vi.mock('@electron/features/image-export/main/export', async () => ({
+    validateImageExportPath: (await vi.importActual<typeof TImageExportModule>('@electron/features/image-export/main/export')).validateImageExportPath,
     convertRenderedPpmToImage: mocks.convertPpmToImage,
     promoteStagedFiles: mocks.promoteStagedFiles,
     createStagedFilePublicationLedger: mocks.createStagedFilePublicationLedger,
@@ -108,6 +110,19 @@ describe('DjVu image export limits', () => {
             .rejects.toThrow('exceeds the image export raster limit');
         expect(mocks.convertPage).not.toHaveBeenCalled();
         expect(mocks.acquire).not.toHaveBeenCalled();
+    });
+
+    it('refuses a non-TIFF accepted destination without replacing either file', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-tiff-destination-'));
+        const chosen = join(tempDir, 'doc.png');
+        const unchosen = join(tempDir, 'doc.tif');
+        await writeFile(chosen, 'chosen original');
+        await writeFile(unchosen, 'unchosen original');
+        const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
+        await expect(exportDjvuAsMultiPageTiff('/books/source.djvu', chosen))
+            .rejects.toThrow('Choose a file name ending in .tif, .tiff');
+        expect(await readFile(chosen, 'utf8')).toBe('chosen original');
+        expect(await readFile(unchosen, 'utf8')).toBe('unchosen original');
     });
 
     it('allows multiple pages beyond the former aggregate raster budget', async () => {

@@ -1,5 +1,8 @@
 import { getErrorMessage } from '@electron/utils/error';
 import {
+    normalizeImageExportFileName, resolveImageExportFormat,
+} from '@pdf-core/imageExportFileName';
+import {
     BrowserWindow,
     dialog,
     type IpcMainInvokeEvent,
@@ -20,7 +23,7 @@ import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
     getPdfPageCount,
-    normalizeImageExportPath,
+    validateImageExportPath,
     rasterizePdfRegionAsPngBytes,
 } from '@electron/features/image-export/main/export';
 import { te } from '@electron/te';
@@ -50,10 +53,6 @@ import {
 import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 
 const logger = createLogger('image-export');
-
-function isImageExportJobAborted(job: TImageExportJobContext) {
-    return job.signal.aborted;
-}
 
 type TImageExportProgressPayload = SetOptional<Omit<IImageExportProgress, 'format' | 'requestId'>, 'percent'>;
 interface IImageExportResult {
@@ -313,7 +312,7 @@ async function showImageExportDialog(
     };
     const dialogOptions = {
         title: te(format === 'images' ? 'dialogs.exportImages' : 'dialogs.exportMultiPageTiff'),
-        defaultPath: defaultName,
+        defaultPath: normalizeImageExportFileName(defaultName, format === 'images' ? 'jpeg' : 'tiff'),
         filters: format === 'images' ? [
             {
                 name: te('dialogs.jpegImages'),
@@ -361,7 +360,7 @@ export async function handlePdfExportImages(
             buildSuggestedName(normalizedPageNumbers, 'images'),
             'images',
         );
-        if (result.canceled || !result.filePath || isImageExportJobAborted(job)) {
+        if (result.canceled || !result.filePath || job.signal.aborted) {
             job.terminal.cancel(new Error('Image export canceled'));
             return {
                 success: false,
@@ -369,10 +368,8 @@ export async function handlePdfExportImages(
             };
         }
 
-        const {
-            normalizedPath,
-            format: imageFormat,
-        } = normalizeImageExportPath(result.filePath, 'jpeg');
+        const imageFormat = resolveImageExportFormat(result.filePath, 'jpeg');
+        const normalizedPath = validateImageExportPath(result.filePath, imageFormat);
         const exportOptions = {
             cancelGroup,
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
@@ -398,7 +395,7 @@ export async function handlePdfExportImages(
                 }),
                 {ownerWebContentsId: context.senderId},
             );
-        if (isImageExportJobAborted(job)) {
+        if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
             return {
                 success: false,
@@ -468,7 +465,7 @@ export async function handlePdfExportMultiPageTiff(
             buildSuggestedName(normalizedPageNumbers, 'multipage-tiff'),
             'multipage-tiff',
         );
-        if (result.canceled || !result.filePath || isImageExportJobAborted(job)) {
+        if (result.canceled || !result.filePath || job.signal.aborted) {
             job.terminal.cancel(new Error('Image export canceled'));
             return {
                 success: false,
@@ -476,6 +473,7 @@ export async function handlePdfExportMultiPageTiff(
             };
         }
 
+        const outputPath = validateImageExportPath(result.filePath, 'tiff');
         const exportOptions = {
             cancelGroup,
             ...(normalizedPageNumbers ? { pageNumbers: normalizedPageNumbers } : {}),
@@ -486,7 +484,7 @@ export async function handlePdfExportMultiPageTiff(
         const outputPaths = sourceKind === 'djvu'
             ? await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
-                (physicalReadPath, assertOriginalUnchanged) => exportDjvuAsMultiPageTiff(physicalReadPath, result.filePath, {
+                (physicalReadPath, assertOriginalUnchanged) => exportDjvuAsMultiPageTiff(physicalReadPath, outputPath, {
                     ...exportOptions,
                     beforePublish: assertOriginalUnchanged,
                 }),
@@ -494,13 +492,13 @@ export async function handlePdfExportMultiPageTiff(
             )
             : await runWithWorkingCopyReadBacking(
                 normalizedWorkingCopyPath,
-                (physicalReadPath, assertOriginalUnchanged) => exportPdfAsMultiPageTiff(physicalReadPath, result.filePath, {
+                (physicalReadPath, assertOriginalUnchanged) => exportPdfAsMultiPageTiff(physicalReadPath, outputPath, {
                     ...exportOptions,
                     beforePublish: assertOriginalUnchanged,
                 }),
                 {ownerWebContentsId: context.senderId},
             );
-        if (isImageExportJobAborted(job)) {
+        if (job.signal.aborted) {
             job.terminal.cancel(job.signal.reason);
             return {
                 success: false,
@@ -508,13 +506,13 @@ export async function handlePdfExportMultiPageTiff(
             };
         }
 
-        const outputPath = outputPaths[0];
-        if (!outputPath) {
+        const firstOutputPath = outputPaths[0];
+        if (!firstOutputPath) {
             throw new Error('Multi-page TIFF export did not produce an output file');
         }
         const exportResult = {
             success: true,
-            outputPath,
+            outputPath: firstOutputPath,
             outputPaths,
         };
         job.handoff(exportResult);
