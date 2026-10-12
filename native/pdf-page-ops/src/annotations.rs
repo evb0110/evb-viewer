@@ -1030,34 +1030,42 @@ pub(crate) fn validate_text_box_rect(
     Ok(rect)
 }
 
-/// The editor grows a box to the text it shows, and wrapping never counts the
-/// spaces that hang at line ends. Where the saved fonts still need more lines
-/// than the box holds, the size shrinks until they fit. The appearance and the
-/// DA, which the reopened editor reads, both use that size.
+/// The editor grows a box to the text it shows. Lines fit when the box holds
+/// their count and their visible width: spaces hanging at line ends do not
+/// count, as on screen, but a grapheme too wide to wrap does. Where the saved
+/// fonts need more room, the size shrinks until they fit. The appearance and
+/// the DA, which the reopened editor reads, both use that size.
 pub(crate) fn fit_text_box(
     editor: &TextBoxMutation,
     geometry: &crate::text_box_font::Geometry,
 ) -> (f64, Vec<crate::text_box_font::Line>) {
     use crate::text_box_font::{layout, LINE_HEIGHT, PADDING_X, PADDING_Y};
-    let layout = |size| layout(&editor.text, geometry.width - 2.0 * PADDING_X * size, size);
-    let fits = |size, lines: usize| {
-        (lines as f64 * LINE_HEIGHT + PADDING_Y) * size <= geometry.height + 0.01
+    let fit = |size: f64| {
+        let width = geometry.width - 2.0 * PADDING_X * size + 0.01;
+        let lines = layout(&editor.text, width - 0.01, size);
+        let visible = |line: &crate::text_box_font::Line| {
+            line.width <= width || layout(line.text.trim_end(), f64::MAX, size)[0].width <= width
+        };
+        let height = (lines.len() as f64 * LINE_HEIGHT + PADDING_Y) * size;
+        (height <= geometry.height + 0.01 && lines.iter().all(visible)).then_some(lines)
     };
-    let lines = layout(editor.font_size);
-    if fits(editor.font_size, lines.len()) {
+    if let Some(lines) = fit(editor.font_size) {
         return (editor.font_size, lines);
     }
     let mut range = (0.0, editor.font_size);
-    for _ in 0..10 {
+    while range.1 - range.0 > 0.01 {
         let middle = (range.0 + range.1) / 2.0;
-        range = if fits(middle, layout(middle).len()) {
+        range = if fit(middle).is_some() {
             (middle, range.1)
         } else {
             (range.0, middle)
         };
     }
     let size = (range.0 * 100.0).floor() / 100.0;
-    (size, layout(size))
+    (
+        size,
+        layout(&editor.text, geometry.width - 2.0 * PADDING_X * size, size),
+    )
 }
 
 pub(crate) fn build_text_box_appearance(
@@ -1092,7 +1100,8 @@ pub(crate) fn build_text_box_appearance(
     for (index, line) in lines.iter().enumerate() {
         let left = PADDING_X * size
             + if line.rtl {
-                (content_width - line.width).max(0.0)
+                // Spaces that hang at a line's end fall off its start side.
+                content_width - line.width
             } else {
                 0.0
             };
@@ -1132,24 +1141,12 @@ fn existing_text_box_values(
     annotation_ref: ObjectId,
 ) -> Result<(Option<Dictionary>, Option<Vec<u8>>)> {
     let dict = document.dictionary(annotation_ref)?;
-    let appearance = dict
-        .get(b"AP")
-        .ok()
-        .and_then(|object| document.resolved(object).ok())
-        .and_then(|object| object.as_dict().ok())
-        .cloned();
-    let default_appearance = dict
-        .get(b"DA")
-        .ok()
-        .and_then(|object| document.resolved(object).ok())
-        .and_then(|object| object.as_str().ok())
-        .map(ToOwned::to_owned);
-    Ok((appearance, default_appearance))
-}
-
-fn appearance_with_normal_stream(mut appearance: Dictionary, appearance_ref: ObjectId) -> Object {
-    appearance.set("N", Object::Reference(appearance_ref));
-    Object::Dictionary(appearance)
+    let value = |key: &[u8]| document.resolved(dict.get(key).ok()?).ok();
+    let appearance = value(b"AP").and_then(|object| object.as_dict().ok().cloned());
+    Ok((
+        appearance,
+        value(b"DA").and_then(|object| object.as_str().ok().map(ToOwned::to_owned)),
+    ))
 }
 
 pub(crate) fn tokenize_default_appearance(bytes: &[u8]) -> Vec<(usize, usize)> {
@@ -1215,15 +1212,10 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
     for (index, &(start, end)) in tokens.iter().enumerate() {
         let token = &bytes[start..end];
         if token == b"Tf" {
-            if let Some(&(size_start, size_end)) = index.checked_sub(1).and_then(|i| tokens.get(i))
-            {
-                let is_finite_number = std::str::from_utf8(&bytes[size_start..size_end])
-                    .ok()
-                    .and_then(|value| value.parse::<f64>().ok())
-                    .is_some_and(f64::is_finite);
-                if !is_finite_number {
-                    continue;
-                }
+            // A malformed size operand is replaced too, so readers take the
+            // size the appearance draws rather than an earlier number.
+            let operand = index.checked_sub(1).and_then(|i| tokens.get(i));
+            if let Some(&(size_start, size_end)) = operand.filter(|(at, _)| bytes[*at] != b'/') {
                 replacements.push((
                     size_start,
                     size_end,
@@ -1312,10 +1304,9 @@ fn set_text_box_fields(
         patch_default_appearance(existing_default_appearance.as_deref(), font_size, color)
     };
     dict.set("DA", Object::string_literal(default_appearance));
-    dict.set(
-        "AP",
-        appearance_with_normal_stream(existing_appearance.unwrap_or_default(), appearance_ref),
-    );
+    let mut appearance = existing_appearance.unwrap_or_default();
+    appearance.set("N", Object::Reference(appearance_ref));
+    dict.set("AP", appearance);
     if is_new || editor.author.is_some() {
         dict.set(
             "T",
@@ -2461,12 +2452,15 @@ mod tests {
     }
 
     #[test]
-    fn patch_default_appearance_appends_a_font_when_existing_size_is_not_numeric() {
-        let patched = patch_default_appearance(Some(b"/Helv nope Tf"), 16.0, [0.1, 0.2, 0.3]);
-        let patched = std::str::from_utf8(&patched).unwrap();
-
-        assert!(patched.contains("/Helv nope Tf"));
-        assert!(patched.contains("/Helv 16 Tf"));
+    fn patch_default_appearance_replaces_a_size_that_is_not_numeric() {
+        let patched = patch_default_appearance(
+            Some(b"/Helv 22 Tf 0.2 0.4 0.6 rg /Helv nope Tf"),
+            16.0,
+            [0.1, 0.2, 0.3],
+        );
+        assert_eq!(patched, b"/Helv 16 Tf 0.1 0.2 0.3 rg /Helv 16 Tf");
+        let patched = patch_default_appearance(Some(b"/Helv Tf"), 16.0, [0.1, 0.2, 0.3]);
+        assert_eq!(patched, b"/Helv Tf /Helv 16 Tf 0.1 0.2 0.3 rg");
     }
 
     #[test]

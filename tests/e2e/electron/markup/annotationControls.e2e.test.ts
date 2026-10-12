@@ -1222,6 +1222,34 @@ describe('Electron E2E - annotation controls', () => {
         expect.soft(await editorFontSize(), `${script} reopens at its saved size`).toBeCloseTo(recordedSize, 2);
     });
 
+    it('keeps a compact foreign label whole when only its color changes', async () => {
+        // A 25 x 45 pt FreeText "W" at 22 pt from another program: its glyph is
+        // wider than the box less padding, so the saved size must fit it.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-foreign-label-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const saved = join(evidence, 'saved.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext/compact.pdf'), saved);
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .pdf-annotation-editor-text-box');
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .annotation-style-editor .swatch[aria-label="#f59e0b"]');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const pdf = await PDFDocument.load(readFileSync(saved));
+        const freeText = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
+        const normal = pdf.context.lookup(freeText.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
+        const drawnSizes = new Set(Array.from(Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1')
+            .matchAll(/\/TextFont\d+ ([\d.]+) Tf/gu), match => Number(match[1])));
+        const recordedSize = Number(/([\d.]+) Tf/u.exec(freeText.lookup(PDFName.of('DA'), PDFString).decodeText())?.[1]);
+        expect.soft([...drawnSizes], 'the label draws at the size its DA records').toEqual([recordedSize]);
+        expect.soft((await renderedTextBoxInk(readFileSync(saved), true)).outside, 'the saved label keeps its whole glyph').toBe(0);
+    });
+
     it('retains a visible typing box and places the caret through delayed pointer input', async () => {
         const session = sessionFixture.getSession();
         const {page} = session;

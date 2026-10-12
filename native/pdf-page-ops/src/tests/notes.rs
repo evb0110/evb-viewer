@@ -3018,6 +3018,47 @@ fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
 }
 
 #[test]
+fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
+    // review-b6yw: a 25 x 45 pt foreign "W" at 22 pt, edited for color only,
+    // and a foreign DA whose trailing Tf size is malformed.
+    for (da, rect, text, fits_at_22) in [
+        ("/Helv 22 Tf 0 0 0 rg", [20.0, 20.0, 45.0, 65.0], "W", false),
+        ("/Helv 22 Tf 0.2 0.4 0.6 rg /Helv invalid Tf", [20.0, 15.0, 180.0, 90.0], "Edited foreign text", true),
+    ] {
+        let (mut document, page_id) = create_test_document();
+        let foreign_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "FreeText", "NM" => Object::string_literal("foreign"),
+            "Rect" => rect.iter().map(|value| Object::Real(*value as f32)).collect::<Vec<_>>(),
+            "Contents" => Object::string_literal(text), "DA" => Object::string_literal(da), "P" => page_id,
+        });
+        document.get_dictionary_mut(page_id).unwrap().set("Annots", vec![Object::Reference(foreign_id)]);
+        let pdf_path = temp_pdf_path("edited-foreign-text-box");
+        let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        write(&pdf_path, &bytes).unwrap();
+        let editor = TextBoxMutation {
+            page_index: 0, stable_key: "foreign".to_string(),
+            annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: text.to_string(), rect,
+            rotation: 0, font_size: 22.0, color: [245, 158, 11], author: None, created_at: None, modified_at: None,
+        };
+        let mutations = NativeMutationsFile { text_boxes: vec![editor], ..NativeMutationsFile::default() };
+        append_native_mutations(&pdf_path, &pdf_path, &mutations, "D:20261012000000Z").unwrap();
+        let saved = Document::load(&pdf_path).unwrap();
+        let entries = collect_parsed_annotations(&saved, "D:20261012000000Z").unwrap();
+        let PdfAnnotationParseEntry::TextBox(reopened) = &entries[0] else { panic!("{:?}", entries[0]) };
+        let annotation = saved.get_dictionary(foreign_id).unwrap();
+        let normal = saved.resolved(saved.resolved(annotation.get(b"AP").unwrap()).unwrap().as_dict().unwrap().get(b"N").unwrap()).unwrap();
+        let content = String::from_utf8(normal.as_stream().unwrap().content.clone()).unwrap();
+        let drawn: f64 = content.split_once(" Tf").unwrap().0.rsplit(' ').next().unwrap().parse().unwrap();
+        assert_eq!((reopened.font_size, drawn == 22.0), (drawn, fits_at_22), "{content}");
+        let ink = crate::text_box_font::layout(text, f64::MAX, drawn)[0].width;
+        let width = rect[2] - rect[0] - 2.0 * crate::text_box_font::PADDING_X * drawn;
+        assert!(fits_at_22 || ink <= width + 0.01, "{text} {ink} > {width}");
+    }
+}
+
+#[test]
 fn text_boxes_of_one_save_share_one_font_subset() {
     // Each box once embedded its own fonts, with widths and Unicode mappings
     // for every glyph of the program: 200 boxes saved as 21.6 MB.
