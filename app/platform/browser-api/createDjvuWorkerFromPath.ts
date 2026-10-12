@@ -1,3 +1,4 @@
+import {SerializableError} from '@contracts/serializableError';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IDjvuPagePreviewOptions } from '@contracts/electronApiDjvu';
@@ -175,6 +176,15 @@ function getDesktopDjvuPreviewCapability(path: TDocumentRef) {
     return djvu;
 }
 
+// DIRM's high bit declares a bundled document. An indirect index needs its
+// sibling components, which the byte-only browser decoder cannot read.
+function isIndirectDjvu(bytes: Uint8Array) {
+    return bytes.length >= 25
+        && new TextDecoder('ascii').decode(bytes.subarray(0, 8)) === 'AT&TFORM'
+        && new TextDecoder('ascii').decode(bytes.subarray(12, 20)) === 'DJVMDIRM'
+        && (bytes[24]! & 0x80) === 0;
+}
+
 async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
     const nativeDjvu = getDesktopDjvuPreviewCapability(path);
     if (!nativeDjvu) {
@@ -185,7 +195,8 @@ async function shouldUseNativeDesktopDjvuPreview(path: TDocumentRef) {
         const documents = getDesktopDocumentsCapability(path);
 
         const { size } = await documents.statFile(path);
-        if (size > DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES) {
+        if (size > DJVU_DESKTOP_DJVUJS_PREVIEW_MAX_BYTES
+            || (size >= 25 && isIndirectDjvu(await documents.readFileRange(path, 0, 25)))) {
             return nativeDjvu;
         }
 
@@ -498,6 +509,12 @@ export async function createDjvuWorkerFromPath(
             ? await readBrowserDocumentBytes(djvuPath, options)
             : await readDesktopDocumentBytes(djvuPath, options);
         throwIfCanceled(options.signal);
+        if (isIndirectDjvu(bytes)) {
+            throw new SerializableError({
+                code: 'djvu-components-required',
+                message: 'This DjVu index needs separate component files. Open a bundled DjVu file or use the desktop app.',
+            });
+        }
         const buffer = toOwnedArrayBuffer(bytes);
 
         await worker.createDocument(buffer, {});
