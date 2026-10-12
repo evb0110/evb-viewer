@@ -1,4 +1,5 @@
 import {
+    appendFile,
     lstat,
     mkdir,
     mkdtemp,
@@ -10,6 +11,7 @@ import {
 import {
     basename,
     dirname,
+    isAbsolute,
     join,
     resolve,
 } from 'path';
@@ -23,6 +25,9 @@ import {
 
 const logger = createLogger('managed-scratch-temp');
 const MANAGED_SCRATCH_MARKER_FILE = '.evb-managed-scratch.json';
+const MANAGED_SCRATCH_STAGES_FILE = '.evb-scratch-stages';
+// The names makeSiblingTempPath gives a publication stage.
+const MANAGED_SCRATCH_STAGE_NAME_PATTERN = /^\.[0-9a-f]{16}\.tmp$/u;
 const MANAGED_SCRATCH_PREFIXES = [
     'pdfExport-',
     'pdfExport-scope-',
@@ -162,6 +167,43 @@ export async function removeManagedScratchTempDir(
 }
 
 /**
+ * Records a publication stage beside its target before the stage file exists.
+ * A crash leaves the record in the export's scratch, and the next startup sweep
+ * removes the stages it names.
+ */
+export async function recordManagedScratchStage(scratchPath: string, stagePath: string) {
+    await appendFile(join(scratchPath, MANAGED_SCRATCH_STAGES_FILE), `${stagePath}\n`, 'utf8');
+}
+
+// A dead owner's stages are orphans whatever the age of its scratch, so they go
+// now while the scratch keeps its age rule. Only complete lines count, since a
+// crash can cut the last record short, and only stage names are removed. A
+// record stays when a removal fails, so the next start tries those stages again.
+async function removeRecordedManagedScratchStages(scratchPath: string) {
+    const recordPath = join(scratchPath, MANAGED_SCRATCH_STAGES_FILE);
+    const record = await readFile(recordPath, 'utf8').catch(() => null);
+    if (record === null) {
+        return;
+    }
+    let removedAll = true;
+    for (const stagePath of record.split('\n').slice(0, -1)) {
+        if (!isAbsolute(stagePath) || !MANAGED_SCRATCH_STAGE_NAME_PATTERN.test(basename(stagePath))) {
+            continue;
+        }
+        try {
+            // rm removes the entry itself, never a symlink's target, and fails on a directory.
+            await rm(stagePath, {force: true});
+        } catch (error) {
+            removedAll = false;
+            logger.warn(`Failed to remove recorded stage "${stagePath}": ${getErrorMessage(error)}`);
+        }
+    }
+    if (removedAll) {
+        await rm(recordPath, {force: true});
+    }
+}
+
+/**
  * Runs `run` in a fresh managed scratch directory and removes it afterwards,
  * unless `run` failed while a native child it started may still be alive: the
  * child may still read or write there, so the directory stays for the stale
@@ -219,6 +261,7 @@ export async function sweepStaleManagedScratchTempDirs(
             if (!marker || !entry.startsWith(marker.prefix) || isProcessAlive(marker.pid)) {
                 continue;
             }
+            await removeRecordedManagedScratchStages(scratchPath);
 
             // Date.now() has integer-millisecond precision, while filesystem
             // timestamps can retain a fractional millisecond. Compare both

@@ -70,6 +70,7 @@ import {
 } from '@electron/utils/nativeTerminationProof';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
+    recordManagedScratchStage,
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
@@ -419,6 +420,11 @@ async function moveFile(sourcePath: string, targetPath: string) {
     }
 }
 
+export interface IStagedImageFile {
+    stagedPath: string;
+    targetPath: string;
+}
+
 interface IStagedFilePublication {
     targetPath: string;
     backupPath: string | null;
@@ -505,11 +511,7 @@ export async function commitStagedFilePublications(ledger: IStagedFilePublicatio
 }
 
 export async function promoteStagedFiles(
-    stagedFiles: Array<{
-        stagedPath: string;
-        targetPath: string;
-        targetExisted: boolean;
-    }>,
+    stagedFiles: IStagedImageFile[],
     signal?: AbortSignal,
     ledger?: IStagedFilePublicationLedger,
 ) {
@@ -1076,71 +1078,69 @@ export async function exportPdfPagesAsImages(
             suffix: pageCount === 1 ? '' : `-${String(index + 1).padStart(3, '0')}`,
         })));
 
-        const stagedFiles: Array<{
-            stagedPath: string;
-            targetPath: string;
-            targetExisted: boolean;
-        }> = [];
-        let processedPages = 0;
-        emitExportProgress(options, {
-            phase: 'rendering',
-            processed: 0,
-            total: pageCount,
-        });
+        return usingExportScratch(options, 'pdfExport-', async stageDir => {
+            const stagedFiles: IStagedImageFile[] = [];
+            let processedPages = 0;
+            emitExportProgress(options, {
+                phase: 'rendering',
+                processed: 0,
+                total: pageCount,
+            });
 
-        try {
-            for (const pageRange of createPageRanges(
-                pageCount,
-                format === 'png' ? PDF_EXPORT_PNG_RENDER_CHUNK_PAGES : PDF_EXPORT_RENDER_CHUNK_PAGES,
-            )) {
-                throwIfAborted(options.signal);
-                await usingExportScratch(options, 'pdfExport-', async tempDir => {
-                    let stagedBytes = 0;
-                    const pageFiles = await renderPdfToTempPages(
-                        preparedSourcePdf,
-                        format,
-                        pageRange,
-                        tempDir,
-                        renderDpi,
-                        options.signal,
-                        options.cancelGroup,
-                    );
-                    for (const source of pageFiles) {
-                        const targetPath = exportedPaths[processedPages];
-                        if (!targetPath) {
-                            throw new Error('Image export target path is missing');
+            try {
+                for (const pageRange of createPageRanges(
+                    pageCount,
+                    format === 'png' ? PDF_EXPORT_PNG_RENDER_CHUNK_PAGES : PDF_EXPORT_RENDER_CHUNK_PAGES,
+                )) {
+                    throwIfAborted(options.signal);
+                    await usingExportScratch(options, 'pdfExport-', async tempDir => {
+                        let stagedBytes = 0;
+                        const pageFiles = await renderPdfToTempPages(
+                            preparedSourcePdf,
+                            format,
+                            pageRange,
+                            tempDir,
+                            renderDpi,
+                            options.signal,
+                            options.cancelGroup,
+                        );
+                        for (const source of pageFiles) {
+                            const targetPath = exportedPaths[processedPages];
+                            if (!targetPath) {
+                                throw new Error('Image export target path is missing');
+                            }
+                            const stagedPath = makeSiblingTempPath(targetPath);
+                            await recordManagedScratchStage(stageDir, stagedPath);
+
+                            throwIfAborted(options.signal);
+                            await moveFile(source.path, stagedPath);
+                            stagedBytes = await addStagedImageFileBytes(stagedBytes, stagedPath,
+                                'Image export exceeds the 2 GiB staged-output limit for one render window');
+                            stagedFiles.push({
+                                stagedPath,
+                                targetPath,
+                            });
+                            processedPages += 1;
+                            emitExportProgress(options, {
+                                phase: 'rendering',
+                                processed: processedPages,
+                                total: pageCount,
+                            });
                         }
-                        const stagedPath = makeSiblingTempPath(targetPath);
-
-                        throwIfAborted(options.signal);
-                        await moveFile(source.path, stagedPath);
-                        stagedBytes = await addStagedImageFileBytes(stagedBytes, stagedPath,
-                            'Image export exceeds the 2 GiB staged-output limit for one render window');
-                        stagedFiles.push({
-                            stagedPath,
-                            targetPath,
-                            targetExisted: existsSync(targetPath),
-                        });
-                        processedPages += 1;
-                        emitExportProgress(options, {
-                            phase: 'rendering',
-                            processed: processedPages,
-                            total: pageCount,
-                        });
-                    }
-                });
+                    });
+                }
+                throwIfAborted(options.signal);
+                if (processedPages !== pageCount) {
+                    throw new Error('PDF image export did not render every planned page');
+                }
+                await options.beforePublish?.();
+                await promoteStagedFiles(stagedFiles, options.signal);
+            } catch (error) {
+                await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
+                throw error;
             }
-            throwIfAborted(options.signal);
-            if (processedPages !== pageCount) {
-                throw new Error('PDF image export did not render every planned page');
-            }
-            await options.beforePublish?.();
-            await promoteStagedFiles(stagedFiles, options.signal);
-        } catch (error) {
-            await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
-            throw error;
-        }
-        return exportedPaths;
+            return exportedPaths;
+        });
     });
 }
 
@@ -1329,6 +1329,7 @@ export async function exportPdfAsMultiPageTiff(
                         for (const tiffPageGroup of tiffPageGroups) {
                             throwIfAborted(options.signal);
                             const stagedPath = makeSiblingTempPath(targetPath);
+                            await recordManagedScratchStage(tempDir, stagedPath);
                             stagedGroupPaths.push(stagedPath);
                             await combinePagesIntoMultiPageTiff(
                                 tiffPageGroup.map(page => page.path),
@@ -1337,12 +1338,11 @@ export async function exportPdfAsMultiPageTiff(
                                 true,
                                 renderDpi,
                             );
-                            const combinedGroupCount = stagedGroupPaths.length;
                             emitExportProgress(options, {
                                 phase: 'combining',
-                                processed: combinedGroupCount,
-                                total: Math.max(expectedRenderWindowCount, combinedGroupCount),
-                                percent: 90 + ((combinedGroupCount / Math.max(expectedRenderWindowCount, combinedGroupCount)) * 10),
+                                processed: stagedGroupPaths.length,
+                                total: Math.max(expectedRenderWindowCount, stagedGroupPaths.length),
+                                percent: 90 + ((stagedGroupPaths.length / Math.max(expectedRenderWindowCount, stagedGroupPaths.length)) * 10),
                             });
                         }
                     } finally {
@@ -1361,7 +1361,6 @@ export async function exportPdfAsMultiPageTiff(
                     return {
                         stagedPath,
                         targetPath: targetOutputPath,
-                        targetExisted: existsSync(targetOutputPath),
                     };
                 });
                 throwIfAborted(options.signal);

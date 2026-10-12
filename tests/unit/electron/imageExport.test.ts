@@ -1,6 +1,7 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 import type * as TPdfLib from 'pdf-lib';
 import type * as TAtomicReplace from '@electron/utils/atomicReplace';
+import type * as TManagedScratch from '@electron/utils/managedScratchTemp';
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -31,6 +32,10 @@ import {
 } from '@electron/utils/nativeTerminationProof';
 import { decode as decodePng } from 'fast-png';
 import { readImageDpi } from '@electron/image/imageDpi';
+import {
+    listStagedNames,
+    restartAfterCrash,
+} from '@tests/unit/electron/helpers/crashedExportRestart';
 import {
     afterEach,
     beforeEach,
@@ -228,7 +233,8 @@ vi.mock('@electron/utils/atomicReplace', () => ({
     atomicReplace: (...args: unknown[]) => mocks.atomicReplace(...args),
     makeSiblingTempPath: (...args: [string]) => mocks.makeSiblingTempPath(...args),
 }));
-vi.mock('@electron/utils/managedScratchTemp', () => ({
+vi.mock('@electron/utils/managedScratchTemp', async importOriginal => ({
+    ...(await importOriginal<typeof TManagedScratch>()),
     createManagedScratchTempDir: (...args: [string]) => mocks.createManagedScratchTempDir(...args),
     usingManagedScratchScope: async (
         prefix: string,
@@ -273,6 +279,7 @@ const realPdfLib = await vi.importActual<typeof TPdfLib>('pdf-lib');
 const realNativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
 const realFs = await vi.importActual<typeof FsPromises>('fs/promises');
 const realAtomicReplace = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
+const realManagedScratch = await vi.importActual<typeof TManagedScratch>('@electron/utils/managedScratchTemp');
 const runFile = promisify(execFile);
 
 function resolveRealPdfToolPaths() {
@@ -365,7 +372,7 @@ describe('image export', () => {
         mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.tmp`);
         mocks.managedScratchDirs.length = 0;
         mocks.createManagedScratchTempDir.mockImplementation(async (prefix: string) => {
-            const path = await mkdtemp(join(tempDir, prefix));
+            const path = await realManagedScratch.createManagedScratchTempDir(prefix as TManagedScratch.TManagedScratchPrefix, tempDir);
             mocks.managedScratchDirs.push({
                 path,
                 prefix,
@@ -1361,12 +1368,10 @@ describe('image export', () => {
             {
                 stagedPath: firstStagedPath,
                 targetPath,
-                targetExisted: true,
             },
             {
                 stagedPath: secondStagedPath,
                 targetPath: `${tempDir}/./duplicate.png`,
-                targetExisted: true,
             },
         ])).rejects.toThrow('Duplicate image export target');
 
@@ -1432,12 +1437,10 @@ describe('image export', () => {
             {
                 stagedPath: firstStagedPath,
                 targetPath,
-                targetExisted: true,
             },
             {
                 stagedPath: secondStagedPath,
                 targetPath: secondTargetPath,
-                targetExisted: false,
             },
         ], abortController.signal)).rejects.toThrow('The operation was aborted');
         expect(await readFile(targetPath, 'utf8')).toBe('original');
@@ -1454,7 +1457,6 @@ describe('image export', () => {
         await promoteStagedFiles([{
             stagedPath,
             targetPath,
-            targetExisted: true,
         }], undefined, ledger);
 
         expect(mocks.copyFileAtomic).toHaveBeenCalledWith(
@@ -1484,7 +1486,6 @@ describe('image export', () => {
         await expect(promoteStagedFiles([{
             stagedPath,
             targetPath,
-            targetExisted: true,
         }])).rejects.toThrow('stat unavailable after promotion');
 
         expect(await readFile(targetPath, 'utf8')).toBe('original');
@@ -1504,7 +1505,6 @@ describe('image export', () => {
         const failure = await promoteStagedFiles([{
             stagedPath,
             targetPath,
-            targetExisted: true,
         }]).catch((error: unknown) => error);
 
         expect(failure).toBeInstanceOf(AggregateError);
@@ -1920,12 +1920,10 @@ describe('image export', () => {
             {
                 stagedPath: firstStagedPath,
                 targetPath: firstTargetPath,
-                targetExisted: true,
             },
             {
                 stagedPath: secondStagedPath,
                 targetPath: secondTargetPath,
-                targetExisted: true,
             },
         ])).rejects.toThrow('Recovery backup(s) retained');
 
@@ -1947,12 +1945,10 @@ describe('image export', () => {
         await promoteStagedFiles([{
             stagedPath: firstStagedPath,
             targetPath: firstTargetPath,
-            targetExisted: true,
         }], undefined, ledger);
         await promoteStagedFiles([{
             stagedPath: secondStagedPath,
             targetPath: secondTargetPath,
-            targetExisted: false,
         }], undefined, ledger);
 
         await rollbackStagedFilePublications(ledger);
@@ -1985,12 +1981,10 @@ describe('image export', () => {
             {
                 stagedPath: firstStagedPath,
                 targetPath: firstTargetPath,
-                targetExisted: false,
             },
             {
                 stagedPath: secondStagedPath,
                 targetPath: secondTargetPath,
-                targetExisted: false,
             },
         ])).rejects.toThrow('second promotion failed');
 
@@ -2099,5 +2093,52 @@ describe('image export', () => {
 
         expect(checkedBeforePublish).toBe(true);
         expect(existsSync(outputPath)).toBe(true);
+    });
+
+    it('removes the staged image of an export stopped before publishing, on the next start', async () => {
+        mocks.renderPageCount = 1;
+        mocks.pdfPageCount = 1;
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        const outputPath = join(tempDir, 'interrupted.png');
+        await writeFile(join(tempDir, '.fedcba9876543210.tmp'), 'not recorded');
+        await writeFile(join(tempDir, 'unrelated.tmp'), 'keep');
+        let reachedPublish = false;
+        // The hook never settles, so the export stops there as a killed process would.
+        const holdPublish = () => {
+            reachedPublish = true;
+            return new Promise<void>(() => undefined);
+        };
+        void exportPdfPagesAsImages('/tmp/input.pdf', outputPath, {beforePublish: holdPublish});
+        await vi.waitFor(() => expect(reachedPublish).toBe(true));
+        expect(listStagedNames(tempDir)).toHaveLength(2);
+
+        await restartAfterCrash(tempDir);
+
+        expect(listStagedNames(tempDir)).toEqual(['.fedcba9876543210.tmp']);
+        await expect(readFile(join(tempDir, 'unrelated.tmp'), 'utf8')).resolves.toBe('keep');
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
+    it('removes the staged TIFF of a multi-page export stopped before publishing, on the next start', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        const outputPath = join(tempDir, 'interrupted.tiff');
+        await writeFile(join(tempDir, '.fedcba9876543210.tmp'), 'not recorded');
+        await writeFile(join(tempDir, 'unrelated.tmp'), 'keep');
+        let reachedPublish = false;
+        const holdPublish = () => {
+            reachedPublish = true;
+            return new Promise<void>(() => undefined);
+        };
+        void exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {beforePublish: holdPublish});
+        await vi.waitFor(() => expect(reachedPublish).toBe(true));
+        expect(listStagedNames(tempDir)).toHaveLength(2);
+
+        await restartAfterCrash(tempDir);
+
+        expect(listStagedNames(tempDir)).toEqual(['.fedcba9876543210.tmp']);
+        await expect(readFile(join(tempDir, 'unrelated.tmp'), 'utf8')).resolves.toBe('keep');
+        expect(existsSync(outputPath)).toBe(false);
     });
 });

@@ -198,4 +198,47 @@ describe('managed scratch temp cleanup', () => {
             throw new Error('conversion failed');
         })).rejects.toThrow('conversion failed');
     });
+
+    it('removes exactly the complete stage names a dead owner recorded, whatever the age of its scratch', async () => {
+        const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+        await writeFile(join(ownerPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+            createdAt: Date.now(),
+            pid: 2_147_483_647,
+            prefix: 'pdfExport-',
+        })}\n`, 'utf8');
+        const folder = join(mocks.appTempDir, 'destination');
+        await mkdir(folder);
+        const stagePath = join(folder, '.0123456789abcdef.tmp');
+        const reportPath = join(folder, 'report.pdf');
+        const unrecordedPath = join(folder, '.fedcba9876543210.tmp');
+        const truncatedPath = join(folder, '.1111111111111111.tmp');
+        for (const path of [
+            stagePath,
+            reportPath,
+            unrecordedPath,
+            truncatedPath,
+        ]) {
+            await writeFile(path, 'x', 'utf8');
+        }
+        // The last append was cut short: its line has no newline, so it names nothing.
+        await writeFile(join(ownerPath, '.evb-scratch-stages'), `${stagePath}\n${reportPath}\n${truncatedPath}`, 'utf8');
+
+        await sweepStaleManagedScratchTempDirs(mocks.appTempDir);
+
+        expect(existsSync(stagePath)).toBe(false);
+        expect(existsSync(reportPath)).toBe(true);
+        expect(existsSync(unrecordedPath)).toBe(true);
+        expect(existsSync(truncatedPath)).toBe(true);
+    });
+
+    it('leaves the stages recorded by a live owner alone', async () => {
+        const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+        const stagePath = join(mocks.appTempDir, '.0123456789abcdef.tmp');
+        await writeFile(stagePath, 'x', 'utf8');
+        await writeFile(join(ownerPath, '.evb-scratch-stages'), `${stagePath}\n`, 'utf8');
+
+        await sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0);
+
+        expect(existsSync(stagePath)).toBe(true);
+    });
 });

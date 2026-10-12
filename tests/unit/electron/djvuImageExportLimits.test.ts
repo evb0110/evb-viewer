@@ -8,9 +8,15 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
+import {
+    listStagedNames,
+    restartAfterCrash,
+} from '@tests/unit/electron/helpers/crashedExportRestart';
 import {
     afterEach,
     beforeEach,
@@ -480,6 +486,84 @@ describe('DjVu image export limits', () => {
             {signal: controller.signal},
         )).rejects.toThrow('aborted');
         expect(mocks.convertPage).not.toHaveBeenCalled();
+    });
+
+    it('removes the staged PNG of a DjVu export stopped before publishing, on the next start', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-png-crash-test-'));
+        const appTempRoot = join(tempDir, 'app-temp');
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 3,
+            };
+        });
+        mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
+            const pngPath = `${ppmPath}.png`;
+            await writeFile(pngPath, 'png');
+            return pngPath;
+        });
+        const outputPath = join(tempDir, 'crash.png');
+        await writeFile(join(tempDir, '.fedcba9876543210.tmp'), 'not recorded');
+        await writeFile(join(tempDir, 'unrelated.tmp'), 'keep');
+        let reachedPublish = false;
+        const {exportDjvuPagesAsPng} = await import('@electron/features/image-export/main/djvuImageExport');
+        // The hook never settles, so the export stops there as a killed process would.
+        void exportDjvuPagesAsPng('/books/crash.djvu', outputPath, {
+            scratch: {using: (prefix, run) => usingManagedScratchScope(prefix, appTempRoot, run)},
+            beforePublish: () => {
+                reachedPublish = true;
+                return new Promise<void>(() => undefined);
+            },
+        });
+        await vi.waitFor(() => expect(reachedPublish).toBe(true));
+        expect(listStagedNames(tempDir)).toHaveLength(2);
+
+        await restartAfterCrash(appTempRoot);
+
+        expect(listStagedNames(tempDir)).toEqual(['.fedcba9876543210.tmp']);
+        await expect(readFile(join(tempDir, 'unrelated.tmp'), 'utf8')).resolves.toBe('keep');
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
+    it('removes the staged TIFF of a DjVu export stopped before publishing, on the next start', async () => {
+        tempDir = await mkdtemp(join(tmpdir(), 'djvu-tiff-crash-test-'));
+        const appTempRoot = join(tempDir, 'app-temp');
+        mocks.acquire.mockResolvedValue({release: vi.fn()});
+        mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string) => {
+            await writeFile(ppmPath, 'ppm');
+            return {
+                success: true,
+                outputPath: ppmPath,
+                fileSize: 3,
+            };
+        });
+        mocks.combineTiff.mockImplementation(async (_pagePaths: string[], outputPath: string) => {
+            await writeFile(outputPath, 'tiff');
+            return true;
+        });
+        const outputPath = join(tempDir, 'crash.tif');
+        await writeFile(join(tempDir, '.fedcba9876543210.tmp'), 'not recorded');
+        await writeFile(join(tempDir, 'unrelated.tmp'), 'keep');
+        let reachedPublish = false;
+        const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
+        void exportDjvuAsMultiPageTiff('/books/crash.djvu', outputPath, {
+            scratch: {using: (prefix, run) => usingManagedScratchScope(prefix, appTempRoot, run)},
+            beforePublish: () => {
+                reachedPublish = true;
+                return new Promise<void>(() => undefined);
+            },
+        });
+        await vi.waitFor(() => expect(reachedPublish).toBe(true));
+        expect(listStagedNames(tempDir)).toHaveLength(2);
+
+        await restartAfterCrash(appTempRoot);
+
+        expect(listStagedNames(tempDir)).toEqual(['.fedcba9876543210.tmp']);
+        await expect(readFile(join(tempDir, 'unrelated.tmp'), 'utf8')).resolves.toBe('keep');
+        expect(existsSync(outputPath)).toBe(false);
     });
 });
 

@@ -3,7 +3,6 @@ import {
     copyFile,
     mkdir,
     rm,
-    stat,
 } from 'node:fs/promises';
 import {
     dirname,
@@ -20,6 +19,7 @@ import {
     convertRenderedPpmToImage,
     validateImageExportPath,
     createStagedFilePublicationLedger,
+    type IStagedImageFile,
     type TImageExportFormat,
     promoteStagedFiles,
     rollbackStagedFilePublications,
@@ -34,6 +34,7 @@ import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
+    recordManagedScratchStage,
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
@@ -163,11 +164,7 @@ async function renderDjvuImagePages(
 ) {
     return usingDjvuScratch(options, 'djvu-image-export-', async tempDirectory => {
         let stagedBytes = 0;
-        const stagedFiles: Array<{
-            stagedPath: string;
-            targetPath: string;
-            targetExisted: boolean;
-        }> = [];
+        const stagedFiles: IStagedImageFile[] = [];
         const publicationLedger = createStagedFilePublicationLedger();
         const outputPaths: string[] = [];
         const totalPages = getExportPageCount(pageCount, pages);
@@ -243,15 +240,14 @@ async function renderDjvuImagePages(
                     );
                 })().finally(() => brokerLease.release());
                 await mkdir(dirname(outputPath), {recursive: true});
-                const targetExisted = await stat(outputPath).then(() => true).catch(() => false);
                 const sibling = makeSiblingTempPath(outputPath);
                 try {
+                    await recordManagedScratchStage(tempDirectory, sibling);
                     await copyFile(imagePath, sibling);
                     throwIfAborted(options.signal);
                     stagedFiles.push({
                         stagedPath: sibling,
                         targetPath: outputPath,
-                        targetExisted,
                     });
                 } catch (error) {
                     await rm(sibling, {force: true}).catch(() => undefined);
@@ -338,6 +334,7 @@ export async function exportDjvuAsMultiPageTiff(
             stagedBytes = 0;
             try {
                 const stagedPath = makeSiblingTempPath(targetPath);
+                await recordManagedScratchStage(tempDirectory, stagedPath);
                 stagedGroups.push({stagedPath});
                 const combineLease = await mainJobBroker.acquire({
                     ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
@@ -432,7 +429,6 @@ export async function exportDjvuAsMultiPageTiff(
                 return {
                     stagedPath,
                     targetPath: targetOutputPath,
-                    targetExisted: false,
                 };
             });
             throwIfAborted(options.signal);
