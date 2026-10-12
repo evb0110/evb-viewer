@@ -1736,6 +1736,7 @@ export default {
             'fileBusy': 'Il file è in uso da un altro programma, quindi non è stato possibile scriverlo. Chiudi quel programma e riprova, oppure scegli «Salva con nome» per salvare le modifiche altrove.',
             'diskFull': 'Il disco è pieno. Libera spazio o usa «Salva con nome» su un altro disco.',
             'writeFailed': 'Impossibile scrivere il file. Controlla i permessi di scrittura e lo spazio libero, oppure salvalo altrove.',
+            'annotationIdentityTooLong': 'L’identificatore di un’annotazione importata supera il limite di {limit} byte UTF-8. Elimina o ricrea l’annotazione in un altro editor PDF, poi riapri il PDF. Le tue modifiche restano aperte qui.',
             'nativeFailure': 'Il motore PDF non ha potuto applicare le modifiche. Restano aperte qui.',
             'tooLargeForEdit': 'Questo PDF è troppo grande perché EVB Viewer possa aggiungervi questa modifica. Le tue modifiche restano aperte qui, ma «Salva con nome» e «Ripara PDF e salva» hanno lo stesso limite, quindi nessun salvataggio può scriverle in questo file.',
             'unencryptedTitle': 'Salvare senza protezione con password?',

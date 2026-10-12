@@ -1747,6 +1747,7 @@ export default {
             'fileBusy': 'O arquivo está em uso por outro programa, por isso não foi possível gravá-lo. Feche esse programa e tente novamente, ou escolha «Salvar como» para salvar as alterações em outro local.',
             'diskFull': 'O disco está cheio. Libere espaço ou use «Salvar como» em outro disco.',
             'writeFailed': 'Não foi possível gravar o arquivo. Verifique as permissões de gravação e o espaço livre, ou salve-o em outro local.',
+            'annotationIdentityTooLong': 'O identificador de uma anotação importada excede o limite de {limit} bytes UTF-8. Remova ou recrie essa anotação em outro editor de PDF e abra o PDF novamente. Suas alterações continuam abertas aqui.',
             'nativeFailure': 'O mecanismo PDF não conseguiu aplicar as alterações. Suas edições continuam abertas aqui.',
             'tooLargeForEdit': 'Este PDF é grande demais para o EVB Viewer adicionar esta edição. Suas alterações continuam abertas aqui, mas "Salvar como" e "Reparar PDF e salvar" têm o mesmo limite, então nenhuma forma de salvar consegue gravá-las neste arquivo.',
             'unencryptedTitle': 'Salvar sem proteção por senha?',

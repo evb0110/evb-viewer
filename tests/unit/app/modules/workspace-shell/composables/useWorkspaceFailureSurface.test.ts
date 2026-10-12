@@ -268,6 +268,50 @@ describe('useWorkspaceFailureSurface', () => {
         expect(toastAddMock.mock.calls[0]?.[0].actions.map((action: {label: string}) => action.label)).toEqual(['errors.runtime.copy']);
     });
 
+    it.each([
+        [
+            'mutations.shapes.shapes[0].stableKey must contain at most 2048 UTF-8 bytes',
+            true,
+        ],
+        [
+            'mutations.textBoxes.editors[0].stableKey must contain at most 512 UTF-8 bytes',
+            true,
+        ],
+        [
+            'mutations.markup.annotations[0].annotationId must contain at most 2048 UTF-8 bytes',
+            true,
+        ],
+        [
+            'mutations.notes.deletedStableKeys[0] must be a string with at most 2048 UTF-8 bytes',
+            true,
+        ],
+        [
+            'mutations.textBoxes.editors[0].text exceeds the 64 KiB UTF-8 admission ceiling',
+            false,
+        ],
+        [
+            'mutations.shapes.shapes[0].stableKey must be a non-empty string',
+            false,
+        ],
+    ])('explains an identity refusal while retaining its receipt and technical details: %s', (message, identityRefusal) => {
+        const surface = useWorkspaceFailureSurface();
+        surface.reportSaveFailure('identity-refused', 'persist-rejected', undefined, undefined, {
+            channel: 'native',
+            operation: 'mutation',
+            phase: 'stage-working-copy',
+            reason: 'write-failed',
+            message,
+            cause: new Error(message),
+        });
+        const presentation = surface.saveFailurePresentation.value!;
+        expect(presentation.description).toBe(identityRefusal
+            ? `errors.save.annotationIdentityTooLong:${JSON.stringify({limit: message.includes('512') ? '512' : '2048'})}`
+            : 'errors.save.nativeFailure');
+        expect(formatFailurePresentationCopy(presentation)).toContain(message);
+        expect(surface.hasSaveFailure.value).toBe(true);
+        expect(toastAddMock.mock.calls[0]?.[0].description).toEqual(toastDescriptionContaining(presentation.description!));
+    });
+
     it('keeps a rejected annotation out of the save state', () => {
         const surface = useWorkspaceFailureSurface();
 

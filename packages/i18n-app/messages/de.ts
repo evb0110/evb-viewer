@@ -1736,6 +1736,7 @@ export default {
             'fileBusy': 'Die Datei wird gerade von einem anderen Programm verwendet, daher konnte sie nicht geschrieben werden. Schließen Sie das Programm und versuchen Sie es erneut, oder wählen Sie «Speichern unter», um Ihre Änderungen an einem anderen Ort zu speichern.',
             'diskFull': 'Der Datenträger ist voll. Geben Sie Speicherplatz frei oder verwenden Sie «Speichern unter» auf einem anderen Datenträger.',
             'writeFailed': 'Die Datei konnte nicht geschrieben werden. Prüfen Sie Schreibberechtigungen und freien Speicherplatz oder speichern Sie die Datei an einem anderen Ort.',
+            'annotationIdentityTooLong': 'Die Kennung einer importierten Anmerkung überschreitet das UTF-8-Limit von {limit} Byte. Entfernen Sie die Anmerkung oder erstellen Sie sie in einem anderen PDF-Editor neu. Öffnen Sie die PDF danach erneut. Ihre Änderungen bleiben hier geöffnet.',
             'nativeFailure': 'Der PDF-Writer konnte Ihre Änderungen nicht anwenden. Ihre Bearbeitungen bleiben hier geöffnet.',
             'tooLargeForEdit': 'Diese PDF ist zu groß, als dass EVB Viewer diese Änderung hinzufügen könnte. Ihre Änderungen sind hier weiterhin geöffnet, aber „Speichern unter“ und „PDF reparieren und speichern“ stoßen an dieselbe Grenze, daher kann kein Speicherweg sie in diese Datei schreiben.',
             'unencryptedTitle': 'Ohne Passwortschutz speichern?',

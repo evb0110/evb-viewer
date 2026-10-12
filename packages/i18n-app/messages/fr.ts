@@ -1747,6 +1747,7 @@ export default {
             'fileBusy': 'Le fichier est utilisé par un autre programme, il n’a donc pas pu être écrit. Fermez ce programme et réessayez, ou choisissez « Enregistrer sous » pour enregistrer vos modifications ailleurs.',
             'diskFull': 'Le disque est plein. Libérez de l’espace ou utilisez « Enregistrer sous » sur un autre disque.',
             'writeFailed': 'Le fichier n’a pas pu être écrit. Vérifiez les autorisations d’écriture et l’espace libre, ou enregistrez-le ailleurs.',
+            'annotationIdentityTooLong': 'L’identifiant d’une annotation importée dépasse la limite de {limit} octets UTF-8. Supprimez ou recréez cette annotation dans un autre éditeur PDF, puis rouvrez le PDF. Vos modifications restent ouvertes ici.',
             'nativeFailure': 'Le moteur PDF n’a pas pu appliquer vos modifications. Elles restent ouvertes ici.',
             'tooLargeForEdit': 'Ce PDF est trop volumineux pour qu’EVB Viewer y ajoute cette modification. Vos modifications restent ouvertes ici, mais « Enregistrer sous » et « Réparer le PDF et enregistrer » atteignent la même limite : aucun enregistrement ne peut les écrire dans ce fichier.',
             'unencryptedTitle': 'Enregistrer sans protection par mot de passe ?',

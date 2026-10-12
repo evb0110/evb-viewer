@@ -1736,6 +1736,7 @@ export default {
             'fileBusy': 'Het bestand wordt gebruikt door een ander programma, daarom kon het niet worden geschreven. Sluit dat programma en probeer het opnieuw, of kies «Opslaan als» om uw wijzigingen elders op te slaan.',
             'diskFull': 'De schijf is vol. Maak ruimte vrij of gebruik «Opslaan als» op een andere schijf.',
             'writeFailed': 'Het bestand kon niet worden geschreven. Controleer de schrijfrechten en vrije schijfruimte, of sla het elders op.',
+            'annotationIdentityTooLong': 'De identificatie van een geïmporteerde annotatie overschrijdt de UTF-8-limiet van {limit} bytes. Verwijder de annotatie of maak deze opnieuw in een andere PDF-editor en open de PDF daarna opnieuw. Uw wijzigingen blijven hier geopend.',
             'nativeFailure': 'De PDF-schrijver kon uw wijzigingen niet toepassen. Uw bewerkingen blijven hier open.',
             'tooLargeForEdit': 'Deze pdf is te groot om er deze bewerking aan toe te voegen. Uw wijzigingen blijven hier geopend, maar \'Opslaan als\' en \'PDF repareren en opslaan\' lopen tegen dezelfde limiet aan, dus geen enkele manier van opslaan kan ze naar dit bestand schrijven.',
             'unencryptedTitle': 'Opslaan zonder wachtwoordbeveiliging?',

@@ -25,7 +25,7 @@ import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import {
-    degrees, PDFArray, PDFDict, PDFDocument, PDFName, PDFString, StandardFonts,
+    degrees, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, StandardFonts,
 } from 'pdf-lib';
 import {verifyInteropRendering} from '@scripts/verify-interop-rendering.mjs';
 import {inspectPdf} from '@scripts/verify-interop-corpus.mjs';
@@ -52,6 +52,7 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     clickToolbarButtonWhenEnabled,
+    clickVisibleToolbarButton,
     triggerOpenPathInApp,
     openDocumentSidebarTab,
     openPdfInApp,
@@ -59,6 +60,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 
@@ -919,6 +921,53 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         expect(reopened.canonicalEntities.filter(entity => entity.kind === 'shape')).toHaveLength(3_200);
         expect(new Set(reopened.canonicalEntities.map(entity => entity.id)).size).toBe(3_200);
     }, 300_000);
+
+    it('explains an oversized imported identity without losing dirty edits or saved bytes', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixture = copyFreshFixture(resolve('tests/fixtures/electron/reader-highlight-replies.pdf'), 'oversized-identity');
+        const pdf = await PDFDocument.load(readFileSync(fixture));
+        const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).asArray();
+        const shape = annots.map(ref => pdf.context.lookup(ref, PDFDict))
+            .find(dict => dict.lookup(PDFName.of('Subtype'), PDFName).asString() === '/Square')!;
+        shape.set(PDFName.of('NM'), PDFHexString.fromText(`evb-shape:${'é'.repeat(1_100)}`));
+        writeFileSync(fixture, await pdf.save({useObjectStreams: false}));
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        const workingCopy = await getActiveWorkspaceWorkingCopyPath(page);
+        const originalBytes = readFileSync(fixture);
+        const workingBytes = readFileSync(workingCopy);
+        await clickAnnotationTool(page, 'Select');
+        const selector = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"]';
+        const target = await page.waitForSelector(selector, {visible: true});
+        await clickAsUser(page, target!);
+        await page.waitForFunction((query: string) => document.querySelector(query)?.classList.contains('is-selected'), {}, selector);
+        const start = await revealForPointer(page, target!);
+        const before = await target!.boundingBox();
+        await page.mouse.move(start.x, start.y);
+        await page.mouse.down();
+        await page.mouse.move(start.x + 35, start.y + 25, {steps: 12});
+        await page.mouse.up();
+        await expect.poll(async () => {
+            const bounds = await target!.boundingBox();
+            return Math.abs(bounds!.x - before!.x) + Math.abs(bounds!.y - before!.y);
+        }).toBeGreaterThan(10);
+        expect(await page.$('.tab.is-dirty')).not.toBeNull();
+        await clickVisibleToolbarButton(page, 'Save');
+        await page.waitForSelector('.app-toast-failure', {visible: true});
+        const description = await page.$eval('.app-toast-failure', element => element.textContent);
+        expect(description).toMatch(/2048.*UTF-8|UTF-8.*2048/u);
+        expect(description).toContain('another PDF editor');
+        expect(description).toContain('Your edits remain open');
+        expect(await page.$('.tab.is-dirty')).not.toBeNull();
+        expect(readFileSync(fixture)).toEqual(originalBytes);
+        expect(readFileSync(workingCopy)).toEqual(workingBytes);
+        const artifactDirectory = resolve('.devkit/artifacts', `identity-refusal-${Date.now()}`);
+        mkdirSync(artifactDirectory, {recursive: true});
+        await page.screenshot({path: join(artifactDirectory, 'refused-save.png')});
+        copyFileSync(fixture, join(artifactDirectory, 'original.pdf'));
+        copyFileSync(workingCopy, join(artifactDirectory, 'working.pdf'));
+        console.log(`IDENTITY_REFUSAL_EVIDENCE ${artifactDirectory}`);
+    }, ACCEPTANCE_TIMEOUT_MS);
 
     it('imports cross-page replies under their parents and keeps them after save and reopen', async () => {
         const {page} = sessionFixture.getSession();

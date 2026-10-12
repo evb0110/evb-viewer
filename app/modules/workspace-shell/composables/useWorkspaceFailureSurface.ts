@@ -77,14 +77,11 @@ export const useWorkspaceFailureSurface = () => {
     // attempts cannot accumulate ids nothing will ever read again.
     const lastReportedOperationIds = new Map<TWorkspaceFailureDomain, string>();
 
-    function isDuplicateFailure(failure: {
-        domain: TWorkspaceFailureDomain;
-        operationId: string;
-    }) {
-        if (lastReportedOperationIds.get(failure.domain) === failure.operationId) {
+    function isDuplicateFailure(domain: TWorkspaceFailureDomain, operationId: string) {
+        if (lastReportedOperationIds.get(domain) === operationId) {
             BrowserLogger.debug('workspace', 'Suppressed duplicate workspace failure toast', {
-                domain: failure.domain,
-                operationId: failure.operationId,
+                domain,
+                operationId,
             });
             return true;
         }
@@ -108,6 +105,9 @@ export const useWorkspaceFailureSurface = () => {
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
             return t('errors.save.diskFull');
         }
+        const identityLimit = persistence?.channel === 'native'
+            ? /(?:\.(?:stableKey|annotationId|id)|\.deleted(?:AnnotationIds|StableKeys)\[\d+\]) must (?:contain at most|be a string with at most) (\d+) UTF-8 bytes/u.exec(message)?.[1] : undefined;
+        if (identityLimit) return t('errors.save.annotationIdentityTooLong', {limit: identityLimit});
         const nativeError = findSerializableErrorEnvelope(persistence?.cause, NATIVE_ERROR_ENVELOPE_SCHEMA);
         if (nativeError?.code === 'corrupt-xref' || nativeError?.code === 'invalid-request') {
             return t('errors.save.validation');
@@ -115,14 +115,14 @@ export const useWorkspaceFailureSurface = () => {
         if (persistence?.channel === 'native' && reason !== 'validation-rejected') {
             return t(nativeError?.code === 'io' ? 'errors.save.writeFailed' : 'errors.save.nativeFailure');
         }
-        const messages: Partial<Record<TWorkspaceSaveFailureReason, Extract<Parameters<TTranslateFn>[0], `errors.save.${string}`>>> = {
-            'validation-rejected': 'errors.save.validation',
-            'note-persistence-failed': 'errors.save.openNotes',
-            'document-changed': 'errors.save.documentChanged',
-            'too-large-for-edit': 'errors.save.tooLargeForEdit',
-            'working-copy-missing': 'errors.save.workingCopyMissing',
+        const messages: Partial<Record<TWorkspaceSaveFailureReason, string>> = {
+            'validation-rejected': t('errors.save.validation'),
+            'note-persistence-failed': t('errors.save.openNotes'),
+            'document-changed': t('errors.save.documentChanged'),
+            'too-large-for-edit': t('errors.save.tooLargeForEdit'),
+            'working-copy-missing': t('errors.save.workingCopyMissing'),
         };
-        return t(messages[reason] ?? 'errors.save.notCompleted');
+        return messages[reason] ?? t('errors.save.notCompleted');
     }
 
     function reportSaveFailure(
@@ -133,10 +133,7 @@ export const useWorkspaceFailureSurface = () => {
         diagnostics?: IPdfPersistFailure,
         saveAs?: () => void,
     ) {
-        if (isDuplicateFailure({
-            domain: 'save',
-            operationId,
-        })) {
+        if (isDuplicateFailure('save', operationId)) {
             return false;
         }
         const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
@@ -211,10 +208,7 @@ export const useWorkspaceFailureSurface = () => {
             BrowserLogger.debug('annotations', 'Annotation creation failure is not user-visible', failure);
             return false;
         }
-        if (isDuplicateFailure({
-            domain: 'annotation',
-            operationId: failure.operationId,
-        })) {
+        if (isDuplicateFailure('annotation', failure.operationId)) {
             return false;
         }
         lastReportedOperationIds.set('annotation', failure.operationId);

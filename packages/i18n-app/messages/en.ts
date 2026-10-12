@@ -1736,6 +1736,7 @@ export default {
             'fileBusy': 'The file is in use by another program, so it could not be written. Close that program and try again, or choose Save As to save your changes elsewhere.',
             'diskFull': 'The disk is full. Free up space or use Save As on another disk.',
             'writeFailed': 'The file could not be written. Check write permissions and free disk space, or use Save As elsewhere.',
+            'annotationIdentityTooLong': 'An imported annotation’s identifier exceeds the {limit}-byte UTF-8 limit. Remove or recreate that annotation in another PDF editor, then reopen the PDF. Your edits remain open here.',
             'nativeFailure': 'The PDF writer could not apply your changes. Your edits remain open here.',
             'tooLargeForEdit': 'This PDF is too large for EVB Viewer to add this edit to it. Your changes are still open here, but Save As and Repair PDF and Save meet the same limit, so no save route can write them into this file.',
             'unencryptedTitle': 'Save without password protection?',
