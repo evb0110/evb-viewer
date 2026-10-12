@@ -1,10 +1,4 @@
-@font-face {
-    font-family: "EVB Annotation Sans";
-    src: url("/fonts/annotation/DejaVuSans.ttf") format("truetype");
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-}
+@use "./annotation-fonts";
 
 /* ── Page Container & Canvas ───────────────────────────────────────── */
 
