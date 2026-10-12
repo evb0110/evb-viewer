@@ -49,19 +49,17 @@ export function createScanCleanupOutputSaveAs(
     };
     return async () => {
         const output = findOutput();
-        if (!output) {
-            warnClosed();
-            return false;
+        if (output) {
+            activateTab(output[0]);
+            await nextTick();
         }
-        activateTab(output[0]);
-        await nextTick();
         // Activation can open or close a document. Resolve again before the
         // owner supplies a mounted view for this document-wide command.
         const current = findOutput();
-        if (!current) {
-            warnClosed();
-            return false;
-        }
-        return getDocumentWorkspace(current[1])?.handleSaveAs() ?? false;
+        const saved = current
+            ? await (getDocumentWorkspace(current[1])?.handleSaveAs() ?? false)
+            : false;
+        if (!saved && !findOutput()) warnClosed();
+        return saved;
     };
 }

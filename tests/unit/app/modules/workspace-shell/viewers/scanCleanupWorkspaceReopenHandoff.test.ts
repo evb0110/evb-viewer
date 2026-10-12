@@ -191,6 +191,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
         'moved-window',
         'reopen-same-path',
         'closed-before-click',
+        'closed-during-dialog',
         'cancelled-dialog',
     ])('keeps completion Save As attached to its document: %s', async (scenario) => {
         const scratch = await mkdtemp(join(tmpdir(), 'cleanup-completion-session-'));
