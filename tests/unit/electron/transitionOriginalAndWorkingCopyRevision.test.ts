@@ -20,6 +20,7 @@ import type * as WorkingCopyManifestModule from '@electron/file-access/workingCo
 import type * as WorkingCopyJournalModule from '@electron/file-access/workingCopyJournal';
 import type * as DocumentFileWriteAtomicModule from '@electron/file-access/documentFileWriteAtomic';
 import type * as OriginalPathSnapshotModule from '@electron/file-access/originalPathSnapshot';
+import type * as TransitionModule from '@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -46,6 +47,9 @@ await import('@electron/file-access/workingCopyManifest');
 await import('@electron/workspaceCheckpointStore');
 await import('@electron/utils/atomicReplace');
 await import('@electron/file-access/workingCopyJournal');
+await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+await import('@electron/features/documents/main/managedTempFileHandles');
+await import('@electron/utils/appTempDir');
 
 let tempRoot = '';
 
@@ -1486,5 +1490,75 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(transition).resolves.toBeNull();
         await expect(readFile(originalPath, 'utf8')).resolves.toBe(externalBytes);
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+    });
+
+    it('refuses the next annotation save after another program saves the PDF right after one', async () => {
+        vi.stubEnv('TMPDIR', tempRoot);
+        vi.stubEnv('TEMP', tempRoot);
+        vi.stubEnv('TMP', tempRoot);
+        let afterTransition = (): void => undefined;
+        vi.doMock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision', async importOriginal => {
+            const actual = await importOriginal<typeof TransitionModule>();
+            return {
+                ...actual,
+                transitionOriginalAndWorkingCopyRevision: async (...args: Parameters<typeof actual.transitionOriginalAndWorkingCopyRevision>) => {
+                    const event = await actual.transitionOriginalAndWorkingCopyRevision(...args);
+                    afterTransition();
+                    return event;
+                },
+            };
+        });
+        try {
+            const {getAppTempDir} = await import('@electron/utils/appTempDir');
+            const {
+                originalPath, workingCopyPath,
+            } = await prepare('old-original', 'old-working', 'original.pdf', join(getAppTempDir(), 'pdf-work-native-race'));
+            const {makeSiblingTempPath} = await import('@electron/utils/atomicReplace');
+            const {createOpaqueNativePdfStagedArtifact} = await import('@electron/features/documents/main/managedTempFileHandles');
+            const {handleCommitStagedPdfNativeMutations} = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
+            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            const saveAnnotations = async (bytes: Buffer) => {
+                const stagedPath = `${makeSiblingTempPath(workingCopyPath)}.pdf`;
+                await writeFile(stagedPath, bytes);
+                const staged = await createOpaqueNativePdfStagedArtifact({senderId: 7}, stagedPath, {
+                    qpdfCheck: false,
+                    tailCheck: true,
+                    semanticCheck: true,
+                    semanticScopeSha256: 'b'.repeat(64),
+                    fsynced: true,
+                }, {cleanupOnRelease: true});
+                const {token} = await getWorkingCopyRevision(workingCopyPath, 7);
+                return handleCommitStagedPdfNativeMutations({senderId: 7}, workingCopyPath, staged, {expectedDocumentRevisionToken: token});
+            };
+            const firstSave = Buffer.alloc(2 * 1024 * 1024, 67);
+            const external = Buffer.from(firstSave);
+            external.write('EXTERNAL', 262144);
+            afterTransition = () => {
+                afterTransition = () => undefined;
+                const writer = spawnSync(process.execPath, [
+                    '--input-type=module',
+                    '-e',
+                    'import fs from \'node:fs/promises\';const h=await fs.open(process.argv[1],\'r+\');await h.write(\'EXTERNAL\',262144);await h.close();',
+                    originalPath,
+                ],
+                {
+                    encoding: 'utf8',
+                    windowsHide: true,
+                });
+                expect(writer.status, writer.stderr).toBe(0);
+            };
+
+            await expect(saveAnnotations(firstSave)).resolves.toMatchObject({applied: true});
+            expect((await readFile(originalPath)).equals(external)).toBe(true);
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 68))).resolves.toMatchObject({
+                applied: false,
+                reason: 'original-changed',
+            });
+            expect((await readFile(originalPath)).equals(external)).toBe(true);
+            expect((await readFile(workingCopyPath)).equals(firstSave)).toBe(true);
+        } finally {
+            vi.doUnmock('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            vi.unstubAllEnvs();
+        }
     });
 });

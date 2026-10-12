@@ -1149,6 +1149,94 @@ syncBuiltinESMExports();
         }
     }, E2E_TIMEOUT_MS);
 
+    it('keeps an external save made right after an annotation save', async () => {
+        const pdfPath = createFixturePath(`save-after-commit-race-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(GENERATED_TEXT_FIXTURE));
+        pdf.catalog.set(PDFName.of('RefreshRacePadding'), PDFString.of('A'.repeat(1024 * 1024)));
+        await writeFile(pdfPath, await pdf.save({useObjectStreams: false}));
+        const mainPath = join(process.cwd(), 'dist-electron', 'main.js');
+        const main = await readFile(mainPath);
+        const seamPath = createFixturePath(`save-after-commit-seam-${Date.now()}.mjs`);
+        const workingPathFile = `${seamPath}.working`;
+        const externalProof = `${seamPath}.external`;
+        // Another program saves the PDF once EVB has synced the working copy and
+        // written its manifest, after the save transaction has checked the original.
+        await writeFile(seamPath, `
+import fs from 'node:fs/promises';
+import {dirname, join} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+const target = ${JSON.stringify(pdfPath)}, workingPathFile = ${JSON.stringify(workingPathFile)}, proof = ${JSON.stringify(externalProof)};
+const rename = fs.rename, link = fs.link;
+let published = false, synced = false, fired = false;
+fs.link = async (source, destination) => {
+    const result = await link(source, destination);
+    if (destination === target) published = true;
+    return result;
+};
+fs.rename = async (source, destination) => {
+    const result = await rename(source, destination);
+    const workingPath = await fs.readFile(workingPathFile, 'utf8').catch(() => '');
+    if (destination === target) published = true;
+    if (published && destination === workingPath) synced = true;
+    if (synced && !fired && workingPath && destination === join(dirname(workingPath), 'manifest.json')) {
+        fired = true;
+        const writer = spawnSync(process.execPath, ['--input-type=module', '-e',
+            "import fs from 'node:fs/promises';const h=await fs.open(process.argv[1],'r+');await h.write('EXTERNAL',262144);await h.close();await fs.copyFile(process.argv[1],process.argv[2]);", target, proof],
+            {env: {...process.env, ELECTRON_RUN_AS_NODE: '1'}, encoding: 'utf8', windowsHide: true});
+        if (writer.status !== 0) throw new Error(writer.stderr);
+    }
+    return result;
+};
+syncBuiltinESMExports();
+`);
+        await writeFile(mainPath, Buffer.concat([
+            Buffer.from(`import ${JSON.stringify(`file://${seamPath}`)};\n`),
+            main,
+        ]));
+        try {
+            session = await startElectronE2ESession(`e2e-save-after-commit-race-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForOpenedPdf(page, pdfPath);
+            const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
+            expect(workingPath).toBeTruthy();
+            await writeFile(workingPathFile, workingPath!);
+            await createFreeTextAnnotationWithPointer(page, 'First accepted note', {
+                x: 0.4,
+                y: 0.3,
+            });
+            await waitForSaveFrontierReady(page);
+            const first = await clickSaveAndAwaitOutcome(page, pdfPath);
+            const external = await readFile(externalProof);
+            expect(external.subarray(262144, 262152).toString()).toBe('EXTERNAL');
+            expect((await readFile(pdfPath)).equals(external)).toBe(true);
+            await createFreeTextAnnotationWithPointer(page, 'Second accepted note', {
+                x: 0.4,
+                y: 0.6,
+            });
+            await waitForSaveFrontierReady(page);
+            const second = await clickSaveAndAwaitOutcome(page, pdfPath);
+            console.log('[save-after-commit-race]', JSON.stringify({
+                first,
+                second,
+                externalRetained: (await readFile(pdfPath)).equals(external),
+            }));
+            expect(first).toBe('saved');
+            expect(second).toBe('refused');
+            expect((await readFile(pdfPath)).equals(external)).toBe(true);
+            expect(await isSaveButtonEnabled(page)).toBe(true);
+            await page.screenshot({path: createFixturePath('save-after-commit-race-refused.png')});
+        } finally {
+            await session?.stop();
+            session = null;
+            await writeFile(mainPath, main);
+            await rm(seamPath, {force: true});
+        }
+    }, E2E_TIMEOUT_MS);
+
     it('refuses to overwrite a PDF another program replaced after changing one byte', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`save-external-replace-${Date.now()}.pdf`, 2);
         const destination = createFixturePath(`save-external-replace-saved-as-${Date.now()}.pdf`);

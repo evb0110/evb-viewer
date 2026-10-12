@@ -480,6 +480,11 @@ export async function handleCommitStagedPdfNativeMutations(
     const operationStart = performance.now();
     const operationStartedAtEpochMs = Date.now();
     const refreshWorkingCopy = (expectation?: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>[2]) => syncNativeOutputToRequestingWorkingCopy(normalizedWorkingPath, senderId, expectation);
+    const releaseStagedArtifact = async () => {
+        releaseManagedTempFileHandle(context, stagedOutput.leaseId);
+        await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
+            cleanupTempPath(stagedOutput.path));
+    };
     let result: IPdfNativeNoteTextSaveResult | null = null;
     try {
         result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async operation => {
@@ -508,6 +513,9 @@ export async function handleCommitStagedPdfNativeMutations(
                         ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
                         ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
                     });
+                    // The stage is a hard link to the published original; unlinking it moves the
+                    // original's ctime, so it must happen before the transaction records the witness.
+                    await releaseStagedArtifact();
                 },
                 afterWorkingCopySync: refreshWorkingCopy,
                 afterOriginalRestore: refreshWorkingCopy,
@@ -516,7 +524,7 @@ export async function handleCommitStagedPdfNativeMutations(
                     durationMs,
                 }),
             });
-            let queuedResult: IPdfNativeNoteTextSaveResult = transition
+            return transition
                 ? {
                     applied: true,
                     validation: createNativeValidationResult(),
@@ -528,22 +536,6 @@ export async function handleCommitStagedPdfNativeMutations(
                     ...createNotAppliedResult(),
                     reason: 'original-changed',
                 };
-
-            if (queuedResult.applied) {
-                try {
-                    await measureNativeNotePhase(
-                        phaseTimings,
-                        'refresh-original-expectation-after-release',
-                        refreshWorkingCopy,
-                    );
-                } catch (error) {
-                    queuedResult = {
-                        ...queuedResult,
-                        syncError: getErrorMessage(error),
-                    };
-                }
-            }
-            return queuedResult;
         }, {
             kind: 'native-pdf-mutation-staged-commit',
             ownerWebContentsId: senderId,
@@ -556,9 +548,7 @@ export async function handleCommitStagedPdfNativeMutations(
             ...(error.keptFilePath === undefined ? {} : {keptFilePath: error.keptFilePath}),
         };
     } finally {
-        releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-        await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
-            cleanupTempPath(stagedOutput.path));
+        await releaseStagedArtifact();
     }
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
     const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
