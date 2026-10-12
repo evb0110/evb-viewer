@@ -96,16 +96,12 @@ export const usePdfCanvasRenderer = (deps: {
         canvas.remove();
     }
 
-    function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap'>) {
-        const resultWithReservation = renderResult as Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap' | 'surfaceReservation'>;
-        resultWithReservation.surfaceReservation?.release();
-        resultWithReservation.surfaceReservation = undefined;
-        cleanupCanvas(renderResult.canvas);
-        renderResult.annotationCanvasMap?.forEach((annotationCanvas) => {
-            if (annotationCanvas !== renderResult.canvas) {
-                cleanupCanvas(annotationCanvas);
-            }
-        });
+    function cleanupCanvasRenderResult(renderResult: Pick<ICanvasRenderResult, 'canvas' | 'annotationCanvasMap' | 'surfaceReservation'>) {
+        renderResult.surfaceReservation?.release();
+        renderResult.surfaceReservation = undefined;
+        const canvases = new Set([...renderResult.annotationCanvasMap?.values() ?? []].flat());
+        canvases.add(renderResult.canvas);
+        canvases.forEach(cleanupCanvas);
         renderResult.annotationCanvasMap?.clear();
     }
 

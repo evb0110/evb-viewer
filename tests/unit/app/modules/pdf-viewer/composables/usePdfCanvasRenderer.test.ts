@@ -360,6 +360,51 @@ describe('usePdfCanvasRenderer', () => {
         expect(annotationCanvas.remove).toHaveBeenCalled();
     });
 
+    it.each([
+        'checkbox',
+        'radio',
+    ])('reclaims both %s appearances when a half-drawn page is discarded', async () => {
+        const { canvas } = installCanvasDocument();
+        const appearances = [
+            createCanvas(),
+            createCanvas(),
+        ];
+        for (const appearance of appearances) {
+            appearance.width = 32;
+            appearance.height = 16;
+        }
+        const renderer = usePdfCanvasRenderer({outputScale: 1});
+        const prepared = await renderer.prepareCanvasRender(createPdfPage() as never, 1);
+        expect(prepared).not.toBeNull();
+        // PDF.js 6.3 puts the checked and unchecked appearances in one map entry.
+        prepared!.annotationCanvasMap!.set('widget', cast(appearances));
+        prepared!.annotationCanvasMap!.set('page', cast(canvas));
+
+        renderer.cleanupCanvasRenderResult(prepared!);
+
+        expect([
+            canvas,
+            ...appearances,
+        ].map(item => [
+            item.width,
+            item.height,
+        ])).toEqual([
+            [
+                0,
+                0,
+            ],
+            [
+                0,
+                0,
+            ],
+            [
+                0,
+                0,
+            ],
+        ]);
+        expect(prepared!.annotationCanvasMap!.size).toBe(0);
+    });
+
     // PDF.js matches hiddenAnnotationIds against the ids getAnnotations()
     // reports, so every form the store holds reaches it in that one form.
     it('asks PDF.js to leave the hidden annotations out, in its own id form', async () => {
