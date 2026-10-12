@@ -1,4 +1,5 @@
 import type {FileHandle} from 'node:fs/promises';
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {
     createOriginalFileContentFingerprint,
     createOriginalFileExpectationFromStat,
@@ -1028,23 +1029,17 @@ export async function refreshWorkingCopyOriginalFileExpectation(
     const controller = new AbortController();
     activeEntry.originalFileExpectationAbortController = controller;
     const expectation = await createOriginalFileExpectation(activeEntry.originalPath, controller.signal);
-    const currentEntry = workingCopyMap.get(workingPath);
-    if (
-        !currentEntry
-        || currentEntry !== activeEntry
-        || !canUseWorkingCopyEntry(currentEntry, senderWebContentsId)
-        || !isSameWorkingCopyEntry(currentEntry, activeEntry)
-    ) {
-        return false;
-    }
     if (expectation) {
-        const baseline = admittedExpectation ?? currentEntry.originalFileExpectation;
-        if (sameOriginalFileExpectation(baseline, expectation) && baseline?.contentFingerprint) expectation.contentFingerprint = baseline.contentFingerprint;
-        currentEntry.originalFileExpectation = expectation;
-        await captureOriginalFileContentFingerprint(currentEntry, workingPath, expectation, controller);
-    } else {
-        delete currentEntry.originalFileExpectation;
-        delete currentEntry.originalFileExpectationAbortController;
+        const baseline = admittedExpectation ?? activeEntry.originalFileExpectation;
+        const contentFingerprint = sameOriginalFileExpectation(baseline, expectation) && baseline?.contentFingerprint
+            ? baseline.contentFingerprint
+            : await createOriginalFileContentFingerprint(activeEntry.originalPath, expectation, controller.signal);
+        if (contentFingerprint) expectation.contentFingerprint = contentFingerprint;
     }
-    return workingCopyMap.get(workingPath) === currentEntry && !controller.signal.aborted;
+    if (controller.signal.aborted) return false;
+    if (admittedExpectation && expectation?.contentFingerprint !== admittedExpectation.contentFingerprint) {
+        throw new OriginalPathSaveConflictError();
+    }
+    delete activeEntry.originalFileExpectationAbortController;
+    return applyOriginalFileExpectation(activeEntry, workingPath, expectation);
 }

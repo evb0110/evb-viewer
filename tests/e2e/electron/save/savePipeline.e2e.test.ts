@@ -31,6 +31,7 @@ import {
     PDFDocument,
     PDFHexString,
     PDFName,
+    PDFString,
 } from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
@@ -1059,6 +1060,92 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(existsSync(destinationPath)).toBe(process.platform === 'win32');
         if (process.platform === 'win32') {
             await expect(readFile(destinationPath)).resolves.toEqual(await readFile(sourcePath));
+        }
+    }, E2E_TIMEOUT_MS);
+
+    it('keeps an external save made while refreshing the saved original', async () => {
+        const pdfPath = createFixturePath(`save-refresh-race-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(GENERATED_TEXT_FIXTURE));
+        pdf.catalog.set(PDFName.of('RefreshRacePadding'), PDFString.of('A'.repeat(1024 * 1024)));
+        await writeFile(pdfPath, await pdf.save({useObjectStreams: false}));
+        const mainPath = join(process.cwd(), 'dist-electron', 'main.js');
+        const main = await readFile(mainPath);
+        const seamPath = createFixturePath(`save-refresh-seam-${Date.now()}.mjs`);
+        const workingPathFile = `${seamPath}.working`;
+        const externalProof = `${seamPath}.external`;
+        await writeFile(seamPath, `
+import fs from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+const target = ${JSON.stringify(pdfPath)}, workingPathFile = ${JSON.stringify(workingPathFile)}, proof = ${JSON.stringify(externalProof)};
+const rename = fs.rename, link = fs.link, stat = fs.stat;
+let published = false, synced = false;
+fs.link = async (source, destination) => {
+    const result = await link(source, destination);
+    if (destination === target) published = true;
+    return result;
+};
+fs.rename = async (source, destination) => {
+    const result = await rename(source, destination);
+    if (destination === target) published = true;
+    if (published && destination === await fs.readFile(workingPathFile, 'utf8').catch(() => '')) synced = true;
+    return result;
+};
+fs.stat = async (path, ...args) => {
+    if (synced && path === target) {
+        synced = false;
+        const writer = spawnSync(process.execPath, ['--input-type=module', '-e',
+            "import fs from 'node:fs/promises';const h=await fs.open(process.argv[1],'r+');await h.write('EXTERNAL',262144);await h.close();await fs.copyFile(process.argv[1],process.argv[2]);", target, proof],
+            {env: {...process.env, ELECTRON_RUN_AS_NODE: '1'}, encoding: 'utf8', windowsHide: true});
+        if (writer.status !== 0) throw new Error(writer.stderr);
+    }
+    return stat(path, ...args);
+};
+syncBuiltinESMExports();
+`);
+        await writeFile(mainPath, Buffer.concat([
+            Buffer.from(`import ${JSON.stringify(`file://${seamPath}`)};\n`),
+            main,
+        ]));
+        try {
+            session = await startElectronE2ESession(`e2e-save-refresh-race-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+            });
+            const {page} = session;
+            await waitForOpenedPdf(page, pdfPath);
+            const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
+            expect(workingPath).toBeTruthy();
+            await writeFile(workingPathFile, workingPath!);
+            await createFreeTextAnnotationWithPointer(page, 'Refresh race accepted work', {
+                x: 0.4,
+                y: 0.3,
+            });
+            await waitForSaveFrontierReady(page);
+            const outcome = await clickSaveAndAwaitOutcome(page, pdfPath);
+            const external = await readFile(externalProof);
+            expect(external.subarray(262144, 262152).toString()).toBe('EXTERNAL');
+            expect((await readFile(pdfPath)).equals(external)).toBe(true);
+            console.log('[save-refresh-race]', JSON.stringify({
+                outcome,
+                externalRetained: true,
+            }));
+            expect(outcome).toBe('refused');
+            expect(await isSaveButtonEnabled(page)).toBe(true);
+            const text = await page.evaluate(() => document.body.textContent ?? '');
+            expect(text).toContain('The original changed elsewhere. A version was kept at');
+            const journal: unknown = JSON.parse(await readFile(join(dirname(workingPath!), 'journal.json'), 'utf8'));
+            if (typeof journal !== 'object' || journal === null || !('backupPath' in journal) || typeof journal.backupPath !== 'string') {
+                throw new Error('Save did not retain a named working backup');
+            }
+            await expect(readFile(journal.backupPath)).resolves.toEqual(await readFile(workingPath!));
+            expect(text).toContain(journal.backupPath);
+            await page.screenshot({path: createFixturePath('save-refresh-race-kept.png')});
+        } finally {
+            await session?.stop();
+            session = null;
+            await writeFile(mainPath, main);
+            await rm(seamPath, {force: true});
         }
     }, E2E_TIMEOUT_MS);
 

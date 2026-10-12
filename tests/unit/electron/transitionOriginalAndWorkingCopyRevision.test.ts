@@ -11,6 +11,7 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {
     dirname, join,
@@ -135,6 +136,55 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             workingCopyPath,
         };
     }
+
+    it('keeps accepted work and an external save made during registration refresh', async () => {
+        const {
+            originalPath, stagedPath, workingCopyPath,
+        } = await prepare();
+        const publication = Buffer.alloc(2 * 1024 * 1024, 67);
+        await writeFile(stagedPath, publication);
+        const {atomicReplace} = await import('@electron/utils/atomicReplace');
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+        const {OriginalPathSaveConflictError} = await import('@electron/file-access/originalPathSnapshot');
+        const transition = transitionOriginalAndWorkingCopyRevision({
+            workingCopyPath,
+            originalPath,
+            publishedSourcePath: stagedPath,
+            senderId: 7,
+            reason: 'save-sync',
+            captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(stagedPath, originalPath, {
+                ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                ...(destinationBackupPath ? {destinationBackupPath} : {}),
+            }),
+            afterWorkingCopySync: async (admitted) => {
+                const writer = spawnSync(process.execPath, [
+                    '--input-type=module',
+                    '-e',
+                    'import fs from \'node:fs/promises\';const h=await fs.open(process.argv[1],\'r+\');await h.write(\'EXTERNAL\',262144);await h.close();',
+                    originalPath,
+                ],
+                {
+                    encoding: 'utf8',
+                    windowsHide: true,
+                });
+                expect(writer.status, writer.stderr).toBe(0);
+                await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7, admitted);
+            },
+        });
+        const error: unknown = await transition.catch((failure: unknown) => failure);
+        expect(error).toBeInstanceOf(OriginalPathSaveConflictError);
+        if (!(error instanceof OriginalPathSaveConflictError)) throw new Error('Save did not report the external conflict');
+        expect(error.keptFilePath).toBeTruthy();
+        await expect(readFile(error.keptFilePath!, 'utf8')).resolves.toBe('old-working');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+        const external = Buffer.from(publication);
+        external.write('EXTERNAL', 262144);
+        expect((await readFile(originalPath)).equals(external)).toBe(true);
+        await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
+    });
 
     it.each([
         'append',
