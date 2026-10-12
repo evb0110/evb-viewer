@@ -11,7 +11,6 @@ import {
 import {
     basename,
     dirname,
-    extname,
     isAbsolute,
     join,
     resolve,
@@ -28,6 +27,7 @@ import {
     type IFileIdentity,
 } from '@electron/utils/fileIdentity';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import { buildOutputPathWithSuffix } from '@electron/features/image-export/main/imageExportPathPlanning';
 import {
     isErrnoException,
     isRecord,
@@ -295,18 +295,20 @@ function parseManagedScratchRecordLine(line: string): TManagedScratchRecordEntry
 }
 
 // A target someone changed after the export keeps that change. Its original
-// moves from the hidden backup to "<name> (original)" beside it, where the
-// person finds it next to the file it belongs to. The move never replaces a
-// file that took the name meanwhile.
-async function keepOriginalBeside(target: string, backupPath: string) {
-    const extension = extname(target);
-    const stem = target.slice(0, target.length - extension.length);
-    let keptPath = `${stem} (original)${extension}`;
-    for (let copy = 2; (await readFileIdentity(keptPath)) !== null; copy += 1) {
-        keptPath = `${stem} (original ${copy})${extension}`;
+// moves from the hidden backup to "<name> (original)" beside it, within the
+// filename limit, where the person finds it next to its file. A taken name is
+// skipped unless it already is this backup, linked by a start that stopped
+// before it unlinked the hidden name.
+async function keepOriginalBeside(target: string, backupPath: string, backup: IFileIdentity) {
+    for (let copy = 1; ; copy += 1) {
+        const keptPath = buildOutputPathWithSuffix(target, copy === 1 ? ' (original)' : ` (original ${copy})`);
+        const kept = await readFileIdentity(keptPath);
+        if (kept === null || isSameFileIdentity(kept, backup)) {
+            await (kept === null ? moveFileToMissingPath(backupPath, keptPath) : rm(backupPath, {force: true}));
+            logger.warn(`Kept the original of "${target}" at "${keptPath}": the file changed after the export`);
+            return keptPath;
+        }
     }
-    await moveFileToMissingPath(backupPath, keptPath);
-    return keptPath;
 }
 
 // Settles one target that an export published, or was about to publish, and
@@ -332,10 +334,11 @@ export async function settlePublishedTarget(
         }
         return null;
     }
-    if ((await readFileIdentity(backupPath)) === null) {
-        // No copy was made, or it already went back. Only a replaced or missing
-        // target still needs it.
-        if (current === null || owned) {
+    const backup = await readFileIdentity(backupPath);
+    if (backup === null) {
+        // No copy was made, or it already went back. Only a replaced target, or
+        // one gone after a publication, still needs it.
+        if (owned || (current === null && published !== null)) {
             throw new Error(`Backup is missing: ${backupPath}`);
         }
         return null;
@@ -348,7 +351,7 @@ export async function settlePublishedTarget(
         await rm(backupPath, {force: true});
         return null;
     }
-    return keepOriginalBeside(target, backupPath);
+    return keepOriginalBeside(target, backupPath, backup);
 }
 
 // Applies a record and returns whether it is settled: absent, or applied in
@@ -400,17 +403,9 @@ async function applyManagedScratchRecord(scratchPath: string) {
             // rm removes the entry itself, never a symlink's target, and fails on a directory.
             await attempt(entry.path, () => rm(entry.path, {force: true}));
         } else if (entry.kind === 'backup') {
-            await attempt(entry.path, async () => {
-                if (complete) {
-                    await rm(entry.path, {force: true});
-                    return;
-                }
-                const publish = publishes.get(entry.target);
-                const keptPath = await settlePublishedTarget(entry.target, entry.path, entry.original, publish?.published ?? null);
-                if (keptPath) {
-                    logger.warn(`Kept the original of "${entry.target}" at "${keptPath}": the file changed after the export`);
-                }
-            });
+            await attempt(entry.path, () => (complete
+                ? rm(entry.path, {force: true})
+                : settlePublishedTarget(entry.target, entry.path, entry.original, publishes.get(entry.target)?.published ?? null)));
         } else if (entry.kind === 'publish' && !complete && !backedUp.has(entry.target)) {
             await attempt(entry.target, () => settlePublishedTarget(entry.target, null, null, entry.published));
         }

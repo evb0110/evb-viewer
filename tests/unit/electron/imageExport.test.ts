@@ -13,6 +13,7 @@ import {
 } from 'path';
 import {
     existsSync,
+    readFileSync,
     readdirSync,
 } from 'fs';
 import {
@@ -2373,9 +2374,9 @@ describe('image export', () => {
     const readTargets = (targets: string[]) => Promise.all(targets.map(target => readFile(target, 'utf8')));
 
     // Two existing targets; the process stops while the second one is being replaced.
-    const crashAfterFirstReplacement = async (appTempRoot: string) => {
+    const crashAfterFirstReplacement = async (appTempRoot: string, firstName = 'first.png') => {
         usePublicationOnDisk(appTempRoot);
-        const first = join(tempDir, 'first.png');
+        const first = join(tempDir, firstName);
         const second = join(tempDir, 'second.png');
         await Promise.all([
             writeFile(first, 'old-first'),
@@ -2547,6 +2548,69 @@ describe('image export', () => {
         await expect(readFile(join(tempDir, 'first (original).png'), 'utf8')).resolves.toBe('own file');
         await expect(readFile(join(tempDir, 'first (original 2).png'), 'utf8')).resolves.toBe('old-first');
         await expect(readFile(second, 'utf8')).resolves.toBe('old-second');
+        expect(listStagedNames(tempDir)).toEqual([]);
+    });
+
+    it('keeps the original of a changed target with a name at the filename limit beside it, on the next start', async () => {
+        const appTempRoot = join(tempDir, 'app-temp');
+        // 122 Cyrillic letters: 248 bytes with ".png", so " (original)" must shorten the stem.
+        const {
+            first, second,
+        } = await crashAfterFirstReplacement(appTempRoot, `${'б'.repeat(122)}.png`);
+        await writeFile(join(tempDir, 'saved'), 'saved-after-crash');
+        await realFs.rename(join(tempDir, 'saved'), first);
+
+        await restartAfterCrash(appTempRoot);
+
+        await expect(readFile(first, 'utf8')).resolves.toBe('saved-after-crash');
+        await expect(readFile(buildOutputPathWithSuffix(first, ' (original)'), 'utf8')).resolves.toBe('old-first');
+        await expect(readFile(second, 'utf8')).resolves.toBe('old-second');
+        expect(listStagedNames(tempDir)).toEqual([]);
+        await expect(readdir(appTempRoot)).resolves.toEqual([]);
+    });
+
+    it('keeps one visible original when the start that moved it stopped before unlinking the hidden name', async () => {
+        const appTempRoot = join(tempDir, 'app-temp');
+        const {first} = await crashAfterFirstReplacement(appTempRoot);
+        await writeFile(join(tempDir, 'saved'), 'saved-after-crash');
+        await realFs.rename(join(tempDir, 'saved'), first);
+        const hidden = listStagedNames(tempDir).map(name => join(tempDir, name));
+        const firstBackup = hidden.find(path => readFileSync(path, 'utf8') === 'old-first');
+        // The move linked the backup to its visible name, then the start stopped.
+        await realFs.link(firstBackup!, join(tempDir, 'first (original).png'));
+
+        await restartAfterCrash(appTempRoot);
+
+        await expect(readFile(join(tempDir, 'first (original).png'), 'utf8')).resolves.toBe('old-first');
+        expect(existsSync(join(tempDir, 'first (original 2).png'))).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
+    });
+
+    it('settles the record of an export stopped before its backup existed once its target is gone', async () => {
+        usePublicationOnDisk(join(tempDir, 'app-temp'));
+        const appTempRoot = join(tempDir, 'app-temp');
+        const targetPath = join(tempDir, 'first.png');
+        await Promise.all([
+            writeFile(targetPath, 'old-first'),
+            writeFile(join(tempDir, 'first.staged'), 'new-first'),
+        ]);
+        const scratchPath = await realManagedScratch.createManagedScratchTempDir('pdfExport-', appTempRoot);
+        let copying = false;
+        mocks.copyFileAtomic.mockImplementation(() => {
+            // The process stops before the backup copy creates anything.
+            copying = true;
+            return new Promise<void>(() => undefined);
+        });
+        void promoteStagedFiles([{
+            stagedPath: join(tempDir, 'first.staged'),
+            targetPath,
+        }], undefined, createStagedFilePublicationLedger(scratchPath));
+        await vi.waitFor(() => expect(copying).toBe(true));
+        await rm(targetPath);
+
+        await restartAfterCrash(appTempRoot);
+
+        await expect(readdir(appTempRoot)).resolves.toEqual([]);
         expect(listStagedNames(tempDir)).toEqual([]);
     });
 });
