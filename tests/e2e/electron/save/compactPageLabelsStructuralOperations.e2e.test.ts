@@ -218,6 +218,10 @@ function labelForPage(page: number, ranges: readonly IPdfPageLabelRange[]) {
     const range = ranges.reduce((current, candidate) => (
         candidate.startPage <= page ? candidate : current
     ));
+    // A range without a numbering style labels its pages with the prefix alone.
+    if (range.style === null) {
+        return range.prefix;
+    }
     const number = range.startNumber + page - range.startPage;
     const value = range.style === 'r'
         ? toRoman(number).toLowerCase()
@@ -526,7 +530,9 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await runCommand(session, 'handlePageMove', [move]);
 
         const insertionAfterPage = await insertOnePageThroughGrantedNative(session, insertionSourcePath);
-        expected.splice(insertionAfterPage, 0, '1');
+        // The source has no page labels, so the inserted page takes a range
+        // with no style and no prefix: its label is empty.
+        expected.splice(insertionAfterPage, 0, '');
 
         await runCommand(session, 'handleSave', []);
 
