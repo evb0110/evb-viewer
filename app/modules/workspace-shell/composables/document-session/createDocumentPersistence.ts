@@ -1069,12 +1069,6 @@ export function createDocumentPersistence(
                 expectedNativeIdentityIds,
                 'Native identity bindings',
             );
-            if (result.syncError) {
-                BrowserLogger.warn('workspace', 'Native PDF mutation committed with a working copy sync warning', {
-                    workingPath,
-                    syncError: result.syncError,
-                });
-            }
             const commitWorkingPath = state.workingCopyPath.value;
             if (!commitWorkingPath || state.originalPath.value !== expectedOriginalPath) {
                 BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save completion', {

@@ -451,7 +451,6 @@ const nativeSaveResultSchema = v.object({
         v.transform(value => normalizePdfNativeAnnotationIdentityBindings(value, 'identityBindings', {errorKind: 'error'})),
     )),
     error: v.exactOptional(nativeErrorEnvelopeSchema),
-    syncError: v.exactOptional(v.string()),
     stagedOutput: v.exactOptional(stagedOutputSchema),
 });
 const conformanceResultSchema = v.object({
