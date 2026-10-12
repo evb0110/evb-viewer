@@ -693,11 +693,11 @@ watchEffect(() => {
     assistantPanel.hasActiveDocument.value = assistantHasActiveDocument.value;
 });
 function findEmptyTab() {
-    if (activeTabId.value && isTabEmpty(activeTabId.value)) {
-        return getTabById(activeTabId.value);
-    }
-
-    return tabs.value.find(tab => isTabEmpty(tab.id)) ?? null;
+    return [
+        getTabById(activeTabId.value),
+        ...tabs.value,
+    ]
+        .find(tab => tab && !workspaceRestoreTracker.has(tab.id) && isTabEmpty(tab.id)) ?? null;
 }
 function activateTabById(tabId: string) {
     const pane = getPaneByTabId(tabId);

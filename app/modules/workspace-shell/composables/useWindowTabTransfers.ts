@@ -486,44 +486,38 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function closeSourceWorkspaceWithoutPersist(paneId: string, tabId: string) {
+    async function finalizeTransferredSourceTab(paneId: string, tabId: string): Promise<TSourceTransferOutcome> {
         // The departing view's place is remembered while it and its source still exist.
         const session = getDocumentSession(tabId);
-        await rememberReadingView(session, tabId);
-        if (session && tabHoldsDocument(tabId) && session.views.value.size <= 1) {
-            options.workspaceRestoreTracker.start(tabId);
-            try {
-                if (!await session.close({persist: false})) return false;
-            } catch (error) {
-                BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
-                    tabId,
-                    error,
-                }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
-                return false;
-            } finally {
-                options.workspaceRestoreTracker.finish(tabId);
+        options.workspaceRestoreTracker.start(tabId);
+        try {
+            await rememberReadingView(session, tabId);
+            if (session && tabHoldsDocument(tabId) && session.views.value.size <= 1) {
+                try {
+                    if (!await session.close({persist: false})) return 'failed';
+                } catch (error) {
+                    BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
+                        tabId,
+                        error,
+                    }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
+                    return 'failed';
+                }
             }
-        }
-        await options.handoffActiveTabBeforeClose(paneId, tabId);
-        return true;
-    }
+            await options.handoffActiveTabBeforeClose(paneId, tabId);
 
-    async function finalizeTransferredSourceTab(paneId: string, tabId: string): Promise<TSourceTransferOutcome> {
-        const sourceCloseSucceeded = await closeSourceWorkspaceWithoutPersist(paneId, tabId);
-        if (!sourceCloseSucceeded) {
-            return 'failed';
-        }
-
-        if (shouldCloseSourceWindowAfterTransfer(options.tabs.value.length, true)) {
-            const closed = await getWindowTabsCapability().closeCurrentWindow();
-            if (closed) {
-                return 'window-closed';
+            if (shouldCloseSourceWindowAfterTransfer(options.tabs.value.length, true)) {
+                const closed = await getWindowTabsCapability().closeCurrentWindow();
+                if (closed) {
+                    return 'window-closed';
+                }
             }
-        }
 
-        options.closeTabInState(paneId, tabId);
-        options.cleanupEmptyPanes();
-        return 'success';
+            options.closeTabInState(paneId, tabId);
+            options.cleanupEmptyPanes();
+            return 'success';
+        } finally {
+            options.workspaceRestoreTracker.finish(tabId);
+        }
     }
 
     async function transferPreparedTabToTarget(
