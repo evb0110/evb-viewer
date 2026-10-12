@@ -73,11 +73,9 @@ fn read_outline_items<'a>(
                 .filter(|_| is_go_to)
                 .and_then(|action| action.get(b"D").ok().cloned())
         });
-        let page_target = destination
-            .as_ref()
-            .map(|value| destination_page_target(document, catalog, named_destinations, value))
-            .transpose()?
-            .flatten();
+        let page_target = destination.as_ref().and_then(|value| {
+            destination_page_target(document, catalog, named_destinations, value)
+        });
         let page_id = page_target.as_ref().map(|(page_id, _, _)| *page_id);
         if let Some(page_id) = page_id {
             page_ids.insert(page_id);
@@ -126,37 +124,27 @@ fn read_outline_items<'a>(
     Ok(output)
 }
 
+/// A destination that cannot be resolved leaves only its own entry without a
+/// target; its siblings and children read as they are.
 fn destination_page_target<'a>(
     document: &'a impl PdfObjectSource,
     catalog: &'a Dictionary,
     named_destinations: &mut Option<HashMap<String, &'a Object>>,
     value: &Object,
-) -> Result<Option<BookmarkPageTarget>> {
-    let mut destination = document.resolved(value)?.clone();
+) -> Option<BookmarkPageTarget> {
+    let mut destination = document.resolved(value).ok()?.clone();
     if let Some(name) = pdf_name_or_string(&destination) {
-        let Some(named_destination) =
-            find_named_destination(document, catalog, named_destinations, &name)?
-        else {
-            return Ok(None);
-        };
-        destination = document.resolved(&named_destination)?.clone();
+        let named = find_named_destination(document, catalog, named_destinations, &name).ok()??;
+        destination = document.resolved(&named).ok()?.clone();
     }
     if let Object::Dictionary(dictionary) = &destination {
-        let Some(value) = dictionary.get(b"D").ok().cloned() else {
-            return Ok(None);
-        };
-        destination = document.resolved(&value)?.clone();
+        destination = document.resolved(dictionary.get(b"D").ok()?).ok()?.clone();
     }
-    let Object::Array(array) = &destination else {
-        return Ok(None);
-    };
-    let Some(first) = array.first() else {
-        return Ok(None);
-    };
-    let Ok(page_id) = first.as_reference() else {
-        return Ok(None);
-    };
-    let ratio = destination_page_y_ratio(document, page_id, array)?;
+    let array = destination.as_array().ok()?;
+    let page_id = array.first()?.as_reference().ok()?;
+    let ratio = destination_page_y_ratio(document, page_id, array)
+        .ok()
+        .flatten();
     let original_destination = if array.len() > 6 {
         None
     } else {
@@ -166,7 +154,7 @@ fn destination_page_target<'a>(
         "coordinates": array.iter().skip(2).map(|value| if value.is_null() { Ok(None) } else { value.as_float().map(|number| Some(f64::from(number))) }).collect::<std::result::Result<Vec<_>, _>>().ok(),
     })).ok()
     };
-    Ok(Some((page_id, ratio, original_destination)))
+    Some((page_id, ratio, original_destination))
 }
 
 fn destination_page_y_ratio(

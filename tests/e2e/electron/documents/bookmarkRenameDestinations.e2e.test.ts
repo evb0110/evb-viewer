@@ -1,5 +1,5 @@
 import {
-    PDFDocument, PDFName, PDFString, PDFHexString, PDFArray, PDFDict, PDFNumber, PDFNull, degrees, type PDFPage,
+    PDFDocument, PDFName, PDFString, PDFHexString, PDFArray, PDFDict, PDFNumber, PDFNull, PDFRef, degrees, type PDFPage,
 } from 'pdf-lib';
 import {
     copyFile, mkdtemp, readFile, realpath, writeFile,
@@ -278,6 +278,47 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await activateBookmark(page, 'Named');
         await waitForToolbarCurrentPage(page, 3);
         await page.screenshot({path: join(evidence, 'reopened.png')});
+    }, 90_000);
+
+    it('review-b6yr shows valid siblings when one imported destination is dangling', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`dangling-destination-${Date.now()}.pdf`, []);
+        await writeOutlineFixture(fixture, (_pdf, pages) => [
+            {
+                Title: PDFString.of('Valid first'),
+                Dest: [
+                    pages[0]!.ref,
+                    PDFName.of('Fit'),
+                ],
+            },
+            {
+                Title: PDFString.of('Target under review'),
+                Dest: PDFRef.of(9999),
+            },
+            {
+                Title: PDFString.of('Valid last'),
+                Dest: [
+                    pages[2]!.ref,
+                    PDFName.of('FitH'),
+                    null,
+                ],
+            },
+        ]);
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        const titles = () => page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.map(row => row.textContent?.trim()));
+        try {
+            await expect.poll(titles, {timeout: 15_000}).toEqual([
+                'Valid first',
+                'Target under review',
+                'Valid last',
+            ]);
+        } finally {
+            await page.screenshot({path: join(await mkdtemp(join(tmpdir(), 'evb-dangling-destination-')), 'bookmarks.png')});
+        }
+        await activateBookmark(page, 'Valid last');
+        await waitForToolbarCurrentPage(page, 3);
     }, 90_000);
 
     it('keeps destination kinds and null coordinates when renaming a large outline', async () => {

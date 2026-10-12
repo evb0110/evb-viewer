@@ -1667,3 +1667,17 @@ fn document_catalog_reads_each_part_whatever_happens_to_the_other() {
     assert!(parts["bookmarksError"].is_string() && parts.get("bookmarks").is_none());
     assert!(read_pdf_combine_catalog(&document).is_err());
 }
+
+#[test]
+fn dangling_destination_stays_local_to_its_entry() {
+    let (mut document, _page_id) = create_source_intent_outline();
+    let outlines = document.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap();
+    let first = document.get_dictionary(outlines).unwrap().get(b"First").unwrap().as_reference().unwrap();
+    let item = document.get_dictionary_mut(first).unwrap();
+    item.set("Dest", Object::Reference((9999, 0)));
+    let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
+    let titles = parts["bookmarks"].as_array().unwrap().iter().map(|item| item["title"].as_str().unwrap()).collect::<Vec<_>>();
+    assert_eq!(titles, ["Fit", "Named", "GoTo", "Remote", "Launch", "Uri"], "{parts}");
+    assert!(parts["bookmarks"][0]["pageIndex"].is_null() && parts["bookmarks"][0].get("originalDestination").is_none());
+    assert_eq!(parts["bookmarks"][1]["namedDest"], "chapter");
+}
