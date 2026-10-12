@@ -294,8 +294,8 @@ const {
     rollbackStagedFilePublications,
 } = await import('@electron/features/image-export/main/export');
 const { IMAGE_EXPORT_MAX_NETPBM_READ_BYTES } = await import('@electron/features/image-export/main/imageExportResourceLimits');
+const { buildOutputPathWithSuffix } = await import('@electron/utils/boundedPathComponent');
 const {
-    buildOutputPathWithSuffix,
     buildMultiPageTiffOutputPaths,
     resolveSuffixedOutputPathConflicts,
 } = await import('@electron/features/image-export/main/imageExportPathPlanning');

@@ -25,10 +25,8 @@ import {
     rollbackStagedFilePublications,
 } from '@electron/features/image-export/main/export';
 import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
-import {
-    buildOutputPathWithSuffix,
-    resolveOutputPathConflicts,
-} from '@electron/features/image-export/main/imageExportPathPlanning';
+import { resolveOutputPathConflicts } from '@electron/features/image-export/main/imageExportPathPlanning';
+import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';

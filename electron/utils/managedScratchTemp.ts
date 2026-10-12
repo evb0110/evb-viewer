@@ -27,7 +27,7 @@ import {
     type IFileIdentity,
 } from '@electron/utils/fileIdentity';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import { buildOutputPathWithSuffix } from '@electron/features/image-export/main/imageExportPathPlanning';
+import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
 import {
     isErrnoException,
     isRecord,
