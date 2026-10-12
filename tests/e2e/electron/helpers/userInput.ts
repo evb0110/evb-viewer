@@ -195,34 +195,42 @@ function describeObstruction(target: Element | string | null | undefined) {
     }).join('; ');
 }
 
-/** Resolves truthy once the target's box is the same on two consecutive frames. */
-function readTargetAtRest(target: Element | string | null | undefined) {
+/** Resolves once the target has the same on-screen box on consecutive painted frames. */
+function readTargetAtRest(target: Element | string | null | undefined, beforeWheel?: string) {
     return new Promise<string>((resolve) => {
         const read = () => (typeof target === 'string'
             ? Array.from(document.querySelectorAll(target))
             : target ? [target] : [])
+            .filter(element => element.isConnected)
             .map((element) => {
                 const rect = element.getBoundingClientRect();
-                return `${rect.left},${rect.top},${rect.width},${rect.height}`;
+                return rect.width > 0 && rect.height > 0
+                    ? `${rect.left},${rect.top},${rect.width},${rect.height}` : '';
             })
+            .filter(Boolean)
             .join(';');
-        const first = read();
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve(read() === first ? 'rest' : '')));
+        requestAnimationFrame(() => {
+            const first = read();
+            requestAnimationFrame(() => {
+                const second = read();
+                requestAnimationFrame(() => resolve(first && first !== beforeWheel && first === second && second === read() ? second : ''));
+            });
+        });
     });
 }
 
-type TTargetProbe<TResult> = (resolved: Element | string | null | undefined) => TResult;
+type TTargetProbe<TResult> = (resolved: Element | string | null | undefined, beforeWheel?: string) => TResult;
 
 /** A found target is resolved inside the same page task as the probe; selectors and handles go in as arguments. */
-function foundTargetExpression(probe: TTargetProbe<unknown>, target: IFoundTarget<unknown>) {
-    return `(${probe.toString()})((${target.find.toString()})(${JSON.stringify(target.arg ?? null)}))`;
+function foundTargetExpression(probe: TTargetProbe<unknown>, target: IFoundTarget<unknown>, beforeWheel?: string) {
+    return `(${probe.toString()})((${target.find.toString()})(${JSON.stringify(target.arg ?? null)}), ${JSON.stringify(beforeWheel ?? null)})`;
 }
 
-function waitForTargetProbe<TResult>(page: Page, target: TClickTarget, probe: TTargetProbe<TResult>, deadline: number) {
+function waitForTargetProbe<TResult>(page: Page, target: TClickTarget, probe: TTargetProbe<TResult>, deadline: number, beforeWheel?: string) {
     const options = {timeout: Math.max(1, deadline - Date.now())};
     return typeof target === 'string' || !('find' in target)
-        ? page.waitForFunction(probe, options, target)
-        : page.waitForFunction(foundTargetExpression(probe, target), options);
+        ? page.waitForFunction(probe, options, target, beforeWheel)
+        : page.waitForFunction(foundTargetExpression(probe, target, beforeWheel), options);
 }
 
 function evaluateTargetProbe<TResult>(page: Page, target: TClickTarget, probe: TTargetProbe<TResult>) {
@@ -249,7 +257,6 @@ async function waitForPointerStep(page: Page, target: TClickTarget, deadline: nu
  */
 export async function revealForPointer(page: Page, target: TClickTarget, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const deadline = Date.now() + timeoutMs;
-    let previous: IPointerStep | null = null;
     for (;;) {
         const step = await waitForPointerStep(page, target, deadline);
         if (step.deltaX === 0 && step.deltaY === 0) {
@@ -258,36 +265,34 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
             // clicked mid-animation.
             await page.mouse.move(step.x, step.y);
             await (await waitForTargetProbe(page, target, readTargetAtRest, deadline)).dispose();
-            const settled = await waitForPointerStep(page, target, deadline);
-            if (settled.deltaX === 0 && settled.deltaY === 0
+            // Read geometry and hit-test together for the press, rather than
+            // using a snapshot from a wait handle across more CDP round trips.
+            const settled = await evaluateTargetProbe(page, target, findPointerStep);
+            if (settled && settled.deltaX === 0 && settled.deltaY === 0
                 && settled.x === step.x && settled.y === step.y) {
-                return {
-                    x: settled.x,
-                    y: settled.y,
-                };
+                await page.mouse.move(settled.x, settled.y);
+                const press = await evaluateTargetProbe(page, target, findPointerStep);
+                if (press && press.deltaX === 0 && press.deltaY === 0
+                    && press.x === settled.x && press.y === settled.y) {
+                    return {
+                        x: press.x,
+                        y: press.y,
+                    };
+                }
             }
-            previous = null;
             continue;
         }
-        // The aim point belongs to the scroller the step selected, so the
-        // same point needing the same distance again means that scroller did
-        // not move; a step into another scroller is progress.
-        const stalled = previous !== null
-            && Math.abs(previous.x - step.x) < 1
-            && Math.abs(previous.y - step.y) < 1
-            && Math.abs(previous.deltaX - step.deltaX) < 1
-            && Math.abs(previous.deltaY - step.deltaY) < 1;
-        if (stalled) {
-            throw new Error(`A person could not click ${describeTarget(target)}: the wheel does not scroll it into view`);
-        }
-        previous = step;
         await page.mouse.move(step.x, step.y);
+        const boxHandle = await waitForTargetProbe(page, target, readTargetAtRest, deadline);
+        const beforeWheel = await boxHandle.jsonValue() as string;
+        await boxHandle.dispose();
         await page.mouse.wheel({
             deltaX: step.deltaX,
             deltaY: step.deltaY,
         });
-        // The wheel may scroll smoothly; measure again only once the target rests.
-        await (await waitForTargetProbe(page, target, readTargetAtRest, deadline)).dispose();
+        // Wheel acknowledgement can precede scrolling. Wait for its effect,
+        // then for the target's box to stop moving before aiming again.
+        await (await waitForTargetProbe(page, target, readTargetAtRest, deadline, beforeWheel)).dispose();
     }
 }
 
