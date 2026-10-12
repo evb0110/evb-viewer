@@ -101,18 +101,24 @@ describe('scan cleanup sidecar abort window', () => {
             preserveRecoveryState: false,
         };
         await phases.runPreservationSteps(context);
+        const cleanupStartedAt = Date.now();
         const cleanup = phases.runBestEffortCleanupSteps(context);
-        await vi.advanceTimersByTimeAsync(1_538);
-        await cleanup;
-        const aliveAtCleanup = childAlive;
-        // Finish the simulated child even on the red baseline.
-        await vi.runAllTimersAsync();
+        // After the child closes, the run reads its publication journal from
+        // disk. Advancing the fake clock across the whole budget raced that
+        // read: under load it finished after the clock had passed the deadline.
+        // Move the clock one timer at a time until the child is dead, then let
+        // the run settle before any more time passes.
+        while (childAlive && Date.now() - cleanupStartedAt <= 10_000) {
+            await vi.advanceTimersToNextTimerAsync();
+        }
         await run;
+        const settledAfterMs = Date.now() - cleanupStartedAt;
+        await cleanup;
 
         expect(logger.error.mock.calls.filter(([
             , diagnostic,
         ]) => diagnostic?.code === 'MAIN_SHUTDOWN_FAILED')).toEqual([]);
-        expect(aliveAtCleanup).toBe(false);
+        expect(settledAfterMs).toBeLessThanOrEqual(1_538);
     });
 
     it('settles an aborted run after bounded termination when the child never closes', async () => {

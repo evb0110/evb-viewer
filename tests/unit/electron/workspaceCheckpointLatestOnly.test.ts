@@ -15,8 +15,10 @@ import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireTabId} from '@contracts/windowTabs';
+import {requireDocumentRef} from '@contracts/documentRef';
 import { join } from 'node:path';
 import {
+    mkdir,
     mkdtemp,
     readdir,
     readFile,
@@ -145,6 +147,10 @@ await import('@electron/workspaceCheckpointStore');
 
 describe('workspace checkpoint latest-only writer', () => {
     beforeEach(async () => {
+        // The store writes at once only when 500 ms have passed since the
+        // owner's last write. Freeze the clock (timers stay real) so a loaded
+        // machine cannot turn a debounced save into an immediate one.
+        vi.useFakeTimers({toFake: ['Date']});
         vi.resetModules();
         vi.clearAllMocks();
         mocks.userDataPath = await mkdtemp(join(tmpdir(), 'evb-checkpoint-latest-'));
@@ -156,6 +162,7 @@ describe('workspace checkpoint latest-only writer', () => {
     });
 
     afterEach(async () => {
+        vi.useRealTimers();
         await rm(mocks.userDataPath, {
             force: true,
             recursive: true,
@@ -202,6 +209,58 @@ describe('workspace checkpoint latest-only writer', () => {
             1,
             3,
         ]);
+    });
+
+    it('keeps the newest checkpoint while an older save stamps a generated output', async () => {
+        const firstGate = deferred();
+        const firstStarted = deferred();
+        mocks.atomicReplace.mockImplementationOnce(gatedReplace(firstGate.promise, firstStarted));
+        const {
+            flushPendingWorkspaceCheckpointSave,
+            saveWorkspaceCheckpoint,
+        } = await import('@electron/workspaceCheckpointStore');
+        // Saving a tab on a generated cleanup output stamps its directory with
+        // real file I/O, which finishes after the next save has started.
+        const outputDirectory = join(mocks.userDataPath, 'scan-cleanup', 'output', '00000000-0000-4000-8000-000000000001');
+        await mkdir(outputDirectory, {recursive: true});
+        await writeFile(join(outputDirectory, 'cleaned.pdf'), '%PDF-1.7\n');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const outputPath = allowOpenPath(join(outputDirectory, 'cleaned.pdf'), 10)!;
+        const withOutputTab: IWorkspaceCheckpoint = {
+            ...createCheckpoint(2),
+            activeTabId: requireTabId('tab-1'),
+            panes: [{
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
+            }],
+            tabs: [{
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
+                fileName: 'cleaned.pdf',
+                sourceRef: requireDocumentRef(outputPath),
+                workingCopyRef: null,
+                isDirty: false,
+                isDjvu: false,
+                currentPage: null,
+                zoom: null,
+                zoomMode: null,
+            }],
+        };
+
+        const first = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        await firstStarted.promise;
+        const older = saveWorkspaceCheckpoint(withOutputTab, 10, 10);
+        const newer = saveWorkspaceCheckpoint(createCheckpoint(3), 10);
+        firstGate.resolve();
+        await Promise.all([
+            first,
+            older,
+            newer,
+        ]);
+        await flushPendingWorkspaceCheckpointSave();
+
+        expect(await capturedAtOf(10)).toBe(3);
     });
 
     it('keeps interleaved trailing saves in separate owner records', async () => {

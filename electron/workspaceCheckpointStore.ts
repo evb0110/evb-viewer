@@ -1061,17 +1061,12 @@ export async function saveWorkspaceCheckpoint(
     // A generated cleanup output can be the source of a restored tab. Refresh
     // its retention stamp after unresolved tabs have been restored, so the
     // startup sweep cannot expire a retained output before recovery reopens
-    // it. The helper is deliberately best effort: non-cleanup paths are
-    // ignored and a stamp failure must not discard the checkpoint itself.
-    const generatedOutputCandidates = checkpointWithRetainedTabs.tabs.flatMap(tab => [
+    // it. The stamp is best effort and not awaited: a save that waited on its
+    // I/O let a newer save reach the debounce first and then replaced it.
+    void Promise.allSettled(checkpointWithRetainedTabs.tabs.flatMap(tab => [
         tab.sourceRef,
         tab.workingCopyRef,
-    ].filter((path): path is TDocumentRef => path !== null));
-    if (generatedOutputCandidates.length > 0) {
-        await Promise.allSettled(generatedOutputCandidates.map(path => (
-            touchScanCleanupGeneratedOutput(path)
-        )));
-    }
+    ].filter((path): path is TDocumentRef => path !== null)).map(path => touchScanCleanupGeneratedOutput(path)));
     const admittedAnnotationRecovery = admitAnnotationRecovery(checkpointWithRetainedTabs);
     const checkpointWithArtifacts = admittedAnnotationRecovery.checkpoint;
     const canonicalCheckpoint = detachUnreachableSources(

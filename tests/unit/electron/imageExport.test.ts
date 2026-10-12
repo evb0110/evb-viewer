@@ -272,6 +272,27 @@ const realPdfLib = await vi.importActual<typeof TPdfLib>('pdf-lib');
 const realNativeTools = await vi.importActual<typeof TViMockOriginalModule>('@electron/pdf/nativeToolPaths');
 const realFs = await vi.importActual<typeof FsPromises>('fs/promises');
 const realAtomicReplace = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
+const runFile = promisify(execFile);
+
+function resolveRealPdfToolPaths() {
+    return realNativeTools.resolvePdfNativeToolPaths({
+        isPackaged: true,
+        nativeToolsBase: join(process.cwd(), 'resources'),
+        platformArch: `${process.platform}-${process.arch}`,
+    });
+}
+
+// macOS checks a freshly extracted executable and its libraries on their first
+// launch. After `pnpm install` that took 3.5-7 s for these tools and pushed the
+// real-PDF export case past its budget. Launch each once at collection, outside
+// any test budget; a missing tool still fails that case, not the whole file.
+const realPdfToolVersionFlags = {
+    qpdf: '--version',
+    pdfinfo: '-v',
+    pdftoppm: '-v',
+} as const;
+await Promise.allSettled((Object.keys(realPdfToolVersionFlags) as Array<keyof typeof realPdfToolVersionFlags>)
+    .map(async tool => runFile(resolveRealPdfToolPaths()[tool], [realPdfToolVersionFlags[tool]])));
 
 function computePdftoppmRasterSize(args: string[]): IRenderedRasterSize {
     const scaleToIndex = args.indexOf('-scale-to');
@@ -1470,18 +1491,13 @@ describe('image export', () => {
         const {
             PDFDocument, rgb,
         } = realPdfLib;
-        const toolPaths = realNativeTools.resolvePdfNativeToolPaths({
-            isPackaged: true,
-            nativeToolsBase: join(process.cwd(), 'resources'),
-            platformArch: `${process.platform}-${process.arch}`,
-        });
+        const toolPaths = resolveRealPdfToolPaths();
         mocks.stat.mockImplementation(realFs.stat);
         mocks.rename.mockImplementation(realFs.rename);
         mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
         mocks.atomicReplace.mockImplementation(realAtomicReplace.atomicReplace);
         mocks.popplerDataDir = toolPaths.popplerDataDir;
         mocks.popplerFontConfigDir = toolPaths.popplerFontConfigDir;
-        const run = promisify(execFile);
         const commands: Record<string, string> = {
             '/mock/qpdf': toolPaths.qpdf,
             '/mock/pdfinfo': toolPaths.pdfinfo,
@@ -1492,7 +1508,7 @@ describe('image export', () => {
             signal?: AbortSignal;
             onStdout?: (chunk: string) => void;
         }) => {
-            const result = await run(commands[command]!, args, {
+            const result = await runFile(commands[command]!, args, {
                 env: options?.env,
                 signal: options?.signal,
             });
