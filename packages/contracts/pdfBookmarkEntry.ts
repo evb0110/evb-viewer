@@ -14,7 +14,7 @@ const destinationCoordinateCounts = {
     FitBV: 1,
 } as const;
 const sourcePageIndexSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(4_294_967_295));
-const sourcePageRefSchema = v.strictObject({
+export const PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA = v.strictObject({
     num: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(4_294_967_295)),
     gen: v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(65_535)),
 });
@@ -33,7 +33,7 @@ export const PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA = v.pipe(v.strictObject({
     ]),
     sourceTarget: v.union([
         sourcePageIndexSchema,
-        sourcePageRefSchema,
+        PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
     ]),
     coordinates: v.pipe(
         v.unknown(),

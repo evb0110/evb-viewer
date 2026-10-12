@@ -1,4 +1,6 @@
-import {decodeBookmarkOriginalDestination} from '@contracts/pdfBookmarkEntry';
+import {
+    decodeBookmarkOriginalDestination, PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
+} from '@contracts/pdfBookmarkEntry';
 import type {
     TPageNumber,
     IPageMoveRangeSegment,
@@ -42,6 +44,21 @@ import {
 
 const MAX_COLLECTION_ITEMS = 100_000;
 const MAX_PAGE_SELECTION_ITEMS = 1_000_000;
+/** qpdf's page listing is read before it can rewrite source object identities. */
+export function decodePageSourceReferences(value: unknown) {
+    const page = v.pipe(v.object({object: v.pipe(v.string(), v.regex(/^[1-9]\d* \d+ R$/u))}), v.transform(({object}) => {
+        const [
+            num,
+            gen,
+        ] = object.split(' ').map(Number);
+        return v.parse(PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA, {
+            num,
+            gen,
+        });
+    }));
+    return v.parse(v.object({pages: v.pipe(v.array(page), v.maxLength(MAX_PAGE_SELECTION_ITEMS))}), value).pages;
+}
+
 const METHOD_TIMEOUT_MS = 30 * 60 * 1_000;
 const PAGE_LABEL_STYLES = [
     'D',

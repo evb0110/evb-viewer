@@ -420,6 +420,34 @@ pub(crate) fn normalize_bookmark_entries(
         .collect()
 }
 
+// A /Page dictionary can survive deletion while no longer belonging to the
+// page tree. Resolve all pending identities in one bounded source-tree walk.
+fn validate_bookmark_source_references(
+    document: &impl PdfObjectSource,
+    items: &[BookmarkEntry],
+) -> Result<()> {
+    fn collect(items: &[BookmarkEntry], references: &mut HashSet<ObjectId>) {
+        for item in items {
+            if item.page_index.is_none() {
+                if let Some(BookmarkOriginalDestination {
+                    source_target: BookmarkSourceTarget::Reference { num, gen },
+                    ..
+                }) = &item.original_destination
+                {
+                    references.insert((*num, *gen));
+                }
+            }
+            collect(&item.items, references);
+        }
+    }
+    let mut references = HashSet::new();
+    collect(items, &mut references);
+    if collect_catalog_page_indices(document, &references)?.len() != references.len() {
+        return Err("Original bookmark destination is not in the current page tree".into());
+    }
+    Ok(())
+}
+
 fn original_bookmark_destination(
     document: &impl PdfObjectSource,
     page_resolver: &PageTreeResolver,
@@ -440,11 +468,6 @@ fn original_bookmark_destination(
         )?,
         (None, BookmarkSourceTarget::Reference { num, gen }) => (*num, *gen),
     };
-    // A source reference must still be a page, rather than an arbitrary object.
-    let page = document.dictionary(page_id)?;
-    if page.get(b"Type")?.as_name()? != b"Page" {
-        return Err("Original bookmark destination does not reference a page".into());
-    }
     let mut destination = vec![
         Object::Reference(page_id),
         Object::Name(original.kind.pdf_name().to_vec()),
@@ -747,6 +770,7 @@ pub(crate) fn set_bookmarks_on_catalog(
     document: &mut Document,
     bookmarks: &BookmarksMutation,
 ) -> Result<()> {
+    validate_bookmark_source_references(document, &bookmarks.items)?;
     let page_resolver = PageTreeResolver::new(document)?;
     assert_mutation_page_count_with_resolver(
         &page_resolver,
@@ -793,6 +817,7 @@ pub(crate) fn set_bookmarks_incremental(
     bookmarks: &BookmarksMutation,
     continuation: Option<&NativeMutationContinuation>,
 ) -> Result<()> {
+    validate_bookmark_source_references(incremental.get_prev_documents(), &bookmarks.items)?;
     let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     assert_mutation_page_count_with_resolver(
         &page_resolver,

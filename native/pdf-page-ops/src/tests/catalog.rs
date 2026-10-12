@@ -1445,6 +1445,20 @@ fn saved_bookmark_anchor_uses_rotated_crop_coordinates() {
 }
 
 #[test]
+fn saved_bookmark_refuses_a_page_dictionary_outside_the_page_tree() {
+    let (mut document, page_id) = create_test_document();
+    let orphan = document.add_object(document.get_dictionary(page_id).unwrap().clone());
+    let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks":{
+        "totalPages":1,"untitledLabel":"Untitled","items":[{"title":"Deleted","pageIndex":null,
+        "originalDestination":{"sourceTarget":{"num":orphan.0,"gen":orphan.1},"kind":"Fit","coordinates":[]},"items":[]}]
+    }})).unwrap()).unwrap();
+    let mut input = Vec::new(); document.save_to(&mut input).unwrap();
+    let error = append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").err().unwrap();
+    assert!(error.to_string().contains("not in the current page tree"));
+    assert!(set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).is_err());
+}
+
+#[test]
 fn saved_bookmark_preserves_original_destination_before_lookup() {
     for (kind, coordinates) in [
         ("XYZ", serde_json::json!([null, null, null])), ("FitH", serde_json::json!([null])),

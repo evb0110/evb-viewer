@@ -13,6 +13,7 @@ import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {
+    requirePageIndex,
     pageIndexToPageNumber,
     pageNumberToPageIndex,
 } from '@contracts/pageNumbers';
@@ -20,6 +21,7 @@ import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {decodePageSourceReferences} from '@contracts/pageOpsPlatformFeature';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 
 const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
@@ -30,7 +32,9 @@ function remapBookmarkItems(
 ): IPdfBookmarkEntry[] {
     return items.flatMap(item => {
         const children = remapBookmarkItems(item.items, delta);
-        if (item.pageIndex === null) {
+        const sourceIndex = item.pageIndex ?? (typeof item.originalDestination?.sourceTarget === 'number'
+            ? requirePageIndex(item.originalDestination.sourceTarget) : null);
+        if (sourceIndex === null) {
             return [{
                 ...item,
                 items: children,
@@ -38,7 +42,7 @@ function remapBookmarkItems(
         }
         const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
             delta,
-            pageIndexToPageNumber(item.pageIndex),
+            pageIndexToPageNumber(sourceIndex),
         );
         if (mappedPageNumber === null) {
             return children;
@@ -47,9 +51,72 @@ function remapBookmarkItems(
             ...item,
             pageIndex: pageNumberToPageIndex(mappedPageNumber),
             namedDest: null,
+            ...(item.originalDestination ? {originalDestination: {
+                ...item.originalDestination,
+                sourceTarget: pageNumberToPageIndex(mappedPageNumber),
+            }} : {}),
             items: children,
         }];
     });
+}
+
+/** Resolve only unresolved source references, before qpdf renumbers objects. */
+export async function resolvePageMetadataSourceTargets(
+    metadata: IPageOpsMetadataSnapshot | undefined,
+    sourcePath: string,
+    options: {
+        signal: AbortSignal;
+        cancelGroup: string
+    },
+): Promise<IPageOpsMetadataSnapshot | undefined> {
+    const wanted = new Set<string>();
+    const visit = (items: readonly IPdfBookmarkEntry[]) => {
+        for (const item of items) {
+            const target = item.originalDestination?.sourceTarget;
+            if (item.pageIndex === null && target && typeof target === 'object') wanted.add(`${target.num} ${target.gen}`);
+            visit(item.items);
+        }
+    };
+    visit(metadata?.bookmarks ?? []);
+    if (!metadata || wanted.size === 0) return metadata;
+    const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
+        '--json',
+        '--json-key=pages',
+        sourcePath,
+    ], {
+        ...options,
+        timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
+        maxStdoutBytes: 64 * 1024 * 1024,
+        rejectOnStdoutTruncation: true,
+        commandLabel: 'qpdf(source-page-identities)',
+    });
+    const indices = new Map<string, number>();
+    decodePageSourceReferences(JSON.parse(result.stdout)).forEach((reference, index) => {
+        const key = `${reference.num} ${reference.gen}`;
+        if (wanted.has(key)) indices.set(key, index);
+    });
+    const resolve = (items: readonly IPdfBookmarkEntry[]): IPdfBookmarkEntry[] => items.flatMap(item => {
+        const children = resolve(item.items);
+        const target = item.originalDestination?.sourceTarget;
+        if (item.pageIndex !== null || !target || typeof target !== 'object') return [{
+            ...item,
+            items: children,
+        }];
+        const index = indices.get(`${target.num} ${target.gen}`);
+        return index === undefined ? children : [{
+            ...item,
+            pageIndex: requirePageIndex(index),
+            originalDestination: {
+                ...item.originalDestination,
+                sourceTarget: index,
+            },
+            items: children,
+        }];
+    });
+    return {
+        ...metadata,
+        bookmarks: resolve(metadata.bookmarks ?? []),
+    };
 }
 
 function remapKnownPageLabels(

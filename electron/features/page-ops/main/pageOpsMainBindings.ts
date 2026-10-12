@@ -106,7 +106,9 @@ import {
 } from '@electron/utils/dialogDefaultPaths';
 import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
 import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
-import {applyPageMetadataRemap} from '@electron/features/page-ops/main/pageMetadataRemap';
+import {
+    applyPageMetadataRemap, resolvePageMetadataSourceTargets,
+} from '@electron/features/page-ops/main/pageMetadataRemap';
 
 interface IPageOpsOperationContext {
     sender: WebContents;
@@ -259,21 +261,20 @@ async function transitionPageMutation<T>(input: {
         input.workingCopyPath,
         'page-ops',
         async () => {
+            const nativeOptions = createNativeOperationOptions(input.operation);
+            const metadataSnapshot = input.skipPageMetadataRemap ? undefined : await resolvePageMetadataSourceTargets(input.options?.metadataSnapshot, input.workingCopyPath, nativeOptions);
             const mutation = await input.mutate();
             if (!input.skipPageMetadataRemap) {
                 await applyPageMetadataRemap({
                     workingCopyPath: input.workingCopyPath,
                     delta: mutation.delta,
-                    ...(input.options?.metadataSnapshot
-                        ? {metadataSnapshot: input.options.metadataSnapshot}
-                        : {}),
-                    signal: input.operation.signal,
-                    cancelGroup: input.operation.cancelGroup,
+                    ...(metadataSnapshot ? {metadataSnapshot} : {}),
+                    ...nativeOptions,
                 });
             }
             const actualPageCount = await getPdfPageCount(
                 input.workingCopyPath,
-                createNativeOperationOptions(input.operation),
+                nativeOptions,
             );
             const predictedPageCount = mutation.delta.nextPageCount ?? mutation.delta.pages?.length;
             if (predictedPageCount === undefined || predictedPageCount !== actualPageCount) {
@@ -286,7 +287,7 @@ async function transitionPageMutation<T>(input: {
             if (!input.nativeAppendStructureVerified) {
                 await verifyPdfStructureStrict(
                     input.workingCopyPath,
-                    createNativeOperationOptions(input.operation),
+                    nativeOptions,
                 );
             }
             // Publishing the revision is the commit point. A cancel accepted
