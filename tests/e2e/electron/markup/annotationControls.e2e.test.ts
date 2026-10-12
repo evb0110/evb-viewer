@@ -1,12 +1,17 @@
 import {
-    copyFileSync, mkdtempSync, rmSync,
+    copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
-import {join} from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {tmpdir} from 'node:os';
 import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import type {Page} from 'puppeteer-core';
+import {
+    PDFDict, PDFDocument, PDFHexString, PDFName, PDFString,
+} from 'pdf-lib';
 import {
     describe,
     expect,
@@ -759,6 +764,135 @@ describe('Electron E2E - annotation controls', () => {
         await restarted.page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
             '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
         )).some(element => element.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === 'Keyboard text box'), {timeout: STYLE_UPDATE_TIMEOUT_MS});
+    });
+
+    it.each([
+        [
+            'Arabic',
+            'بَسْمِ لَا بــِسْمِ',
+            'DejaVuSans.ttf',
+        ],
+        [
+            'Syriac',
+            'ܫܠܵܡܵܐ',
+            'NotoSansSyriac-Regular.ttf',
+        ],
+        [
+            'Hebrew cantillation',
+            'בְּרֵאשִׁ֖ית',
+            'NotoSansHebrew-Regular.ttf',
+        ],
+    ])('paints typed %s with its bundled font and saves its appearance', async (script, text, fontFile) => {
+        const evidence = resolve('.devkit/semtext-r1/evidence', process.env.SEMTEXT_REVISION ?? 'candidate', script);
+        mkdirSync(evidence, {recursive: true});
+        const source = await createBlankFixturePdf(`semtext-${script}-${Date.now()}.pdf`);
+        const saved = join(evidence, 'saved.pdf');
+        copyFileSync(source, saved);
+        onTestFinished(() => rmSync(source, {force: true}));
+        let {page} = sessionFixture.getSession();
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        await createCanonicalTextBoxWithPointer(page, text, {
+            x: 0.12,
+            y: 0.22,
+        });
+
+        async function paintedTextMatchesBundledProgram(label: string) {
+            // Independent font family: the reference does not inherit the app's
+            // font fallback. Both surfaces use Chromium's actual text painting.
+            await page.evaluate(async (file: string) => {
+                const font = new FontFace('Semtext Reference', `url("/fonts/annotation/${file}")`);
+                document.fonts.add(await font.load());
+                await document.fonts.ready;
+                await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+            }, fontFile);
+            const box = await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-text-box');
+            expect(box).not.toBeNull();
+            const actual = Buffer.from(await box!.screenshot());
+            writeFileSync(join(evidence, `${label}-box.png`), actual);
+            await page.screenshot({path: join(evidence, `${label}-page.png`)});
+            const visibility = await box!.evaluate(element => {
+                const reference = element.cloneNode(true) as HTMLElement;
+                reference.id = 'semtext-font-reference';
+                reference.style.fontFamily = 'Semtext Reference';
+                element.parentElement!.append(reference);
+                const previous = (element as HTMLElement).style.visibility;
+                (element as HTMLElement).style.visibility = 'hidden';
+                return previous;
+            });
+            try {
+                const reference = await page.$('#semtext-font-reference');
+                const expected = Buffer.from(await reference!.screenshot());
+                writeFileSync(join(evidence, `${label}-reference.png`), expected);
+                const decoded = await Promise.all([
+                    actual,
+                    expected,
+                ].map(async png => {
+                    const image = await loadImage(png);
+                    const canvas = createCanvas(image.width, image.height);
+                    const context = canvas.getContext('2d');
+                    context.drawImage(image, 0, 0);
+                    return {
+                        width: image.width,
+                        height: image.height,
+                        pixels: context.getImageData(0, 0, image.width, image.height).data,
+                    };
+                }));
+                expect.soft(decoded[0]!.width).toBe(decoded[1]!.width);
+                expect.soft(decoded[0]!.height).toBe(decoded[1]!.height);
+                const matches = Buffer.from(decoded[0]!.pixels).equals(Buffer.from(decoded[1]!.pixels));
+                writeFileSync(join(evidence, `${label}-pixels.json`), JSON.stringify({
+                    script,
+                    text,
+                    matches,
+                }));
+                expect.soft(matches, `${script} painted glyphs and marks match the complete bundled font`).toBe(true);
+            } finally {
+                await page.$eval('#semtext-font-reference', element => element.remove());
+                await box!.evaluate((element, previous) => {
+                    (element as HTMLElement).style.visibility = previous;
+                }, visibility);
+            }
+        }
+
+        await paintedTextMatchesBundledProgram('before-save');
+        let saveError: string | null = null;
+        try {
+            await saveViaVisibleToolbar(page, 12_000, saved);
+        } catch (error) {
+            saveError = String(error);
+        }
+        expect.soft(saveError, 'The typed annotation can be saved').toBeNull();
+        const pdf = await PDFDocument.load(readFileSync(saved));
+        const annotations = pdf.getPage(0).node.Annots()?.asArray() ?? [];
+        const freeText = annotations.map(ref => pdf.context.lookup(ref, PDFDict)).find(object => (
+            object.get(PDFName.of('Subtype'))?.toString() === '/FreeText'
+        ));
+        const contents = freeText?.get(PDFName.of('Contents'));
+        const savedText = contents instanceof PDFString || contents instanceof PDFHexString ? contents.decodeText() : null;
+        const hasAppearance = Boolean(freeText?.get(PDFName.of('AP')));
+        writeFileSync(join(evidence, 'save.json'), JSON.stringify({
+            script,
+            text,
+            saveError,
+            savedText,
+            hasAppearance,
+        }));
+        expect.soft(hasAppearance).toBe(true);
+        expect.soft(savedText).toBe(text);
+        const restarted = await sessionFixture.restart({
+            sessionName: () => `e2e-semtext-reopen-${Date.now()}`,
+            hard: true,
+            clean: true,
+        });
+        page = restarted.page;
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        await page.screenshot({path: join(evidence, 'reopened-page.png')});
+        await page.waitForFunction((expected: string) => Array.from(document.querySelectorAll(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box',
+        )).some(element => element.textContent === expected), {timeout: 30_000}, text);
+        await paintedTextMatchesBundledProgram('reopened');
     });
 
     it('retains a visible typing box and places the caret through delayed pointer input', async () => {

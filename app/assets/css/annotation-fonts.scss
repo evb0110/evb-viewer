@@ -5,3 +5,21 @@
     font-weight: 400;
     font-display: swap;
 }
+
+@font-face {
+    font-family: "EVB Annotation Sans";
+    src: url("/fonts/annotation/NotoSansSyriac-Regular.ttf") format("truetype");
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    unicode-range: U+0700-074F, U+0860-086F;
+}
+
+@font-face {
+    font-family: "EVB Annotation Sans";
+    src: url("/fonts/annotation/NotoSansHebrew-Regular.ttf") format("truetype");
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    unicode-range: U+0590-05FF, U+FB1D-FB4F;
+}
