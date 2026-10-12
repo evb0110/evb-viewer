@@ -1250,6 +1250,20 @@ describe('Electron E2E - annotation controls', () => {
         expect.soft((await renderedTextBoxInk(readFileSync(saved), true)).outside, 'the saved label keeps its whole glyph').toBe(0);
     });
 
+    it('opens a foreign label with a malformed DA at the size it draws', async () => {
+        // Its DA ends in "/Helv invalid Tf"; its appearance draws at 22 pt.
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, resolve('tests/fixtures/electron/semtext/malformed.pdf'));
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .pdf-annotation-editor-text-box');
+        const size = await page.$eval('.editor-pane.is-active .annotation-style-editor input[aria-label="Text Size"]', element => (
+            Number((element as HTMLInputElement).value)
+        ));
+        expect(size, 'the size control shows the size the label draws').toBe(22);
+    });
+
     it('retains a visible typing box and places the caret through delayed pointer input', async () => {
         const session = sessionFixture.getSession();
         const {page} = session;

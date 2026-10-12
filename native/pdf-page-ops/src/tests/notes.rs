@@ -3037,6 +3037,10 @@ fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
         let mut bytes = Vec::new();
         document.save_to(&mut bytes).unwrap();
         write(&pdf_path, &bytes).unwrap();
+        // Untouched, it opens at the size its own appearance draws.
+        let entries = collect_parsed_annotations(&document, "D:20261012000000Z").unwrap();
+        let PdfAnnotationParseEntry::TextBox(untouched) = &entries[0] else { panic!("{:?}", entries[0]) };
+        assert_eq!(untouched.font_size, 22.0, "{da}");
         let editor = TextBoxMutation {
             page_index: 0, stable_key: "foreign".to_string(),
             annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: text.to_string(), rect,

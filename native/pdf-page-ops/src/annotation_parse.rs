@@ -1312,22 +1312,19 @@ fn parse_default_appearance(
         .split_whitespace()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    let mut font_size = None;
+    let mut font_size: Option<f64> = None;
     let mut color = None;
     for (index, token) in tokens.iter().enumerate() {
         match token.as_str() {
             "Tf" => {
-                font_size = previous_numbers(&tokens, index, 1).first().copied();
+                // The size is the operand right before Tf, as the writer patches it.
+                // A malformed one leaves the last well-formed size, which draws.
+                font_size = tokens[index.saturating_sub(1)].parse().ok().or(font_size);
             }
-            "rg" => {
-                let values = previous_numbers(&tokens, index, 3);
-                if values.len() == 3 {
-                    color = Some(pdf_color_to_hex(Some(&values), "#000000"));
-                }
-            }
-            "g" => {
-                let values = previous_numbers(&tokens, index, 1);
-                if values.len() == 1 {
+            "rg" | "g" => {
+                let count = if token == "rg" { 3 } else { 1 };
+                let values = previous_numbers(&tokens, index, count);
+                if values.len() == count {
                     color = Some(pdf_color_to_hex(Some(&values), "#000000"));
                 }
             }
