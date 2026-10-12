@@ -213,7 +213,7 @@ jobs:
             .tmp/pdf-image-combine
             .tmp/pdf-page-ops
             .tmp/pdf-search
-          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'native/rust-toolchain.toml', 'rust-toolchain.toml', 'public/fonts/annotation/**', 'pnpm-lock.yaml') }}
+          key: electron-native-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/**', 'packages/contracts/**', 'scripts/build-native-tool.mjs', 'scripts/native-build-id.mjs', 'scripts/cargo-artifacts.mjs', 'scripts/lib/build-environment.mjs', 'scripts/nativeResourceManifest.ts', 'scripts/native-rust-targets.mjs', 'native/rust-toolchain.toml', 'rust-toolchain.toml', 'public/fonts/annotation/**', 'pnpm-lock.yaml') }}
           restore-keys: |
             electron-native-v2-${{ runner.os }}-${{ runner.arch }}-
 
