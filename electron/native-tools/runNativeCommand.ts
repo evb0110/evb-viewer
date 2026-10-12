@@ -71,7 +71,7 @@ export interface IRunCommandOptions {
     rejectOnStdoutTruncation?: boolean;
     onStdout?: (chunk: string) => void;
     onStderr?: (chunk: string) => void;
-    onSpawn?: (pid: number) => void;
+    onSpawn?: (pid: number, hasExited: () => boolean) => void;
     onClose?: () => void;
     onTerminationProof?: (proof: Promise<boolean>) => void;
     /** Written to the child's stdin with backpressure, then closed. */
@@ -372,18 +372,19 @@ export async function runNativeCommand(
                 TMP: scratchPath,
                 TEMP: scratchPath,
             },
-            onSpawn: pid => {
+            onSpawn: (pid, hasExited) => {
                 processId = pid;
-                registration = Promise.resolve().then(() => registerManagedProcess(namespacePath, {
+                registration = registerManagedProcess(namespacePath, {
                     pid,
+                    hasExited,
                     binaryPath: command,
                     ...(manifestPath === undefined ? {} : {manifestPath}),
                     scratchPath,
-                })).catch(error => {
-                    if (isProcessTreeAlive(pid)) options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
+                }).catch(error => {
+                    options.log?.('warn', `Could not record managed process pid ${String(pid)}: ${getErrorMessage(error)}`);
                     return null;
                 });
-                options.onSpawn?.(pid);
+                options.onSpawn?.(pid, hasExited);
             },
             onClose: () => {
                 childClosed = true;
@@ -402,9 +403,7 @@ export async function runNativeCommand(
         await cleanupScratchIfProven();
         return result;
     } catch (error) {
-        if (processId === null && terminationProof === null) {
-            await cleanupScratchIfProven();
-        } else if (terminationProofSettled || (childClosed && terminationProof === null)) {
+        if (terminationProofSettled || (terminationProof === null && (processId === null || childClosed))) {
             await cleanupScratchIfProven();
         }
         throw error;
@@ -690,7 +689,7 @@ async function runNativeCommandCore(
                 return;
             }
             try {
-                onSpawn(pid);
+                onSpawn(pid, () => proc.exitCode !== null || proc.signalCode !== null);
             } catch (error) {
                 // The callback runs before the regular process listeners are
                 // attached. Keep late child errors from becoming uncaught

@@ -9,7 +9,11 @@ import {
     utimes,
     writeFile,
 } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import {
+    execFileSync,
+    spawn,
+} from 'node:child_process';
+import {once} from 'node:events';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
@@ -480,15 +484,105 @@ describe('scan-cleanup durability', () => {
         const manifestPath = join(namespacePath, 'manifest.json');
         const registration = await registerManagedProcess(namespacePath, {
             pid: process.pid,
+            hasExited: () => false,
             binaryPath: process.execPath,
             manifestPath,
         });
 
-        expect(JSON.parse(await readFile(registration.entryPath, 'utf8'))).toMatchObject({manifestPath});
-        await expect(access(registration.entryPath)).resolves.toBeUndefined();
-        await registration.unregister();
-        await expect(access(registration.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+        expect(JSON.parse(await readFile(registration!.entryPath, 'utf8'))).toMatchObject({manifestPath});
+        await expect(access(registration!.entryPath)).resolves.toBeUndefined();
+        await registration!.unregister();
+        await expect(access(registration!.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
         await expect(readdir(getManagedProcessRegistryDirectory(namespacePath))).resolves.toEqual([]);
+    });
+
+    it('records no marker for a child that exited before its registration read', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const child = spawn(process.execPath, [
+            '-e',
+            '',
+        ], {stdio: 'ignore'});
+        await once(child, 'exit');
+
+        await expect(registerManagedProcess(namespacePath, {
+            pid: child.pid!,
+            hasExited: () => child.exitCode !== null || child.signalCode !== null,
+            binaryPath: process.execPath,
+        })).resolves.toBeNull();
+        await expect(readdir(getManagedProcessRegistryDirectory(namespacePath))).rejects.toMatchObject({code: 'ENOENT'});
+    });
+
+    it.runIf(process.platform === 'linux')('records a child whose command line is still empty, as during its exec', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        // Node's spawn returns once exec has closed the child's descriptors,
+        // before the kernel has set up its arguments, so /proc shows no command
+        // line for a moment. Emptying the title holds that state for the test.
+        const child = spawn(process.execPath, [
+            '-e',
+            'process.title = ""; console.log("ready"); setInterval(() => {}, 1_000)',
+        ], {stdio: [
+            'ignore',
+            'pipe',
+            'ignore',
+        ]});
+        try {
+            await once(child.stdout, 'data');
+            const commandLine = await readFile(`/proc/${String(child.pid)}/cmdline`, 'utf8');
+            expect(commandLine.split('\0').filter(Boolean)).toEqual([]);
+
+            const registration = await registerManagedProcess(namespacePath, {
+                pid: child.pid!,
+                hasExited: () => child.exitCode !== null || child.signalCode !== null,
+                binaryPath: process.execPath,
+            });
+
+            expect(JSON.parse(await readFile(registration!.entryPath, 'utf8'))).toMatchObject({
+                pid: child.pid,
+                processStartTime: expect.stringMatching(/^\d+$/u),
+            });
+        } finally {
+            child.kill();
+        }
+    });
+
+    itPosix('records a child that has exited but is not reaped yet under its start time', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        // sh prints the pid of a child that exits at once and becomes sleep,
+        // which never reaps it: the child stays a zombie, as a native tool
+        // does between its exit and Node's wait, with no command line or exe.
+        const parent = spawn('sh', [
+            '-c',
+            'true & echo $!; exec sleep 30',
+        ], {stdio: [
+            'ignore',
+            'pipe',
+            'ignore',
+        ]});
+        try {
+            const [pidText] = await once(parent.stdout, 'data') as [Buffer];
+            const pid = Number(pidText.toString().trim());
+            await vi.waitFor(() => {
+                expect(execFileSync('ps', [
+                    '-o',
+                    'stat=',
+                    '-p',
+                    String(pid),
+                ], {encoding: 'utf8'}).trim()).toMatch(/^Z/u);
+            }, {timeout: 5_000});
+
+            const registration = await registerManagedProcess(namespacePath, {
+                pid,
+                hasExited: () => false,
+                binaryPath: '/native/tool',
+            });
+
+            expect(JSON.parse(await readFile(registration!.entryPath, 'utf8'))).toMatchObject({
+                pid,
+                processStartTime: expect.stringMatching(/\S/u),
+            });
+        } finally {
+            parent.kill();
+        }
     });
 
     it('registers a process while the time locale is not English', async () => {
@@ -498,10 +592,11 @@ describe('scan-cleanup durability', () => {
         try {
             const registration = await registerManagedProcess(namespacePath, {
                 pid: process.pid,
+                hasExited: () => false,
                 binaryPath: process.execPath,
             });
-            await expect(access(registration.entryPath)).resolves.toBeUndefined();
-            await registration.unregister();
+            await expect(access(registration!.entryPath)).resolves.toBeUndefined();
+            await registration!.unregister();
         } finally {
             if (previousTimeLocale === undefined) delete process.env.LC_TIME;
             else process.env.LC_TIME = previousTimeLocale;
