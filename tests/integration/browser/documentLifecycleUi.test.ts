@@ -22,7 +22,7 @@ import {
 import {chromium} from 'playwright';
 import type {loadBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import type {
-    BrowserContext, Page, Download,
+    Browser, BrowserContext, Page, Download,
 } from 'playwright';
 import {
     afterAll,
@@ -35,6 +35,7 @@ import {
 let devServer: ChildProcess | null = null;
 let origin = '';
 let serverOutput = '';
+let browser: Browser;
 interface IBrowserLifecycleTestApi {
     waitForActiveDocumentOpenSettled?: () => Promise<boolean>;
     callActiveWorkspaceCommand?: <TResult = unknown>(commandName: string, args?: unknown[]) => Promise<{
@@ -198,10 +199,15 @@ beforeAll(async () => {
     devServer.stderr?.on('data', captureOutput);
     await once(devServer, 'spawn');
     await waitForServer(origin);
+    browser = await chromium.launch({headless: true});
 }, 120_000);
 
 afterAll(async () => {
-    await stopServer();
+    try {
+        await browser?.close();
+    } finally {
+        await stopServer();
+    }
 });
 
 async function addNote(page: Page, text: string, position: {
@@ -333,7 +339,6 @@ describe('browser document lifecycle UI', () => {
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), source);
         const observations: unknown[] = [];
-        const browser = await chromium.launch({headless: true});
         const context = await browser.newContext({
             viewport: {
                 width: 1280,
@@ -517,7 +522,7 @@ describe('browser document lifecycle UI', () => {
                 problems,
             }, null, 2));
             await context.close();
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
@@ -539,7 +544,6 @@ describe('browser document lifecycle UI', () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1108/app-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
-        const browser = await chromium.launch({headless: true});
         const observations: unknown[] = [];
         try {
             for (const retained of [
@@ -725,7 +729,7 @@ describe('browser document lifecycle UI', () => {
             }
         } finally {
             writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify(observations, null, 2));
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
@@ -747,7 +751,6 @@ describe('browser document lifecycle UI', () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1205/app-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
-        const browser = await chromium.launch({headless: true});
         let context: BrowserContext | undefined;
         let problems: string[] = [];
         const observations: unknown[] = [];
@@ -825,7 +828,7 @@ describe('browser document lifecycle UI', () => {
                 name:'Write annotation note',
                 exact:true,
             });
-            await input.pressSequentially('Initial accepted note');
+            await input.fill('Initial accepted note');
             await page.getByRole('button',{
                 name:'Minimize note',
                 exact:true,
@@ -1003,7 +1006,7 @@ describe('browser document lifecycle UI', () => {
         } finally {
             writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));
             writeFileSync(resolve(evidenceDir,'console.json'),JSON.stringify(problems,null,2));
-            try {await context?.close();} finally {await browser.close();}
+            try {await context?.close();} finally {await Promise.all(browser.contexts().map(context => context.close()));}
         }
     }, 90_000);
 
@@ -1034,7 +1037,6 @@ describe('browser document lifecycle UI', () => {
         const evidenceDir = resolve(process.cwd(), '.devkit/lane-a-rux2', `app-${String(process.pid)}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
-        const browser = await chromium.launch({headless: true});
         const page = await browser.newPage({
             viewport: {
                 width: 900,
@@ -1134,7 +1136,7 @@ describe('browser document lifecycle UI', () => {
         } finally {
             writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify(observations, null, 2));
             writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
-            try {await page.context().close();} finally {await browser.close();}
+            try {await page.context().close();} finally {await Promise.all(browser.contexts().map(context => context.close()));}
         }
     }, 90_000);
 
@@ -1184,7 +1186,6 @@ describe('browser document lifecycle UI', () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-rux3/app-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
-        const browser = await chromium.launch({headless: true});
         const page = await browser.newPage({
             viewport: {
                 width: 1280,
@@ -1304,7 +1305,7 @@ describe('browser document lifecycle UI', () => {
                 // Finalize the renderer recording before the browser process exits.
                 await page.context().close();
             } finally {
-                await browser.close();
+                await Promise.all(browser.contexts().map(context => context.close()));
             }
         }
     }, 90_000);
@@ -1412,7 +1413,6 @@ describe('browser document lifecycle UI', () => {
         ]));
         const fixtureBytes = Buffer.from(await pdf.save());
         writeFileSync(resolve(process.cwd(), `.devkit/browser-foreign-attachment-${process.pid}.pdf`), fixtureBytes);
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({
                 viewport: {
@@ -1511,7 +1511,7 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('textbox', {
                 name: 'Write annotation note',
                 exact: true,
-            }).pressSequentially('Canonical note beside a foreign attachment');
+            }).fill('Canonical note beside a foreign attachment');
             await page.getByRole('button', {
                 name: 'Minimize note',
                 exact: true,
@@ -1547,7 +1547,7 @@ describe('browser document lifecycle UI', () => {
                 name: 'Write annotation note',
                 exact: true,
             })
-                .pressSequentially('Own saved highlight comment');
+                .fill('Own saved highlight comment');
             await page.getByRole('button', {
                 name: 'Minimize note',
                 exact: true,
@@ -1687,12 +1687,11 @@ describe('browser document lifecycle UI', () => {
             expect(consoleProblems).toEqual([]);
         } finally {
             await Promise.all(browser.contexts().map(context => context.close()));
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
     it('keeps the performance restart notice through Settings remount until reload', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({recordVideo: {dir: resolve(process.cwd(), '.devkit/lane-b/evidence/op-03-video')}});
             await page.addInitScript(() => {
@@ -1748,7 +1747,7 @@ describe('browser document lifecycle UI', () => {
             await chooseMode('Low — minimize background work', 'low');
             await expect.poll(() => notice.count()).toBe(0);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
@@ -1757,7 +1756,6 @@ describe('browser document lifecycle UI', () => {
         'single',
         'split',
     ])('writes the accepted note through browser Save As from %s view', async (view) => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1600,
@@ -1790,7 +1788,7 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('textbox', {
                 name: 'Write annotation note',
                 exact: true,
-            }).pressSequentially(text);
+            }).fill(text);
             await page.getByRole('button', {
                 name: 'Minimize note',
                 exact: true,
@@ -1861,11 +1859,10 @@ describe('browser document lifecycle UI', () => {
                 await Promise.all(downloads);
             }
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120000);
     it('withdraws hosted diagnostics in another open window and allows an explicit regrant', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const context = await browser.newContext({recordVideo: {dir: resolve(process.cwd(), '.devkit/lane-b/evidence/op-02-video')}});
             const envelopes: string[] = [];
@@ -1955,13 +1952,12 @@ describe('browser document lifecycle UI', () => {
             expect(envelopes.some(body => body.includes(withdrawnId))).toBe(false);
             expect(checkedAfterWithdrawal).toBe(false);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
     // T2/T4: reading an information page keeps accepted work and both live views.
     it('preserves an unsaved note and linked view zoom through Privacy and About routes', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({
                 viewport: {
@@ -1996,7 +1992,7 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('textbox', {
                 name: 'Write annotation note',
                 exact: true,
-            }).pressSequentially(text);
+            }).fill(text);
             await page.getByRole('button', {
                 name: 'Minimize note',
                 exact: true,
@@ -2144,7 +2140,7 @@ describe('browser document lifecycle UI', () => {
                 await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-information-${informationPage}-return.png`)});
             }
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
@@ -2153,7 +2149,6 @@ describe('browser document lifecycle UI', () => {
     it('prints existing FreeText without AP and preserves explicit appearances', async () => {
         const evidence = resolve(process.cwd(), `.devkit/1037/browser-${process.pid}`);
         mkdirSync(evidence, {recursive: true});
-        const browser = await chromium.launch({headless: true});
         const page = await browser.newPage({
             viewport: {
                 width: 1_280,
@@ -2284,14 +2279,13 @@ describe('browser document lifecycle UI', () => {
         } finally {
             writeFileSync(resolve(evidence, 'console.json'), JSON.stringify(problems));
             await page.screenshot({path: resolve(evidence, 'final.png')});
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
     // T2/T3, issue #1027: accepted note text reaches recovery bytes, and its
     // icon reaches the printed canvas while the original remains unsaved.
     it('materializes an unsaved note for browser recovery and print without saving the original', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -2359,7 +2353,7 @@ describe('browser document lifecycle UI', () => {
             await page.getByRole('textbox', {
                 name: 'Write annotation note',
                 exact: true,
-            }).pressSequentially(text);
+            }).fill(text);
             await page.getByRole('button', {
                 name: 'Minimize note',
                 exact: true,
@@ -2423,7 +2417,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).isEnabled()).toBe(true);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
@@ -2446,7 +2440,6 @@ describe('browser document lifecycle UI', () => {
         const firstNote = 'Note before the freeze';
         const secondNote = 'Note after the resume';
         const consoleProblems: string[][] = [];
-        const browser = await chromium.launch({headless: true});
         try {
             const context = await browser.newContext({viewport: {
                 width: 1_280,
@@ -2540,7 +2533,7 @@ describe('browser document lifecycle UI', () => {
             ]));
             expect(consoleProblems.flat()).toEqual([]);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
@@ -2556,7 +2549,6 @@ describe('browser document lifecycle UI', () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-duplicate-${process.pid}-${hasWebLocks ? 'locks' : 'no-locks'}`);
         mkdirSync(evidenceDir, {recursive: true});
         const consoleProblems: string[][] = [];
-        const browser = await chromium.launch({headless: true});
         try {
             const context = await browser.newContext({viewport: {
                 width: 1_280,
@@ -2745,7 +2737,7 @@ describe('browser document lifecycle UI', () => {
             expect(await recovered.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain('copy.pdf');
             expect(consoleProblems.flat()).toEqual([]);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
@@ -2786,7 +2778,6 @@ describe('browser document lifecycle UI', () => {
         }))]));
         const bytes = Buffer.from(await pdf.save());
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
-        const browser = await chromium.launch({headless: true});
         const context = await browser.newContext({viewport: {
             width: 1_280,
             height: 900,
@@ -2852,12 +2843,11 @@ describe('browser document lifecycle UI', () => {
                 observations,
                 problems,
             }, null, 2));
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
     it('starts and opens a PDF without desktop diagnostics or recovery warnings under an Electron-shaped user agent', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             // Embedded Electron-based browsers report this user agent without
             // installing the EVB preload bridge.
@@ -2923,12 +2913,11 @@ describe('browser document lifecycle UI', () => {
             expect(await page.locator('.app-toast-failure').count()).toBe(0);
             expect(consoleProblems).toEqual([]);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
     it('opens the Start file chooser in the click while the workspace chunk is still loading', async () => {
-        const browser = await chromium.launch({headless: true});
         const workspaceModuleRequested = Promise.withResolvers<undefined>();
         const releaseWorkspaceModule = Promise.withResolvers<undefined>();
         try {
@@ -2978,12 +2967,11 @@ describe('browser document lifecycle UI', () => {
             expect(consoleProblems).toEqual([]);
         } finally {
             releaseWorkspaceModule.resolve(undefined);
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
     it('keeps the rendered document and tab identity after a corrupt replacement is rejected', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -3044,12 +3032,11 @@ describe('browser document lifecycle UI', () => {
             expect(await page.locator('.page_container--rendered canvas').count())
                 .toBe(canvasCountBefore);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
     it('shows a literal percent sequence in a browser file name exactly on its tab', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -3092,7 +3079,7 @@ describe('browser document lifecycle UI', () => {
             await expect.poll(() => activeTab.textContent()).toContain('report%20final.pdf');
             await expect.poll(() => activeTab.getAttribute('aria-label')).toBe('report%20final.pdf');
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
@@ -3108,7 +3095,6 @@ describe('browser document lifecycle UI', () => {
             'Clear History',
         ],
     ] as const)('keeps an open document source when Recent Files %s meets an unreadable dependent record', async (_action, buttonName, confirmName) => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -3238,14 +3224,13 @@ describe('browser document lifecycle UI', () => {
             expect(stored.present).toBe(true);
             expect(stored.chunkBytes).toBeGreaterThan(0);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
     it('explains the missing components when an indirect DjVu index is picked alone', async () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-djvu-index-only-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
-        const browser = await chromium.launch({headless: true});
         const context = await browser.newContext({
             viewport: {
                 width: 1_280,
@@ -3292,7 +3277,7 @@ describe('browser document lifecycle UI', () => {
             expect(pageErrors).toEqual([]);
         } finally {
             await context.close();
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
@@ -3455,7 +3440,6 @@ describe('browser document lifecycle UI', () => {
     }, 120_000);
 
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -3565,12 +3549,11 @@ describe('browser document lifecycle UI', () => {
                 fullPage: true,
             });
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 240_000);
 
     it('renders an externally replaced PDF and reopens that persisted Recent file', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -3651,12 +3634,11 @@ describe('browser document lifecycle UI', () => {
                 fullPage: true,
             });
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
     it('proves a dirty viewer transfer after source loss before target authority readback', async () => {
-        const browser = await chromium.launch({headless: true});
         const context = await browser.newContext();
         const source = await context.newPage();
         const target = await context.newPage();
@@ -3861,13 +3843,12 @@ describe('browser document lifecycle UI', () => {
                 await reopened.close();
             }
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 240_000);
 
     // Sweep #845 item 8: Save As keeps each linked view's zoom.
     it('keeps each linked view zoom through a browser Save As', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_600,
@@ -3979,12 +3960,11 @@ describe('browser document lifecycle UI', () => {
                 left: await readCurrentPaintedPageWidth(leftPane!),
             }).toEqual(before);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
     it('finds a regex match while the search worker is still starting', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -4041,12 +4021,11 @@ describe('browser document lifecycle UI', () => {
                 .toEqual(['First']);
             expect(consoleProblems).toEqual([]);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 
     it('keeps known PDF regex hits when another document cancels its search', async () => {
-        const browser = await chromium.launch({headless: true});
         const releaseWorker = Promise.withResolvers<undefined>();
         try {
             const page = await browser.newPage();
@@ -4108,11 +4087,10 @@ describe('browser document lifecycle UI', () => {
             await expect.poll(() => page.locator('#search-other-result').textContent(), {timeout: 30_000}).toContain('First');
         } finally {
             releaseWorker.resolve(undefined);
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
     it('isolates another document when a DjVu regex is canceled', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
             const url = `${origin}/__search-isolation`;
@@ -4141,17 +4119,15 @@ describe('browser document lifecycle UI', () => {
             await new Promise(r=>setTimeout(r,50)); a.abort();
             return {first:await first, second:await second, secondAborted:b.signal.aborted};
         })()`);
-            console.log('REVIEW cross-document cancellation', JSON.stringify(result));
             expect(result.second).toEqual({
                 ok:true,
                 count:1,
             });
-        } finally {await browser.close();}
+        } finally {await Promise.all(browser.contexts().map(context => context.close()));}
     }, 90_000);
 
 
     it('preserves the regex budget across normalization at the page-text cap', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
             const url = `${origin}/__search-normalization`;
@@ -4185,7 +4161,7 @@ describe('browser document lifecycle UI', () => {
             console.info('Normalization budget', JSON.stringify(results));
             expect(results.every(result => !result.error && result.remainingMs > 0 && result.nextMatches === 1)).toBe(true);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
@@ -4199,7 +4175,6 @@ describe('browser document lifecycle UI', () => {
             fragmented: true,
         },
     ])('reconciles search highlight text: $label', async ({fragmented}) => {
-        const browser = await chromium.launch({headless: true});
         const evidenceDir = resolve(process.cwd(), `.devkit/search-highlight-regressions/${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         try {
@@ -4263,7 +4238,7 @@ describe('browser document lifecycle UI', () => {
                 }, null, 2));
             }
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
@@ -4271,7 +4246,6 @@ describe('browser document lifecycle UI', () => {
         true,
         false,
     ])('paints authoritative regex highlights while trusted input stays responsive (known text: %s)', async (knownText) => {
-        const browser = await chromium.launch({headless: true});
         try {
             // The blank renderer fixture loads product CSS directly.
             const page = await browser.newPage({bypassCSP: true});
@@ -4343,12 +4317,11 @@ describe('browser document lifecycle UI', () => {
                 clearTimeout(containment);
             }
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
     it('stops a catastrophic DjVu regex at the search budget and keeps the page responsive', async () => {
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -4407,7 +4380,7 @@ describe('browser document lifecycle UI', () => {
             await expect.poll(() => regexToggle.first().getAttribute('aria-pressed'), {timeout: 1_000}).toBe('false');
             expect(consoleProblems).toEqual([]);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 180_000);
 
@@ -4428,7 +4401,6 @@ describe('browser document lifecycle UI', () => {
                 y: 700 - line * 40,
             });
         }
-        const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage({viewport: {
                 width: 1_280,
@@ -4482,7 +4454,7 @@ describe('browser document lifecycle UI', () => {
             });
             expect(consoleProblems).toEqual([]);
         } finally {
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 120_000);
 });
@@ -4507,7 +4479,6 @@ describe('optional search-cache mutation completion proof', () => {
             font,
         });
         const bytes = Buffer.from(await pdf.save());
-        const browser = await chromium.launch({headless: true});
         const evidenceDir = resolve(process.cwd(), `.devkit/browser-search-cache-mutation-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, `${fault}-source.pdf`), bytes);
@@ -4648,7 +4619,7 @@ describe('optional search-cache mutation completion proof', () => {
                 await page.close();
                 await video?.saveAs(resolve(evidenceDir, `${fault}-proof.webm`));
             }
-            await browser.close();
+            await Promise.all(browser.contexts().map(context => context.close()));
         }
     }, 90000);
     it('keeps rotated search boxes on their words without coordinate warnings', async () => {
@@ -4670,7 +4641,6 @@ describe('optional search-cache mutation completion proof', () => {
         const evidenceDir = resolve(process.cwd(), `.devkit/lane-a-1094/browser-${process.pid}`);
         mkdirSync(evidenceDir, {recursive: true});
         writeFileSync(resolve(evidenceDir, 'source.pdf'), bytes);
-        const browser = await chromium.launch({headless: true});
         let page: Page | undefined;
         try {
             page = await browser.newPage({
@@ -4737,7 +4707,7 @@ describe('optional search-cache mutation completion proof', () => {
             }, undefined, {timeout: 30_000});
             await page.locator('[data-testid="document-sidebar"] [role="tab"]:visible', {hasText: 'Search'}).first().click();
             const input = page.locator('.document-search-bar input:visible').first();
-            await input.pressSequentially('proof');
+            await input.fill('proof');
             expect(await input.inputValue()).toBe('proof');
             writeFileSync(resolve(evidenceDir, 'before-enter.json'), JSON.stringify(await page.evaluate(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
@@ -4828,7 +4798,7 @@ describe('optional search-cache mutation completion proof', () => {
                     await video?.saveAs(resolve(evidenceDir, 'proof.webm'));
                 }
             } finally {
-                await browser.close();
+                await Promise.all(browser.contexts().map(context => context.close()));
             }
         }
     }, 120_000);
@@ -4841,7 +4811,6 @@ it.each([
     'two-window-move-source-stays-open',
     'clear-recent',
 ])('keeps the saved copy source and both notes after Clear Recent Files and Save (mode=%s)', async (mode) => {
-    const browser = await chromium.launch({headless:true});
     const observations:unknown[]=[];
     let activePage: Page | null = null;
     const evidenceDir=resolve(process.cwd(),`.devkit/bw03-r2/ui-${process.env.BW03_REV ?? 'green'}-${mode}`);mkdirSync(evidenceDir,{recursive:true});
@@ -5041,7 +5010,7 @@ it.each([
         }
         writeFileSync(resolve(evidenceDir, 'nuxt.log'), serverOutput);
         writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));
-        await browser.close();
+        await Promise.all(browser.contexts().map(context => context.close()));
     }
 },240000);
 
@@ -5116,7 +5085,6 @@ it.each([
     });
     const bytes = Buffer.from(await pdf.save());
     writeFileSync(resolve(out, 'fixture.pdf'), bytes);
-    const browser = await chromium.launch({headless: true});
     let page: Page | undefined;
     try {
         page = await browser.newPage({
@@ -5147,7 +5115,6 @@ it.each([
             Reflect.set(window, 'showSaveFilePicker', undefined);
             window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
         });
-        page.on('console', m => { if (m.type() === 'error') console.log('APP ERROR', m.text()); });
         await page.goto(origin, {waitUntil: 'domcontentloaded'});
         await waitForOpenFileReady(page);
         keepFileChooserInterceptionEnabled(page);
@@ -5182,7 +5149,7 @@ it.each([
         if (regex) await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
 
         const input = page.locator('.document-search-bar input:visible').first();
-        await input.pressSequentially('needle');
+        await input.fill('needle');
         await input.press('Enter');
         await expect.poll(() => page!.locator('.document-search-result:visible').count(), {timeout: 30000}).toBe(1);
         await page.locator('.document-search-result:visible').first().click();
@@ -5207,7 +5174,7 @@ it.each([
             await page.close();
             await video?.saveAs(resolve(out, 'proof.webm'));
         }
-        await browser.close();
+        await Promise.all(browser.contexts().map(context => context.close()));
     }
 }, 120000);
 
@@ -5318,7 +5285,6 @@ end
     sheet.node.addContentStream(context.register(context.flateStream('BT /F1 36 Tf 72 700 Td <00010001> Tj ET')));
     const bytes = Buffer.from(await pdf.save());
     writeFileSync(resolve(out, 'fixture.pdf'), bytes);
-    const browser = await chromium.launch({headless: true});
     let page: Page | undefined;
     try {
         page = await browser.newPage({
@@ -5397,7 +5363,7 @@ end
         });
         await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
         const input = page.locator('.document-search-bar input:visible').first();
-        await input.pressSequentially('f|if');
+        await input.fill('f|if');
         await input.press('Enter');
         await expect.poll(() => page!.locator('.document-search-result:visible').count(), {timeout: 30000}).toBe(4);
         await page.locator('.document-search-result:visible').nth(2).click();
@@ -5429,7 +5395,7 @@ end
             await page.close();
             await video?.saveAs(resolve(out, 'proof.webm'));
         }
-        await browser.close();
+        await Promise.all(browser.contexts().map(context => context.close()));
     }
 }, 120000);
 
@@ -5560,17 +5526,15 @@ it.each([
     mkdirSync(out, {recursive: true});
     const bytes = Buffer.from(RTL_SEARCH_PDF_BASE64, 'base64');
     writeFileSync(resolve(out, 'fixture.pdf'), bytes);
-    const browser = await chromium.launch({headless: true});
     let page: Page | undefined;
     const observations: unknown[] = [];
     try {
-        page = await browser.newPage({
-            viewport: {
-                width: 1280,
-                height: 900,
-            },
-            recordVideo: {dir: out},
-        });
+        page = await browser.newPage({viewport: {
+            width: 1280,
+            height: 900,
+        }});
+        // Advance product timers without replacing search or render work.
+        await page.clock.install();
         await page.addInitScript(highlightMode => {
             Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
             window.localStorage.setItem('pdfHighlightMode', highlightMode);
@@ -5699,8 +5663,9 @@ it.each([
             await input.fill('');
             await input.press('Enter');
             await expect.poll(() => page!.locator('.document-search-results').innerText()).toContain('Enter a search term');
-            await input.pressSequentially(testCase.query);
+            await input.fill(testCase.query);
             await input.press('Enter');
+            await page.clock.fastForward(300);
             await expect.poll(async () => {
                 const body = await page!.locator('.document-search-results').innerText();
                 return body.includes('No results found') || body.includes('results for');
@@ -5720,6 +5685,9 @@ it.each([
             ]) {
                 await page.locator('.document-search-result:visible').nth(index).click();
                 await expect.poll(async () => (await current()).map(range => range.text).join(''), {timeout: 10000}).toBe(testCase.text);
+                // The monitor still requires unchanged geometry and rendered
+                // pages; only its 500 ms no-input interval uses virtual time.
+                await page.clock.fastForward(600);
                 await page.evaluate(async () => {
                     const monitor = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {timeoutMs: number}) => Promise<{
                         settled: boolean;
@@ -5741,16 +5709,13 @@ it.each([
                     paint,
                 });
             }
-            await page.screenshot({path: resolve(out, `${encodeURIComponent(testCase.query)}.png`)});
         }
     } finally {
         writeFileSync(resolve(out, 'outcomes.json'), JSON.stringify(observations, null, 2));
         if (page) {
             await page.screenshot({path: resolve(out, 'final.png')}).catch(() => {});
-            const video = page.video();
             await page.close();
-            await video?.saveAs(resolve(out, 'proof.webm'));
         }
-        await browser.close();
+        await Promise.all(browser.contexts().map(context => context.close()));
     }
 }, 180000);
