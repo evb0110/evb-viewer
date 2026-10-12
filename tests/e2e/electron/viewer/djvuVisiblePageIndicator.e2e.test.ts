@@ -13,7 +13,9 @@ import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/creat
 import {
     openDjvuInApp, waitForDjvuLoaded, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {
+    activateMenuItemAsUser, clickAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
     waitForWorkspaceToolbarSnapshot, readWorkspaceStateValues,
@@ -21,7 +23,6 @@ import {
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
-import {activateMenuItemAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {collectDocumentOpenDiagnostics} from '@tests/e2e/electron/helpers/collectDocumentOpenDiagnostics';
 
 

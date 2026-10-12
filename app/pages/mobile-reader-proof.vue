@@ -331,7 +331,7 @@ async function clearRecent() {
 }
 
 async function handleClose() {
-    closeFile();
+    await closeFile();
     searchDraft.value = '';
     isSearchOpen.value = false;
     currentPage.value = 1;
