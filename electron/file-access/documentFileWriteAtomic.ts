@@ -36,6 +36,11 @@ function assertWithinIpcWriteBudget(byteLength: number) {
     }
 }
 
+/** A publication's temporary name; one beside a journaled backup is removed by recovery with that backup. */
+export function getPublicationTemporaryPath(targetPath: string, destinationBackupPath?: string) {
+    return destinationBackupPath === undefined ? makeSiblingTempPath(targetPath) : `${destinationBackupPath}.tmp`;
+}
+
 async function linkImmutableSourceForAtomicCopy(sourcePath: string, targetPath: string) {
     if (
         process.env.NODE_ENV === 'test'
@@ -108,7 +113,7 @@ export async function copyFileAtomic(
     assertNoSymlinkPathSegments(resolvedTargetPath);
 
     const directoryPath = dirname(resolvedTargetPath);
-    const temporaryPath = makeSiblingTempPath(resolvedTargetPath);
+    const temporaryPath = getPublicationTemporaryPath(resolvedTargetPath, options.destinationBackupPath);
 
     try {
         const cloneOutcome = await measureCopyPhase(options.onPhase, 'clone', () =>
@@ -204,7 +209,7 @@ export async function publishImmutableFileAtomic(
     assertNoSymlinkPathSegments(resolvedSourcePath);
     assertNoSymlinkPathSegments(resolvedTargetPath);
     const directoryPath = dirname(resolvedTargetPath);
-    const temporaryPath = makeSiblingTempPath(resolvedTargetPath);
+    const temporaryPath = getPublicationTemporaryPath(resolvedTargetPath, options.destinationBackupPath);
     try {
         await linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath);
     } catch (error) {

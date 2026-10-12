@@ -1656,4 +1656,46 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             vi.doUnmock('@electron/file-access/documentFileWriteAtomic');
         }
     });
+
+    it('removes the publication link a crash left beside the PDF on the next start and keeps an unrelated temporary file', async () => {
+        const fs = await import('node:fs/promises');
+        let originalDirectory = '';
+        let crashed = (): void => undefined;
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            // The process dies right before it removes the publication's temporary name.
+            unlink: async (...args: Parameters<typeof fs.unlink>) => {
+                if (originalDirectory !== '' && dirname(String(args[0])) === originalDirectory && String(args[0]).endsWith('.tmp')) {
+                    crashed();
+                    return new Promise<void>(() => undefined);
+                }
+                return fs.unlink(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-crash-before-unlink');
+            const unrelated = join(dirname(originalPath), '.unrelated.tmp');
+            await writeFile(unrelated, 'another program');
+            const crash = new Promise<void>(resolve => {
+                crashed = resolve;
+            });
+            originalDirectory = dirname(originalPath);
+            void saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 67));
+            await crash;
+            originalDirectory = '';
+            expect((await readdir(dirname(originalPath))).filter(name => name.endsWith('.tmp'))).toHaveLength(2);
+
+            vi.resetModules();
+            const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
+            await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
+            expect((await readdir(dirname(originalPath))).filter(name => name.endsWith('.tmp'))).toEqual(['.unrelated.tmp']);
+            await expect(readFile(unrelated, 'utf8')).resolves.toBe('another program');
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+    });
 });

@@ -19,6 +19,7 @@ import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {readWorkingCopyManifest} from '@electron/file-access/workingCopyManifest';
 import {
     copyFileAtomic,
+    getPublicationTemporaryPath,
     linkOrCopyFileDurably,
 } from '@electron/file-access/documentFileWriteAtomic';
 import {
@@ -31,11 +32,7 @@ import {
     getWorkingCopyJournalPath,
 } from '@electron/file-access/workingCopyDirectory';
 import {writeJsonAtomic} from '@electron/utils/atomicReplace';
-import {createLogger} from '@electron/utils/createLogger';
-import {getErrorMessage} from '@electron/utils/error';
 import * as v from 'valibot';
-
-const log = createLogger('workingCopyJournal');
 
 export type TWorkingCopyContentBackupMode = 'copy-on-write' | 'hard-link' | 'append';
 
@@ -107,29 +104,18 @@ function writeJournal(journal: IWorkingCopyJournal) {
     return writeJsonAtomic(getWorkingCopyJournalPath(journal.workingCopyPath), journal, {markMutationCommitStarted: false});
 }
 
-async function measurePhase<T>(
-    phase: string,
-    onPhase: ((phase: string, durationMs: number) => void) | undefined,
-    operation: () => Promise<T>,
-): Promise<T> {
-    return measureOperationPhase(operation, durationMs => {
-        try { onPhase?.(phase, durationMs); }
-        catch (error) { log.warn(`Working-copy journal phase reporter failed: ${getErrorMessage(error)}`); }
-    });
-}
-
 export async function prepareWorkingCopyTransition(
     workingCopyPath: string,
     nextRevisionToken: TDocumentRevisionToken,
     onPhase?: (phase: string, durationMs: number) => void,
     backupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
 ) {
-    await measurePhase('content-recover', onPhase, () => recoverWorkingCopyTransition(workingCopyPath));
+    await measureOperationPhase(() => recoverWorkingCopyTransition(workingCopyPath), durationMs => onPhase?.('content-recover', durationMs));
     const backupPath = getWorkingCopyJournalBackupPath(workingCopyPath, `${process.pid}-${randomUUID()}`);
     const appendSourceStat = backupMode === 'append' ? await stat(workingCopyPath) : null;
-    await measurePhase('content-backup-pdf', onPhase, () => backupMode === 'copy-on-write'
+    await measureOperationPhase(() => backupMode === 'copy-on-write'
         ? copyFileAtomic(workingCopyPath, backupPath)
-        : linkOrCopyFileDurably(workingCopyPath, backupPath));
+        : linkOrCopyFileDurably(workingCopyPath, backupPath), durationMs => onPhase?.('content-backup-pdf', durationMs));
     const appendBackupStat = backupMode === 'append' ? await stat(backupPath) : null;
     const appendHardLink = appendSourceStat !== null
         && appendBackupStat !== null
@@ -144,7 +130,7 @@ export async function prepareWorkingCopyTransition(
         backupMode: appendHardLink ? 'append-hard-link' : 'copy',
         ...(appendHardLink ? {previousLength: appendSourceStat.size} : {}),
     };
-    await measurePhase('content-write-journal', onPhase, () => writeJournal(journal));
+    await measureOperationPhase(() => writeJournal(journal), durationMs => onPhase?.('content-write-journal', durationMs));
     return journal;
 }
 
@@ -201,6 +187,8 @@ async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
  */
 export async function completeWorkingCopyTransition(journal: IWorkingCopyJournal) {
     if (journal.original?.state === 'conflicted') return;
+    // A crash during publication can leave its temporary link, named for the backup.
+    if (journal.original) await rm(getPublicationTemporaryPath(journal.original.path, journal.original.backupPath), {force: true});
     await rm(getWorkingCopyJournalPath(journal.workingCopyPath), {force: true});
     await rm(journal.backupPath, {force: true});
     if (journal.original) await rm(journal.original.backupPath, {force: true});
@@ -261,7 +249,7 @@ function truncateToUtf8Bytes(text: string, maxBytes: number) {
  */
 function getOriginalBackupNamePrefix(originalPath: string, workingCopyPath: string) {
     const ownerSegment = `.evb-transition-${basename(dirname(workingCopyPath))}-`;
-    const basenameBudget = NAME_MAX_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - UUID_LENGTH - '.bak'.length;
+    const basenameBudget = NAME_MAX_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - UUID_LENGTH - '.bak.tmp'.length;
     return `${truncateToUtf8Bytes(basename(originalPath), basenameBudget)}${ownerSegment}`;
 }
 
