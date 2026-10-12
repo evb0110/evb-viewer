@@ -1,10 +1,10 @@
 import {
-    mkdtemp, rm, writeFile,
+    copyFile, mkdir, mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
-    PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString,
+    PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFString,
 } from 'pdf-lib';
 import {
     describe, expect, it, onTestFinished,
@@ -12,15 +12,16 @@ import {
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    openPdfInApp, waitForPdfLoaded, waitForViewerInteractive,openAnnotationsTab,
+    openPdfInApp, waitForPdfLoaded, waitForViewerInteractive,openAnnotationsTab, saveViaVisibleToolbar,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     clickAsUser, revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 
-async function highlightedTextPdf(path: string, note = '') {
+async function highlightedTextPdf(path: string, note = '', flags = 4) {
     const pdf = await PDFDocument.create();
     const page = pdf.addPage([
         612,
@@ -43,7 +44,7 @@ async function highlightedTextPdf(path: string, note = '') {
         Type: PDFName.of('Annot'),
         Subtype: PDFName.of('Highlight'),
         P: page.ref,
-        F: PDFNumber.of(4),
+        F: PDFNumber.of(flags),
         NM: PDFHexString.fromText('text-select-highlight'),
         Rect: [
             88,
@@ -110,6 +111,66 @@ async function drag(page: Page, points: Awaited<ReturnType<typeof lineDragPoints
 
 describe('Electron E2E - Text Select over existing highlight', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-text-select-highlight-${Date.now()}`});
+
+    it.each([
+        68,
+        644,
+    ])('keeps restricted highlight flags %i foreign and preserves its contents on Save', async flags => {
+        const {page} = sessions.getSession();
+        const directory = await mkdtemp(join(tmpdir(), 'evb-restricted-highlight-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const path = join(directory, 'restricted.pdf');
+        await highlightedTextPdf(path, 'Locked note', flags);
+        const contents = async () => {
+            const pdf = await PDFDocument.load(await readFile(path));
+            const annots = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            const highlight = annots.asArray().map(ref => pdf.context.lookup(ref, PDFDict))
+                .find(dict => dict.get(PDFName.of('Subtype'))?.toString() === '/Highlight')!;
+            return {
+                bytes: Array.from(highlight.lookup(PDFName.of('Contents'), PDFString).asBytes()),
+                flags: highlight.lookup(PDFName.of('F'), PDFNumber).asNumber(),
+            };
+        };
+        const before = await contents();
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAsUser(page, '.notes-panel .tool-button[data-tool="select"]');
+        await page.waitForSelector('.editor-pane.is-active .textLayer span, .editor-pane.is-active .text-layer span');
+        const {start} = await lineDragPoints(page, 'Marked sentence must remain selectable');
+        await page.mouse.click(start.x, start.y, {count: 2});
+        await page.evaluate(async () => {
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        });
+        expect(await page.$$('textarea.note-window__textarea:not([readonly]):not([disabled])')).toHaveLength(0);
+        expect(await page.$$('.editor-pane.is-active [data-annotation-kind="text-markup"]')).toHaveLength(0);
+        const yellowPixels = await page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', element => {
+            if (!(element instanceof HTMLCanvasElement)) throw new Error('Page canvas is missing');
+            const {data} = element.getContext('2d')!.getImageData(0, 0, element.width, element.height);
+            let yellow = 0;
+            for (let index = 0; index < data.length; index += 4) {
+                if (data[index]! > 180 && data[index + 1]! > 140 && data[index + 2]! < 160
+                    && data[index]! > data[index + 2]! + 60) yellow += 1;
+            }
+            return yellow;
+        });
+        expect(yellowPixels).toBeGreaterThan(1_000);
+        await createCanonicalTextBoxWithPointer(page, 'Unrelated saved edit', {
+            x: 0.2,
+            y: 0.65,
+        });
+        await saveViaVisibleToolbar(page, 30_000, path);
+        expect(await contents()).toEqual(before);
+        const artifacts = join('.devkit', 'artifacts', `restricted-highlight-${flags}-${Date.now()}`);
+        await mkdir(artifacts, {recursive: true});
+        await copyFile(path, join(artifacts, 'saved.pdf'));
+        await page.screenshot({path: join(artifacts, 'restricted-highlight.png')});
+        console.log(`RESTRICTED_HIGHLIGHT_EVIDENCE ${artifacts}`);
+    }, 90_000);
 
     it('selects text through a highlight without moving its mark or dirtying the file', async () => {
         const {page} = sessions.getSession();
@@ -179,7 +240,8 @@ describe('Electron E2E - Text Select over existing highlight', () => {
             '',
         ]) {
             const path = join(directory, note ? 'with-note.pdf' : 'empty-note.pdf');
-            await highlightedTextPdf(path, note);
+            // Locked geometry alone permits contents edits, unlike ReadOnly or LockedContents.
+            await highlightedTextPdf(path, note, note ? 4 : 132);
             await openPdfInApp(page, path);
             await waitForPdfLoaded(page);
             await waitForViewerInteractive(page);

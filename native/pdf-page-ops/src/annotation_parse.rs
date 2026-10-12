@@ -698,9 +698,20 @@ fn parse_highlight_entry(
     subtype: &str,
     name: &str,
 ) -> std::result::Result<PdfAnnotationParseHighlight, String> {
+    // The canonical editor has no read-only contents capability; retain these as foreign.
+    if read_optional_integer(document, dict, b"F")?.unwrap_or(0) & (64 | 512) != 0 {
+        return Err("Text markup contents are read-only".to_string());
+    }
+    let subtype = canonical_markup_subtype_name(subtype);
     let quad_points = parse_highlight_quad_points(document, dict, page_view, page_rotation)?;
-    let color =
-        read_annotation_color(document, dict).unwrap_or_else(|| default_markup_color(subtype));
+    let color = read_annotation_color(document, dict).unwrap_or_else(|| {
+        if subtype == "Highlight" {
+            "#ffff00"
+        } else {
+            "#ff0000"
+        }
+        .to_string()
+    });
     Ok(PdfAnnotationParseHighlight {
         replies: Vec::new(),
         page_index,
@@ -710,7 +721,7 @@ fn parse_highlight_entry(
         author: read_optional_annotation_author(document, dict)?,
         created_at: read_annotation_date(document, dict, b"CreationDate"),
         modified_at: read_annotation_date(document, dict, b"M"),
-        subtype: canonical_markup_subtype_name(subtype).to_string(),
+        subtype: subtype.to_string(),
         quad_points,
         color,
         opacity: read_shape_opacity(document, dict),
@@ -758,16 +769,6 @@ fn parse_highlight_quad_points(
             .map_err(|error| error.to_string())
         })
         .collect()
-}
-
-/// Color fallback mirrors the renderer's default paint for each markup
-/// subtype, so a foreign highlight without `/C` still reports a color.
-fn default_markup_color(subtype: &str) -> String {
-    if canonical_markup_subtype_name(subtype) == "Highlight" {
-        "#ffff00".to_string()
-    } else {
-        "#ff0000".to_string()
-    }
 }
 
 fn canonical_markup_subtype_name(subtype: &str) -> &'static str {
@@ -2107,9 +2108,7 @@ mod tests {
     }
 
     fn single_page_document(annotations: Vec<(Dictionary, bool)>) -> Document {
-        let mut document = Document::with_version("1.7");
-        let pages_id = document.new_object_id();
-        let page_id = document.new_object_id();
+        let (mut document, page_id) = single_page_writer_document();
         let annots = annotations
             .into_iter()
             .map(|(dict, indirect)| {
@@ -2120,29 +2119,10 @@ mod tests {
                 }
             })
             .collect::<Vec<_>>();
-        document.set_object(
-            page_id,
-            dictionary! {
-                "Type" => "Page",
-                "Parent" => pages_id,
-                "MediaBox" => rect(0.0, 0.0, 200.0, 100.0),
-                "Annots" => Object::Array(annots),
-            },
-        );
-        document.set_object(
-            pages_id,
-            dictionary! {
-                "Type" => "Pages",
-                "Kids" => vec![Object::Reference(page_id)],
-                "Count" => 1,
-                "MediaBox" => rect(0.0, 0.0, 200.0, 100.0),
-            },
-        );
-        let catalog_id = document.add_object(dictionary! {
-            "Type" => "Catalog",
-            "Pages" => pages_id,
-        });
-        document.trailer.set("Root", catalog_id);
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", annots);
         document
     }
 
@@ -2226,11 +2206,28 @@ mod tests {
     }
 
     #[test]
+    fn restricted_markup_stays_foreign_but_locked_geometry_can_edit_contents() {
+        for subtype in ["Highlight", "Underline", "StrikeOut", "Squiggly"] {
+            for flags in [4, 68, 132, 516, 644] {
+                let mut mark =
+                    highlight_dict(subtype, &[20.0, 80.0, 120.0, 80.0, 20.0, 70.0, 120.0, 70.0]);
+                mark.set("F", flags);
+                let document = single_page_document(vec![(mark, true)]);
+                let entries = collect_parsed_annotations(&document, "").unwrap();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(
+                    matches!(entries[0], PdfAnnotationParseEntry::Foreign(_)),
+                    flags & (64 | 512) != 0,
+                    "{subtype} /F {flags}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parses_a_stamp_with_its_image_reference_and_rotation() {
         let jpeg_bytes = minimal_stamp_jpeg_bytes();
-        let mut document = Document::with_version("1.7");
-        let pages_id = document.new_object_id();
-        let page_id = document.new_object_id();
+        let (mut document, page_id) = single_page_writer_document();
         let image_id = document.add_object(Stream::new(
             dictionary! {
                 "Type" => "XObject",
@@ -2273,29 +2270,10 @@ mod tests {
             Object::Reference(document.add_object(Object::Dictionary(stamp))),
             Object::Reference(document.add_object(Object::Dictionary(acrobat_stamp))),
         ];
-        document.set_object(
-            page_id,
-            dictionary! {
-                "Type" => "Page",
-                "Parent" => pages_id,
-                "MediaBox" => rect(0.0, 0.0, 200.0, 100.0),
-                "Annots" => Object::Array(annots),
-            },
-        );
-        document.set_object(
-            pages_id,
-            dictionary! {
-                "Type" => "Pages",
-                "Kids" => vec![Object::Reference(page_id)],
-                "Count" => 1,
-                "MediaBox" => rect(0.0, 0.0, 200.0, 100.0),
-            },
-        );
-        let catalog_id = document.add_object(dictionary! {
-            "Type" => "Catalog",
-            "Pages" => pages_id,
-        });
-        document.trailer.set("Root", catalog_id);
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", annots);
 
         let entries = collect_parsed_annotations(&document, "D:20260830130000Z").unwrap();
         assert_eq!(entries.len(), 2);
