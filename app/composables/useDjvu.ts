@@ -542,7 +542,9 @@ export const useDjvu = (config: {
 
             BrowserLogger.info('djvu', 'Native DjVu viewing ready', { pageCount: result.pageCount ?? 0 });
             resetViewingProgressState();
-            await releaseViewingPath(previousDjvuPath);
+            if (previousDjvuPath && previousDjvuPath !== djvuPath) {
+                await releaseViewingPath(previousDjvuPath);
+            }
             if (!isCurrentDjvuOpen(generation, djvuPath)) {
                 BrowserLogger.warn('djvu-open-generation', 'Open superseded', {
                     reason: 'stale-before-source-activation',
