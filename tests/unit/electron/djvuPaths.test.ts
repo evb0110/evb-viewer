@@ -235,21 +235,39 @@ describe('buildDjvuRuntimeEnv', () => {
         expect(env.DYLD_LIBRARY_PATH).toBe('/opt/evb/djvu/lib:/opt/lib');
     });
 
-    it('adds a deterministic UTF-8 locale for Unix DjVuLibre filename decoding', () => {
+    it.each([
+        [
+            'darwin',
+            'en_US.UTF-8',
+        ],
+        [
+            'linux',
+            'C.UTF-8',
+        ],
+    ] as const)('adds a supported UTF-8 locale for %s DjVuLibre filename decoding', (platform, locale) => {
         const env = buildDjvuRuntimeEnv({
-            platform: 'darwin',
+            platform,
             baseEnv: {},
             libDir: '/opt/evb/djvu/lib',
         });
 
-        expect(env.LC_ALL).toBe('C.UTF-8');
-        expect(env.LC_CTYPE).toBe('C.UTF-8');
-        expect(env.LANG).toBe('C.UTF-8');
+        expect(env.LC_ALL).toBe(locale);
+        expect(env.LC_CTYPE).toBe(locale);
+        expect(env.LANG).toBe(locale);
     });
 
-    it('overrides inherited Unix locale settings for DjVuLibre filename decoding', () => {
+    it.each([
+        [
+            'darwin',
+            'en_US.UTF-8',
+        ],
+        [
+            'linux',
+            'C.UTF-8',
+        ],
+    ] as const)('overrides inherited locale settings for %s DjVuLibre filename decoding', (platform, locale) => {
         const env = buildDjvuRuntimeEnv({
-            platform: 'darwin',
+            platform,
             baseEnv: {
                 LC_ALL: 'UTF-8',
                 LC_CTYPE: 'en_US.UTF-8',
@@ -258,8 +276,8 @@ describe('buildDjvuRuntimeEnv', () => {
             libDir: '/opt/evb/djvu/lib',
         });
 
-        expect(env.LC_ALL).toBe('C.UTF-8');
-        expect(env.LC_CTYPE).toBe('C.UTF-8');
-        expect(env.LANG).toBe('C.UTF-8');
+        expect(env.LC_ALL).toBe(locale);
+        expect(env.LC_CTYPE).toBe(locale);
+        expect(env.LANG).toBe(locale);
     });
 });

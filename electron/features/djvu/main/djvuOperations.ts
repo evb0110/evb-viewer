@@ -2,7 +2,6 @@ import { getErrorMessage } from '@electron/utils/error';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import type { WebContents } from 'electron';
 import { randomUUID } from 'crypto';
-import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { estimateSizes } from '@electron/features/djvu/main/estimateSizes';
 import {
@@ -37,6 +36,7 @@ import {
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { getRecentFiles } from '@electron/recentFiles';
 import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
@@ -498,16 +498,13 @@ function requireDjvuOpenPath(
     if (!isDjvuPath(rawPath)) {
         throw new Error('Invalid DjVu file type');
     }
-    if (!existsSync(rawPath)) {
-        throw new Error(`DjVu file not found: ${rawPath}`);
-    }
     return requireOpenPath(rawPath, owner);
 }
 
 /**
  * Opening-frame prewarm is intentionally read-only and runs before a Recent
  * item is clicked, so it must not grant the renderer general file access or an
- * active viewing lease. Accept only a canonical path already present in the
+ * active viewing lease. Accept only an identity already present in the
  * application's persisted Recent list; all render operations continue to use
  * `requireDjvuOpenPath` plus `isAllowedDjvuViewingPath`.
  */
@@ -523,7 +520,7 @@ async function requireDjvuPageSourceInfoPath(path: unknown, owner: WebContents) 
         }
         const recentFiles = await getRecentFiles();
         const isPersistedRecent = recentFiles.some(file => (
-            normalizeExistingPath(String(file.originalPath)) === normalizedPath
+            normalizePathForLookup(String(file.originalPath)) === normalizePathForLookup(normalizedPath)
         ));
         if (!isPersistedRecent) {
             throw error;

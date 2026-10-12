@@ -3,6 +3,7 @@ import { sep } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import type { Tagged } from 'type-fest';
 
 export type TOpenPath = Tagged<string, 'OpenPath'>;
@@ -15,14 +16,6 @@ const allowedRevealPathsByOwner = new Map<number, Map<string, IOpenPathGrant>>()
 const ownerCleanupRegistered = new Set<number>();
 export const MAX_ALLOWED_OPEN_PATHS = 2_048;
 export const OPEN_PATH_CAPABILITY_TTL_MS = 24 * 60 * 60 * 1000;
-
-function normalizeOpenPath(filePath: string) {
-    if (typeof filePath !== 'string' || !filePath.trim()) {
-        return null;
-    }
-
-    return normalizeExistingPath(filePath);
-}
 
 function pruneAllowedPathMap(
     allowedPathsByOwner: Map<number, Map<string, IOpenPathGrant>>,
@@ -119,7 +112,7 @@ function allowPathsForWebContents(
     owner: number | WebContents,
     filePaths: readonly string[],
 ) {
-    const normalizedPaths = filePaths.map(filePath => normalizeOpenPath(filePath) as TOpenPath | null);
+    const normalizedPaths = filePaths.map(filePath => normalizeExistingPath(filePath) as TOpenPath | null);
     if (normalizedPaths.every(normalizedPath => normalizedPath === null)) {
         return normalizedPaths;
     }
@@ -135,15 +128,16 @@ function allowPathsForWebContents(
     const expiresAtMs = Date.now() + OPEN_PATH_CAPABILITY_TTL_MS;
     for (const normalizedPath of normalizedPaths) {
         if (normalizedPath !== null) {
-            allowedOpenPaths.delete(normalizedPath);
-            allowedOpenPaths.set(normalizedPath, {expiresAtMs});
+            const identity = normalizePathForLookup(normalizedPath);
+            allowedOpenPaths.delete(identity);
+            allowedOpenPaths.set(identity, {expiresAtMs});
         }
     }
     pruneAllowedPaths();
     // A batch larger than the owner's cap loses its oldest grants to the
     // prune; report only the paths that are still granted.
     return normalizedPaths.map(normalizedPath => (
-        normalizedPath !== null && allowedOpenPaths.has(normalizedPath) ? normalizedPath : null
+        normalizedPath !== null && allowedOpenPaths.has(normalizePathForLookup(normalizedPath)) ? normalizedPath : null
     ));
 }
 
@@ -168,20 +162,21 @@ function isAllowedPath(
     filePath: string,
     owner?: number | WebContents,
 ) {
-    const normalizedPath = normalizeOpenPath(filePath);
+    const normalizedPath = normalizeExistingPath(filePath);
     if (!normalizedPath) {
         return false;
     }
 
     const ownerId = getOwnerId(owner ?? 0);
     const allowedOpenPaths = allowedPathsByOwner.get(ownerId);
-    const grant = allowedOpenPaths?.get(normalizedPath);
+    const identity = normalizePathForLookup(normalizedPath);
+    const grant = allowedOpenPaths?.get(identity);
     if (!grant) {
         return false;
     }
 
     if (grant.expiresAtMs <= Date.now()) {
-        allowedOpenPaths?.delete(normalizedPath);
+        allowedOpenPaths?.delete(identity);
         if (allowedOpenPaths?.size === 0) {
             allowedPathsByOwner.delete(ownerId);
         }
@@ -193,7 +188,7 @@ function isAllowedPath(
 
 /** Whether a path resolves to an existing file, independent of any grant. */
 export function isOpenPathAccessible(rawPath: string) {
-    return normalizeOpenPath(rawPath) !== null;
+    return normalizeExistingPath(rawPath) !== null;
 }
 
 export function requireOpenPath(rawPath: string, owner?: number | WebContents): TOpenPath {
@@ -201,7 +196,7 @@ export function requireOpenPath(rawPath: string, owner?: number | WebContents): 
         throw new Error('Path not accessible');
     }
 
-    const normalizedPath = normalizeOpenPath(rawPath);
+    const normalizedPath = normalizeExistingPath(rawPath);
     if (!normalizedPath) {
         throw new Error('Path not accessible');
     }
@@ -218,7 +213,7 @@ export function requireRevealPath(rawPath: string, owner?: number | WebContents)
         throw new Error('Path not accessible');
     }
 
-    const normalizedPath = normalizeOpenPath(rawPath);
+    const normalizedPath = normalizeExistingPath(rawPath);
     if (!normalizedPath) {
         throw new Error('Path not accessible');
     }
@@ -234,27 +229,27 @@ export function requireRevealPath(rawPath: string, owner?: number | WebContents)
 }
 
 export function removeAllowedOpenPath(filePath: string) {
-    const normalizedPath = normalizeOpenPath(filePath);
+    const normalizedPath = normalizeExistingPath(filePath);
     if (!normalizedPath) {
         return;
     }
     for (const allowedOpenPaths of allowedOpenPathsByOwner.values()) {
-        allowedOpenPaths.delete(normalizedPath);
+        allowedOpenPaths.delete(normalizePathForLookup(normalizedPath));
     }
 }
 
 export function removeAllowedRevealPath(filePath: string) {
-    const normalizedPath = normalizeOpenPath(filePath);
+    const normalizedPath = normalizeExistingPath(filePath);
     if (!normalizedPath) {
         return;
     }
     for (const allowedRevealPaths of allowedRevealPathsByOwner.values()) {
-        allowedRevealPaths.delete(normalizedPath);
+        allowedRevealPaths.delete(normalizePathForLookup(normalizedPath));
     }
 }
 
 export function logRejectedOpenPath(filePath: string) {
-    const normalizedPath = normalizeOpenPath(filePath);
+    const normalizedPath = normalizeExistingPath(filePath);
     const displayPath = normalizedPath
         ? normalizedPath.split(sep).slice(-3).join(sep)
         : '<invalid>';

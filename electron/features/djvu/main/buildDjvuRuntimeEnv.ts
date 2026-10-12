@@ -9,8 +9,6 @@ interface IBuildDjvuRuntimeEnvOptions {
     libDir?: string;
 }
 
-const DJVU_UTF8_LOCALE = 'C.UTF-8';
-
 function getDjvuLibDir() {
     const platformArch = resolvePlatformArchTag();
     const resourcesBase = getDjvuNativeToolsBase(undefined, app.isPackaged);
@@ -57,13 +55,6 @@ function normalizeWindowsPathEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     return normalizedEnv;
 }
 
-function ensureUtf8Locale(env: NodeJS.ProcessEnv) {
-    // DjVuLibre decodes argv through the process locale; LaunchServices may omit UTF-8 locale vars.
-    env.LC_ALL = DJVU_UTF8_LOCALE;
-    env.LC_CTYPE = DJVU_UTF8_LOCALE;
-    env.LANG = DJVU_UTF8_LOCALE;
-}
-
 export function buildDjvuRuntimeEnv(options: IBuildDjvuRuntimeEnvOptions = {}): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {...(options.baseEnv ?? process.env)};
     const platform = options.platform ?? process.platform;
@@ -87,6 +78,10 @@ export function buildDjvuRuntimeEnv(options: IBuildDjvuRuntimeEnvOptions = {}): 
 
     prependEnvPath(env, [libDir], 'DYLD_LIBRARY_PATH', envDelimiter);
     prependEnvPath(env, [libDir], 'LD_LIBRARY_PATH', envDelimiter);
-    ensureUtf8Locale(env);
+    // DjVuLibre decodes argv through the locale. macOS 14 has no C.UTF-8 locale.
+    const locale = platform === 'darwin' ? 'en_US.UTF-8' : 'C.UTF-8';
+    env.LC_ALL = locale;
+    env.LC_CTYPE = locale;
+    env.LANG = locale;
     return env;
 }

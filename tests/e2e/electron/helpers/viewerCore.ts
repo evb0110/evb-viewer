@@ -2,7 +2,7 @@ import type {
     ElementHandle,
     Page,
 } from 'puppeteer-core';
-import {realpath} from 'node:fs/promises';
+import {resolve} from 'node:path';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { delay } from 'es-toolkit/promise';
@@ -158,14 +158,6 @@ async function dispatchDocumentOpenOnce<T>(task: () => Promise<T>) {
     }
 }
 
-async function resolveDocumentSourcePath(path: string) {
-    try {
-        return await realpath(path);
-    } catch {
-        return path;
-    }
-}
-
 async function waitForRendererBindings(page: Page, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const startedAt = Date.now();
     let lastState: {
@@ -240,7 +232,7 @@ export function readDrawnPage(session: IElectronE2ESession, pageNumber: number) 
 }
 
 export async function waitForActiveDocumentSource(page: Page, path: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
-    const sourcePath = await resolveDocumentSourcePath(path);
+    const sourcePath = resolve(path);
     await installWorkspaceExposeProbe(page);
     await waitForFunctionInPage(page, (payload: {path: string}) => {
         const normalize = (value: unknown) => typeof value === 'string'
@@ -433,7 +425,7 @@ async function openPathInApp(
     timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
     const startedAt = Date.now();
-    const sourcePath = await resolveDocumentSourcePath(path);
+    const sourcePath = resolve(path);
     let lastError: Error | null = null;
     let openTriggered = false;
     let openBaselineEventId = 0;

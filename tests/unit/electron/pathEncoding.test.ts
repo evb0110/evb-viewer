@@ -1,7 +1,7 @@
 import {
     mkdtempSync,
-    realpathSync,
     rmSync,
+    symlinkSync,
     writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
@@ -52,7 +52,7 @@ describe('native path identity', () => {
         const filePath = join(tempRoot, '100% Гиргас .pdf ');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        expect(normalizeExistingPath(filePath)).toBe(realpathSync.native(filePath));
+        expect(normalizeExistingPath(filePath)).toBe(filePath);
         expect(normalizeExistingPath(encodeURI(filePath))).toBeNull();
     });
 
@@ -86,7 +86,15 @@ describe('native path identity', () => {
             const requested = join(tempRoot, '"quoted.pdf"');
             writeFileSync(requested, 'exact quoted file');
             writeFileSync(join(tempRoot, 'quoted.pdf'), 'sibling');
-            expect(normalizeExistingPath(requested)).toBe(realpathSync.native(requested));
+            expect(normalizeExistingPath(requested)).toBe(requested);
         }
+    });
+    it('keeps the opened symlink spelling and Unicode filename', () => {
+        const target = join(tempRoot, 'café.pdf');
+        const requested = join(tempRoot, 'Гиргас-link.pdf');
+        writeFileSync(target, 'document');
+        symlinkSync(target, requested);
+
+        expect(normalizeExistingPath(requested)).toBe(requested);
     });
 });
