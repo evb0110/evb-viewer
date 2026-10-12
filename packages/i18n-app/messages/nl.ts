@@ -1750,6 +1750,12 @@ export default {
             'images': 'Afbeeldingsexport mislukt',
             'multiPageTiff': 'TIFF-export mislukt',
             'alreadyRunning': 'Er wordt al geëxporteerd',
+            'permissionDenied': 'EVB Viewer mocht niet in die map schrijven. Kies een andere map of controleer de rechten van de map.',
+            'fileBusy': 'Een bestand in die map wordt gebruikt door een ander programma. Sluit dat programma en exporteer opnieuw.',
+            'diskFull': 'De schijf is vol. Maak ruimte vrij of exporteer naar een andere schijf.',
+            'writeFailed': 'De bestanden konden niet worden geschreven. Controleer de map en de vrije schijfruimte en exporteer opnieuw.',
+            'originalKept': '{file} is tijdens de export gewijzigd en daarom bewaard. De eerdere versie staat ernaast als {kept}.',
+            'restoredOnNextStart': 'Sommige bestanden die de export verving, konden nog niet worden teruggezet. EVB Viewer zet ze terug bij de volgende start.',
         },
         'browser': {
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',

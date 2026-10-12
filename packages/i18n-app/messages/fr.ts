@@ -1761,6 +1761,12 @@ export default {
             'images': 'Échec de l’export des images',
             'multiPageTiff': 'Échec de l’export TIFF',
             'alreadyRunning': 'Un export est déjà en cours',
+            'permissionDenied': 'EVB Viewer n’a pas l’autorisation d’écrire dans ce dossier. Choisissez un autre dossier ou vérifiez ses autorisations.',
+            'fileBusy': 'Un fichier de ce dossier est utilisé par un autre programme. Fermez ce programme et relancez l’export.',
+            'diskFull': 'Le disque est plein. Libérez de l’espace ou exportez vers un autre disque.',
+            'writeFailed': 'Les fichiers n’ont pas pu être écrits. Vérifiez le dossier et l’espace libre, puis relancez l’export.',
+            'originalKept': '{file} a été modifié pendant l’export, il a donc été conservé. Sa version précédente se trouve à côté sous le nom {kept}.',
+            'restoredOnNextStart': 'Certains fichiers remplacés par l’export n’ont pas encore pu être restaurés. EVB Viewer les restaurera au prochain démarrage.',
         },
         'browser': {
             'filePickerSetupDenied': 'L’accès du navigateur aux fichiers a été refusé. Choisissez à nouveau Ouvrir pour utiliser le sélecteur compatible.',

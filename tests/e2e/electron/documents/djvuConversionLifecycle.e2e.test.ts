@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {
+    chmodSync,
     copyFileSync,
     existsSync,
     mkdirSync,
@@ -469,4 +470,39 @@ describe('DjVu conversion lifecycle', () => {
             });
         }
     }, 180_000);
+
+    // A read-only destination: the failure says why in the person's words,
+    // never the hidden temporary file a raw filesystem message names.
+    it.skipIf(process.platform !== 'linux' || process.getuid?.() === 0)('explains an image export refused by a read-only folder without naming hidden files', async () => {
+        const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
+        const destinationRoot = join(suiteRoot, 'read-only-destination');
+        const savePath = join(destinationRoot, 'pencil.png');
+        mkdirSync(destinationRoot, {recursive: true});
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-png-read-only-${Date.now()}`,
+            extraEnv: {
+                ...conversionEnv(closeRoot),
+                EVB_E2E_SAVE_DIALOG_PATH: savePath,
+            },
+        });
+        await openDjvuInApp(session.page, fixture, 120_000);
+        await waitForDjvuLoaded(session.page, 120_000);
+        chmodSync(destinationRoot, 0o555);
+        try {
+            const message = await session.page.evaluate(async (path, requestId) => {
+                try {
+                    await window.electronAPI!.imageExport.exportPdfToImages(path, undefined, requestId, 'djvu');
+                    return 'exported';
+                } catch (error) {
+                    return error instanceof Error ? error.message : String(error);
+                }
+            }, requireDocumentRef(fixture), createRequestId('djvu-png-read-only'));
+            expect(message).toContain('EVB Viewer was not allowed to write in that folder.');
+            expect(message).not.toMatch(/EACCES|copyfile|\.tmp\b/u);
+        } finally {
+            chmodSync(destinationRoot, 0o755);
+        }
+        expect(readdirSync(destinationRoot)).toEqual([]);
+    });
 });

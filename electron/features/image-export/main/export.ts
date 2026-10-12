@@ -13,7 +13,7 @@ import {
     writeFile,
 } from 'fs/promises';
 import {
-    dirname as dirnameFromPath,
+    basename,
     dirname,
     extname,
     join,
@@ -141,7 +141,7 @@ function logImageExportMessage(level: 'debug' | 'error' | 'info' | 'warn', messa
     }
     logger[level](message);
 }
-const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const PDFINFO_PAGE_SIZE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -458,9 +458,12 @@ export function createStagedFilePublicationLedger(scratchPath: string | null = n
 
 // A settled publication leaves the ledger; one that fails stays in it and in
 // the scratch record, which the managed scratch owner then keeps for the next start.
+// An incomplete rollback's error: its message tells a person what became of the replaced files.
+export const IMAGE_EXPORT_ROLLBACK_ERROR_NAME = 'ImageExportRollbackError';
+
 export async function rollbackStagedFilePublications(ledger: IStagedFilePublicationLedger) {
     const rollbackFailures: Error[] = [];
-    const retainedBackups: string[] = [];
+    const outcomes = new Set<string>();
     for (const promotedFile of [...ledger.promotedFiles].reverse()) {
         const {
             targetPath, backupPath,
@@ -469,21 +472,21 @@ export async function rollbackStagedFilePublications(ledger: IStagedFilePublicat
             const keptPath = await settlePublishedTarget(targetPath, backupPath, promotedFile.original, promotedFile.published);
             ledger.promotedFiles.splice(ledger.promotedFiles.indexOf(promotedFile), 1);
             if (keptPath) {
-                retainedBackups.push(keptPath);
                 rollbackFailures.push(new Error(`${targetPath} changed during the export`));
+                outcomes.add(te('errors.export.originalKept', {
+                    file: basename(targetPath),
+                    kept: basename(keptPath),
+                }));
             }
         } catch (error) {
-            if (backupPath) retainedBackups.push(backupPath);
             rollbackFailures.push(new Error(backupPath
                 ? `Failed to restore ${targetPath} from ${backupPath}`
                 : `Failed to remove partially promoted ${targetPath}`, {cause: error}));
+            outcomes.add(te('errors.export.restoredOnNextStart'));
         }
     }
     if (rollbackFailures.length > 0) {
-        const backupMessage = retainedBackups.length > 0
-            ? ` Recovery backup(s) retained at: ${retainedBackups.join(', ')}`
-            : '';
-        throw aggregateErrorsKeepingUnprovenTermination(rollbackFailures, `Image export rollback failed.${backupMessage}`);
+        throw Object.assign(aggregateErrorsKeepingUnprovenTermination(rollbackFailures, [...outcomes].join(' ')), {name: IMAGE_EXPORT_ROLLBACK_ERROR_NAME});
     }
 }
 
@@ -513,7 +516,7 @@ export async function promoteStagedFiles(
                 throw new Error(`Duplicate image export target: ${file.targetPath}`);
             }
             if (resolve(dirname(file.stagedPath)) !== resolve(dirname(file.targetPath))) {
-                throw new Error(`Image export staged output is not beside its target: ${file.stagedPath}`);
+                throw new Error(`Image export staged output is not beside its target: ${file.targetPath}`);
             }
             targetPaths.add(targetPath);
         }
@@ -538,7 +541,7 @@ export async function promoteStagedFiles(
             }
             throwIfAborted(signal);
             const published = await readFileIdentity(stagedFile.stagedPath);
-            if (!published) throw new Error(`Image export staged output is missing: ${stagedFile.stagedPath}`);
+            if (!published) throw new Error(`Image export staged output is missing for ${stagedFile.targetPath}`);
             promotedFile.published = published;
             await recordManagedScratchPublish(scratchPath, stagedFile.targetPath, published);
             await atomicReplace(stagedFile.stagedPath, stagedFile.targetPath);
@@ -550,14 +553,12 @@ export async function promoteStagedFiles(
         }
     } catch (error) {
         await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
-        try {
-            await rollbackStagedFilePublications(batchLedger);
-        } catch (rollbackError) {
+        await rollbackStagedFilePublications(batchLedger).catch((rollbackError: unknown) => {
             throw aggregateErrorsKeepingUnprovenTermination([
                 error,
                 rollbackError,
-            ], `Image export promotion failed: ${getErrorMessage(error)}. ${getErrorMessage(rollbackError)}`);
-        }
+            ], getErrorMessage(error));
+        });
         throw error;
     }
     sharedLedger?.promotedFiles.push(...batchLedger.promotedFiles);
@@ -1101,10 +1102,6 @@ function resolveTiffCombineWorkerPath() {
     return resolveUnpackedWorkerPath(__dirname, TIFF_COMBINE_WORKER_FILENAME);
 }
 
-function decodeUndefinedWorkerResult(data: unknown): undefined | null {
-    return data === undefined ? undefined : null;
-}
-
 function getTiffCombineFallbackDisabledError() {
     const maxMb = Math.floor(TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES / (1024 * 1024));
     return new Error(
@@ -1184,7 +1181,7 @@ async function combinePagesIntoMultiPageTiff(
                 `TIFF combine worker exited during startup with code ${code}`,
             ),
             createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
-            decodeResult: decodeUndefinedWorkerResult,
+            decodeResult: (data: unknown) => (data === undefined ? undefined : null),
             invalidResultMessage: 'TIFF combine worker returned an invalid result',
             resourceLimits: TIFF_COMBINE_WORKER_RESOURCE_LIMITS,
             ...(signal ? { signal } : {}),

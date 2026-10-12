@@ -24,10 +24,12 @@ import {
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
     getPdfPageCount,
+    IMAGE_EXPORT_ROLLBACK_ERROR_NAME,
     validateImageExportPath,
     rasterizePdfRegionAsPngBytes,
 } from '@electron/features/image-export/main/export';
 import { te } from '@electron/te';
+import { isErrnoException } from '@contracts/runtimeGuards';
 import {
     IMAGE_EXPORT_PLATFORM_FEATURE,
     type IImageExportProgress,
@@ -54,6 +56,39 @@ import {
 import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
 
 const logger = createLogger('image-export');
+type TImageExportFailureReason = 'errors.export.permissionDenied' | 'errors.export.fileBusy' | 'errors.export.diskFull' | 'errors.export.writeFailed';
+const IMAGE_EXPORT_FAILURE_REASONS: Partial<Record<string, TImageExportFailureReason>> = {
+    EACCES: 'errors.export.permissionDenied',
+    EPERM: 'errors.export.permissionDenied',
+    EROFS: 'errors.export.permissionDenied',
+    EBUSY: 'errors.export.fileBusy',
+    ENOSPC: 'errors.export.diskFull',
+    EDQUOT: 'errors.export.diskFull',
+};
+
+// Every error under `error`, depth first: itself, what an aggregate wraps, and its cause.
+function* walkErrors(error: unknown): Generator {
+    yield error;
+    if (error instanceof AggregateError) {
+        for (const inner of error.errors) yield* walkErrors(inner);
+    }
+    if (error instanceof Error && error.cause !== undefined) yield* walkErrors(error.cause);
+}
+
+// What a person reads (C4): why the export failed, in their language, and what
+// became of files it replaced. A filesystem error's own text names hidden
+// temporary files, so it goes to the log only.
+function describeImageExportFailure(cause: unknown) {
+    const errors = [...walkErrors(cause)];
+    logger.warn(`Image export failed: ${errors.map(error => getErrorMessage(error)).join(' <- ')}`);
+    const primary = errors.find(error => !(error instanceof AggregateError));
+    const fsCode = [...walkErrors(primary)].flatMap(error => (isErrnoException(error) && error.syscall ? [String(error.code)] : []))[0];
+    const reason = fsCode === undefined
+        ? getErrorMessage(primary)
+        : te(IMAGE_EXPORT_FAILURE_REASONS[fsCode] ?? 'errors.export.writeFailed');
+    const outcome = errors.find(error => error instanceof Error && error.name === IMAGE_EXPORT_ROLLBACK_ERROR_NAME);
+    return outcome instanceof Error ? `${reason} ${outcome.message}` : reason;
+}
 
 type TImageExportProgressPayload = SetOptional<Omit<IImageExportProgress, 'format' | 'requestId'>, 'percent'>;
 interface IImageExportResult {
@@ -82,7 +117,7 @@ const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExport
     },
     toError: (cause, kind) => ({
         code: kind === 'canceled' ? 'canceled' : kind,
-        message: getErrorMessage(cause ?? 'Image export failed'),
+        message: kind === 'failed' ? describeImageExportFailure(cause ?? 'Image export failed') : getErrorMessage(cause ?? 'Image export failed'),
         ...(cause instanceof ImageExportOutputBudgetError
             ? {details: IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME}
             : {}),

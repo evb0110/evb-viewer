@@ -1761,6 +1761,12 @@ export default {
             'images': 'Falha ao exportar imagens',
             'multiPageTiff': 'Falha ao exportar TIFF',
             'alreadyRunning': 'Já existe uma exportação em curso',
+            'permissionDenied': 'O EVB Viewer não tem permissão para escrever nessa pasta. Escolha outra pasta ou verifique as respetivas permissões.',
+            'fileBusy': 'Um ficheiro nessa pasta está em uso por outro programa. Feche esse programa e exporte novamente.',
+            'diskFull': 'O disco está cheio. Liberte espaço ou exporte para outro disco.',
+            'writeFailed': 'Não foi possível escrever os ficheiros. Verifique a pasta e o espaço livre e exporte novamente.',
+            'originalKept': '{file} foi alterado durante a exportação, por isso foi mantido. A versão anterior está ao lado como {kept}.',
+            'restoredOnNextStart': 'Alguns ficheiros substituídos pela exportação ainda não puderam ser repostos. O EVB Viewer repõe-nos no próximo arranque.',
         },
         'browser': {
             'filePickerSetupDenied': 'O acesso do navegador aos ficheiros foi negado. Escolha Abrir novamente para usar o seletor compatível.',

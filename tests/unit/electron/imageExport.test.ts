@@ -312,6 +312,13 @@ const realFs = await vi.importActual<typeof FsPromises>('fs/promises');
 const realAtomicReplace = await vi.importActual<typeof TAtomicReplace>('@electron/utils/atomicReplace');
 const realManagedScratch = await vi.importActual<typeof TManagedScratch>('@electron/utils/managedScratchTemp');
 const runFile = promisify(execFile);
+const RESTORED_ON_NEXT_START = 'Some files the export replaced could not be put back yet. EVB Viewer puts them back the next time it starts.';
+
+// What an incomplete rollback tells a person about the files the export replaced.
+function readRollbackOutcome(failure: unknown) {
+    const errors = failure instanceof AggregateError ? failure.errors : [];
+    return errors.find((error): error is Error => error instanceof Error && error.name === 'ImageExportRollbackError')?.message;
+}
 
 function resolveRealPdfToolPaths() {
     return realNativeTools.resolvePdfNativeToolPaths({
@@ -1524,7 +1531,7 @@ describe('image export', () => {
 
         expect(failure).toBeInstanceOf(AggregateError);
         expect(getUnprovenNativeTerminationDetail(failure)).toBe('replacement writer was not proven dead');
-        expect((failure as Error).message).toContain(`Recovery backup(s) retained at: ${targetPath}.tmp`);
+        expect(readRollbackOutcome(failure)).toBe(RESTORED_ON_NEXT_START);
         expect(await readFile(`${targetPath}.tmp`, 'utf8')).toBe('original');
     });
 
@@ -1932,7 +1939,7 @@ describe('image export', () => {
             await rm(sourcePath, {force: true});
         });
 
-        await expect(promoteStagedFiles([
+        const failure = await promoteStagedFiles([
             {
                 stagedPath: firstStagedPath,
                 targetPath: firstTargetPath,
@@ -1941,8 +1948,9 @@ describe('image export', () => {
                 stagedPath: secondStagedPath,
                 targetPath: secondTargetPath,
             },
-        ])).rejects.toThrow('Recovery backup(s) retained');
+        ]).catch((error: unknown) => error);
 
+        expect(readRollbackOutcome(failure)).toBe(RESTORED_ON_NEXT_START);
         expect(await readFile(`${firstTargetPath}.tmp`, 'utf8')).toBe('old-first');
     });
 
@@ -2514,10 +2522,11 @@ describe('image export', () => {
             await chmod(tempDir, 0o555);
         }).mockImplementation(realAtomicReplace.atomicReplace);
         try {
-            await expect(exportPdfPagesAsImages('/tmp/input.pdf', join(tempDir, 'page.png'), {
+            const failure = await exportPdfPagesAsImages('/tmp/input.pdf', join(tempDir, 'page.png'), {
                 scratch,
                 beforePublish: () => writeOriginals(targets),
-            })).rejects.toThrow('Recovery backup(s) retained at');
+            }).catch((error: unknown) => error);
+            expect(readRollbackOutcome(failure)).toBe(RESTORED_ON_NEXT_START);
             expect((await readdir(appTempRoot)).filter(name => name.startsWith('pdfExport-'))).toHaveLength(1);
         } finally {
             await chmod(tempDir, 0o755);
