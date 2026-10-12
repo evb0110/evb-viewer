@@ -15,12 +15,8 @@ import {
     flattenBookmarks,
     normalizeBookmarkColor,
     resolveActiveBookmarkForPage,
-    resolveBookmarkDestinationPage,
     resolveBookmarkDestinationTarget,
     resolveBookmarkPageTargets,
-    resolveImmediateBookmarkDestinationTarget,
-    resolvePageIndex,
-    shouldEmitResolvedBookmarkDestinationTarget,
     summarizeBookmarkStyles,
 } from '@app/utils/pdfOutlineHelpers';
 import { cast } from '@tests/helpers/cast';
@@ -305,29 +301,6 @@ describe('pdfOutlineHelpers', () => {
         });
     });
 
-    it('resolves named destination and caches destination + ref index', async () => {
-        const getDestination = vi.fn(async (_name: string) => [{
-            num: 4,
-            gen: 0, 
-        }]);
-        const getPageIndex = vi.fn(async (_ref: unknown) => 3);
-        const pdfDoc = createPdfDocumentStub({
-            getDestination,
-            getPageIndex,
-        });
-
-        const destinationCache = new Map<string, unknown[] | null>();
-        const refIndexCache = new Map<string, number | null>();
-
-        const first = await resolvePageIndex(pdfDoc, 'chapter-1', destinationCache, refIndexCache);
-        const second = await resolvePageIndex(pdfDoc, 'chapter-1', destinationCache, refIndexCache);
-
-        expect(first).toBe(3);
-        expect(second).toBe(3);
-        expect(getDestination).toHaveBeenCalledTimes(1);
-        expect(getPageIndex).toHaveBeenCalledTimes(1);
-    });
-
     it('stops stale named-destination resolution before scheduling page lookup', async () => {
         const destination = Promise.withResolvers<unknown[] | null>();
         const getDestination = vi.fn(() => destination.promise);
@@ -349,37 +322,6 @@ describe('pdfOutlineHelpers', () => {
 
         await expect(resolution).rejects.toMatchObject({name: 'AbortError'});
         expect(getPageIndex).not.toHaveBeenCalled();
-    });
-
-    it('handles numeric destinations in both 0-based and 1-based forms', async () => {
-        const pdfDoc = createPdfDocumentStub({ numPages: 5 });
-        const destinationCache = new Map<string, unknown[] | null>();
-        const refIndexCache = new Map<string, number | null>();
-
-        await expect(resolvePageIndex(pdfDoc, [2], destinationCache, refIndexCache)).resolves.toBe(2);
-        await expect(resolvePageIndex(pdfDoc, [5], destinationCache, refIndexCache)).resolves.toBe(4);
-        await expect(resolvePageIndex(pdfDoc, [99], destinationCache, refIndexCache)).resolves.toBeNull();
-    });
-
-    it('returns null when destination lookup fails', async () => {
-        const pdfDoc = createPdfDocumentStub({getDestination: vi.fn(async () => {
-            throw new Error('lookup failed');
-        })});
-        const destinationCache = new Map<string, unknown[] | null>();
-        const refIndexCache = new Map<string, number | null>();
-
-        await expect(resolvePageIndex(pdfDoc, 'missing', destinationCache, refIndexCache)).resolves.toBeNull();
-        expect(destinationCache.get('missing')).toBeNull();
-    });
-
-    it('resolves bookmark destination page as 1-based number', async () => {
-        const pdfDoc = createPdfDocumentStub({
-            numPages: 6,
-            getDestination: vi.fn(async () => [3]),
-        });
-
-        await expect(resolveBookmarkDestinationPage(pdfDoc, 'toc')).resolves.toBe(4);
-        await expect(resolveBookmarkDestinationPage(pdfDoc, [6])).resolves.toBe(6);
     });
 
     it('resolves /XYZ bookmark top coordinates into normalized page y targets', async () => {
@@ -422,42 +364,6 @@ describe('pdfOutlineHelpers', () => {
             null,
         ])).resolves.toEqual({page: 2});
         expect(getPage).not.toHaveBeenCalled();
-    });
-
-    it('resolves an already indexed bookmark into an immediate page navigation target', () => {
-        expect(resolveImmediateBookmarkDestinationTarget(createBookmark('indexed', 278))).toEqual({
-            page: 279,
-            pageYRatio: 0,
-        });
-        expect(resolveImmediateBookmarkDestinationTarget(createBookmark('missing', null))).toBeNull();
-    });
-
-    it('emits late same-page bookmark destination refinement even when the resolved y target matches', () => {
-        expect(shouldEmitResolvedBookmarkDestinationTarget({
-            page: 279,
-            pageYRatio: 0.35,
-        }, {
-            page: 279,
-            pageYRatio: 0,
-        })).toBe(true);
-        expect(shouldEmitResolvedBookmarkDestinationTarget({
-            page: 279,
-            pageYRatio: 0,
-        }, {
-            page: 279,
-            pageYRatio: 0,
-        })).toBe(true);
-        expect(shouldEmitResolvedBookmarkDestinationTarget({
-            page: 328,
-            pageYRatio: 0.35,
-        }, {
-            page: 279,
-            pageYRatio: 0,
-        })).toBe(true);
-        expect(shouldEmitResolvedBookmarkDestinationTarget({
-            page: 279,
-            pageYRatio: 0.35,
-        }, null)).toBe(true);
     });
 
     it('preserves an explicitly active bookmark when multiple entries share the current page', () => {

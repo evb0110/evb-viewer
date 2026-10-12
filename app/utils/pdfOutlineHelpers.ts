@@ -28,56 +28,6 @@ export interface IBookmarkDestinationTarget {
     pageYRatio?: number | null | undefined;
 }
 
-/**
- * Returns a fast page-level bookmark target from the outline's cached page index.
- * Full PDF.js destination resolution can lag on large files, so bookmark clicks
- * first move to the known page and then refine once the exact destination resolves.
- */
-export function resolveImmediateBookmarkDestinationTarget(
-    item: Pick<IBookmarkItem, 'pageIndex' | 'pageYRatio'>,
-): IBookmarkDestinationTarget | null {
-    if (typeof item.pageIndex !== 'number' || !Number.isFinite(item.pageIndex)) {
-        return null;
-    }
-
-    return {
-        page: Math.max(0, Math.trunc(item.pageIndex)) + 1,
-        pageYRatio: typeof item.pageYRatio === 'number' && Number.isFinite(item.pageYRatio)
-            ? clamp(item.pageYRatio, 0, 1)
-            : 0,
-    };
-}
-
-function normalizeBookmarkDestinationRatio(target: IBookmarkDestinationTarget) {
-    return typeof target.pageYRatio === 'number' && Number.isFinite(target.pageYRatio)
-        ? target.pageYRatio
-        : null;
-}
-
-function areBookmarkDestinationTargetsEquivalent(
-    first: IBookmarkDestinationTarget,
-    second: IBookmarkDestinationTarget,
-) {
-    return first.page === second.page
-        && normalizeBookmarkDestinationRatio(first) === normalizeBookmarkDestinationRatio(second);
-}
-
-/**
- * Preserves bookmark destination intent by replaying async refinement after the
- * fast jump. Equal resolved targets are still useful for virtualized PDFs where
- * the first snap can run before the destination page DOM is ready.
- */
-export function shouldEmitResolvedBookmarkDestinationTarget(
-    target: IBookmarkDestinationTarget,
-    immediateTarget: IBookmarkDestinationTarget | null,
-) {
-    if (immediateTarget === null || !areBookmarkDestinationTargetsEquivalent(target, immediateTarget)) {
-        return true;
-    }
-
-    return typeof target.pageYRatio === 'number' && Number.isFinite(target.pageYRatio);
-}
-
 function isRefProxy(value: unknown): value is IRefProxy {
     return isRecord(value)
         && typeof value.num === 'number'
@@ -273,26 +223,6 @@ async function resolvePageIndexFromDestinationArray(
     }
 }
 
-export async function resolvePageIndex(
-    pdfDocument: IPdfDocument,
-    dest: IBookmarkItem['dest'],
-    destinationCache: Map<string, unknown[] | null>,
-    refIndexCache: Map<string, number | null>,
-    signal?: AbortSignal,
-) {
-    if (!dest) {
-        return null;
-    }
-
-    const destinationArray = await resolveDestinationArray(pdfDocument, dest, destinationCache, signal);
-
-    if (!destinationArray || destinationArray.length === 0) {
-        return null;
-    }
-
-    return resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache, signal);
-}
-
 export interface IResolvedBookmarkPageTarget {
     pageIndex: number;
     pageYRatio: number | null;
@@ -447,14 +377,6 @@ export function buildOutlineFromBookmarkEntries(
     }
 
     return root;
-}
-
-export async function resolveBookmarkDestinationPage(
-    pdfDocument: IPdfDocument,
-    dest: string | unknown[] | null,
-) {
-    const target = await resolveBookmarkDestinationTarget(pdfDocument, dest);
-    return target?.page ?? null;
 }
 
 export async function resolveBookmarkDestinationTarget(
