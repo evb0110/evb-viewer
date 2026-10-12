@@ -56,13 +56,16 @@ describe('native PDF metadata parsing', () => {
     });
 
     it('reads one catalog part whatever happened to the other, and reports its own failure', async () => {
-        mocks.runNativeToolCommand.mockResolvedValue({stdout: JSON.stringify({
-            bookmarksError: 'PDF catalog /Outlines must be a dictionary',
-            pageLabels: [{
-                pageIndex: 0,
-                style: 'r',
-            }],
-        })});
+        mocks.runNativeToolCommand.mockResolvedValue({
+            stderr: '{"level":"warning","event":"outline_action_not_kept"}\n',
+            stdout: JSON.stringify({
+                bookmarksError: 'PDF catalog /Outlines must be a dictionary',
+                pageLabels: [{
+                    pageIndex: 0,
+                    style: 'r',
+                }],
+            }),
+        });
         await expect(readNativePdfCatalogPart('/tools/evb-pdf-page-ops', '/tmp/a.pdf', 'pageLabels', {commandLabel: 'test'}))
             .resolves.toEqual([{
                 pageIndex: 0,

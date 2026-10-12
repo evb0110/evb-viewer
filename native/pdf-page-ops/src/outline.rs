@@ -9,7 +9,7 @@ use lopdf::dictionary;
 mod actions;
 mod names;
 pub(crate) use actions::bookmark_action_object;
-use actions::bookmark_action_value;
+use actions::kept_bookmark_action;
 use names::{find_named_destination, pdf_name_or_string};
 
 type BookmarkPageTarget = (ObjectId, Option<f64>, Option<BookmarkOriginalDestination>);
@@ -89,6 +89,9 @@ fn read_outline_items<'a>(
             .and_then(|value| value.as_i64().ok())
             .unwrap_or_default();
         output.push(RawPdfCombineBookmarkEntry {
+            original_action: action
+                .filter(|_| !is_go_to)
+                .and_then(|action| kept_bookmark_action(document, action, &title)),
             title,
             page_id,
             page_y_ratio: page_target.as_ref().and_then(|(_, ratio, _)| *ratio),
@@ -97,11 +100,6 @@ fn read_outline_items<'a>(
                 .as_ref()
                 .and_then(|value| document.resolved(value).ok())
                 .and_then(pdf_name_or_string),
-            original_action: action.filter(|_| !is_go_to).and_then(|action| {
-                bookmark_action_value(&Object::Dictionary(action.clone()), 0, &mut {
-                    MAX_BOOKMARK_ACTION_SIZE
-                })
-            }),
             items: read_outline_items(
                 document,
                 catalog,

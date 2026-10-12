@@ -374,6 +374,57 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await waitForToolbarCurrentPage(page, 3);
     }, 90_000);
 
+    it('review-b6yr keeps an untouched GoToR with an indirect file specification', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`indirect-filespec-${Date.now()}.pdf`, []);
+        await writeOutlineFixture(fixture, (pdf, pages) => [
+            {
+                Title: PDFString.of('Chapter'),
+                Dest: [
+                    pages[1]!.ref,
+                    PDFName.of('Fit'),
+                ],
+            },
+            {
+                Title: PDFString.of('Remote'),
+                A: {
+                    S: PDFName.of('GoToR'),
+                    F: pdf.context.register(pdf.context.obj({
+                        Type: PDFName.of('Filespec'),
+                        F: PDFString.of('chapter-two.pdf'),
+                        UF: PDFHexString.fromText('chapter-two.pdf'),
+                    })),
+                    D: [
+                        0,
+                        PDFName.of('Fit'),
+                    ],
+                },
+            },
+        ]);
+        const readRemote = async () => {
+            const document = await PDFDocument.load(await readFile(fixture));
+            const action = document.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict)
+                .lookup(PDFName.of('Next'), PDFDict).lookupMaybe(PDFName.of('A'), PDFDict);
+            return action && {
+                kind: action.lookup(PDFName.of('S'))?.toString(),
+                file: action.lookup(PDFName.of('F'), PDFDict).toString(),
+                destination: action.lookup(PDFName.of('D'))?.toString(),
+            };
+        };
+        const source = await readRemote();
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await renameBookmarkAsUser(page, 'Chapter', 'Chapter renamed');
+        await saveViaVisibleToolbar(page, 90_000, fixture);
+        const saved = await readRemote();
+        console.info('INDIRECT_FILESPEC_SAVE ' + JSON.stringify({
+            source,
+            saved,
+        }));
+        expect(saved).toEqual(source);
+    }, 90_000);
+
     it('keeps destination kinds and null coordinates when renaming a large outline', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`destination-fidelity-${Date.now()}.pdf`, []);
         const pdf = await PDFDocument.load(await readFile(fixture));

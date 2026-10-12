@@ -1721,3 +1721,30 @@ fn saved_unicode_named_destination_keeps_its_bytes() {
     }
 }
 
+#[test]
+fn saved_go_to_r_keeps_an_indirect_file_specification() {
+    for append in [false, true] {
+        let (mut document, _page_id) = create_test_document();
+        let filespec = dictionary! {
+            "Type" => "Filespec", "F" => Object::string_literal("chapter-two.pdf"),
+            "UF" => Object::String(encode_pdf_text_string("chapter-two.pdf"), StringFormat::Hexadecimal),
+        };
+        let filespec_id = document.add_object(filespec.clone());
+        let embedded = document.add_object(Stream::new(dictionary! {}, b"attached".to_vec()));
+        let outlines_id = document.new_object_id();
+        let action = |file: Object| dictionary! {"S" => "GoToR", "F" => file, "D" => vec![0.into(), Object::Name(b"Fit".to_vec())]};
+        let remote = document.add_object(dictionary! {"Title" => Object::string_literal("Remote"), "Parent" => outlines_id, "A" => action(filespec_id.into())});
+        let streamed = document.add_object(dictionary! {"Title" => Object::string_literal("Streamed"), "Parent" => outlines_id, "Prev" => remote,
+            "A" => action(dictionary! {"Type" => "Filespec", "F" => Object::string_literal("a.pdf"), "EF" => dictionary! {"F" => embedded}}.into())});
+        document.get_dictionary_mut(remote).unwrap().set("Next", streamed);
+        document.set_object(outlines_id, dictionary! {"Type" => "Outlines", "First" => remote, "Last" => streamed, "Count" => 2});
+        document.get_dictionary_mut(document.root_id().unwrap()).unwrap().set("Outlines", outlines_id);
+        let mut items = serde_json::to_value(read_pdf_outline(&document, true).unwrap()).unwrap();
+        assert!(items[0]["originalAction"].is_object() && items[1].get("originalAction").is_none(), "{items}");
+        items[1]["title"] = "Streamed renamed".into();
+        let saved = save_outline_entries(&mut document, items, append);
+        let targets = outline_targets(&saved);
+        assert_eq!(targets[0].2, Some(Object::Dictionary(action(filespec.clone().into()))), "append {append}");
+        assert_eq!(targets[1].2, None);
+    }
+}
