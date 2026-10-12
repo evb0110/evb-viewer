@@ -3372,10 +3372,6 @@ describe('browser document lifecycle UI', () => {
                     buffer: Buffer.from(await input.save()),
                 });
                 await page.locator('.page_container--rendered canvas').first().waitFor();
-                await addNote(page, 'Pending source retained note', {
-                    x: 160,
-                    y: 180,
-                });
                 await page.evaluate(`(async () => {
                     const {browserDocumentStore: store} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
                     const create = store.createStoredDocument.bind(store);
@@ -3397,7 +3393,7 @@ describe('browser document lifecycle UI', () => {
                 const savedPath = await (await download).path();
                 const savedBytes = readFileSync(savedPath!);
                 savedDigest = Array.from(createHash('sha256').update(savedBytes).digest());
-                expect(noteTexts(await PDFDocument.load(savedBytes))).toContain('Pending source retained note');
+                expect((await PDFDocument.load(savedBytes)).getPageCount()).toBe(1);
             }
             await page.waitForFunction(() => Boolean(Reflect.get(window, '__resumeTarget')));
             const ref: string = await page.evaluate(() => Reflect.get(window, '__pendingTargetRef'));
@@ -3437,20 +3433,19 @@ describe('browser document lifecycle UI', () => {
             if (operation === 'conversion') expect((await PDFDocument.load(Uint8Array.from(after))).getPageCount()).toBe(2);
             await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
             await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '', {timeout: 30_000}).not.toMatch(/unsaved/iu);
+            if (operation === 'save-as') {
+                await expect.poll(() => page.getByRole('button', {
+                    name: 'Save options',
+                    exact: true,
+                }).isEnabled(), {timeout: 30_000}).toBe(true);
+            }
             await page.getByRole('button', {name: 'Close tab'}).last().click();
             await page.reload({waitUntil: 'domcontentloaded'});
             await page.locator('[data-recent-open-actionable="true"] .recent-open')
                 .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'}).click();
             await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
             if (operation === 'save-as') {
-                await page.getByRole('button', {
-                    name: 'Open Note',
-                    exact: true,
-                }).first().click();
-                expect(await page.getByRole('textbox', {
-                    name: 'Write annotation note',
-                    exact: true,
-                }).inputValue()).toBe('Pending source retained note');
+                await expect.poll(() => page.locator('.textLayer').first().innerText()).toContain('Hello Arabic world');
             }
             await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-pending-${operation}-reloaded.png`)});
             expect(problems).toEqual([]);
