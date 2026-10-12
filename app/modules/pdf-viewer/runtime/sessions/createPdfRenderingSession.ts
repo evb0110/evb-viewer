@@ -196,21 +196,23 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             && slot.targetScale !== null
             && isRasterScaleCurrent(slot.targetScale, viewport.scale.effectiveScale.value)
             && slot.targetOutputScale !== null
-            && isRasterScaleCurrent(slot.targetOutputScale, options.outputScale.value)
-            && (!pageRenderState.isPaintedWithoutAnnotations(pageNumber) || !pageRenderer.annotationProjectionReady.value);
+            && isRasterScaleCurrent(slot.targetOutputScale, options.outputScale.value);
     }
     function getPageRasterState(pageNumber: TPageNumber): TPdfPageRasterState {
         const slot = pageRenderState.getSlot(pageNumber);
         const pendingJob = [...viewportRasterJobs.values()].find(job => (
             job.demand.pageNumber === pageNumber
         ));
-        if (slot.job === 'rendering' && slot.version === renderVersion) {
+        if (
+            viewportRasterWaiters.has(pageNumber)
+            || slot.job === 'rendering' && slot.version === renderVersion
+        ) {
             return pendingJob && !isViewportRasterJobCurrent(pendingJob)
                 ? 'stale-scale'
                 : 'in-flight';
         }
         if (isCommittedVisual(pageNumber)) {
-            return 'current';
+            return pageRenderState.isPaintedWithoutAnnotations(pageNumber) && pageRenderer.annotationProjectionReady.value ? 'stale-scale' : 'current';
         }
         if (isPageRenderFailed(pageNumber)) {
             return 'failed';
@@ -416,7 +418,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 requestId: prepared.requestId,
                 pageNumber,
             });
-            if (isCommittedVisual(pageNumber)) resolveViewportRasterWaiters(pageNumber);
+            resolveViewportRasterWaiters(pageNumber);
             void pageRenderer.renderCommittedPageLayers({
                 pageNumber,
                 version: prepared.job.demand.consumerGeneration,
@@ -438,6 +440,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             queueFrame();
         },
         release(pageNumber) {
+            resolveViewportRasterWaiters(pageNumber);
             if (!isViewportRasterDemanded(pageNumber)) clearAuthoritativePage(pageNumber, false);
         },
     };
@@ -918,6 +921,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const slot = pageRenderState.getSlot(pageNumber);
         return slot.job === 'failed' && slot.version === renderVersion;
     }
+    // Unsettled only while a range page this pass could paint (mounted, given a job, not failed) has no
+    // pixels at the current scale, as when Fit Width moved the scale under it; a retired version settles.
     function isMandatoryRasterSettled(range: PdfUi.IPageRange, version: number) {
         const lastPage = Math.min(range.end, documentSession.numPages.value);
         const pages = Array.from({length: Math.max(0, lastPage - range.start + 1)}, (_, index) => toPageNumber(range.start + index));
@@ -925,6 +930,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             || isCommittedVisual(page) || isPageRenderFailed(page) || isAwaitingRotationRevision(page));
     }
     let frameId: number | null = null;
+    let activeMandatoryRasterId: number | null = null;
     let disposed = false;
     let mandatoryDemandTaskId: number | null = null;
     function queueMandatoryDemandTask() {
@@ -963,6 +969,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const mandatory = demand.mandatoryRaster;
         if (mandatory) {
+            if (activeMandatoryRasterId === mandatory.id) {
+                return;
+            }
+            activeMandatoryRasterId = mandatory.id;
             const version = renderVersion;
             void renderVisiblePages(mandatory.range, mandatory.options).finally(() => (
                 viewport.settleMandatoryRaster(mandatory.id, isMandatoryRasterSettled(mandatory.range, version))
@@ -1025,7 +1035,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     const stopDemandWatch = watch(viewport.demand, (demand) => {
         latestDemand = demand;
-        if (demand.mandatoryRaster) {
+        if (demand.mandatoryRaster && activeMandatoryRasterId !== demand.mandatoryRaster.id) {
             if (frameId !== null) {
                 window.cancelAnimationFrame(frameId);
                 frameId = null;
