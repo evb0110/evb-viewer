@@ -203,14 +203,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         const pendingJob = [...viewportRasterJobs.values()].find(job => (
             job.demand.pageNumber === pageNumber
         ));
-        if (pendingJob?.rasterState === 'in-flight') {
-            return isViewportRasterJobCurrent(pendingJob) ? 'in-flight' : 'stale-scale';
+        if (pendingJob?.rasterState === 'in-flight' || pendingJob?.rasterState === 'failed') {
+            return isViewportRasterJobCurrent(pendingJob) ? pendingJob.rasterState : 'stale-scale';
         }
         if (isCommittedVisual(pageNumber)) {
             return 'current';
-        }
-        if (isPageRenderFailed(pageNumber)) {
-            return 'failed';
         }
         return pageRenderState.renderedPages.has(pageNumber) ? 'stale-scale' : 'absent';
     }

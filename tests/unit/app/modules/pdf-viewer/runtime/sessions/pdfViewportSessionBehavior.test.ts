@@ -425,10 +425,11 @@ describe('PdfViewportSession behavior', () => {
     it.each([
         'zoom',
         'Retry',
+        'relayout after failure',
     ] as const)('keeps a queued %s raster alive when demand is published again', async reason => {
         const lease = Promise.withResolvers<undefined>();
         const signals: AbortSignal[] = [];
-        let fail = reason === 'Retry';
+        let fail = reason !== 'zoom';
         const page = Object.assign(Object.create(null), {
             pageNumber: 1,
             rotate: 0,
