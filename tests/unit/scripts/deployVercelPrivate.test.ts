@@ -16,7 +16,10 @@ import {
 } from 'node:os';
 import path, {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {computeNativeBuildId} from '../../../scripts/native-build-id.mjs';
+import {
+    computeNativeBuildId,
+    getNativeExternalBuildInputs,
+} from '../../../scripts/native-build-id.mjs';
 import {
     execFileSync,
     spawn,
@@ -399,8 +402,10 @@ function writeNativeWasmFixture(projectRoot: string) {
         writeFileSync(path.join(nativeRoot, crateName, 'Cargo.toml'), `[package]\nname = "${crateName}"\n`);
         writeFileSync(path.join(nativeRoot, crateName, 'src', 'lib.rs'), 'pub fn version() -> u32 { 1 }\n');
     }
-    mkdirSync(path.join(projectRoot, 'public', 'fonts', 'annotation'), {recursive: true});
-    writeFileSync(path.join(projectRoot, 'public', 'fonts', 'annotation', 'DejaVuSans.ttf'), 'font\n');
+    for (const input of getNativeExternalBuildInputs('pdf-page-ops')) {
+        mkdirSync(path.dirname(path.join(projectRoot, input)), {recursive: true});
+        writeFileSync(path.join(projectRoot, input), 'font\n');
+    }
     mkdirSync(path.join(projectRoot, '.tmp'), {recursive: true});
     writeFileSync(path.join(projectRoot, '.tmp', 'wasm-build-ids.json'), `${JSON.stringify({
         'pdf-image-combine': computeNativeBuildId(projectRoot, 'pdf-image-combine'),
