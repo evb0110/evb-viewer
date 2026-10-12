@@ -25,6 +25,9 @@ import {
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {IDjvuOpenResult} from '@contracts/electronApiDjvu';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
 import {buildDjvuRuntimeEnv} from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
@@ -34,6 +37,7 @@ import {readPdfAnnotationIndex} from '@tests/e2e/electron/helpers/readPdfAnnotat
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
+    activateMenuItemAsUser,
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
@@ -121,6 +125,60 @@ describe('DjVu conversion lifecycle', () => {
             force: true,
         });
     });
+
+    it('refuses image export after the same DjVu is reopened and its tab closes', async () => {
+        const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
+        const savePath = join(closeRoot, 'closed-source.png');
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-reopen-close-${Date.now()}`,
+            extraEnv: {
+                ...conversionEnv(closeRoot),
+                EVB_E2E_OPEN_DIALOG_PATH: fixture,
+                EVB_E2E_SAVE_DIALOG_PATH: savePath,
+                EVB_PDF_IMAGE_COMBINE_ENABLE: '0',
+            },
+        });
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+O'});
+        await waitForDjvuLoaded(session.page, 120_000);
+        const tabId = await readActiveTabId(session.page);
+        const accepted = session.page.evaluate(() => new Promise<IDjvuOpenResult>((resolveOpen) => {
+            const stop = window.electronAPI!.djvu.onOpenComplete((result) => {
+                stop();
+                resolveOpen(result);
+            });
+        }));
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+O'});
+        expect(await accepted).toMatchObject({success: true});
+        // The reported same-path reopen can retain the opening skeleton, a
+        // separate viewer defect. Observe readiness without requiring that
+        // defect to be fixed before checking the accepted source's lifetime.
+        await waitForDjvuLoaded(session.page, 10_000).catch(() => undefined);
+        expect(await readActiveTabId(session.page)).toBe(tabId);
+        expect(await session.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length)).toBe(1);
+        await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+W'});
+        await waitForFunctionInPage(session.page, () => (
+            document.body.innerText.includes('No file open')
+            && !document.querySelector('[data-testid="document-page-source-viewer"]')
+        ), {timeout: 15_000});
+        // A boundary request after the real UI close must be refused, even
+        // though an empty workspace no longer offers an Export menu action.
+        const request = await session.page.evaluate(async (path, pageNumber) => {
+            try {
+                await window.electronAPI!.imageExport.exportPdfToImages(
+                    path, [pageNumber], undefined, 'djvu',
+                );
+                return {refused: false};
+            } catch (error) {
+                return {
+                    refused: true,
+                    error: String(error),
+                };
+            }
+        }, requireDocumentRef(fixture), requirePageNumber(1));
+        expect(request).toMatchObject({refused: true});
+        expect(existsSync(savePath), 'a closed source must leave no saved image').toBe(false);
+    }, 180_000);
 
     // Issue 979: a New Tab that makes the converting tab cold must not discard its conversion.
     it('saves the conversion of a tab made cold by New Tab and shows it when the tab returns', async () => {
