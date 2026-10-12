@@ -60,6 +60,13 @@ import {
 
 const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-required-page-ops-${Date.now()}`});
 
+/** Waits until detection has measured every page under the current settings. */
+async function waitForSettledDetection(session: ReturnType<typeof sessionFixture.getSession>) {
+    await waitForFunctionInPage(session.page, () => (
+        document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed'
+    ), {timeout: 90_000});
+}
+
 async function openCleanup(session: ReturnType<typeof sessionFixture.getSession>) {
     for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
         if (await toast.isVisible()) await clickAsUser(session.page, toast);
@@ -188,9 +195,22 @@ describe('scan cleanup required page ops', () => {
                 firstRunGuidanceDismissed: true,
             }}));
             await openCleanup(session);
+            await waitForSettledDetection(session);
             const quality = await session.page.$('[role="checkbox"][aria-label="Preserve original quality (no rasterization)"]');
-            if (await quality?.evaluate(node => node.getAttribute('aria-checked') === 'true')) await clickAsUser(session.page, quality!);
+            if (await quality?.evaluate(node => node.getAttribute('aria-checked') === 'true')) {
+                await clickAsUser(session.page, quality!);
+                await waitForSettledDetection(session);
+            }
+            // Page plans must not depend on the output mode. The first document
+            // switches to grayscale after detection measured its plans; the
+            // second measures them again after the switch. Both cleanups must
+            // still place every page identically.
             await clickAsUser(session.page, '[role="radio"][aria-label="Grayscale"]');
+            if (path === plainPath) {
+                await waitForSettledDetection(session);
+                await clickAsUser(session.page, '.scan-cleanup-toolbar-redetect');
+                await waitForSettledDetection(session);
+            }
             await clickAsUser(session.page, '.scan-cleanup-toolbar-primary-action');
             await waitForFunctionInPage(session.page, () => {
                 const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.readActiveWorkspaceStateValues?.(['originalPath']);
