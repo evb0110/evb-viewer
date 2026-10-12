@@ -54,8 +54,6 @@ interface IRunScanCleanupSidecarOptions {
 }
 
 const DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
-const SCAN_CLEANUP_TERMINATION_GRACE_MS = 1_500;
-const SCAN_CLEANUP_TERMINATION_FALLBACK_MS = SCAN_CLEANUP_TERMINATION_GRACE_MS + 2_000;
 const SCAN_CLEANUP_PUBLICATION_JOURNAL_SUFFIX = '.evb-publication-journal.json';
 
 interface IScanCleanupPublicationJournalEntry {
@@ -344,8 +342,7 @@ async function streamScanCleanupSidecar(
         return recovered;
     };
     const describeUnprovenTermination = () => (
-        'evb-scan-cleanup process tree (pid=' + String(childPid) + ') was not proven dead within '
-        + String(SCAN_CLEANUP_TERMINATION_FALLBACK_MS) + 'ms of termination; its inputs may still be open'
+        'evb-scan-cleanup process tree (pid=' + String(childPid) + ') was not proven dead; its inputs may still be open'
     );
     const withTerminationProof = (error: Error, terminated: boolean) => (
         terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination())
@@ -403,7 +400,6 @@ async function streamScanCleanupSidecar(
             maxStderrBytes: 64 * 1024,
             longLived: true,
             commandLabel: 'evb-scan-cleanup',
-            terminationGraceMs: SCAN_CLEANUP_TERMINATION_GRACE_MS,
             onSpawn: pid => {
                 childPid = pid;
                 if (options.priority === 'background') {
