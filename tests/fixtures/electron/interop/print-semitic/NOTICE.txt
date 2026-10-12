@@ -16,6 +16,8 @@ The input reproduces partial font joining, pointed/cantillated Hebrew, and
 red DA border/green background with an empty padded text area. Reference
 coordinates use a 32-point font, 0.3-em left inset and DejaVu's shared baseline.
 Font byte hashes and expected positions are recorded, not inferred from EVB.
+In hebrew-reference.pdf, the spaces between Hebrew words advance with DejaVu Sans,
+the face that claims shared characters on screen and in the native layout.
 
 The embedded programs, partial ones included, are GID-stable subsets of the source
 fonts above, made with fontTools 4.66.1 and retain-gids. Each keeps the glyph count,

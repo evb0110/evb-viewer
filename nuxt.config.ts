@@ -241,6 +241,7 @@ export default defineNuxtConfig({
     css: [
         '~/assets/css/app-shell-critical.scss',
         '~/assets/css/main.css',
+        '~/assets/css/annotation-fonts.scss',
     ],
 
     // Keep Nuxt's server renderer available for prerender/build-time output and

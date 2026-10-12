@@ -23,9 +23,12 @@ const WORKSPACE_FILES = [
 export function getNativeExternalBuildInputs(crateName) {
     return crateName === 'pdf-page-ops'
         ? [
-            'public/fonts/annotation/DejaVuSans.ttf',
-            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+            // Text-box fonts in layout order: the script faces, then the
+            // general face. The generated face table the layout reads follows.
             'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
+            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+            'public/fonts/annotation/DejaVuSans.ttf',
+            'packages/contracts/annotationFontCoverage.json',
             'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
             'public/pdf/standard_fonts/LiberationSans-Bold.ttf',
             'public/pdf/standard_fonts/LiberationSans-Italic.ttf',

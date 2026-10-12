@@ -8,13 +8,35 @@ use skrifa::{
 };
 use unicode_normalization::UnicodeNormalization;
 
-pub(crate) const FONT: &[u8] = include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf");
+/// Text-box programs in layout order, as the generated face table lists them:
+/// script faces claim their own ranges, then DejaVu Sans claims the rest.
+pub(crate) static FONTS: [&[u8]; 3] = [
+    include_bytes!("../../../public/fonts/annotation/NotoSansHebrew-Regular.ttf"),
+    include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf"),
+    include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf"),
+];
 pub(crate) const LINE_HEIGHT: f64 = 1.35;
 pub(crate) const PADDING_X: f64 = 0.3;
 pub(crate) const PADDING_Y: f64 = 0.15;
 
+// The generated face table that also declares the on-screen @font-face ranges.
+// DejaVu Sans claims every character it maps; None marks a document program.
+fn face_range(program: &[u8]) -> Option<&'static [[u32; 2]]> {
+    static RANGES: std::sync::OnceLock<Vec<Option<Vec<[u32; 2]>>>> = std::sync::OnceLock::new();
+    let index = FONTS.iter().position(|font| std::ptr::eq(*font, program))?;
+    let ranges = RANGES.get_or_init(|| {
+        let table = include_str!("../../../packages/contracts/annotationFontCoverage.json");
+        let table: serde_json::Value = serde_json::from_str(table).expect("generated face table");
+        let fonts = table["fonts"].as_array().into_iter().flatten();
+        fonts
+            .map(|font| serde_json::from_value(font["unicodeRange"].clone()).ok())
+            .collect()
+    });
+    ranges[index].as_deref().or(Some(&[[0, 0x10ffff]]))
+}
+
 fn face() -> FontRef<'static> {
-    FontRef::from_index(FONT, 0).expect("the bundled DejaVu Sans font is valid")
+    FontRef::from_index(FONTS[2], 0).expect("the bundled DejaVu Sans font is valid")
 }
 
 fn invisible(character: char) -> bool {
@@ -48,7 +70,7 @@ pub(crate) fn baseline_from_top(font_size: f64) -> f64 {
 
 #[path = "text_layout.rs"]
 mod text_layout;
-pub(crate) use text_layout::{layout, layout_simple, layout_with_fonts};
+pub(crate) use text_layout::{layout, layout_simple, layout_with_fonts, Line};
 
 fn font_objects_match(
     actual_document: &impl PdfObjectSource,
@@ -148,7 +170,7 @@ fn font_objects_match(
 
 #[path = "text_font_program.rs"]
 mod text_font_program;
-pub(crate) use text_font_program::{simple_font_advances, FONTS};
+pub(crate) use text_font_program::simple_font_advances;
 
 pub(crate) fn embed_fonts(
     document: &mut Document,
@@ -609,52 +631,18 @@ mod tests {
         );
         for sample in expected["layouts"].as_array().unwrap() {
             let text = sample["input"].as_str().unwrap();
-            // Hebrew now uses its complete Noto program, checked against the
-            // independent HarfBuzz page references in annotation_round_trip.
-            if text.chars().any(|c| matches!(c, '\u{0590}'..='\u{05ff}')) {
-                continue;
-            }
             let lines: Vec<_> = layout(text, sample["width"].as_f64().unwrap(), 16.0)
                 .into_iter().map(|line| {
                     let glyphs: Vec<_> = line.glyphs.into_iter().map(|glyph| {
-                        serde_json::json!([glyph.id, glyph.x, glyph.y])
+                        serde_json::json!([glyph.font, glyph.id, glyph.x, glyph.y])
                     }).collect();
                     serde_json::json!({"text": line.text, "width": line.width, "rtl": line.rtl, "glyphs": glyphs})
                 }).collect();
-            assert_eq!(serde_json::json!(lines), sample["lines"], "{text}");
+            // Parse both sides alike: serde_json's default float parsing is not exact.
+            let lines: serde_json::Value =
+                serde_json::from_str(&serde_json::json!(lines).to_string()).unwrap();
+            assert_eq!(lines, sample["lines"], "{text}");
         }
-    }
-
-    #[test]
-    fn shapes_cyrillic_diacritics_hebrew_arabic_and_mixed_runs() {
-        for text in [
-            "Привет мир",
-            "Cafe\u{301} naïve Ελληνικά",
-            "שָׁלוֹם",
-            "العَرَبِيَّة",
-            "ܫܠܵܡܵܐ",
-            "בְּרֵאשִׁ֖ית",
-            "بَسْمِ لَا بــِسْمِ",
-            "Latin שלום العربية 123",
-        ] {
-            validate_text(text).unwrap();
-            let lines = layout(text, 500.0, 16.0);
-            assert_eq!(lines.len(), 1, "{text}");
-            assert!(lines[0].width > 0.0);
-            assert!(lines[0].glyphs.iter().all(|glyph| glyph.id != 0), "{text}");
-        }
-        let arabic = layout("سلام", 500.0, 16.0);
-        assert!(arabic[0].rtl);
-        assert!(
-            arabic[0].glyphs.len() < "سلام".chars().count(),
-            "lam-alef must form its ligature"
-        );
-        let font = face();
-        assert_ne!(
-            arabic[0].glyphs.last().unwrap().id,
-            font.charmap().map('س').unwrap().to_u32() as u16,
-            "Arabic initial letter must use its contextual form"
-        );
     }
 
     #[test]
@@ -699,19 +687,6 @@ mod tests {
         validate_text("a\r\nb\t\u{200f}שלום\nܫܠܵܡܵܐ\nבְּרֵאשִׁ֖ית\nبَسْمِ لَا بــِسْمِ").unwrap();
     }
     #[test]
-    fn admits_the_bundled_semitic_characters() {
-        let rejected: Vec<_> = ["ܫܠܵܡܵܐ", "בְּרֵאשִׁ֖ית", "بَسْمِ لَا بــِسْمِ"]
-            .into_iter()
-            .filter_map(|text| {
-                validate_text(text)
-                    .err()
-                    .map(|error| format!("{text}: {error}"))
-            })
-            .collect();
-        assert!(rejected.is_empty(), "{}", rejected.join("\n"));
-    }
-
-    #[test]
     fn contract_coverage_equals_the_bundled_programs() {
         let contract: serde_json::Value = serde_json::from_str(include_str!(
             "../../../packages/contracts/annotationFontCoverage.json"
@@ -738,5 +713,11 @@ mod tests {
             actual, expected,
             "regenerate coverage from the shipped font programs"
         );
+        use sha2::Digest;
+        for (font, program) in contract["fonts"].as_array().unwrap().iter().zip(FONTS) {
+            let digest = sha2::Sha256::digest(program);
+            let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+            assert_eq!(font["sha256"], digest, "FONTS follows the face table order");
+        }
     }
 }

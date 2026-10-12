@@ -19,24 +19,6 @@
     src: url('/fonts/noto-sans/noto-sans-italic-variable.woff2') format('woff2');
 }
 
-@font-face {
-    font-family: 'EVB Noto Sans';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/annotation/NotoSansSyriac-Regular.ttf') format('truetype');
-    unicode-range: U+0700-074F, U+0860-086F;
-}
-
-@font-face {
-    font-family: 'EVB Noto Sans';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/annotation/NotoSansHebrew-Regular.ttf') format('truetype');
-    unicode-range: U+0590-05FF, U+FB1D-FB4F;
-}
-
 @theme {
     --font-sans: var(--app-font-ui);
 
@@ -61,7 +43,7 @@
     --app-ui-scale: 1;
     --app-font-ui:
         'EVB Noto Sans',
-        'EVB Annotation Sans',
+        'EVB Annotation Scripts',
         Arial,
         'Helvetica Neue',
         Helvetica,

@@ -101,25 +101,9 @@ const {
 ) as ICargoArtifactsModule;
 
 describe('Cargo artifact staging', () => {
-    it.each([
-        'public/fonts/annotation/DejaVuSans.ttf',
-        'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
-        'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
-        'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
-        'public/pdf/standard_fonts/LiberationSans-Bold.ttf',
-        'public/pdf/standard_fonts/LiberationSans-Italic.ttf',
-        'public/pdf/standard_fonts/LiberationSans-BoldItalic.ttf',
-    ])('invalidates the native build ID and cache when %s changes', async (fontPath) => {
+    it.each(getNativeExternalBuildInputs('pdf-page-ops'))('invalidates the native build ID and cache when %s changes', async (fontPath) => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-font-build-id-'));
-        const fontPaths = [
-            'public/fonts/annotation/DejaVuSans.ttf',
-            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
-            'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
-            'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
-            'public/pdf/standard_fonts/LiberationSans-Bold.ttf',
-            'public/pdf/standard_fonts/LiberationSans-Italic.ttf',
-            'public/pdf/standard_fonts/LiberationSans-BoldItalic.ttf',
-        ];
+        const fontPaths = getNativeExternalBuildInputs('pdf-page-ops');
         try {
             for (const relativePath of [
                 'native/Cargo.toml',

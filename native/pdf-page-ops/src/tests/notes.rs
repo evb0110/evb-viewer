@@ -2975,6 +2975,36 @@ fn unicode_text_boxes_append_reopen_with_verified_font_subsets() {
 }
 
 #[test]
+fn text_box_appearance_shrinks_text_that_needs_more_lines_than_its_box() {
+    // The editor sizes a box to the text it shows. A box one line high whose
+    // saved text would wrap keeps every glyph inside its clip, at a smaller size.
+    use crate::text_box_font::{layout, LINE_HEIGHT, PADDING_X, PADDING_Y};
+    let text = "ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ";
+    let line = &layout(text, f64::MAX, 16.0)[0];
+    for (scale, shrinks) in [(1.02, false), (0.97, true)] {
+        let width = line.width * scale + 2.0 * PADDING_X * 16.0;
+        let height = (LINE_HEIGHT + 2.0 * PADDING_Y) * 16.0;
+        let editor = TextBoxMutation {
+            page_index: 0, stable_key: "fit".to_string(), annotation_id: None, text: text.to_string(),
+            rect: [10.0, 10.0, 10.0 + width, 10.0 + height], rotation: 0, font_size: 16.0,
+            color: [0, 0, 0], author: None, created_at: None, modified_at: None,
+        };
+        let rect = PdfRect { x1: 10.0, y1: 10.0, x2: 10.0 + width, y2: 10.0 + height };
+        let mut document = Document::with_version("1.7");
+        let id = crate::annotations::build_text_box_appearance(&mut document, &editor, rect, 0).unwrap();
+        let content = String::from_utf8(document.get_object(id).unwrap().as_stream().unwrap().content.clone()).unwrap();
+        let glyphs: Vec<Vec<f64>> = content.lines().filter(|op| op.ends_with("Tj"))
+            .map(|op| op.split_whitespace().filter_map(|token| token.parse().ok()).collect()).collect();
+        assert_eq!(glyphs.len(), line.glyphs.len(), "every glyph is drawn");
+        for glyph in glyphs {
+            let (size, x, y) = (glyph[0], glyph[5], glyph[6]);
+            assert!((0.0..width).contains(&x) && (0.0..height).contains(&y), "{glyph:?} lies outside the clip");
+            assert_eq!(size < 16.0, shrinks, "{glyph:?}");
+        }
+    }
+}
+
+#[test]
 fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
     for page_rotation in [0, 90, 180, 270] {
         for rotation in [0, 90, 180, 270] {

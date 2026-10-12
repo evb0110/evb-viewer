@@ -1056,7 +1056,7 @@ pub(crate) fn build_text_box_appearance(
     rect: PdfRect,
     page_rotation: i64,
 ) -> Result<ObjectId> {
-    use crate::text_box_font::{self, LINE_HEIGHT, PADDING_X};
+    use crate::text_box_font::{self, LINE_HEIGHT, PADDING_X, PADDING_Y};
     let source = PdfRect {
         x1: editor.rect[0],
         y1: editor.rect[1],
@@ -1074,19 +1074,40 @@ pub(crate) fn build_text_box_appearance(
         number_to_content(height),
         format_operands(&color),
     );
-    let content_width = (width - 2.0 * PADDING_X * editor.font_size).max(0.0);
-    let lines = text_box_font::layout(&editor.text, content_width, editor.font_size);
+    // The editor grows a box to the text it shows. Where the saved layout still
+    // needs more room, its text shrinks to fit rather than losing lines to the clip.
+    let content_width = |size: f64| (width - 2.0 * PADDING_X * size).max(0.0);
+    let layout = |size| text_box_font::layout(&editor.text, content_width(size), size);
+    let fits = |size, lines: &[text_box_font::Line]| {
+        (lines.len() as f64 * LINE_HEIGHT + PADDING_Y) * size <= height + 0.01
+            && lines
+                .iter()
+                .all(|line| line.width <= content_width(size) + 0.01)
+    };
+    let (mut size, mut lines) = (editor.font_size, layout(editor.font_size));
+    if !fits(size, &lines) {
+        let mut range = (0.0, size);
+        for _ in 0..16 {
+            let middle = (range.0 + range.1) / 2.0;
+            range = if fits(middle, &layout(middle)) {
+                (middle, range.1)
+            } else {
+                (range.0, middle)
+            };
+        }
+        (size, lines) = (range.0, layout(range.0));
+    }
+    let content_width = content_width(size);
     let fonts = text_box_font::embed_fonts(document, &lines, &text_box_font::FONTS)?;
     for (index, line) in lines.iter().enumerate() {
-        let left = PADDING_X * editor.font_size
+        let left = PADDING_X * size
             + if line.rtl {
                 (content_width - line.width).max(0.0)
             } else {
                 0.0
             };
-        let baseline = height
-            - text_box_font::baseline_from_top(editor.font_size)
-            - index as f64 * LINE_HEIGHT * editor.font_size;
+        let baseline =
+            height - text_box_font::baseline_from_top(size) - index as f64 * LINE_HEIGHT * size;
         content.push_str(&format!(
             "/Span << /ActualText <{}> >> BDC\n",
             text_box_font::unicode_hex(&line.text, true)
@@ -1095,7 +1116,7 @@ pub(crate) fn build_text_box_appearance(
             content.push_str(&format!(
                 "/TextFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
                 glyph.font,
-                number_to_content(editor.font_size),
+                number_to_content(size),
                 number_to_content(left + glyph.x),
                 number_to_content(baseline + glyph.y),
                 glyph.id,
@@ -1233,19 +1254,6 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
             }
         }
     }
-    if replacements.is_empty() {
-        bytes.extend_from_slice(
-            format!(
-                " /Helv {} Tf {} {} {} rg",
-                number_to_content(font_size),
-                number_to_content(color[0]),
-                number_to_content(color[1]),
-                number_to_content(color[2]),
-            )
-            .as_bytes(),
-        );
-        return bytes;
-    }
     replacements.sort_unstable_by_key(|(start, _, _)| *start);
     for (start, end, replacement) in replacements.into_iter().rev() {
         bytes.splice(start..end, replacement);
@@ -1254,15 +1262,7 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
         bytes.extend_from_slice(format!(" /Helv {} Tf", number_to_content(font_size)).as_bytes());
     }
     if !replaced_rg {
-        bytes.extend_from_slice(
-            format!(
-                " {} {} {} rg",
-                number_to_content(color[0]),
-                number_to_content(color[1]),
-                number_to_content(color[2]),
-            )
-            .as_bytes(),
-        );
+        bytes.extend_from_slice(format!(" {} rg", format_operands(&color)).as_bytes());
     }
     bytes
 }
@@ -1308,11 +1308,9 @@ fn set_text_box_fields(
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     let default_appearance = if is_new {
         format!(
-            "/Helv {} Tf {} {} {} rg",
+            "/Helv {} Tf {} rg",
             number_to_content(editor.font_size),
-            number_to_content(color[0]),
-            number_to_content(color[1]),
-            number_to_content(color[2]),
+            format_operands(&color),
         )
         .into_bytes()
     } else {

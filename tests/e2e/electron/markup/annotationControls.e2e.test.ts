@@ -1,17 +1,25 @@
 import {
-    copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+    copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {
     join, resolve,
 } from 'node:path';
+import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
 import type {Page} from 'puppeteer-core';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
-    PDFDict, PDFDocument, PDFHexString, PDFName, PDFString,
+    decodePDFRawStream, PageSizes, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString,
 } from 'pdf-lib';
+import type {
+    PDFNumber, PDFRef,
+} from 'pdf-lib';
+import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {
     describe,
     expect,
@@ -39,11 +47,84 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {readViewerInvariantReport} from '@tests/e2e/electron/helpers/viewerInvariants';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const POINTER_READY_TIMEOUT_MS = 30_000;
 const STYLE_UPDATE_TIMEOUT_MS = 20_000;
 const SIDEBAR_RESIZE_DELTA_PX = 96;
+// Spaces, punctuation and tatweel are shared by scripts; the screen and the saved
+// page both draw them with DejaVu Sans, whatever script surrounds them.
+const SHARED_CHARACTER = /\p{Script=Common}/u;
+
+// Counts PDF.js ink inside and outside the saved text box. With `unclipped`, the
+// appearance loses its clip and grows with its Rect at unit scale, so any glyph the
+// saved layout placed outside the box shows up as ink outside it.
+async function renderedTextBoxInk(bytes: Uint8Array, unclipped: boolean) {
+    const pdf = await PDFDocument.load(bytes);
+    const annotation = (pdf.getPage(0).node.Annots()?.asArray() ?? []).map(ref => pdf.context.lookup(ref, PDFDict)).find(object => (
+        object.get(PDFName.of('Subtype'))?.toString() === '/FreeText'
+    ))!;
+    const numbers = (dict: PDFDict, key: string) => dict.lookup(PDFName.of(key), PDFArray).asArray().map(value => (value as PDFNumber).asNumber());
+    const rect = numbers(annotation, 'Rect');
+    if (unclipped) {
+        const reference = annotation.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef;
+        const stream = pdf.context.lookup(reference) as PDFRawStream;
+        const grow = (box: number[]) => pdf.context.obj([
+            box[0]! - 200,
+            box[1]! - 200,
+            box[2]! + 200,
+            box[3]! + 200,
+        ]);
+        const dict = stream.dict.clone(pdf.context);
+        dict.delete(PDFName.of('Filter'));
+        dict.set(PDFName.of('BBox'), grow(numbers(stream.dict, 'BBox')));
+        annotation.set(PDFName.of('Rect'), grow(rect));
+        const content = Buffer.from(decodePDFRawStream(stream).decode()).toString('latin1');
+        expect(content).toContain(' re W n');
+        pdf.context.assign(reference, PDFRawStream.of(dict, Buffer.from(content.replace(' re W n', ' re n'), 'latin1')));
+    }
+    const task = pdfjs.getDocument({
+        data: await pdf.save(),
+        ...createPdfjsNodeDocumentOptions(),
+    });
+    try {
+        const page = await (await task.promise).getPage(1);
+        const viewport = page.getViewport({scale: 2});
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const context = canvas.getContext('2d');
+        await Reflect.apply(page.render, page, [{
+            canvas,
+            canvasContext: context,
+            viewport,
+            annotationMode: pdfjs.AnnotationMode.ENABLE,
+        }]).promise;
+        const [
+            left,
+            top,
+        ] = viewport.convertToViewportPoint(rect[0]!, rect[1]!);
+        const [
+            right,
+            bottom,
+        ] = viewport.convertToViewportPoint(rect[2]!, rect[3]!);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        const ink = {
+            inside: 0,
+            outside: 0,
+        };
+        for (let y = 0; y < canvas.height; y += 1) {
+            for (let x = 0; x < canvas.width; x += 1) {
+                const offset = (y * canvas.width + x) * 4;
+                if (Math.min(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) >= 160) continue;
+                const within = x >= Math.min(left!, right!) && x <= Math.max(left!, right!) && y >= Math.min(top!, bottom!) && y <= Math.max(top!, bottom!);
+                ink[within ? 'inside' : 'outside'] += 1;
+            }
+        }
+        return ink;
+    } finally {
+        await task.destroy();
+    }
+}
 
 async function expectTwoLinePreviewPaint(page: Page) {
     // Selection and root scaling update the clamped preview asynchronously.
@@ -781,8 +862,11 @@ describe('Electron E2E - annotation controls', () => {
         ],
     ])('paints the UI search input and results for %s with the bundled font', async (script, text, postScriptName) => {
         const {page} = sessionFixture.getSession();
-        const evidence = resolve('.devkit/semtext-r4/evidence', process.env.SEMTEXT_REVISION ?? 'candidate', script);
-        mkdirSync(evidence, {recursive: true});
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-semitic-search-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
         // core4's public two-page RTL fixture has exact pointed text, embedded
         // glyphs and ToUnicode mappings. Search itself is already correct.
         await openPdfInApp(page, resolve('tests/fixtures/electron/semtext/search.pdf'));
@@ -863,13 +947,35 @@ describe('Electron E2E - annotation controls', () => {
             'בְּרֵאשִׁ֖ית',
             'NotoSansHebrew-Regular.ttf',
         ],
+        [
+            'Syriac seyame',
+            'ܡܲܠܟܹ̈ܐ',
+            'NotoSansSyriac-Regular.ttf',
+        ],
+        [
+            'Syriac sentence',
+            'ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ',
+            'NotoSansSyriac-Regular.ttf',
+        ],
+        [
+            'Syriac tatweel',
+            'ܡـܠܟܐ',
+            'NotoSansSyriac-Regular.ttf',
+        ],
     ])('paints typed %s with its bundled font and saves its appearance', async (script, text, fontFile) => {
-        const evidence = resolve('.devkit/semtext-r1/evidence', process.env.SEMTEXT_REVISION ?? 'candidate', script);
-        mkdirSync(evidence, {recursive: true});
-        const source = await createBlankFixturePdf(`semtext-${script}-${Date.now()}.pdf`);
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-semitic-text-box-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
         const saved = join(evidence, 'saved.pdf');
-        copyFileSync(source, saved);
-        onTestFinished(() => rmSync(source, {force: true}));
+        const blank = await PDFDocument.create();
+        blank.addPage(PageSizes.A4);
+        writeFileSync(saved, await blank.save());
+        const programs = new Set([
+            fontFile,
+            ...Array.from(text).some(character => SHARED_CHARACTER.test(character)) ? ['DejaVuSans.ttf'] : [],
+        ].map(file => file.replace('.ttf', '')));
         let {page} = sessionFixture.getSession();
         await openPdfInApp(page, saved);
         await waitForViewerInteractive(page);
@@ -881,7 +987,14 @@ describe('Electron E2E - annotation controls', () => {
         async function paintedTextMatchesBundledProgram(label: string) {
             const box = await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-text-box');
             expect(box).not.toBeNull();
-            const actual = Buffer.from(await box!.screenshot());
+            // A reopened viewer still restores its place, and a fresh profile loads
+            // the script faces on demand: capture once both have settled.
+            await readViewerInvariantReport(page, {});
+            await page.evaluate(async () => {
+                await document.fonts.ready;
+                await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+            });
+            const actual = Buffer.from(await page.screenshot({clip: (await box!.boundingBox())!}));
             writeFileSync(join(evidence, `${label}-box.png`), actual);
             await page.screenshot({path: join(evidence, `${label}-page.png`)});
             const client = await page.createCDPSession();
@@ -895,32 +1008,34 @@ describe('Electron E2E - annotation controls', () => {
             const platform = await client.send('CSS.getPlatformFontsForNode', {nodeId: node.nodeId});
             const previewSelector = '.editor-pane.is-active .note-item .note-item-text';
             const preview = await page.waitForSelector(previewSelector);
-            const previewEvidence = resolve('.devkit/semtext-r4/evidence', process.env.SEMTEXT_REVISION ?? 'candidate', 'comment previews', script);
-            mkdirSync(previewEvidence, {recursive: true});
-            await preview!.screenshot({path: join(previewEvidence, `${label}-preview.png`)});
-            await page.screenshot({path: join(previewEvidence, `${label}-page.png`)});
+            await preview!.screenshot({path: join(evidence, `${label}-preview.png`)});
             const previewNode = await client.send('DOM.querySelector', {
                 nodeId: tree.root.nodeId,
                 selector: `${previewSelector} span span`,
             });
             const previewFonts = await client.send('CSS.getPlatformFontsForNode', {nodeId: previewNode.nodeId});
-            writeFileSync(join(previewEvidence, `${label}-fonts.json`), JSON.stringify(previewFonts, null, 2));
+            writeFileSync(join(evidence, `${label}-preview-fonts.json`), JSON.stringify(previewFonts, null, 2));
             const previewGlyphs = previewFonts.fonts.filter(font => font.glyphCount > 0);
             expect.soft(previewGlyphs.length, `${script} comment preview paints text`).toBeGreaterThan(0);
-            expect.soft(previewGlyphs.every(font => font.isCustomFont && font.postScriptName === fontFile.replace('.ttf', '')),
-                `${script} comment preview uses the same bundled program as its page box`).toBe(true);
+            // Previews use the UI font: bundled script faces only for the scripts that need them.
+            expect.soft(previewGlyphs.some(font => font.isCustomFont && font.postScriptName === 'DejaVuSans'),
+                `${script} comment preview keeps DejaVu Sans out of the UI font`).toBe(false);
+            if (fontFile !== 'DejaVuSans.ttf') {
+                expect.soft(previewGlyphs.some(font => font.isCustomFont && font.postScriptName === fontFile.replace('.ttf', '')),
+                    `${script} comment preview uses the bundled script program`).toBe(true);
+            }
             await client.detach();
             const paintedFonts = platform.fonts.filter(font => font.glyphCount > 0);
-            expect.soft(paintedFonts.length).toBeGreaterThan(0);
-            expect.soft(paintedFonts.every(font => font.isCustomFont && font.postScriptName === fontFile.replace('.ttf', '')),
-                `${script} actually paints every glyph with its shipped program`).toBe(true);
+            expect.soft(paintedFonts.some(font => font.postScriptName === fontFile.replace('.ttf', ''))).toBe(true);
+            expect.soft(paintedFonts.every(font => font.isCustomFont && programs.has(font.postScriptName)),
+                `${script} actually paints every glyph with the shipped program its saved layout uses`).toBe(true);
 
             // A separate family chooses the complete reference program. Its
             // DejaVu strut matches the shared paragraph metrics on screen.
             await page.evaluate(async (file: string, content: string) => {
                 const base = new FontFace('Semtext Reference', 'url("/fonts/annotation/DejaVuSans.ttf")');
                 document.fonts.add(await base.load());
-                const unicodeRange = Array.from(new Set(Array.from(content, character => (
+                const unicodeRange = Array.from(new Set(Array.from(content).filter(character => !/\p{Script=Common}/u.test(character)).map(character => (
                     `U+${character.codePointAt(0)!.toString(16)}`
                 )))).join(',');
                 const font = new FontFace('Semtext Reference', `url("/fonts/annotation/${file}")`, {unicodeRange});
@@ -1023,6 +1138,55 @@ describe('Electron E2E - annotation controls', () => {
         }));
         expect.soft(hasAppearance).toBe(true);
         expect.soft(savedText).toBe(text);
+        const clipped = await renderedTextBoxInk(readFileSync(saved), false);
+        const unclipped = await renderedTextBoxInk(readFileSync(saved), true);
+        writeFileSync(join(evidence, 'saved-ink.json'), JSON.stringify({
+            clipped,
+            unclipped,
+        }));
+        expect.soft(clipped.inside, `${script} saved page paints text in PDF.js`).toBeGreaterThan(0);
+        expect.soft(unclipped, `${script} saved layout keeps every glyph inside its box`).toEqual({
+            inside: clipped.inside,
+            outside: 0,
+        });
+        // EVB prints the saved appearance: an A4 page prints at unit scale.
+        const printed = join(evidence, 'printed.pdf');
+        execFileSync(resolveNativePageOpsPath()!, [
+            'print-layout',
+            '--input',
+            saved,
+            '--output',
+            printed,
+            '--view-mode',
+            'single',
+            '--orientation',
+            'portrait',
+        ]);
+        const {pdftoppm} = getPdfNativeToolPaths();
+        for (const [
+            name,
+            file,
+        ] of [
+                [
+                    'saved',
+                    saved,
+                ],
+                [
+                    'printed',
+                    printed,
+                ],
+            ] as const) {
+            execFileSync(pdftoppm, [
+                '-r',
+                '96',
+                '-png',
+                '-singlefile',
+                file,
+                join(evidence, name),
+            ]);
+        }
+        expect.soft(readFileSync(join(evidence, 'printed.png')).equals(readFileSync(join(evidence, 'saved.png'))),
+            `${script} prints the saved page unchanged`).toBe(true);
         const restarted = await sessionFixture.restart({
             sessionName: () => `e2e-semtext-reopen-${Date.now()}`,
             hard: true,

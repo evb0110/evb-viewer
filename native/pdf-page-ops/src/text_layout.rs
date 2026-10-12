@@ -15,7 +15,7 @@ pub(crate) struct Glyph {
     pub y: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct Line {
     pub text: String,
     pub glyphs: Vec<Glyph>,
@@ -46,8 +46,10 @@ fn script_runs(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
     ranges
 }
 
+type Face<'a> = (Shaper<'a>, FontRef<'a>, Option<&'a [[u32; 2]]>);
+
 fn shape_line(
-    fonts: &[(Shaper<'_>, FontRef<'_>)],
+    fonts: &[Face<'_>],
     text: &str,
     bidi: &BidiInfo<'_>,
     paragraph: &ParagraphInfo,
@@ -56,16 +58,10 @@ fn shape_line(
 ) -> Line {
     if range.is_empty() {
         return Line {
-            text: String::new(),
-            glyphs: Vec::new(),
-            width: 0.0,
             rtl: paragraph.level.is_rtl(),
+            ..Line::default()
         };
     }
-    let replacement_font = fonts
-        .iter()
-        .position(|(_, face)| face.charmap().map('�').is_some())
-        .unwrap_or(0);
     let logical_text = &text[range.clone()];
     let show_hyphen = range.end < text.len() && logical_text.ends_with('\u{00ad}');
     let rendered_text = if show_hyphen {
@@ -97,49 +93,56 @@ fn shape_line(
             scripts.reverse();
         }
         for script in scripts {
-            // Resolve complete joining words and grapheme clusters before fonts.
-            // Adjacent punctuation or digits cannot break a base/mark or word run.
-            let joining = |g: &str| {
+            // As on screen, each grapheme cluster takes the first bundled face
+            // whose range claims it. A document program (printing) claims only
+            // complete joining words, so a partial program never splits a word.
+            let covers = |(_, face, _): &Face<'_>, c| {
+                let c = if c == '\t' { ' ' } else { c };
+                invisible(c) || face.charmap().map(c).is_some()
+            };
+            let claims = |font: &Face<'_>, c| {
+                let claimed =
+                    |r: &[[u32; 2]]| r.iter().any(|r| (r[0]..=r[1]).contains(&(c as u32)));
+                font.2.is_some_and(claimed) && covers(font, c)
+            };
+            let joining = |(_, g): &(usize, &str)| {
                 g.starts_with(|c: char| c.is_alphabetic() || "\u{00ad}\u{200c}\u{200d}".contains(c))
             };
-            let clusters: Vec<_> = text[script].graphemes(true).collect();
-            let mut font_runs: Vec<(usize, String)> = Vec::new();
+            let clusters: Vec<_> = text[script.clone()].grapheme_indices(true).collect();
+            let mut font_runs: Vec<(usize, Range<usize>)> = Vec::new();
             for word in clusters.chunk_by(|a, b| joining(a) && joining(b)) {
-                let sequence = word.concat();
-                let covers = |face: &FontRef<'_>, c| {
-                    let c = if c == '\t' { ' ' } else { c };
-                    invisible(c) || face.charmap().map(c).is_some()
-                };
-                let index = font_runs
-                    .last()
-                    .map(|(i, _)| *i)
-                    .filter(|i| {
-                        (sequence.trim().is_empty() || (show_hyphen && sequence == "-"))
-                            && sequence.chars().all(|c| covers(&fonts[*i].1, c))
-                    })
-                    .or_else(|| {
-                        fonts
-                            .iter()
-                            .position(|(_, face)| sequence.chars().all(|c| covers(face, c)))
-                    })
-                    .unwrap_or(replacement_font);
-                let sequence: String = sequence
-                    .chars()
-                    .map(|c| if covers(&fonts[index].1, c) { c } else { '�' })
-                    .collect();
-                if let Some((_, run)) = font_runs.last_mut().filter(|(i, _)| *i == index) {
-                    run.push_str(&sequence);
-                } else {
-                    font_runs.push((index, sequence));
+                let whole = fonts.iter().position(|font| {
+                    font.2.is_none() && word.iter().all(|(_, g)| g.chars().all(|c| covers(font, c)))
+                });
+                for (offset, cluster) in word {
+                    let index = whole
+                        .or_else(|| {
+                            fonts
+                                .iter()
+                                .position(|f| cluster.chars().all(|c| claims(f, c)))
+                        })
+                        .unwrap_or(fonts.len() - 1);
+                    let end = script.start + offset + cluster.len();
+                    match font_runs.last_mut() {
+                        Some((i, run)) if *i == index => run.end = end,
+                        _ => font_runs.push((index, script.start + offset..end)),
+                    }
                 }
             }
             if rtl {
                 font_runs.reverse();
             }
-            for (index, segment) in font_runs {
-                let (font, face) = &fonts[index];
+            for (index, run) in font_runs {
+                let (font, face, _) = &fonts[index];
                 let scale = font_size / f64::from(font.units_per_em());
                 let mut buffer = UnicodeBuffer::new();
+                // Neighbouring clusters in other fonts keep their joining forms.
+                buffer.set_pre_context(&text[script.start..run.start]);
+                buffer.set_post_context(&text[run.end..script.end]);
+                let segment: String = text[run]
+                    .chars()
+                    .map(|c| if covers(&fonts[index], c) { c } else { '�' })
+                    .collect();
                 buffer.push_str(&segment);
                 buffer.guess_segment_properties();
                 buffer.set_direction(if rtl {
@@ -150,15 +153,12 @@ fn shape_line(
                 let shaped = font.shape(buffer, ShapeOptions::default());
                 for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
                     if segment.as_bytes().get(info.cluster as usize) == Some(&b'\t') {
-                        let space_advance = face
+                        let metrics = face.glyph_metrics(Size::unscaled(), LocationRef::default());
+                        let space = face
                             .charmap()
                             .map(' ')
-                            .and_then(|id| {
-                                face.glyph_metrics(Size::unscaled(), LocationRef::default())
-                                    .advance_width(id)
-                            })
-                            .map_or(0.0, f64::from);
-                        let tab_stop = 4.0 * space_advance * scale;
+                            .and_then(|g| metrics.advance_width(g));
+                        let tab_stop = 4.0 * f64::from(space.unwrap_or(0.0)) * scale;
                         if tab_stop > 0.0 {
                             advance = ((advance / tab_stop).floor() + 1.0) * tab_stop;
                         }
@@ -202,7 +202,10 @@ pub(crate) fn layout_with_fonts(
     let shapers: Vec<_> = faces
         .iter()
         .zip(&data)
-        .map(|(face, data)| (data.shaper(face).build(), face.clone()))
+        .zip(programs)
+        .map(|((face, data), program)| {
+            (data.shaper(face).build(), face.clone(), face_range(program))
+        })
         .collect();
     wrap(
         text,
@@ -247,12 +250,7 @@ fn wrap(
     let mut result = Vec::new();
     for paragraph_text in normalized.split('\n') {
         if paragraph_text.is_empty() {
-            result.push(Line {
-                text: String::new(),
-                glyphs: Vec::new(),
-                width: 0.0,
-                rtl: false,
-            });
+            result.push(Line::default());
             continue;
         }
         let bidi = BidiInfo::new(paragraph_text, paragraph_level);
