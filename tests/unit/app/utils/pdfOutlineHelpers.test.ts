@@ -9,13 +9,11 @@ import {
     vi,
 } from 'vitest';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
+import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     buildOutlineFromBookmarkEntries,
-    buildResolvedOutline,
-    convertOutlineColorToHex,
     flattenBookmarks,
     normalizeBookmarkColor,
-    parseOutlineItems,
     resolveActiveBookmarkForPage,
     resolveBookmarkDestinationPage,
     resolveBookmarkDestinationTarget,
@@ -124,18 +122,20 @@ function createBookmark(id: string, pageIndex: number | null): IBookmarkItem {
     };
 }
 
-function createDeepRawOutline(depth: number) {
-    const root: {
-        title: string;
-        items?: unknown[];
-    } = { title: 'root' };
-    let cursor = root;
-    for (let index = 1; index < depth; index += 1) {
-        const child = { title: `child-${index}` };
-        cursor.items = [child];
-        cursor = child;
+function createDeepBookmarkEntry(depth: number): IPdfBookmarkEntry {
+    let entry: IPdfBookmarkEntry | null = null;
+    for (let index = depth - 1; index >= 0; index -= 1) {
+        entry = {
+            title: `child-${index}`,
+            pageIndex: null,
+            namedDest: null,
+            bold: false,
+            italic: false,
+            color: null,
+            items: entry ? [entry] : [],
+        };
     }
-    return root;
+    return entry!;
 }
 
 function countOutlineDepth(items: Array<{ items?: readonly unknown[] | undefined }>) {
@@ -151,25 +151,7 @@ function countOutlineDepth(items: Array<{ items?: readonly unknown[] | undefined
 }
 
 describe('pdfOutlineHelpers', () => {
-    it('converts outline color arrays to hex', () => {
-        expect(convertOutlineColorToHex([
-            255,
-            128.2,
-            0,
-        ])).toBe('#ff8000');
-        expect(convertOutlineColorToHex(null)).toBeNull();
-        expect(convertOutlineColorToHex([
-            1,
-            2,
-        ])).toBeNull();
-    });
-
     it('treats the black outline default as no explicit color', () => {
-        expect(convertOutlineColorToHex(new Uint8ClampedArray([
-            0,
-            0,
-            0,
-        ]))).toBeNull();
         expect(normalizeBookmarkColor('#000000')).toBeNull();
         expect(normalizeBookmarkColor('#000')).toBeNull();
         expect(normalizeBookmarkColor('#010101')).toBe('#010101');
@@ -179,29 +161,6 @@ describe('pdfOutlineHelpers', () => {
         expect(normalizeBookmarkColor('#abc')).toBe('#aabbcc');
         expect(normalizeBookmarkColor('  #A1b2C3  ')).toBe('#a1b2c3');
         expect(normalizeBookmarkColor('blue')).toBeNull();
-    });
-
-    it('parses deeply nested outlines with bounded depth while preserving siblings', () => {
-        const items = parseOutlineItems([
-            createDeepRawOutline(320),
-            { title: 'sibling' },
-        ]);
-
-        expect(items.map(item => item.title)).toEqual([
-            'root',
-            'sibling',
-        ]);
-        expect(countOutlineDepth(items)).toBeLessThanOrEqual(256);
-    });
-
-    it('preserves more than ten thousand sibling outline entries', () => {
-        const source = Array.from({length: 10_001}, (_, index) => ({title: `entry-${index}`}));
-
-        const items = parseOutlineItems(source);
-
-        expect(items).toHaveLength(10_001);
-        expect(items[0]?.title).toBe('entry-0');
-        expect(items[10_000]?.title).toBe('entry-10000');
     });
 
     it('projects more than ten thousand pending bookmark entries without truncation', () => {
@@ -226,42 +185,13 @@ describe('pdfOutlineHelpers', () => {
         expect(items[10_000]?.title).toBe('entry-10000');
     });
 
-    it('resolves more than ten thousand PDF outline entries without truncation', async () => {
-        const source = Array.from({length: 10_001}, (_, index) => ({title: `entry-${index}`}));
-        const rawItems = parseOutlineItems(source);
-        const pdfDocument = createPdfDocumentStub();
-        let id = 0;
+    it('projects deeply nested bookmark entries without recursive stack growth', () => {
+        const root = createDeepBookmarkEntry(320);
 
-        const items = await buildResolvedOutline(
-            rawItems,
-            pdfDocument,
-            new Map(),
-            new Map(),
-            () => {
-                const currentId = id;
-                id += 1;
-                return `bookmark-${currentId}`;
-            },
-        );
+        const resolved = buildOutlineFromBookmarkEntries([root], () => 'bookmark-id');
 
-        expect(items).toHaveLength(10_001);
-        expect(items[10_000]?.title).toBe('entry-10000');
-    });
-
-    it('resolves deeply nested outlines without recursive stack growth', async () => {
-        const pdfDoc = createPdfDocumentStub();
-        const rawItems = parseOutlineItems([createDeepRawOutline(320)]);
-
-        const resolved = await buildResolvedOutline(
-            rawItems,
-            pdfDoc,
-            new Map(),
-            new Map(),
-            () => 'bookmark-id',
-        );
-
-        expect(resolved[0]?.title).toBe('root');
-        expect(countOutlineDepth(resolved)).toBeLessThanOrEqual(256);
+        expect(resolved[0]?.title).toBe('child-0');
+        expect(countOutlineDepth(resolved)).toBe(256);
     });
 
     it('projects pending bookmark entries into visible outline items without PDF.js', () => {
@@ -310,43 +240,6 @@ describe('pdfOutlineHelpers', () => {
                 items: [],
             }],
         }]);
-    });
-
-    it('preserves resolved pageYRatio anchors from PDF outline destinations', async () => {
-        const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub([
-            0,
-            0,
-            612,
-            800,
-        ]));
-        const pdfDoc = createPdfDocumentStub({
-            numPages: 2,
-            getPage,
-        });
-        const rawItems = parseOutlineItems([{
-            title: 'Mid-page section',
-            dest: [
-                0,
-                { name: 'XYZ' },
-                null,
-                600,
-                null,
-            ],
-        }]);
-
-        const resolved = await buildResolvedOutline(
-            rawItems,
-            pdfDoc,
-            new Map(),
-            new Map(),
-            () => 'bookmark-id',
-        );
-
-        expect(resolved[0]).toMatchObject({
-            title: 'Mid-page section',
-            pageIndex: 0,
-            pageYRatio: 0.25,
-        });
     });
 
     it.each([

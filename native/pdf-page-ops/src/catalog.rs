@@ -7,7 +7,7 @@ const CATALOG_WALK_NODE_LIMIT: usize = 100_000;
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PdfCombineCatalog {
-    pub(crate) bookmarks: Vec<PdfCombineBookmarkEntry>,
+    pub(crate) bookmarks: Vec<BookmarkEntry>,
     pub(crate) page_labels: Vec<PdfCombinePageLabelRange>,
 }
 
@@ -188,7 +188,8 @@ pub(crate) fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId)
     }))
 }
 
-/// Reads the subset of a source catalog that the PDF combine paths preserve.
+/// Reads the subset of a source catalog that the PDF combine paths preserve,
+/// refusing the sources they cannot carry.
 ///
 /// The PDF catalog structures are attacker-controlled linked graphs. Cycles
 /// terminate the relevant walk, and both depth and node limits bound work on a
@@ -197,45 +198,41 @@ pub(crate) fn has_valid_oc_properties(document: &Document, catalog_id: ObjectId)
 pub(crate) fn read_pdf_combine_catalog(
     document: &impl PdfObjectSource,
 ) -> Result<PdfCombineCatalog> {
-    let catalog = document.dictionary(document.root_id()?)?;
-    validate_pdf_combine_catalog(document, catalog)?;
-    let _page_resolver = PageTreeResolver::new(document)?;
-
-    let mut page_ids = HashSet::new();
-    let bookmarks = match catalog.get(b"Outlines") {
-        Ok(outlines_object) => {
-            let outlines = resolve_catalog_dictionary(document, outlines_object, "Outlines")?;
-            let first = outlines.get(b"First").ok().cloned();
-            let mut state = CatalogWalkState::new();
-            let mut named_destinations = None;
-            read_outline_items(
-                document,
-                catalog,
-                first.as_ref(),
-                0,
-                &mut state,
-                &mut named_destinations,
-                &mut page_ids,
-            )?
-        }
-        Err(_) => Vec::new(),
-    };
-
-    let page_indices = collect_catalog_page_indices(document, &page_ids)?;
-    let bookmarks = bookmarks
-        .into_iter()
-        .map(|bookmark| finalize_bookmark(bookmark, &page_indices))
-        .collect();
-
-    let page_labels = match catalog.get(b"PageLabels") {
-        Ok(page_labels_object) => read_page_label_ranges(document, page_labels_object)?,
-        Err(_) => Vec::new(),
-    };
-
+    validate_pdf_combine_catalog(document, document.dictionary(document.root_id()?)?)?;
     Ok(PdfCombineCatalog {
-        bookmarks,
-        page_labels,
+        bookmarks: read_pdf_outline(document, false)?,
+        page_labels: read_pdf_page_labels(document)?,
     })
+}
+
+/// The catalog parts a document shows. Each is read on its own and carries
+/// either its value or, as `<part>Error`, the reason it could not be read, so a
+/// broken outline leaves the page labels readable and the reverse.
+pub(crate) fn read_pdf_document_catalog(document: &impl PdfObjectSource) -> serde_json::Value {
+    let mut catalog = serde_json::Map::new();
+    for (part, read) in [
+        (
+            "bookmarks",
+            read_pdf_outline(document, true).map(|value| serde_json::json!(value)),
+        ),
+        (
+            "pageLabels",
+            read_pdf_page_labels(document).map(|value| serde_json::json!(value)),
+        ),
+    ] {
+        match read {
+            Ok(value) => catalog.insert(part.to_string(), value),
+            Err(error) => catalog.insert(format!("{part}Error"), error.to_string().into()),
+        };
+    }
+    catalog.into()
+}
+
+fn read_pdf_page_labels(document: &impl PdfObjectSource) -> Result<Vec<PdfCombinePageLabelRange>> {
+    match document.dictionary(document.root_id()?)?.get(b"PageLabels") {
+        Ok(page_labels_object) => read_page_label_ranges(document, page_labels_object),
+        Err(_) => Ok(Vec::new()),
+    }
 }
 
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]

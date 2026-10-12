@@ -24,9 +24,10 @@ describe('page ops platform feature schemas', () => {
             removeCrop: 'page-ops:remove-crop',
             cancelActive: 'page-ops:cancel-active',
             getPageGeometry: 'page-ops:get-page-geometry',
+            readOutline: 'page-ops:read-outline',
         });
         expect(PAGE_OPS_PLATFORM_FEATURE.eventChannels).toEqual({});
-        expect(PAGE_OPS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(13);
+        expect(PAGE_OPS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(14);
     });
 
     it('round-trips the compact native move tuple', () => {

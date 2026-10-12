@@ -1,5 +1,5 @@
 import {
-    PDFDocument, PDFName, PDFString, PDFArray, PDFDict, PDFNumber, PDFNull, degrees,
+    PDFDocument, PDFName, PDFString, PDFHexString, PDFArray, PDFDict, PDFNumber, PDFNull, degrees,
 } from 'pdf-lib';
 import {
     copyFile, mkdtemp, readFile, realpath, writeFile,
@@ -18,7 +18,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
-    clickAsUser, clickFoundAsUser,
+    activateMenuItemAsUser, clickAsUser, clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     startElectronE2ESession, type IElectronE2ESession,
@@ -182,6 +182,139 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.screenshot({path:join(evidence,'after-delete.png')});
         console.info('Named deletion evidence: '+evidence);
         expect(catalog.outlines.some(item=>item.title==='Imported') && (!target || !pageRefs.includes(target)), 'No saved bookmark should name a removed page').toBe(false);
+    }, 90_000);
+
+    it('keeps untouched remote, launch, URI and named targets when another bookmark is renamed', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`source-intent-${Date.now()}.pdf`, []);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        const pages = pdf.getPages();
+        const outlinesRef = pdf.context.nextRef();
+        const definitions = [
+            {
+                Title: PDFString.of('Chapter'),
+                Dest: [
+                    pages[1]!.ref,
+                    PDFName.of('XYZ'),
+                    null,
+                    600,
+                    null,
+                ],
+            },
+            {
+                Title: PDFString.of('Named'),
+                Dest: PDFString.of('chapter-three'),
+            },
+            {
+                Title: PDFString.of('Remote'),
+                A: {
+                    S: PDFName.of('GoToR'),
+                    F: PDFString.of('other.pdf'),
+                    D: PDFString.of('remote-chapter'),
+                    NewWindow: true,
+                },
+            },
+            {
+                Title: PDFString.of('Launch'),
+                A: {
+                    S: PDFName.of('Launch'),
+                    F: PDFString.of('tool.exe'),
+                    Win: {
+                        F: PDFString.of('tool.exe'),
+                        P: PDFString.of('-x 1.5'),
+                    },
+                },
+            },
+            {
+                Title: PDFString.of('Site'),
+                A: pdf.context.register(pdf.context.obj({
+                    S: PDFName.of('URI'),
+                    URI: PDFHexString.fromText('https://example.org/a?b=1'),
+                })),
+            },
+        ];
+        const refs = definitions.map(() => pdf.context.nextRef());
+        definitions.forEach((definition, index) => pdf.context.assign(refs[index]!, pdf.context.obj({
+            ...definition,
+            Parent: outlinesRef,
+            ...(index > 0 ? {Prev: refs[index - 1]} : {}),
+            ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
+        })));
+        pdf.context.assign(outlinesRef, pdf.context.obj({
+            Type: PDFName.of('Outlines'),
+            First: refs[0],
+            Last: refs.at(-1),
+            Count: refs.length,
+        }));
+        pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
+        // A local name equal to the remote destination must not capture it.
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({
+            'chapter-three': [
+                pages[2]!.ref,
+                PDFName.of('FitH'),
+                null,
+            ],
+            'remote-chapter': [
+                pages[3]!.ref,
+                PDFName.of('Fit'),
+            ],
+        }));
+        await writeFile(fixture, await pdf.save());
+        const readTargets = async () => {
+            const document = await PDFDocument.load(await readFile(fixture));
+            let node: PDFDict | undefined = document.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+            const targets = [];
+            while (node) {
+                targets.push({
+                    title: node.lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText(),
+                    action: node.lookup(PDFName.of('A'))?.toString() ?? null,
+                    dest: node.lookup(PDFName.of('Dest'))?.toString() ?? null,
+                });
+                node = node.lookupMaybe(PDFName.of('Next'), PDFDict);
+            }
+            return targets;
+        };
+        const source = await readTargets();
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
+        await clickAsUser(page, await findBookmarkRow(page, 'Chapter'), {button: 'right'});
+        await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+A'});
+        await page.keyboard.type('Chapter renamed');
+        await page.keyboard.press('Enter');
+        await findBookmarkRow(page, 'Chapter renamed');
+        await saveViaVisibleToolbar(page, 90_000, fixture);
+        const saved = await readTargets();
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-source-intent-'));
+        await copyFile(fixture, join(evidence, 'saved.pdf'));
+        console.info('SOURCE_INTENT_SAVE ' + JSON.stringify({
+            source,
+            saved,
+            evidence,
+        }));
+        expect(saved).toEqual(source.map(target => target.title === 'Chapter' ? {
+            ...target,
+            title: 'Chapter renamed',
+        } : target));
+        await clickAsUser(page, 'button[aria-label="Close Tab"]');
+        await page.waitForSelector('.page_container', {hidden: true});
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        for (const title of [
+            'Remote',
+            'Launch',
+            'Site',
+        ]) await findBookmarkRow(page, title);
+        await activateBookmark(page, 'Chapter renamed');
+        await waitForToolbarCurrentPage(page, 2);
+        await activateBookmark(page, 'Named');
+        await waitForToolbarCurrentPage(page, 3);
+        await page.screenshot({path: join(evidence, 'reopened.png')});
     }, 90_000);
 
     it('keeps destination kinds and null coordinates when renaming a large outline', async () => {

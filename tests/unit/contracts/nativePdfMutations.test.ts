@@ -209,6 +209,128 @@ describe('native PDF mutation contracts', () => {
         }
     });
 
+    it('preserves a source action through save and rejects actions outside its bounds', () => {
+        const originalAction = {dict: [
+            [
+                'S',
+                {name: 'GoToR'},
+            ],
+            [
+                'F',
+                {literal: [
+                    111,
+                    116,
+                    104,
+                    101,
+                    114,
+                    46,
+                    112,
+                    100,
+                    102,
+                ]},
+            ],
+            [
+                'D',
+                [
+                    0,
+                    {name: 'FitH'},
+                    null,
+                ],
+            ],
+            [
+                'NewWindow',
+                true,
+            ],
+            [
+                'Zoom',
+                {real: 1.5},
+            ],
+        ]};
+        const bookmark = {
+            title: 'Remote',
+            pageIndex: null,
+            pageYRatio: null,
+            namedDest: null,
+            originalAction,
+            bold: false,
+            italic: false,
+            color: null,
+            items: [],
+        };
+        const mutations = {bookmarks: {
+            totalPages: 1,
+            untitledLabel: 'Untitled',
+            items: [bookmark],
+        }};
+        expect(normalizePdfNativeMutationSet(mutations, 'mutations').bookmarks?.items[0]?.originalAction).toEqual(originalAction);
+        let nested: unknown = null;
+        for (let depth = 0; depth < 100_000; depth += 1) nested = [nested];
+        for (const invalid of [
+            [[
+                'S',
+                {name: 'URI'},
+            ]],
+            {dict: [
+                [
+                    'S',
+                    {name: 'URI'},
+                ],
+                [
+                    'URI',
+                    {literal: [256]},
+                ],
+            ]},
+            {dict: [
+                [
+                    'S',
+                    {name: 'URI'},
+                ],
+                [
+                    'URI',
+                    {text: 'https://example.org'},
+                ],
+            ]},
+            {dict: [
+                [
+                    'S',
+                    {name: 'URI'},
+                ],
+                [
+                    'Zoom',
+                    1.5,
+                ],
+            ]},
+            {dict: [
+                [
+                    'S',
+                    {name: 'URI'},
+                ],
+                [
+                    'URI',
+                    {literal: Array.from({length: 70_000}, () => 97)},
+                ],
+            ]},
+            {dict: [
+                [
+                    'S',
+                    {name: 'Named'},
+                ],
+                [
+                    'Next',
+                    nested,
+                ],
+            ]},
+        ]) {
+            expect(() => normalizePdfNativeMutationSet({bookmarks: {
+                ...mutations.bookmarks,
+                items: [{
+                    ...bookmark,
+                    originalAction: invalid,
+                }],
+            }}, 'mutations')).toThrow();
+        }
+    });
+
     it('normalizes native canonical identity bindings without changing their proof', () => {
         expect(normalizePdfNativeAnnotationIdentityBindings([{
             annotationId: '  app-annotation-1 ',

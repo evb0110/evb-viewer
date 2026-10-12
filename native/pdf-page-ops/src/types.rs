@@ -364,13 +364,6 @@ impl PageTreeResolver {
         self.page_count
     }
 
-    /// Return the root `/Pages /Count` declaration. Consumers that enumerate
-    /// the tree should compare it with `for_each_page_id_with_count` rather
-    /// than treating it as proof that every leaf is reachable.
-    pub(crate) fn declared_page_count(&self) -> u32 {
-        self.page_count
-    }
-
     pub(crate) fn page_id(
         &self,
         document: &impl PdfObjectSource,
@@ -748,6 +741,7 @@ pub(crate) enum Operation {
         metadata_only: bool,
     },
     ReadCatalog,
+    ReadDocumentCatalog,
     PrintLayout {
         pages_file: Option<PathBuf>,
         view_mode: PrintViewMode,

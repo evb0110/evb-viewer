@@ -91,6 +91,7 @@
                 v-if="hasActivatedBookmarksTab"
                 v-show="effectiveTab === 'bookmarks'"
                 :pdf-document="pdfDocument"
+                :document-ref="pageSource?.documentRef ?? null"
                 :current-page="currentPage"
                 :is-edit-mode="bookmarkEditMode"
                 :bookmark-items="bookmarkItems"

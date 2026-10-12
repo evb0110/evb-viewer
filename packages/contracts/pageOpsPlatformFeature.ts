@@ -1,5 +1,8 @@
 import {
-    decodeBookmarkOriginalDestination, PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
+    decodeBookmarkAction,
+    decodeBookmarkOriginalDestination,
+    PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA,
+    PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
 } from '@contracts/pdfBookmarkEntry';
 import type {
     TPageNumber,
@@ -87,6 +90,7 @@ type TRotateArgs = [string, TPageOpsPageSelection, number, TPageOpsRotationAngle
 type TCropArgs = [string, TPageOpsPageSelection, number, ICropMargins, IPageOpsMutationOptions | undefined];
 type TRemoveCropArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
 type TGetPageGeometryArgs = [string, number];
+type TReadOutlineArgs = [string];
 
 function decodeString(args: unknown[], index: number, fieldName: string) {
     const value = args[index];
@@ -270,6 +274,7 @@ function decodeBookmarkEntries(
             pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             ...(pageYRatio === undefined ? {} : {pageYRatio}),
             ...(raw.originalDestination === undefined ? {} : {originalDestination: decodeBookmarkOriginalDestination(raw.originalDestination)}),
+            ...(raw.originalAction === undefined ? {} : {originalAction: decodeBookmarkAction(raw.originalAction)}),
             namedDest: raw.namedDest,
             bold: raw.bold,
             italic: raw.italic,
@@ -749,6 +754,15 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 workingCopyPath,
                 pageNumber,
             ],
+        ),
+        // The document's outline as the native catalog reader keeps it: names
+        // and actions other than GoTo stay what the source says.
+        readOutline: method(
+            'readOutline',
+            'page-ops:read-outline',
+            args<TReadOutlineArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')]),
+            v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA),
+            (workingCopyPath: string): TReadOutlineArgs => [workingCopyPath],
         ),
     },
     events: {},

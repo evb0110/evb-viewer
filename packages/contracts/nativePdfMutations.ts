@@ -1,4 +1,6 @@
-import {decodeBookmarkOriginalDestination} from '@contracts/pdfBookmarkEntry';
+import {
+    decodeBookmarkAction, decodeBookmarkOriginalDestination,
+} from '@contracts/pdfBookmarkEntry';
 import { firstUnsupportedAnnotationCharacter } from '@contracts/firstUnsupportedAnnotationCharacter';
 import type {
     Merge,
@@ -821,6 +823,7 @@ function normalizeBookmarkItems(
             pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             pageYRatio: typeof pageYRatio === 'number' ? pageYRatio : null,
             ...(item.originalDestination === undefined ? {} : {originalDestination: decodeBookmarkOriginalDestination(item.originalDestination)}),
+            ...(item.originalAction === undefined ? {} : {originalAction: decodeBookmarkAction(item.originalAction)}),
             namedDest: namedDest,
             bold: item.bold === true,
             italic: item.italic === true,

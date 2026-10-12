@@ -1,5 +1,8 @@
 import {
-    decodeBookmarkOriginalDestination, type TPdfBookmarkOriginalDestination,
+    decodeBookmarkAction,
+    decodeBookmarkOriginalDestination,
+    type IPdfBookmarkAction,
+    type TPdfBookmarkOriginalDestination,
 } from '@contracts/pdfBookmarkEntry';
 import {isRecord} from '@contracts/runtimeGuards';
 
@@ -8,6 +11,7 @@ export interface IBrowserPdfCatalogBookmark {
     pageIndex: number | null;
     pageYRatio?: number | null;
     originalDestination?: TPdfBookmarkOriginalDestination;
+    originalAction?: IPdfBookmarkAction;
     namedDest: string | null;
     bold: boolean;
     italic: boolean;
@@ -22,9 +26,33 @@ export interface IBrowserPdfCatalogPageLabelRange {
     start?: number;
 }
 
+/**
+ * The outline and the page labels are read on their own: a part that could
+ * not be read carries its reason instead, and fails only the reader that asks
+ * for it.
+ */
 export interface IBrowserPdfCatalog {
-    bookmarks: IBrowserPdfCatalogBookmark[];
-    pageLabels: IBrowserPdfCatalogPageLabelRange[];
+    bookmarks?: IBrowserPdfCatalogBookmark[];
+    bookmarksError?: string;
+    pageLabels?: IBrowserPdfCatalogPageLabelRange[];
+    pageLabelsError?: string;
+}
+
+export function readBrowserPdfCatalogPart<K extends 'bookmarks' | 'pageLabels'>(
+    catalog: IBrowserPdfCatalog,
+    part: K,
+): NonNullable<IBrowserPdfCatalog[K]> {
+    const value = catalog[part];
+    if (value === undefined) {
+        throw new Error(catalog[`${part}Error`] ?? `PDF ${part} could not be read`);
+    }
+    return value;
+}
+
+function isCatalogPart(part: unknown, error: unknown, maxItems: number) {
+    return Array.isArray(part)
+        ? part.length <= maxItems && error === undefined
+        : part === undefined && typeof error === 'string';
 }
 
 export interface IBrowserPdfCatalogDecodeOptions {
@@ -65,9 +93,11 @@ function decodeBookmark(
         return null;
     }
     let originalDestination: TPdfBookmarkOriginalDestination | undefined;
-    if (value.originalDestination !== undefined) {
-        try { originalDestination = decodeBookmarkOriginalDestination(value.originalDestination); } catch { return null; }
-    }
+    let originalAction: IPdfBookmarkAction | undefined;
+    try {
+        if (value.originalDestination !== undefined) originalDestination = decodeBookmarkOriginalDestination(value.originalDestination);
+        if (value.originalAction !== undefined) originalAction = decodeBookmarkAction(value.originalAction);
+    } catch { return null; }
     state.count += 1;
     const items: IBrowserPdfCatalogBookmark[] = [];
     for (const item of value.items) {
@@ -82,6 +112,7 @@ function decodeBookmark(
         pageIndex: value.pageIndex,
         ...(value.pageYRatio === undefined ? {} : {pageYRatio: value.pageYRatio}),
         ...(originalDestination === undefined ? {} : {originalDestination}),
+        ...(originalAction === undefined ? {} : {originalAction}),
         namedDest: value.namedDest,
         bold: value.bold,
         italic: value.italic,
@@ -101,16 +132,14 @@ export function decodeBrowserPdfCatalog(
     };
     if (
         !isRecord(value)
-        || !Array.isArray(value.bookmarks)
-        || !Array.isArray(value.pageLabels)
-        || value.bookmarks.length > limits.maxBookmarkItems
-        || value.pageLabels.length > limits.maxPageLabels
+        || !isCatalogPart(value.bookmarks, value.bookmarksError, limits.maxBookmarkItems)
+        || !isCatalogPart(value.pageLabels, value.pageLabelsError, limits.maxPageLabels)
     ) {
         return null;
     }
     const state = {count: 0};
     const bookmarks: IBrowserPdfCatalogBookmark[] = [];
-    for (const bookmark of value.bookmarks) {
+    for (const bookmark of Array.isArray(value.bookmarks) ? value.bookmarks : []) {
         const decoded = decodeBookmark(bookmark, 0, state, limits);
         if (decoded === null) {
             return null;
@@ -118,7 +147,7 @@ export function decodeBrowserPdfCatalog(
         bookmarks.push(decoded);
     }
     const pageLabels: IBrowserPdfCatalogPageLabelRange[] = [];
-    for (const range of value.pageLabels) {
+    for (const range of Array.isArray(value.pageLabels) ? value.pageLabels : []) {
         if (
             !isRecord(range)
             || !isNonNegativeInteger(range.pageIndex)
@@ -136,7 +165,7 @@ export function decodeBrowserPdfCatalog(
         });
     }
     return {
-        bookmarks,
-        pageLabels,
+        ...(typeof value.bookmarksError === 'string' ? {bookmarksError: value.bookmarksError} : {bookmarks}),
+        ...(typeof value.pageLabelsError === 'string' ? {pageLabelsError: value.pageLabelsError} : {pageLabels}),
     };
 }

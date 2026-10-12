@@ -141,10 +141,8 @@ import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/compo
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {
     buildOutlineFromBookmarkEntries,
-    buildResolvedOutline,
     flattenBookmarks,
     type IResolvedBookmarkPageTarget,
-    parseOutlineItems,
     resolveActiveBookmarkForPage,
     resolveBookmarkPageTargets,
     resolveMaxBookmarkDepth,
@@ -166,9 +164,13 @@ import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pd
 import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import type { TDocumentRef } from '@contracts/documentRef';
+import { getPageOpsCapability } from '@app/utils/platformDocuments';
 
 interface IProps {
     pdfDocument: IPdfDocument | null;
+    /** The bytes `pdfDocument` was opened from; the outline is read there. */
+    documentRef?: TDocumentRef | null | undefined;
     currentPage: number;
     isEditMode: boolean;
     bookmarkItems?: IPdfBookmarkEntry[] | undefined;
@@ -694,7 +696,7 @@ async function updateActiveItemFromCurrentPage() {
 }
 
 // The document's bookmarks, once it has them for the bytes in hand, outrank
-// this panel's read of its own PDF.js outline, which may hold older bytes.
+// this panel's read of its own outline, which may hold older bytes.
 function getPendingBookmarkEntries() {
     return props.bookmarkItems ?? null;
 }
@@ -767,19 +769,13 @@ function isStaleOutlineRun(runId: number, pdfDocument: IPdfDocument) {
     );
 }
 
-async function resolveBookmarksFromPdf(pdfDocument: IPdfDocument) {
-    const result = await pdfDocument.getOutline();
-    const rawOutline = parseOutlineItems(result);
-
+// The native catalog reader owns the outline: it keeps a source name as the
+// target and an action other than GoTo as it is, so Save writes an untouched
+// entry back unchanged after other entries are edited.
+async function resolveBookmarksFromDocument(documentRef: TDocumentRef) {
+    const entries = await getPageOpsCapability().readOutline(documentRef);
     resetBookmarkIdentity();
-    return buildResolvedOutline(
-        rawOutline,
-        pdfDocument,
-        new Map(),
-        new Map(),
-        createBookmarkId,
-        {resolveDestinations: false},
-    );
+    return buildOutlineFromBookmarkEntries(entries, createBookmarkId);
 }
 
 async function applyLoadedBookmarks(resolved: IBookmarkItem[]) {
@@ -834,11 +830,11 @@ function finishOutlineLoading(runId: number) {
     }
 }
 
-async function loadUsableOutline(pdfDocument: IPdfDocument, runId: number) {
+async function loadUsableOutline(pdfDocument: IPdfDocument, documentRef: TDocumentRef, runId: number) {
     beginOutlineLoading();
     outlineError.value = false;
     try {
-        const resolved = await resolveBookmarksFromPdf(pdfDocument);
+        const resolved = await resolveBookmarksFromDocument(documentRef);
         if (!isStaleOutlineRun(runId, pdfDocument)) {
             // Rows stay behind the loading state until the passive selection
             // for the current page is known. In the current-expanded mode that
@@ -857,6 +853,7 @@ async function loadOutline() {
     bookmarkDestinationCache.clear();
     bookmarkPageRefCache.clear();
     const pdfDocument = props.pdfDocument;
+    const documentRef = props.documentRef;
     outlineRunId += 1;
     invalidateBookmarkNavigationRequests();
     const runId = outlineRunId;
@@ -866,12 +863,12 @@ async function loadOutline() {
         return;
     }
 
-    if (!pdfDocument || !isPdfDocumentUsable(pdfDocument)) {
+    if (!pdfDocument || !documentRef || !isPdfDocumentUsable(pdfDocument)) {
         clearLoadedOutline();
         return;
     }
 
-    await loadUsableOutline(pdfDocument, runId);
+    await loadUsableOutline(pdfDocument, documentRef, runId);
 }
 
 function setDisplayMode(mode: TBookmarkDisplayMode) {
@@ -956,7 +953,10 @@ function handleTreeEndDrop() {
 }
 
 watch(
-    () => props.pdfDocument,
+    [
+        () => props.pdfDocument,
+        () => props.documentRef,
+    ],
     () => loadOutline(),
     { immediate: true },
 );

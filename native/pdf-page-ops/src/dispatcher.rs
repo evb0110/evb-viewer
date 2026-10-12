@@ -23,6 +23,17 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 &mut std::io::stdout().lock(),
             )
         }
+        Operation::ReadDocumentCatalog => {
+            // Unlike read-catalog this keeps the combine preflight out: the
+            // outline and page labels of any document are readable.
+            let incremental = load_dictionary_incremental_pdf_path(
+                &config.input_path,
+                config.qpdf_path.as_deref(),
+            )?;
+            let catalog = read_pdf_document_catalog(&AppendedRevision::new(&incremental));
+            serde_json::to_writer(std::io::stdout().lock(), &catalog)?;
+            return Ok(());
+        }
         Operation::PageGeometry { page_number } => {
             return write_page_geometry(
                 &config.input_path,

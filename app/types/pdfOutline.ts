@@ -12,6 +12,8 @@ export interface IBookmarkItem {
     italic: IPdfBookmarkEntry['italic'];
     color: IPdfBookmarkEntry['color'];
     dest: string | unknown[] | null;
+    /** The source's own action other than GoTo, written back while `dest` is null. */
+    originalAction?: IPdfBookmarkEntry['originalAction'];
     id: string;
     items: IBookmarkItem[];
 }

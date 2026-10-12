@@ -7,9 +7,9 @@ use std::{cell::RefCell, slice};
 use crate::pdf_conformance_facts;
 use crate::{
     add_implicit_default_page_label_range, build_browser_page_subset_pdf, build_print_layout,
-    read_pdf_combine_catalog, save_document_to_bytes, set_bookmarks, set_page_labels,
-    BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange, PageLabelsMutation,
-    PrintOrientation, PrintViewMode,
+    read_pdf_combine_catalog, read_pdf_document_catalog, save_document_to_bytes, set_bookmarks,
+    set_page_labels, BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange,
+    PageLabelsMutation, PrintOrientation, PrintViewMode,
 };
 use crate::{
     append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
@@ -258,9 +258,9 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
         return Err("Trailing bytes in page-op WASM document-list request".into());
     }
     match operation {
-        OP_READ_CATALOG => encode_json_bytes(serde_json::to_vec(&read_pdf_combine_catalog(
+        OP_READ_CATALOG => encode_json_bytes(serde_json::to_vec(&read_pdf_document_catalog(
             &documents[0],
-        )?)?),
+        ))?),
         OP_CONFORMANCE => {
             encode_json_bytes(serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?)
         }
@@ -330,34 +330,24 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
-fn offset_wasm_bookmark(
-    bookmark: crate::PdfCombineBookmarkEntry,
-    page_offset: u32,
-) -> BookmarkEntry {
-    BookmarkEntry {
-        title: bookmark.title,
-        page_index: bookmark
-            .page_index
-            .map(|page| page.saturating_add(page_offset)),
-        page_y_ratio: bookmark.page_y_ratio,
-        named_dest: bookmark.named_dest,
-        original_destination: bookmark.original_destination.map(|mut destination| {
-            if let evb_native_support::pdf_catalog::BookmarkSourceTarget::PageIndex(index) =
-                &mut destination.source_target
-            {
-                *index = index.saturating_add(page_offset);
-            }
-            destination
-        }),
-        bold: bookmark.bold,
-        italic: bookmark.italic,
-        color: bookmark.color,
-        items: bookmark
-            .items
-            .into_iter()
-            .map(|item| offset_wasm_bookmark(item, page_offset))
-            .collect(),
+fn offset_wasm_bookmark(mut bookmark: BookmarkEntry, page_offset: u32) -> BookmarkEntry {
+    use evb_native_support::pdf_catalog::BookmarkSourceTarget::PageIndex;
+    if let Some(index) = &mut bookmark.page_index {
+        *index = index.saturating_add(page_offset);
     }
+    if let Some(PageIndex(index)) = bookmark
+        .original_destination
+        .as_mut()
+        .map(|destination| &mut destination.source_target)
+    {
+        *index = index.saturating_add(page_offset);
+    }
+    bookmark.items = bookmark
+        .items
+        .into_iter()
+        .map(|item| offset_wasm_bookmark(item, page_offset))
+        .collect();
+    bookmark
 }
 
 fn encode_json_bytes(bytes: Vec<u8>) -> Result<Vec<u8>> {

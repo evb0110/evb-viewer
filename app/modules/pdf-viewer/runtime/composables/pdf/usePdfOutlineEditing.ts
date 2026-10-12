@@ -486,6 +486,9 @@ export const usePdfOutlineEditing = (
                     ? clamp(item.pageYRatio, 0, 1)
                     : null,
                 ...(destination?.success ? {originalDestination: destination.output} : {}),
+                // The reactive item wraps the action in a proxy, which the
+                // metadata history cannot structuredClone.
+                ...(item.originalAction ? {originalAction: toRaw(item.originalAction)} : {}),
                 namedDest: typeof item.dest === 'string' && item.dest.trim().length > 0 ? item.dest : null,
                 bold: item.bold,
                 italic: item.italic,

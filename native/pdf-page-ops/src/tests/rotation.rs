@@ -59,6 +59,7 @@ fn incremental_rotation_normalizes_inherited_values_and_keeps_other_metadata() {
                 page_y_ratio: None,
                 named_dest: None,
                     original_destination: None,
+                    original_action: None,
                 bold: false,
                 italic: false,
                 color: None,

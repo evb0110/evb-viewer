@@ -12,6 +12,7 @@ import type {
     PDFRef,
 } from 'pdf-lib';
 import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
+import {readPdfCatalog} from '@app/platform/browser-api/browserPageOpsCore';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 
 interface IBrowserPageOpsAcceptanceResult {
@@ -197,4 +198,95 @@ async function runBrowserPageOpsAcceptance() {
     ]);
 }
 
+// One catalog part that cannot be read must not hide the other: broken page
+// labels keep the outline readable, and a broken outline keeps the labels.
+async function createCatalogPartsFixture(broken: 'page labels' | 'outline') {
+    const document = await PDFDocument.create();
+    const pages = [
+        document.addPage([
+            200,
+            100,
+        ]),
+        document.addPage([
+            200,
+            100,
+        ]),
+    ];
+    const outlineItem = document.context.register(document.context.obj({
+        Title: PDFString.of('Chapter'),
+        Dest: [
+            pages[1]!.ref,
+            PDFName.of('Fit'),
+        ],
+    }));
+    const outlines = document.context.register(document.context.obj({
+        Type: PDFName.of('Outlines'),
+        First: outlineItem,
+        Last: outlineItem,
+        Count: PDFNumber.of(1),
+    }));
+    (document.context.lookup(outlineItem) as PDFDict).set(PDFName.of('Parent'), outlines);
+    document.catalog.set(PDFName.of('Outlines'), broken === 'outline' ? PDFNumber.of(5) : outlines);
+    document.catalog.set(PDFName.of('PageLabels'), document.context.obj(broken === 'page labels'
+        ? {Nums: []}
+        : {Nums: [
+            0,
+            {S: PDFName.of('r')},
+        ]}));
+    return new Uint8Array(await document.save());
+}
+
+async function settleCatalogPart<T>(read: () => Promise<T>) {
+    try {
+        return await read();
+    } catch {
+        return 'unreadable' as const;
+    }
+}
+
+async function runBrowserCatalogPartsAcceptance() {
+    return Promise.all(([
+        'page labels',
+        'outline',
+    ] as const).map(async (broken) => {
+        const bytes = await createCatalogPartsFixture(broken);
+        const workingPath = await browserDocumentStore.createStoredDocument(`catalog-${broken}.pdf`, bytes, {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            saveKind: 'pdf',
+        });
+        try {
+            const pageOps = createBrowserPageOpsCapability({
+                clearSearchCaches: async () => undefined,
+                openInputAccept: 'application/pdf',
+                pickFiles: async () => [],
+                buildOpenPdfPickerTypes: () => [],
+                createCombinedPdfFromPaths: async () => new Uint8Array(),
+                pickSaveTarget: async () => ({
+                    canceled: true,
+                    fileName: '',
+                }),
+                saveBytesToPickerOrDownload: async () => ({
+                    canceled: true,
+                    fileName: '',
+                }),
+                writeBytesToHandle: async () => undefined,
+            });
+            return {
+                broken,
+                bookmarks: await settleCatalogPart(async () => (await pageOps.readOutline(workingPath)).map(entry => entry.title)),
+                pageLabels: await settleCatalogPart(async () => {
+                    const catalog = await readPdfCatalog(bytes);
+                    if (!catalog.pageLabels) throw new Error(catalog.pageLabelsError);
+                    return catalog.pageLabels.map(range => range.style ?? null);
+                }),
+            };
+        } finally {
+            await browserDocumentStore.cleanupDetachedDocument(workingPath);
+        }
+    }));
+}
+
 Reflect.set(globalThis, '__evbRunBrowserPageOpsAcceptance', runBrowserPageOpsAcceptance);
+Reflect.set(globalThis, '__evbRunBrowserCatalogPartsAcceptance', runBrowserCatalogPartsAcceptance);

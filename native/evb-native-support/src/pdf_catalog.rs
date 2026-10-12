@@ -164,6 +164,53 @@ fn deserialize_destination_coordinates<'de, D: Deserializer<'de>>(
     deserializer.deserialize_seq(Coordinates)
 }
 
+/// The size ceiling of one outline action: one per value plus the bytes of
+/// its names, keys and strings.
+pub const MAX_BOOKMARK_ACTION_SIZE: usize = 16_384;
+
+/// An outline item's own action other than GoTo (GoToR, Launch, URI, ...),
+/// kept as a value without object references so that page rewrites, which
+/// renumber objects, cannot retarget it. Dictionaries keep their key order and
+/// strings their bytes and form, so an untouched action is written back as it
+/// was read.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum BookmarkActionValue {
+    Null,
+    Boolean(bool),
+    Integer(i64),
+    Array(Vec<BookmarkActionValue>),
+    Tagged(BookmarkActionTag),
+}
+
+/// The PDF value kinds JSON cannot tell apart.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BookmarkActionTag {
+    Real(f64),
+    Name(String),
+    Literal(Vec<u8>),
+    Hex(Vec<u8>),
+    Dict(Vec<(String, BookmarkActionValue)>),
+}
+
+impl BookmarkActionValue {
+    pub fn size(&self) -> usize {
+        1 + match self {
+            Self::Array(items) => items.iter().map(Self::size).sum(),
+            Self::Tagged(BookmarkActionTag::Name(name)) => name.len(),
+            Self::Tagged(BookmarkActionTag::Literal(bytes) | BookmarkActionTag::Hex(bytes)) => {
+                bytes.len()
+            }
+            Self::Tagged(BookmarkActionTag::Dict(entries)) => entries
+                .iter()
+                .map(|(key, value)| key.len() + value.size())
+                .sum(),
+            _ => 0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BookmarkEntry {
@@ -175,6 +222,9 @@ pub struct BookmarkEntry {
     pub named_dest: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_destination: Option<BookmarkOriginalDestination>,
+    /// Written only when the entry has no destination of its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_action: Option<BookmarkActionValue>,
     #[serde(default)]
     pub bold: bool,
     #[serde(default)]
@@ -288,6 +338,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
         let mut page_y_ratio = None;
         let mut named_dest = None;
         let mut original_destination = None;
+        let mut original_action = None;
         let mut bold = false;
         let mut italic = false;
         let mut color = None;
@@ -299,6 +350,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
                 "pageYRatio" => page_y_ratio = map.next_value()?,
                 "namedDest" => named_dest = map.next_value()?,
                 "originalDestination" => original_destination = map.next_value()?,
+                "originalAction" => original_action = map.next_value()?,
                 "bold" => bold = map.next_value()?,
                 "italic" => italic = map.next_value()?,
                 "color" => color = map.next_value()?,
@@ -317,6 +369,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
             page_y_ratio,
             named_dest,
             original_destination,
+            original_action,
             bold,
             italic,
             color,
@@ -331,6 +384,7 @@ const BOOKMARK_FIELDS: &[&str] = &[
     "pageYRatio",
     "namedDest",
     "originalDestination",
+    "originalAction",
     "bold",
     "italic",
     "color",
@@ -462,6 +516,7 @@ pub fn normalize_bookmark_entries(
                     .map(|value| value.clamp(0.0, 1.0)),
                 named_dest,
                 original_destination: item.original_destination.clone(),
+                original_action: item.original_action.clone(),
                 bold: item.bold,
                 italic: item.italic,
                 color: normalize_bookmark_color(item.color.as_deref()),
@@ -684,6 +739,7 @@ mod tests {
                 page_y_ratio: Some(f64::NAN),
                 named_dest: Some("  ".to_string()),
                 original_destination: None,
+                original_action: None,
                 bold: true,
                 italic: false,
                 color: Some("#abc".to_string()),

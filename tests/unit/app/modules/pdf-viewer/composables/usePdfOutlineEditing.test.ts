@@ -14,10 +14,11 @@ import type { IBookmarkItem } from '@app/types/pdfOutline';
 import { usePdfOutlineEditing } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineEditing';
 import {usePdfOutlineDragDrop} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
 import {
-    buildResolvedOutline, parseOutlineItems, resolveBookmarkPageTargets,
+    buildOutlineFromBookmarkEntries, resolveBookmarkPageTargets,
 } from '@app/utils/pdfOutlineHelpers';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {cast} from '@tests/helpers/cast';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
 function createBookmark(id: string, items: IBookmarkItem[] = []): IBookmarkItem {
     return {
@@ -103,9 +104,179 @@ function createEditingHarness(initialBookmarks: IBookmarkItem[]) {
     };
 }
 
+function sourceIntentEntry(title: string, fields: Partial<IPdfBookmarkEntry>): IPdfBookmarkEntry {
+    return {
+        title,
+        pageIndex: null,
+        pageYRatio: null,
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+        ...fields,
+    };
+}
+
+const encodeBytes = (text: string) => [...new TextEncoder().encode(text)];
+
+// What read-outline returns for review-b6zk's destinations.pdf: explicit
+// kinds on page 1, a name, and remote and launch actions.
+const SOURCE_INTENT_OUTLINE: IPdfBookmarkEntry[] = [
+    ...([
+        [
+            'XYZ',
+            [
+                null,
+                null,
+                null,
+            ],
+            null,
+        ],
+        [
+            'Fit',
+            [],
+            0,
+        ],
+        [
+            'FitH',
+            [null],
+            null,
+        ],
+        [
+            'FitV',
+            [100],
+            null,
+        ],
+        [
+            'FitR',
+            [
+                100,
+                200,
+                500,
+                600,
+            ],
+            0.25,
+        ],
+        [
+            'FitB',
+            [],
+            0,
+        ],
+        [
+            'FitBH',
+            [null],
+            null,
+        ],
+        [
+            'FitBV',
+            [200],
+            null,
+        ],
+    ] as const).map(([
+        kind,
+        coordinates,
+        pageYRatio,
+    ]) => sourceIntentEntry(kind, {
+        pageIndex: requirePageIndex(0),
+        pageYRatio,
+        originalDestination: {
+            kind,
+            sourceTarget: 0,
+            coordinates: [...coordinates],
+        },
+    })),
+    sourceIntentEntry('Named', {
+        pageIndex: requirePageIndex(0),
+        namedDest: 'chapter',
+    }),
+    sourceIntentEntry('Remote', {originalAction: {dict: [
+        [
+            'S',
+            {name: 'GoToR'},
+        ],
+        [
+            'F',
+            {literal: encodeBytes('other.pdf')},
+        ],
+        [
+            'D',
+            [
+                0,
+                {name: 'FitH'},
+                null,
+            ],
+        ],
+        [
+            'NewWindow',
+            true,
+        ],
+    ]}}),
+    sourceIntentEntry('Launch', {originalAction: {dict: [
+        [
+            'S',
+            {name: 'Launch'},
+        ],
+        [
+            'F',
+            {literal: encodeBytes('other.pdf')},
+        ],
+    ]}}),
+];
+
 describe('usePdfOutlineEditing', () => {
     beforeEach(() => {
         vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
+    });
+
+    // review-b6zk's pdfjs-head-false and pdfjs-head-true probes: the PDF.js
+    // projection lost remote and launch actions, and with passive resolution
+    // also the name, as soon as another bookmark was edited.
+    it.each([
+        false,
+        true,
+    ])('keeps untouched remote, launch and named targets when another bookmark is renamed (resolved %s)', async (resolve) => {
+        let nextId = 0;
+        const items = buildOutlineFromBookmarkEntries(structuredClone(SOURCE_INTENT_OUTLINE), () => String(++nextId));
+        if (resolve) {
+            const pdf = cast<IPdfDocument>({
+                numPages: 1,
+                getDestination: async () => [
+                    {
+                        num: 3,
+                        gen: 0,
+                    },
+                    {name: 'XYZ'},
+                    null,
+                    800,
+                    null,
+                ],
+                getPageIndex: async () => 0,
+            });
+            const targets = await resolveBookmarkPageTargets(pdf, items, new Map(), new Map());
+            for (const [
+                item,
+                target,
+            ] of targets ?? []) {
+                if (!target) continue;
+                item.pageIndex ??= requirePageIndex(target.pageIndex);
+                item.pageYRatio ??= target.pageYRatio;
+            }
+        }
+        const harness = createEditingHarness(items);
+        harness.editing.renameBookmark({
+            id: '1',
+            title: 'XYZ renamed',
+        });
+
+        const saved = harness.editing.mapBookmarksForPersistence(harness.bookmarks.value);
+        expect(saved[0]).toEqual({
+            ...SOURCE_INTENT_OUTLINE[0],
+            title: 'XYZ renamed',
+        });
+        expect(saved.slice(1)).toEqual(SOURCE_INTENT_OUTLINE.slice(1));
+        // The metadata history clones what is emitted; a reactive action crashed the tab.
+        expect(structuredClone(saved)).toEqual(saved);
     });
 
     it.each([
@@ -124,34 +295,50 @@ describe('usePdfOutlineEditing', () => {
             },
         });
         let nextId = 0;
-        const items = await buildResolvedOutline(parseOutlineItems([
+        const items = buildOutlineFromBookmarkEntries([
             {
                 title: 'first',
-                dest: [
-                    {
+                pageIndex: null,
+                originalDestination: {
+                    kind: 'XYZ',
+                    sourceTarget: {
                         num: 1,
                         gen: 0,
                     },
-                    {name: 'XYZ'},
-                    null,
-                    600,
-                    null,
-                ],
+                    coordinates: [
+                        null,
+                        600,
+                        null,
+                    ],
+                },
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
             },
             {
                 title: 'second',
-                dest: [
-                    {
+                pageIndex: null,
+                originalDestination: {
+                    kind: 'XYZ',
+                    sourceTarget: {
                         num: 2,
                         gen: 0,
                     },
-                    {name: 'XYZ'},
-                    null,
-                    400,
-                    null,
-                ],
+                    coordinates: [
+                        null,
+                        400,
+                        null,
+                    ],
+                },
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
             },
-        ]), pdf, new Map(), new Map(), () => String(++nextId), {resolveDestinations: false});
+        ], () => String(++nextId));
         const controller = new AbortController();
         const resolution = resolveBookmarkPageTargets(pdf, items, new Map(), new Map(), controller.signal);
         await started.promise;

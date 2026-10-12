@@ -791,3 +791,137 @@ fn visibility_rejects_page_zero_as_an_invalid_request() {
     );
     assert_eq!(error_code(&result), "invalid-request");
 }
+
+fn run_catalog_read(command: &str, input: &Path) -> Output {
+    run_command(
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args([command, "--input"])
+            .arg(input),
+    )
+}
+
+#[test]
+fn read_outline_reads_documents_whose_combine_preflight_refuses_them() {
+    for (label, feature, refusal) in [
+        ("form", "AcroForm", "source forms"),
+        ("attachment", "EmbeddedFiles", "source attachments"),
+        ("script", "JavaScript", "source JavaScript"),
+    ] {
+        let input = path(&format!("outline-{label}"), "pdf");
+        let _cleanup = RemovePdfFilesOnDrop([input.clone()]);
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {"Type" => "Page", "Parent" => pages_id});
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            },
+        );
+        let outlines_id = document.new_object_id();
+        let uri = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Site"), "Parent" => outlines_id,
+            "A" => dictionary! {"S" => "URI", "URI" => Object::string_literal("https://example.org/")},
+        });
+        document.set_object(
+            outlines_id,
+            dictionary! {"Type" => "Outlines", "First" => uri, "Last" => uri, "Count" => 1},
+        );
+        let names = dictionary! {feature => dictionary! {"Names" => Vec::<Object>::new()}};
+        let catalog_id = document.add_object(
+            dictionary! {"Type" => "Catalog", "Pages" => pages_id, "Outlines" => outlines_id},
+        );
+        let catalog = document.get_dictionary_mut(catalog_id).unwrap();
+        if feature == "AcroForm" {
+            catalog.set("AcroForm", dictionary! {"Fields" => Vec::<Object>::new()});
+        } else {
+            catalog.set("Names", names);
+        }
+        document.trailer.set("Root", catalog_id);
+        document.save(&input).unwrap();
+
+        let catalog = run_catalog_read("read-catalog", &input);
+        assert!(!catalog.status.success(), "{label}");
+        assert!(
+            String::from_utf8_lossy(&catalog.stderr).contains(refusal),
+            "{label}"
+        );
+        let outline = run_catalog_read("read-document-catalog", &input);
+        assert!(
+            outline.status.success(),
+            "{label}: {}",
+            String::from_utf8_lossy(&outline.stderr)
+        );
+        let outline: Value = serde_json::from_slice(&outline.stdout).unwrap();
+        assert_eq!(outline["bookmarks"][0]["title"], "Site");
+        assert_eq!(
+            outline["bookmarks"][0]["originalAction"]["dict"][1][1]["literal"]
+                .as_array()
+                .unwrap()
+                .len(),
+            20
+        );
+    }
+}
+
+#[test]
+fn read_document_catalog_reads_the_outline_and_page_labels_independently() {
+    for broken in ["page labels", "outline"] {
+        let input = path(
+            &format!("catalog-parts-{}", broken.replace(' ', "-")),
+            "pdf",
+        );
+        let _cleanup = RemovePdfFilesOnDrop([input.clone()]);
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {"Type" => "Page", "Parent" => pages_id});
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            },
+        );
+        let outlines_id = document.new_object_id();
+        let item = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Chapter"), "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), Object::Name(b"Fit".to_vec())],
+        });
+        document.set_object(
+            outlines_id,
+            dictionary! {"Type" => "Outlines", "First" => item, "Last" => item, "Count" => 1},
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => pages_id,
+            "Outlines" => if broken == "outline" { Object::Integer(5) } else { outlines_id.into() },
+            "PageLabels" => if broken == "page labels" {
+                dictionary! {"Nums" => Vec::<Object>::new()}
+            } else {
+                dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "r"}.into()]}
+            },
+        });
+        document.trailer.set("Root", catalog_id);
+        document.save(&input).unwrap();
+
+        let read = run_catalog_read("read-document-catalog", &input);
+        assert!(
+            read.status.success(),
+            "{broken}: {}",
+            String::from_utf8_lossy(&read.stderr)
+        );
+        let catalog: Value = serde_json::from_slice(&read.stdout).unwrap();
+        if broken == "page labels" {
+            assert_eq!(catalog["bookmarks"][0]["title"], "Chapter");
+            assert!(catalog["pageLabels"].is_null() && catalog["pageLabelsError"].is_string());
+        } else {
+            assert_eq!(catalog["pageLabels"][0]["style"], "r");
+            assert!(catalog["bookmarks"].is_null() && catalog["bookmarksError"].is_string());
+        }
+        // The combine preflight still needs both parts.
+        assert!(
+            !run_catalog_read("read-catalog", &input).status.success(),
+            "{broken}"
+        );
+    }
+}

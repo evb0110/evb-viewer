@@ -1,23 +1,14 @@
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {
     describe,
     expect,
     it,
-    vi,
 } from 'vitest';
 import type {
     IBookmarkIdentityInput,
     IBookmarkItem,
 } from '@app/types/pdfOutline';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
-import {
-    buildOutlineFromBookmarkEntries,
-    buildResolvedOutline,
-    parseOutlineItems,
-} from '@app/utils/pdfOutlineHelpers';
+import {buildOutlineFromBookmarkEntries} from '@app/utils/pdfOutlineHelpers';
 import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
 import { cast } from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
@@ -60,29 +51,6 @@ function collectIdsByTitlePath(
         }
     }
     return ids;
-}
-
-function createPdfDocumentStub() {
-    return cast<IPdfDocument>({
-        numPages: 10,
-        getDestination: vi.fn(async (_name: string) => [
-            {
-                num: 12,
-                gen: 0,
-            },
-            { name: 'Fit' },
-        ]),
-        getPageIndex: vi.fn(async (_ref: unknown) => 3),
-        getPage: vi.fn(async (_pageNumber: number) => cast<IPdfPage>({
-            view: [
-                0,
-                0,
-                612,
-                792,
-            ],
-            getViewport: vi.fn(() => ({ height: 792 })),
-        })),
-    });
 }
 
 function collectAllIds(items: readonly IBookmarkItem[]): string[] {
@@ -188,66 +156,6 @@ describe('createBookmarkIdentityFactory', () => {
 
         expect(collectAllIds(buildOutline(entries)))
             .toEqual(collectAllIds(buildOutline(structuredClone(entries))));
-    });
-
-    it('matches identity between a PDF-resolved outline and its persisted projection', async () => {
-        const pdfDocument = createPdfDocumentStub();
-        const rawItems = parseOutlineItems([{
-            title: 'Chapter',
-            dest: 'chapter-1',
-            items: [{
-                title: 'Section',
-                dest: null,
-            }],
-        }]);
-
-        const resolved = await buildResolvedOutline(
-            rawItems,
-            pdfDocument,
-            new Map(),
-            new Map(),
-            createBookmarkIdentityFactory().createBookmarkId,
-        );
-        expect(resolved[0]?.pageIndex).toBe(3);
-        const persisted = buildOutline([createEntry('Chapter', {
-            pageIndex: requirePageIndex(3),
-            namedDest: 'chapter-1',
-            items: [createEntry('Section', { pageIndex: null })],
-        })]);
-
-        expect(collectAllIds(resolved)).toEqual(collectAllIds(persisted));
-    });
-
-    it('leaves array destinations out of identity, since persistence cannot round trip them', async () => {
-        const resolved = await buildResolvedOutline(
-            parseOutlineItems([{
-                title: 'Chapter',
-                dest: [
-                    {
-                        num: 12,
-                        gen: 0,
-                    },
-                    { name: 'Fit' },
-                ],
-                items: [{
-                    title: 'Section',
-                    dest: null,
-                }],
-            }]),
-            createPdfDocumentStub(),
-            new Map(),
-            new Map(),
-            createBookmarkIdentityFactory().createBookmarkId,
-        );
-
-        // The array destination is dropped on save, so the reloaded entry
-        // carries no `namedDest`; identity has to reach the same ids from both.
-        expect(Array.isArray(resolved[0]?.dest)).toBe(true);
-        expect(collectAllIds(resolved)).toEqual(collectAllIds(buildOutline([createEntry('Chapter', {
-            pageIndex: requirePageIndex(3),
-            namedDest: null,
-            items: [createEntry('Section', { pageIndex: null })],
-        })])));
     });
 
     it('normalizes the title exactly as persistence writes it', () => {

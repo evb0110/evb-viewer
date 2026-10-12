@@ -4,6 +4,7 @@ import type {
     IPdfNativeMutationSet,
     IPdfNativeSaveResult,
 } from '@contracts/electronApiDocuments';
+import { readBrowserPdfCatalogPart } from '@contracts/browserPdfCatalog';
 import {
     PDF_PAGE_LABEL_STYLE_VALUES,
     type IPdfPageLabelRange,
@@ -300,12 +301,8 @@ export function createBrowserDocumentsFileCapability(
                 `. ${browserUseNativeAppMessageProvider()}`,
             );
             const data = await browserDocumentStore.read(path);
-            const catalog = await runBrowserPageOpsWorkerRequest(
-                'readCatalog',
-                {data},
-                {dedicated: true},
-            );
-            return catalog.pageLabels.map((range): IPdfPageLabelRange => ({
+            const catalog = await runBrowserPageOpsWorkerRequest('readCatalog', {data}, {dedicated: true});
+            return readBrowserPdfCatalogPart(catalog, 'pageLabels').map((range): IPdfPageLabelRange => ({
                 startPage: range.pageIndex + 1,
                 style: range.style !== undefined && isOneOf(PDF_PAGE_LABEL_STYLE_VALUES, range.style)
                     ? range.style

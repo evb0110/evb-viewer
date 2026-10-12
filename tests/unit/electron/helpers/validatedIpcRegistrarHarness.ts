@@ -343,6 +343,7 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         '/tmp/fixture.pdf',
         1,
     ],
+    'page-ops:read-outline': ['/tmp/fixture.pdf'],
     'pdf:search': [{
         pdfPath: '/tmp/search.pdf',
         query: 'needle',

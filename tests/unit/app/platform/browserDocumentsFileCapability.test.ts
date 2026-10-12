@@ -468,6 +468,39 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         );
     });
 
+    it('reads page labels whatever happened to the outline, and reports their own failure', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'page-label-parts.pdf',
+            await createPdfBytes(),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'working',
+            },
+        );
+        browserAnnotationParseMock.run.mockResolvedValueOnce({
+            bookmarksError: 'PDF catalog /Outlines must be a dictionary',
+            pageLabels: [{
+                pageIndex: 0,
+                style: 'r',
+            }],
+        });
+        await expect(capability.readPdfPageLabelRanges(workingRef)).resolves.toEqual([{
+            startPage: 1,
+            style: 'r',
+            prefix: '',
+            startNumber: 1,
+        }]);
+        browserAnnotationParseMock.run.mockResolvedValueOnce({
+            bookmarks: [],
+            pageLabelsError: 'PageLabels Nums must contain key/value pairs',
+        });
+        await expect(capability.readPdfPageLabelRanges(workingRef)).rejects.toThrow('PageLabels Nums must contain key/value pairs');
+    });
+
     it('reads compact page-label ranges through the browser catalog worker', async () => {
         const {
             capability,

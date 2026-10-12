@@ -46,11 +46,93 @@ export function decodeBookmarkOriginalDestination(value: unknown) {
     return v.parse(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA, value);
 }
 
+/**
+ * An outline item's own action other than GoTo (GoToR, Launch, URI, ...), as
+ * the native catalog reader keeps it: without object references, dictionary
+ * keys in order, and string bytes with their literal or hex form, so Save
+ * writes an untouched action back unchanged. Matches evb-native-support's
+ * BookmarkActionValue.
+ */
+// The renderer passes the action through untouched, so nested values stay
+// `unknown` here: a recursive type would send Vue's deep ref unwrapping into
+// unbounded instantiation. The schema below validates the whole value.
+export type TPdfBookmarkActionValue =
+    | null
+    | boolean
+    | number
+    | {readonly real: number}
+    | {readonly name: string}
+    | {readonly literal: readonly number[]}
+    | {readonly hex: readonly number[]}
+    | {readonly dict: ReadonlyArray<readonly [string, unknown]>}
+    | readonly unknown[];
+export interface IPdfBookmarkAction {readonly dict: ReadonlyArray<readonly [string, TPdfBookmarkActionValue]>}
+
+// The native reader keeps an action of at most 16,384 values and string bytes,
+// nested at most 16 levels. This JSON walk counts every wrapper too, so its
+// ceilings are a few times larger: what the reader keeps always decodes, and
+// a deep or huge value is refused before the recursive schema sees it.
+const BOOKMARK_ACTION_MAX_SIZE = 65_536;
+const BOOKMARK_ACTION_MAX_DEPTH = 64;
+
+function isWithinBookmarkActionCeilings(value: unknown) {
+    let size = 0;
+    const pending: Array<[unknown, number]> = [[
+        value,
+        0,
+    ]];
+    for (let entry = pending.pop(); entry; entry = pending.pop()) {
+        const [
+            current,
+            depth,
+        ] = entry;
+        size += 1 + (typeof current === 'string' ? current.length : 0);
+        if (size > BOOKMARK_ACTION_MAX_SIZE || depth > BOOKMARK_ACTION_MAX_DEPTH) return false;
+        if (Array.isArray(current)) for (const item of current) pending.push([
+            item,
+            depth + 1,
+        ]);
+        else if (typeof current === 'object' && current !== null) for (const item of Object.values(current)) pending.push([
+            item,
+            depth,
+        ]);
+    }
+    return true;
+}
+
+const bookmarkActionBytesSchema = v.array(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(255)));
+const BOOKMARK_ACTION_DICT_SCHEMA: v.GenericSchema<unknown, IPdfBookmarkAction> = v.lazy(() => v.strictObject({dict: v.array(v.strictTuple([
+    v.string(),
+    BOOKMARK_ACTION_VALUE_SCHEMA,
+]))}));
+const BOOKMARK_ACTION_VALUE_SCHEMA: v.GenericSchema<unknown, TPdfBookmarkActionValue> = v.lazy(() => v.union([
+    v.null(),
+    v.boolean(),
+    v.pipe(v.number(), v.safeInteger()),
+    v.strictObject({real: v.pipe(v.number(), v.check(value => Number.isFinite(Math.fround(value))))}),
+    v.strictObject({name: v.string()}),
+    v.strictObject({literal: bookmarkActionBytesSchema}),
+    v.strictObject({hex: bookmarkActionBytesSchema}),
+    BOOKMARK_ACTION_DICT_SCHEMA,
+    v.array(BOOKMARK_ACTION_VALUE_SCHEMA),
+]));
+export const PDF_BOOKMARK_ACTION_SCHEMA = v.pipe(
+    v.unknown(),
+    v.check(isWithinBookmarkActionCeilings, 'bookmark action exceeds its size or nesting ceiling'),
+    BOOKMARK_ACTION_DICT_SCHEMA,
+);
+
+export function decodeBookmarkAction(value: unknown) {
+    return v.parse(PDF_BOOKMARK_ACTION_SCHEMA, value);
+}
+
 export interface IPdfBookmarkEntry {
     readonly title: string;
     readonly pageIndex: TPageIndex | null;
     readonly pageYRatio?: number | null;
     readonly originalDestination?: TPdfBookmarkOriginalDestination;
+    /** Written only when the entry has no destination of its own. */
+    readonly originalAction?: IPdfBookmarkAction;
     readonly namedDest: string | null;
     readonly bold: boolean;
     readonly italic: boolean;
@@ -63,6 +145,7 @@ export const PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA: v.GenericSchema<unknown, IPdfBo
     pageIndex: v.nullable(v.pipe(v.number(), v.check(value => parsePageIndex(value) !== null), v.transform(value => parsePageIndex(value)!))),
     pageYRatio: v.exactOptional(v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)))),
     originalDestination: v.exactOptional(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA),
+    originalAction: v.exactOptional(PDF_BOOKMARK_ACTION_SCHEMA),
     namedDest: v.nullable(v.string()),
     bold: v.boolean(),
     italic: v.boolean(),

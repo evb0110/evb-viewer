@@ -35,7 +35,6 @@ export interface IPdfDocument {
     readonly loadingTask: IPdfLoadingTask;
     getPage(pageNumber: number): Promise<IPdfPage>;
     getPageLabels(): Promise<string[] | null>;
-    getOutline(): Promise<unknown[] | null>;
     getDestination(destination: string): Promise<unknown[] | null>;
     getPageIndex(pageRef: IPdfRef): Promise<number>;
     cleanup(): Promise<void>;

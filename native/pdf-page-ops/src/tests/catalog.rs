@@ -37,6 +37,7 @@ fn appends_page_labels_and_bookmarks_as_incremental_revision() {
                     page_y_ratio: Some(0.5),
                     named_dest: None,
                     original_destination: None,
+                    original_action: None,
                     bold: true,
                     italic: false,
                     color: Some("#336699".to_string()),
@@ -307,6 +308,7 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
         page_y_ratio: None,
         named_dest: None,
                     original_destination: None,
+                    original_action: None,
         bold: false,
         italic: false,
         color: None,
@@ -346,6 +348,7 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
             page_y_ratio: None,
             named_dest: None,
                     original_destination: None,
+                    original_action: None,
             bold: false,
             italic: false,
             color: None,
@@ -441,6 +444,7 @@ fn appends_metadata_removal_as_incremental_revision() {
                 page_y_ratio: None,
                 named_dest: None,
                     original_destination: None,
+                    original_action: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -774,6 +778,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
                 page_y_ratio: Some(0.25),
                 named_dest: None,
                     original_destination: None,
+                    original_action: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -785,6 +790,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
                 page_y_ratio: Some(0.75),
                 named_dest: None,
                     original_destination: None,
+                    original_action: None,
                 bold: true,
                 italic: true,
                 color: Some("#336699".to_string()),
@@ -1507,4 +1513,157 @@ fn saved_bookmark_preserves_original_destination_before_lookup() {
             }
         }
     }
+}
+
+/// The review-b6zk projection fixture: explicit kinds, a name, and remote,
+/// launch and URI actions, one of them behind a reference. A local name
+/// `remote-chapter` must not capture the GoToR destination of the same name.
+fn create_source_intent_outline() -> (Document, ObjectId) {
+    let (mut document, page_id) = create_test_document();
+    let uri_action = document.add_object(dictionary! {
+        "S" => "URI",
+        "URI" => Object::String(b"https://example.org/a?b=1".to_vec(), StringFormat::Hexadecimal),
+    });
+    let fit = |kind: &str| vec![page_id.into(), Object::Name(kind.as_bytes().to_vec())];
+    let items = [
+        ("Fit", dictionary! {"Dest" => fit("Fit")}),
+        ("Named", dictionary! {"Dest" => Object::string_literal("chapter")}),
+        ("GoTo", dictionary! {"A" => dictionary! {"S" => "GoTo", "D" => fit("FitB")}}),
+        ("Remote", dictionary! {"A" => dictionary! {
+            "S" => "GoToR",
+            "F" => Object::string_literal("other.pdf"),
+            "D" => Object::string_literal("remote-chapter"),
+            "NewWindow" => true,
+        }}),
+        ("Launch", dictionary! {"A" => dictionary! {
+            "S" => "Launch",
+            "F" => Object::string_literal("tool.exe"),
+            "Win" => dictionary! {"F" => Object::string_literal("tool.exe"), "P" => Object::string_literal("-x 1.5")},
+        }}),
+        ("Uri", dictionary! {"A" => uri_action}),
+    ];
+    let outlines_id = document.new_object_id();
+    let ids = items.iter().map(|_| document.new_object_id()).collect::<Vec<_>>();
+    for (index, (title, mut item)) in items.into_iter().enumerate() {
+        item.set("Title", Object::string_literal(title));
+        item.set("Parent", outlines_id);
+        if let Some(next) = ids.get(index + 1) {
+            item.set("Next", *next);
+        }
+        document.set_object(ids[index], item);
+    }
+    document.set_object(outlines_id, dictionary! {
+        "Type" => "Outlines", "First" => ids[0], "Last" => *ids.last().unwrap(), "Count" => 6,
+    });
+    let catalog = document.get_dictionary_mut(document.root_id().unwrap()).unwrap();
+    catalog.set("Outlines", outlines_id);
+    catalog.set("Dests", dictionary! {"chapter" => fit("FitH"), "remote-chapter" => fit("Fit")});
+    (document, page_id)
+}
+
+fn outline_targets(document: &Document) -> Vec<(String, Option<Object>, Option<Object>)> {
+    let outlines = document.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap();
+    let mut next = document.get_dictionary(outlines).unwrap().get(b"First").ok().cloned();
+    let mut targets = Vec::new();
+    while let Some(Ok(id)) = next.map(|value| value.as_reference()) {
+        let item = document.get_dictionary(id).unwrap();
+        let resolve = |key: &[u8]| item.get(key).ok().map(|value| document.dereference(value).unwrap().1.clone());
+        let title = lopdf::decode_text_string(item.get(b"Title").unwrap()).unwrap();
+        targets.push((title, resolve(b"Dest"), resolve(b"A")));
+        next = item.get(b"Next").ok().cloned();
+    }
+    targets
+}
+
+#[test]
+fn read_outline_keeps_source_names_and_actions_other_than_go_to() {
+    let (document, _page_id) = create_source_intent_outline();
+    let outline = read_pdf_outline(&document, true).unwrap();
+    let summary = outline
+        .iter()
+        .map(|item| (item.title.as_str(), item.page_index, item.named_dest.as_deref(), item.original_action.is_some()))
+        .collect::<Vec<_>>();
+    assert_eq!(summary, [
+        ("Fit", Some(0), None, false),
+        ("Named", Some(0), Some("chapter"), false),
+        ("GoTo", Some(0), None, false),
+        ("Remote", None, None, true),
+        ("Launch", None, None, true),
+        ("Uri", None, None, true),
+    ]);
+    assert!(outline[1].original_destination.is_none(), "a kept name stays the target");
+    let combined = read_pdf_combine_catalog(&document).unwrap().bookmarks;
+    assert_eq!(combined[1].named_dest, None, "a combine resolves names it cannot carry");
+    assert_eq!(combined[1].page_index, Some(0));
+    assert_eq!(combined[3].original_action, outline[3].original_action);
+}
+
+#[test]
+fn saved_outline_writes_untouched_actions_and_names_back_unchanged() {
+    for append in [false, true] {
+        let (mut document, _page_id) = create_source_intent_outline();
+        let source = outline_targets(&document);
+        let mut items = serde_json::to_value(read_pdf_outline(&document, true).unwrap()).unwrap();
+        items[0]["title"] = "Fit renamed".into();
+        let mutations = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks": {
+            "totalPages": 1, "untitledLabel": "Untitled", "items": items,
+        }})).unwrap()).unwrap();
+        let saved = if append {
+            let mut input = Vec::new();
+            document.save_to(&mut input).unwrap();
+            Document::load_mem(&append_native_mutations_to_bytes(&input, &mutations, "D:20261012000000Z").unwrap().data).unwrap()
+        } else {
+            set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()).unwrap();
+            document
+        };
+        let mut expected = source;
+        expected[0].0 = "Fit renamed".to_string();
+        // The renamed item keeps its target, a name stays a name, and a GoTo
+        // action is written as the destination it names.
+        expected[2] = ("GoTo".to_string(), expected[2].2.as_ref().map(|action| action.as_dict().unwrap().get(b"D").unwrap().clone()), None);
+        assert_eq!(outline_targets(&saved), expected, "append {append}");
+    }
+}
+
+#[test]
+fn read_outline_bounds_and_refuses_unrepresentable_actions() {
+    let (mut document, page_id) = create_source_intent_outline();
+    let first = document.get_dictionary(document.catalog().unwrap().get(b"Outlines").unwrap().as_reference().unwrap()).unwrap().get(b"First").unwrap().as_reference().unwrap();
+    for action in [
+        dictionary! {"S" => "GoToR", "F" => page_id},
+        dictionary! {"S" => "URI", "URI" => Object::String(vec![b'a'; 20_000], StringFormat::Literal)},
+        (0..20).fold(dictionary! {"S" => "Named"}, |inner, _| dictionary! {"S" => "Next", "Next" => inner}),
+    ] {
+        let item = document.get_dictionary_mut(first).unwrap();
+        item.remove(b"Dest");
+        item.set("A", action);
+        let outline = read_pdf_outline(&document, true).unwrap();
+        assert_eq!((outline[0].page_index, &outline[0].original_action), (None, &None));
+    }
+    let oversized = serde_json::json!({"dict": [["S", {"name": "URI"}], ["URI", {"literal": vec![97; 20_000]}]]});
+    let error = read_native_mutations_bytes(&serde_json::to_vec(&serde_json::json!({"bookmarks": {
+        "totalPages": 1, "untitledLabel": "Untitled", "items": [{"title": "Big", "pageIndex": null, "originalAction": oversized, "items": []}],
+    }})).unwrap())
+    .and_then(|mutations| set_bookmarks(&mut document, mutations.bookmarks.as_ref().unwrap()));
+    assert!(error.unwrap_err().to_string().contains("size ceiling"));
+}
+
+#[test]
+fn document_catalog_reads_each_part_whatever_happens_to_the_other() {
+    let (mut document, _page_id) = create_source_intent_outline();
+    let root_id = document.root_id().unwrap();
+    let catalog = document.get_dictionary_mut(root_id).unwrap();
+    catalog.set("PageLabels", dictionary! {"Nums" => Vec::<Object>::new()});
+    let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
+    assert_eq!(parts["bookmarks"].as_array().unwrap().len(), 6);
+    assert!(parts["pageLabelsError"].is_string() && parts.get("pageLabels").is_none());
+    assert!(read_pdf_combine_catalog(&document).is_err());
+
+    let catalog = document.get_dictionary_mut(root_id).unwrap();
+    catalog.set("PageLabels", dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "r"}.into()]});
+    catalog.set("Outlines", Object::Integer(5));
+    let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
+    assert_eq!(parts["pageLabels"][0]["style"], "r");
+    assert!(parts["bookmarksError"].is_string() && parts.get("bookmarks").is_none());
+    assert!(read_pdf_combine_catalog(&document).is_err());
 }

@@ -1,36 +1,27 @@
 use super::*;
-use evb_native_support::pdf_catalog::{BookmarkOriginalDestination, BookmarkSourceTarget};
-use serde::Serialize;
+pub(crate) use evb_native_support::pdf_catalog::normalize_bookmark_entries;
+use evb_native_support::pdf_catalog::{
+    BookmarkActionTag, BookmarkActionValue, BookmarkOriginalDestination, BookmarkSourceTarget,
+    MAX_BOOKMARK_ACTION_SIZE,
+};
+use lopdf::dictionary;
 
 type BookmarkPageTarget = (ObjectId, Option<f64>, Option<BookmarkOriginalDestination>);
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PdfCombineBookmarkEntry {
-    pub(crate) title: String,
-    pub(crate) page_index: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) page_y_ratio: Option<f64>,
-    pub(crate) named_dest: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) original_destination: Option<BookmarkOriginalDestination>,
-    pub(crate) bold: bool,
-    pub(crate) italic: bool,
-    pub(crate) color: Option<String>,
-    pub(crate) items: Vec<PdfCombineBookmarkEntry>,
-}
 
-pub(super) struct RawPdfCombineBookmarkEntry {
+struct RawPdfCombineBookmarkEntry {
     title: String,
     page_id: Option<ObjectId>,
     page_y_ratio: Option<f64>,
     original_destination: Option<BookmarkOriginalDestination>,
+    named_dest: Option<String>,
+    original_action: Option<BookmarkActionValue>,
     items: Vec<RawPdfCombineBookmarkEntry>,
     bold: bool,
     italic: bool,
     color: Option<String>,
 }
 
-pub(super) fn read_outline_items<'a>(
+fn read_outline_items<'a>(
     document: &'a impl PdfObjectSource,
     catalog: &'a Dictionary,
     first: Option<&Object>,
@@ -59,13 +50,21 @@ pub(super) fn read_outline_items<'a>(
             .and_then(|value| document.resolved(value).ok())
             .and_then(pdf_string_to_text)
             .unwrap_or_else(|| "Untitled".to_string());
+        // Only a GoTo action targets this document; the /D of GoToR names a
+        // place in another file and must not resolve against local names.
+        let action = dictionary
+            .get(b"A")
+            .ok()
+            .and_then(|action| resolve_catalog_dictionary(document, action, "outline action").ok());
+        let is_go_to = action.is_some_and(|action| {
+            action
+                .get(b"S")
+                .and_then(Object::as_name)
+                .is_ok_and(|kind| kind == b"GoTo")
+        });
         let destination = dictionary.get(b"Dest").ok().cloned().or_else(|| {
-            dictionary
-                .get(b"A")
-                .ok()
-                .and_then(|action| {
-                    resolve_catalog_dictionary(document, action, "outline action").ok()
-                })
+            action
+                .filter(|_| is_go_to)
                 .and_then(|action| action.get(b"D").ok().cloned())
         });
         let page_target = destination
@@ -90,6 +89,15 @@ pub(super) fn read_outline_items<'a>(
             page_id,
             page_y_ratio: page_target.as_ref().and_then(|(_, ratio, _)| *ratio),
             original_destination: page_target.and_then(|(_, _, destination)| destination),
+            named_dest: destination
+                .as_ref()
+                .and_then(|value| document.resolved(value).ok())
+                .and_then(pdf_name_or_string),
+            original_action: action.filter(|_| !is_go_to).and_then(|action| {
+                bookmark_action_value(&Object::Dictionary(action.clone()), 0, &mut {
+                    MAX_BOOKMARK_ACTION_SIZE
+                })
+            }),
             items: read_outline_items(
                 document,
                 catalog,
@@ -110,6 +118,94 @@ pub(super) fn read_outline_items<'a>(
         current = next;
     }
     Ok(output)
+}
+
+/// Reads a reference-free action within the size and nesting ceilings. Any
+/// other action is not kept, so its entry saves without one, as all did before.
+fn bookmark_action_value(
+    object: &Object,
+    depth: usize,
+    budget: &mut usize,
+) -> Option<BookmarkActionValue> {
+    use BookmarkActionTag::*;
+    let own_bytes = match object {
+        Object::Name(bytes) | Object::String(bytes, _) => bytes.len(),
+        Object::Dictionary(dictionary) => dictionary.iter().map(|(key, _)| key.len()).sum(),
+        _ => 0,
+    };
+    *budget = budget.checked_sub(1 + own_bytes).filter(|_| depth <= 16)?;
+    let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).ok();
+    Some(match object {
+        Object::Null => BookmarkActionValue::Null,
+        Object::Boolean(value) => BookmarkActionValue::Boolean(*value),
+        Object::Integer(value) => BookmarkActionValue::Integer(*value),
+        Object::Real(value) => BookmarkActionValue::Tagged(Real(f64::from(*value))),
+        Object::Name(name) => BookmarkActionValue::Tagged(Name(text(name)?)),
+        Object::String(bytes, StringFormat::Literal) => {
+            BookmarkActionValue::Tagged(Literal(bytes.clone()))
+        }
+        Object::String(bytes, StringFormat::Hexadecimal) => {
+            BookmarkActionValue::Tagged(Hex(bytes.clone()))
+        }
+        Object::Array(items) => BookmarkActionValue::Array(
+            items
+                .iter()
+                .map(|item| bookmark_action_value(item, depth + 1, budget))
+                .collect::<Option<_>>()?,
+        ),
+        Object::Dictionary(dictionary) => BookmarkActionValue::Tagged(Dict(
+            dictionary
+                .iter()
+                .map(|(key, value)| {
+                    Some((text(key)?, bookmark_action_value(value, depth + 1, budget)?))
+                })
+                .collect::<Option<_>>()?,
+        )),
+        Object::Reference(_) | Object::Stream(_) => return None,
+    })
+}
+
+pub(crate) fn bookmark_action_object(value: &BookmarkActionValue) -> Result<Object> {
+    use BookmarkActionTag::*;
+    if value.size() > MAX_BOOKMARK_ACTION_SIZE
+        || !matches!(value, BookmarkActionValue::Tagged(Dict(_)))
+    {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "Bookmark action must be a dictionary within the size ceiling",
+        ));
+    }
+    fn object(value: &BookmarkActionValue) -> Result<Object> {
+        Ok(match value {
+            BookmarkActionValue::Null => Object::Null,
+            BookmarkActionValue::Boolean(value) => Object::Boolean(*value),
+            BookmarkActionValue::Integer(value) => Object::Integer(*value),
+            BookmarkActionValue::Array(items) => {
+                Object::Array(items.iter().map(object).collect::<Result<_>>()?)
+            }
+            BookmarkActionValue::Tagged(Real(value)) if (*value as f32).is_finite() => {
+                Object::Real(*value as f32)
+            }
+            BookmarkActionValue::Tagged(Real(_)) => {
+                return Err("Bookmark action number is not finite".into())
+            }
+            BookmarkActionValue::Tagged(Name(name)) => Object::Name(name.as_bytes().to_vec()),
+            BookmarkActionValue::Tagged(Literal(bytes)) => {
+                Object::String(bytes.clone(), StringFormat::Literal)
+            }
+            BookmarkActionValue::Tagged(Hex(bytes)) => {
+                Object::String(bytes.clone(), StringFormat::Hexadecimal)
+            }
+            BookmarkActionValue::Tagged(Dict(entries)) => {
+                let mut dictionary = Dictionary::new();
+                for (key, value) in entries {
+                    dictionary.set(key.as_bytes().to_vec(), object(value)?);
+                }
+                Object::Dictionary(dictionary)
+            }
+        })
+    }
+    object(value)
 }
 
 fn destination_page_target<'a>(
@@ -287,7 +383,7 @@ fn collect_named_destination_tree<'a>(
     }
 }
 
-pub(super) fn collect_catalog_page_indices(
+fn collect_catalog_page_indices(
     document: &impl PdfObjectSource,
     page_ids: &HashSet<ObjectId>,
 ) -> Result<HashMap<ObjectId, u32>> {
@@ -309,29 +405,66 @@ pub(super) fn collect_catalog_page_indices(
     Ok(output)
 }
 
-pub(super) fn finalize_bookmark(
+/// Reads the outline. A name stays an entry's target only within its own
+/// document; a combine resolves it, because the combined output does not carry
+/// the source's name tree.
+pub(crate) fn read_pdf_outline(
+    document: &impl PdfObjectSource,
+    keep_names: bool,
+) -> Result<Vec<BookmarkEntry>> {
+    let catalog = document.dictionary(document.root_id()?)?;
+    let _page_resolver = PageTreeResolver::new(document)?;
+    let Ok(outlines_object) = catalog.get(b"Outlines") else {
+        return Ok(Vec::new());
+    };
+    let outlines = resolve_catalog_dictionary(document, outlines_object, "Outlines")?;
+    let first = outlines.get(b"First").ok().cloned();
+    let mut page_ids = HashSet::new();
+    let bookmarks = read_outline_items(
+        document,
+        catalog,
+        first.as_ref(),
+        0,
+        &mut CatalogWalkState::new(),
+        &mut None,
+        &mut page_ids,
+    )?;
+    let page_indices = collect_catalog_page_indices(document, &page_ids)?;
+    Ok(bookmarks
+        .into_iter()
+        .map(|bookmark| finalize_bookmark(bookmark, &page_indices, keep_names))
+        .collect())
+}
+
+fn finalize_bookmark(
     bookmark: RawPdfCombineBookmarkEntry,
     page_indices: &HashMap<ObjectId, u32>,
-) -> PdfCombineBookmarkEntry {
+    keep_names: bool,
+) -> BookmarkEntry {
     let page_index = bookmark
         .page_id
         .and_then(|page_id| page_indices.get(&page_id).copied());
-    PdfCombineBookmarkEntry {
+    let named_dest = bookmark.named_dest.filter(|_| keep_names);
+    BookmarkEntry {
         title: bookmark.title,
         page_index,
-        original_destination: bookmark.original_destination.and_then(|mut destination| {
-            destination.source_target = BookmarkSourceTarget::PageIndex(page_index?);
-            Some(destination)
-        }),
+        original_destination: bookmark
+            .original_destination
+            .filter(|_| named_dest.is_none())
+            .and_then(|mut destination| {
+                destination.source_target = BookmarkSourceTarget::PageIndex(page_index?);
+                Some(destination)
+            }),
         page_y_ratio: bookmark.page_y_ratio,
-        named_dest: None,
+        named_dest,
+        original_action: bookmark.original_action,
         bold: bookmark.bold,
         italic: bookmark.italic,
         color: bookmark.color,
         items: bookmark
             .items
             .into_iter()
-            .map(|item| finalize_bookmark(item, page_indices))
+            .map(|item| finalize_bookmark(item, page_indices, keep_names))
             .collect(),
     }
 }
@@ -363,61 +496,6 @@ fn pdf_name_or_string(object: &Object) -> Option<String> {
             .ok()
             .map(|value| String::from_utf8_lossy(value).into_owned())
     })
-}
-
-pub(crate) fn normalize_bookmark_color(color: Option<&str>) -> Option<String> {
-    parse_pdf_color(color).map(|rgb| {
-        let to_byte = |value: f64| -> u8 { (value.clamp(0.0, 1.0) * 255.0).round() as u8 };
-        format!(
-            "#{:02x}{:02x}{:02x}",
-            to_byte(rgb[0]),
-            to_byte(rgb[1]),
-            to_byte(rgb[2])
-        )
-    })
-}
-
-pub(crate) fn normalize_bookmark_entries(
-    items: &[BookmarkEntry],
-    total_pages: u32,
-    untitled_label: &str,
-) -> Vec<BookmarkEntry> {
-    if total_pages == 0 {
-        return Vec::new();
-    }
-    let max_page_index = total_pages - 1;
-    items
-        .iter()
-        .map(|item| {
-            let title = item.title.trim();
-            let named_dest = item
-                .named_dest
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned);
-            BookmarkEntry {
-                title: if title.is_empty() {
-                    untitled_label.to_string()
-                } else {
-                    title.to_string()
-                },
-                page_index: item
-                    .page_index
-                    .map(|page_index| page_index.min(max_page_index)),
-                page_y_ratio: item
-                    .page_y_ratio
-                    .filter(|value| value.is_finite())
-                    .map(|value| value.clamp(0.0, 1.0)),
-                named_dest,
-                original_destination: item.original_destination.clone(),
-                bold: item.bold,
-                italic: item.italic,
-                color: normalize_bookmark_color(item.color.as_deref()),
-                items: normalize_bookmark_entries(&item.items, total_pages, untitled_label),
-            }
-        })
-        .collect()
 }
 
 // A /Page dictionary can survive deletion while no longer belonging to the
@@ -531,6 +609,11 @@ pub(crate) fn validate_bookmark_destination(
     if bookmark.get(b"Dest").is_ok() {
         return Err("Bookmark unexpectedly retained a destination".into());
     }
+    if let Some(action) = &item.original_action {
+        if bookmark.get(b"A")? != &bookmark_action_object(action)? {
+            return Err("Bookmark action did not match the request".into());
+        }
+    }
     Ok(())
 }
 
@@ -542,18 +625,6 @@ pub(crate) fn resolve_bookmark_destination_position(
     let ratio = page_y_ratio.unwrap_or(0.0).clamp(0.0, 1.0);
     let (left, top) = pdf_point_from_marker_point(0.0, ratio, page_view, page_rotation);
     (matches!(page_rotation, 90 | 270).then_some(left), top)
-}
-
-pub(crate) struct OutlineBuildResult {
-    pub(crate) first: Option<ObjectId>,
-    pub(crate) last: Option<ObjectId>,
-    pub(crate) visible_count: i64,
-}
-
-pub(crate) struct BookmarkNode<'a> {
-    pub(crate) object_id: ObjectId,
-    pub(crate) item: &'a BookmarkEntry,
-    pub(crate) visible_count: i64,
 }
 
 pub(crate) fn set_bookmark_destination(
@@ -587,7 +658,9 @@ pub(crate) fn set_bookmark_destination(
         );
         return Ok(());
     }
-
+    if let Some(action) = &item.original_action {
+        dict.set("A", bookmark_action_object(action)?);
+    }
     Ok(())
 }
 
@@ -608,167 +681,123 @@ pub(crate) fn set_bookmark_style(dict: &mut Dictionary, item: &BookmarkEntry) {
     }
 }
 
-pub(crate) fn build_bookmark_dict(
-    base_document: &Document,
-    page_resolver: &PageTreeResolver,
-    item: &BookmarkEntry,
-) -> Result<Dictionary> {
-    let mut dict = Dictionary::new();
-    dict.set(
-        "Title",
-        Object::String(
-            encode_pdf_text_string(&item.title),
-            StringFormat::Hexadecimal,
-        ),
-    );
-    set_bookmark_destination(base_document, page_resolver, &mut dict, item)?;
-    set_bookmark_style(&mut dict, item);
-    Ok(dict)
+struct OutlineLevel {
+    first: Option<ObjectId>,
+    last: Option<ObjectId>,
+    visible_count: i64,
 }
 
-pub(crate) fn build_outline_level(
-    document: &mut Document,
-    page_resolver: &PageTreeResolver,
-    items: &[BookmarkEntry],
-    parent_ref: ObjectId,
-) -> Result<OutlineBuildResult> {
-    if items.is_empty() {
-        return Ok(OutlineBuildResult {
-            first: None,
-            last: None,
-            visible_count: 0,
-        });
-    }
+/// New outline objects, numbered after the target's highest object number.
+struct OutlineObjects {
+    max_id: u32,
+    objects: Vec<(ObjectId, Dictionary)>,
+}
 
-    let mut nodes = Vec::with_capacity(items.len());
-    for item in items {
-        let dict = build_bookmark_dict(document, page_resolver, item)?;
-        let object_id = document.new_object_id();
-        document.set_object(object_id, Object::Dictionary(dict));
-        nodes.push(BookmarkNode {
-            object_id,
-            item,
-            visible_count: 1,
-        });
-    }
-
-    for index in 0..nodes.len() {
-        let previous = index
-            .checked_sub(1)
-            .and_then(|previous_index| nodes.get(previous_index))
-            .map(|node| node.object_id);
-        let next = nodes.get(index + 1).map(|node| node.object_id);
-        let dict = document.get_dictionary_mut(nodes[index].object_id)?;
-        dict.set("Parent", Object::Reference(parent_ref));
-        if let Some(previous) = previous {
-            dict.set("Prev", Object::Reference(previous));
-        }
-        if let Some(next) = next {
-            dict.set("Next", Object::Reference(next));
+impl OutlineObjects {
+    fn after(target: &Document) -> Self {
+        Self {
+            max_id: target.max_id,
+            objects: Vec::new(),
         }
     }
 
-    for node in &mut nodes {
-        let child_result =
-            build_outline_level(document, page_resolver, &node.item.items, node.object_id)?;
-        if let (Some(first), Some(last)) = (child_result.first, child_result.last) {
-            let dict = document.get_dictionary_mut(node.object_id)?;
-            dict.set("First", Object::Reference(first));
-            dict.set("Last", Object::Reference(last));
-            if child_result.visible_count > 0 {
-                dict.set("Count", Object::Integer(child_result.visible_count));
+    fn next_id(&mut self) -> ObjectId {
+        self.max_id += 1;
+        (self.max_id, 0)
+    }
+
+    /// Builds `items` under `parent_ref`, reading page targets from `source`.
+    /// Siblings take consecutive numbers before any of their children.
+    fn level(
+        &mut self,
+        source: &Document,
+        page_resolver: &PageTreeResolver,
+        items: &[BookmarkEntry],
+        parent_ref: ObjectId,
+    ) -> Result<OutlineLevel> {
+        let ids = items.iter().map(|_| self.next_id()).collect::<Vec<_>>();
+        let mut visible_count = 0;
+        for (index, item) in items.iter().enumerate() {
+            let title = encode_pdf_text_string(&item.title);
+            let mut dict =
+                dictionary! {"Title" => Object::String(title, StringFormat::Hexadecimal)};
+            set_bookmark_destination(source, page_resolver, &mut dict, item)?;
+            set_bookmark_style(&mut dict, item);
+            dict.set("Parent", Object::Reference(parent_ref));
+            if let Some(previous) = index.checked_sub(1).map(|previous| ids[previous]) {
+                dict.set("Prev", Object::Reference(previous));
             }
-            node.visible_count += child_result.visible_count;
-        }
-    }
-
-    Ok(OutlineBuildResult {
-        first: nodes.first().map(|node| node.object_id),
-        last: nodes.last().map(|node| node.object_id),
-        visible_count: nodes.iter().map(|node| node.visible_count).sum(),
-    })
-}
-
-pub(crate) fn build_outline_level_incremental(
-    incremental: &mut IncrementalDocument,
-    page_resolver: &PageTreeResolver,
-    items: &[BookmarkEntry],
-    parent_ref: ObjectId,
-) -> Result<OutlineBuildResult> {
-    if items.is_empty() {
-        return Ok(OutlineBuildResult {
-            first: None,
-            last: None,
-            visible_count: 0,
-        });
-    }
-
-    let mut nodes = Vec::with_capacity(items.len());
-    for item in items {
-        let dict = build_bookmark_dict(incremental.get_prev_documents(), page_resolver, item)?;
-        let object_id = incremental.new_document.new_object_id();
-        incremental
-            .new_document
-            .set_object(object_id, Object::Dictionary(dict));
-        nodes.push(BookmarkNode {
-            object_id,
-            item,
-            visible_count: 1,
-        });
-    }
-
-    for index in 0..nodes.len() {
-        let previous = index
-            .checked_sub(1)
-            .and_then(|previous_index| nodes.get(previous_index))
-            .map(|node| node.object_id);
-        let next = nodes.get(index + 1).map(|node| node.object_id);
-        let dict = incremental
-            .new_document
-            .get_dictionary_mut(nodes[index].object_id)?;
-        dict.set("Parent", Object::Reference(parent_ref));
-        if let Some(previous) = previous {
-            dict.set("Prev", Object::Reference(previous));
-        }
-        if let Some(next) = next {
-            dict.set("Next", Object::Reference(next));
-        }
-    }
-
-    for node in &mut nodes {
-        let child_result = build_outline_level_incremental(
-            incremental,
-            page_resolver,
-            &node.item.items,
-            node.object_id,
-        )?;
-        if let (Some(first), Some(last)) = (child_result.first, child_result.last) {
-            let dict = incremental
-                .new_document
-                .get_dictionary_mut(node.object_id)?;
-            dict.set("First", Object::Reference(first));
-            dict.set("Last", Object::Reference(last));
-            if child_result.visible_count > 0 {
-                dict.set("Count", Object::Integer(child_result.visible_count));
+            if let Some(next) = ids.get(index + 1) {
+                dict.set("Next", Object::Reference(*next));
             }
-            node.visible_count += child_result.visible_count;
+            let children = self.level(source, page_resolver, &item.items, ids[index])?;
+            if let (Some(first), Some(last)) = (children.first, children.last) {
+                dict.set("First", Object::Reference(first));
+                dict.set("Last", Object::Reference(last));
+                if children.visible_count > 0 {
+                    dict.set("Count", Object::Integer(children.visible_count));
+                }
+            }
+            visible_count += 1 + children.visible_count;
+            self.objects.push((ids[index], dict));
         }
+        Ok(OutlineLevel {
+            first: ids.first().copied(),
+            last: ids.last().copied(),
+            visible_count,
+        })
     }
 
-    Ok(OutlineBuildResult {
-        first: nodes.first().map(|node| node.object_id),
-        last: nodes.last().map(|node| node.object_id),
-        visible_count: nodes.iter().map(|node| node.visible_count).sum(),
-    })
+    /// Builds the whole outline and returns its `/Outlines` reference, or
+    /// `None` for an empty outline.
+    fn outline(
+        &mut self,
+        source: &Document,
+        page_resolver: &PageTreeResolver,
+        items: &[BookmarkEntry],
+    ) -> Result<Option<ObjectId>> {
+        if items.is_empty() {
+            return Ok(None);
+        }
+        let outlines_ref = self.next_id();
+        let level = self.level(source, page_resolver, items, outlines_ref)?;
+        let Some((first, last)) = level.first.zip(level.last) else {
+            return Ok(None);
+        };
+        self.objects.push((
+            outlines_ref,
+            dictionary! {
+                "Type" => "Outlines",
+                "First" => first,
+                "Last" => last,
+                "Count" => level.visible_count,
+            },
+        ));
+        Ok(Some(outlines_ref))
+    }
+
+    fn add_to(self, target: &mut Document) {
+        target.max_id = self.max_id;
+        for (id, dict) in self.objects {
+            target.set_object(id, dict);
+        }
+    }
 }
 
-pub(crate) fn set_bookmarks_on_catalog(
-    document: &mut Document,
+fn set_catalog_outlines(catalog: &mut Dictionary, outlines: Option<ObjectId>) {
+    match outlines {
+        Some(outlines) => catalog.set("Outlines", Object::Reference(outlines)),
+        None => drop(catalog.remove(b"Outlines")),
+    }
+}
+
+fn normalized_bookmarks(
+    source: &Document,
+    page_resolver: &PageTreeResolver,
     bookmarks: &BookmarksMutation,
-) -> Result<()> {
-    let page_resolver = PageTreeResolver::new(document)?;
+) -> Result<Vec<BookmarkEntry>> {
     assert_mutation_page_count_with_resolver(
-        &page_resolver,
+        page_resolver,
         bookmarks.total_pages,
         "Bookmark mutation",
     )?;
@@ -777,35 +806,18 @@ pub(crate) fn set_bookmarks_on_catalog(
         bookmarks.total_pages,
         &bookmarks.untitled_label,
     );
-    validate_bookmark_source_references(document, &normalized)?;
-    let catalog_id = document.root_id()?;
-    if normalized.is_empty() {
-        let catalog = document.get_dictionary_mut(catalog_id)?;
-        catalog.remove(b"Outlines");
-        return Ok(());
-    }
-
-    let outlines_ref = document.new_object_id();
-    let mut outlines_dict = Dictionary::new();
-    outlines_dict.set("Type", Object::Name(b"Outlines".to_vec()));
-    document.set_object(outlines_ref, Object::Dictionary(outlines_dict));
-    let tree = build_outline_level(document, &page_resolver, &normalized, outlines_ref)?;
-    let outlines_dict = document.get_dictionary_mut(outlines_ref)?;
-    let (Some(first), Some(last)) = (tree.first, tree.last) else {
-        let catalog = document.get_dictionary_mut(catalog_id)?;
-        catalog.remove(b"Outlines");
-        return Ok(());
-    };
-    outlines_dict.set("First", Object::Reference(first));
-    outlines_dict.set("Last", Object::Reference(last));
-    outlines_dict.set("Count", Object::Integer(tree.visible_count));
-    let catalog = document.get_dictionary_mut(catalog_id)?;
-    catalog.set("Outlines", Object::Reference(outlines_ref));
-    Ok(())
+    validate_bookmark_source_references(source, &normalized)?;
+    Ok(normalized)
 }
 
 pub(crate) fn set_bookmarks(document: &mut Document, bookmarks: &BookmarksMutation) -> Result<()> {
-    set_bookmarks_on_catalog(document, bookmarks)
+    let page_resolver = PageTreeResolver::new(document)?;
+    let normalized = normalized_bookmarks(document, &page_resolver, bookmarks)?;
+    let mut objects = OutlineObjects::after(document);
+    let outlines = objects.outline(document, &page_resolver, &normalized)?;
+    objects.add_to(document);
+    set_catalog_outlines(document.catalog_mut()?, outlines);
+    Ok(())
 }
 
 pub(crate) fn set_bookmarks_incremental(
@@ -814,18 +826,8 @@ pub(crate) fn set_bookmarks_incremental(
     continuation: Option<&NativeMutationContinuation>,
 ) -> Result<()> {
     let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
-    assert_mutation_page_count_with_resolver(
-        &page_resolver,
-        bookmarks.total_pages,
-        "Bookmark mutation",
-    )?;
-    let normalized = normalize_bookmark_entries(
-        &bookmarks.items,
-        bookmarks.total_pages,
-        &bookmarks.untitled_label,
-    );
-    validate_bookmark_source_references(incremental.get_prev_documents(), &normalized)?;
-    let catalog_id = incremental.get_prev_documents().root_id()?;
+    let normalized =
+        normalized_bookmarks(incremental.get_prev_documents(), &page_resolver, bookmarks)?;
     if continuation.is_some_and(|value| value.family == NativeMutationContinuationFamily::Bookmarks)
     {
         return append_bookmarks_incremental(
@@ -837,32 +839,19 @@ pub(crate) fn set_bookmarks_incremental(
             }),
         );
     }
+    let catalog_id = incremental.get_prev_documents().root_id()?;
     incremental.opt_clone_object_to_new_document(catalog_id)?;
-    if normalized.is_empty() {
-        let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
-        catalog.remove(b"Outlines");
-        return Ok(());
-    }
-
-    let outlines_ref = incremental.new_document.new_object_id();
-    let mut outlines_dict = Dictionary::new();
-    outlines_dict.set("Type", Object::Name(b"Outlines".to_vec()));
-    incremental
-        .new_document
-        .set_object(outlines_ref, Object::Dictionary(outlines_dict));
-    let tree =
-        build_outline_level_incremental(incremental, &page_resolver, &normalized, outlines_ref)?;
-    let outlines_dict = incremental.new_document.get_dictionary_mut(outlines_ref)?;
-    let (Some(first), Some(last)) = (tree.first, tree.last) else {
-        let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
-        catalog.remove(b"Outlines");
-        return Ok(());
-    };
-    outlines_dict.set("First", Object::Reference(first));
-    outlines_dict.set("Last", Object::Reference(last));
-    outlines_dict.set("Count", Object::Integer(tree.visible_count));
-    let catalog = incremental.new_document.get_dictionary_mut(catalog_id)?;
-    catalog.set("Outlines", Object::Reference(outlines_ref));
+    let mut objects = OutlineObjects::after(&incremental.new_document);
+    let outlines = objects.outline(
+        incremental.get_prev_documents(),
+        &page_resolver,
+        &normalized,
+    )?;
+    objects.add_to(&mut incremental.new_document);
+    set_catalog_outlines(
+        incremental.new_document.get_dictionary_mut(catalog_id)?,
+        outlines,
+    );
     Ok(())
 }
 
@@ -898,7 +887,14 @@ fn append_bookmarks_incremental(
     if items.is_empty() {
         return Ok(());
     }
-    let tree = build_outline_level_incremental(incremental, page_resolver, items, parent_id)?;
+    let mut objects = OutlineObjects::after(&incremental.new_document);
+    let tree = objects.level(
+        incremental.get_prev_documents(),
+        page_resolver,
+        items,
+        parent_id,
+    )?;
+    objects.add_to(&mut incremental.new_document);
     let (Some(first), Some(last)) = (tree.first, tree.last) else {
         return Ok(());
     };

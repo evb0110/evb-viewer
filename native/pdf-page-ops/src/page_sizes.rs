@@ -480,7 +480,7 @@ fn write_page_sizes_from_resolver<F>(
 where
     F: FnMut(u32, ObjectId) -> Result<PageSizeEntry>,
 {
-    let declared_page_count = u64::from(page_resolver.declared_page_count());
+    let declared_page_count = u64::from(page_resolver.page_count());
     if declared_page_count == 0 {
         return Err(domain_error(
             NativeErrorCode::CorruptXref,

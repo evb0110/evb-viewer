@@ -230,6 +230,9 @@ pub(crate) fn validate_bookmark_items(items: &[BookmarkEntry], depth: usize) -> 
                 return Err("Invalid bookmark color".into());
             }
         }
+        if let Some(action) = &item.original_action {
+            bookmark_action_object(action)?;
+        }
         validate_bookmark_items(&item.items, depth + 1)?;
     }
     Ok(())

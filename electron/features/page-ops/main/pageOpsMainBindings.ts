@@ -58,6 +58,11 @@ import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
 import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
 import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
+import { runWithWorkingCopyReadBacking } from '@electron/file-access/runWithWorkingCopyReadBacking';
+import { readNativePdfCatalogPart } from '@electron/features/page-ops/main/readNativePdfCatalog';
+import { resolveNativePageOpsPath } from '@electron/features/page-ops/main/resolveNativePageOpsPath';
+import { PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA } from '@contracts/pdfBookmarkEntry';
+import * as v from 'valibot';
 import {
     allowOpenPath,
     allowOpenPaths,
@@ -1002,6 +1007,21 @@ async function handlePageOpsGetPageGeometry(
     return getPageGeometry(normalizedWorkingCopyPath, pageNumber, context.senderId);
 }
 
+// Reads the bytes the document has now, from its original until the working
+// copy is materialized, without copying it.
+async function handlePageOpsReadOutline(context: IPageOpsOperationContext, workingCopyPath: string) {
+    const binaryPath = resolveNativePageOpsPath();
+    if (!binaryPath) {
+        throw new Error('Native page operations are required to read PDF bookmarks');
+    }
+    const bookmarks = await runWithWorkingCopyReadBacking(
+        findWorkingCopyPathByOriginalPath(workingCopyPath, context.senderId) ?? workingCopyPath,
+        physicalPath => readNativePdfCatalogPart(binaryPath, physicalPath, 'bookmarks', {commandLabel: 'evb-pdf-page-ops(read-outline)'}),
+        {ownerWebContentsId: context.senderId},
+    );
+    return v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), bookmarks);
+}
+
 const PAGE_OPS_USER_CANCEL_SCOPE = 'page-ops';
 
 class PageOperationUserCanceled extends Error {
@@ -1150,4 +1170,5 @@ export const pageOpsMainBindings = {
     cancelActive: (context, ...args) => handlePageOpsCancelActive(createPageOpsOperationContext(context), ...args),
     getPageGeometry: (context, ...args) =>
         handlePageOpsGetPageGeometry(createPageOpsOperationContext(context), ...args),
+    readOutline: (context, ...args) => handlePageOpsReadOutline(createPageOpsOperationContext(context), ...args),
 } satisfies TFeatureMainBindings<typeof PAGE_OPS_PLATFORM_FEATURE, IpcMainInvokeEvent>;
