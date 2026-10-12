@@ -457,6 +457,47 @@ describe('useSettings', () => {
         expect(instance.settings.value.authorName).toBe('Other window');
     });
 
+    it('keeps a failed edit failed when another window saves, until the person retries', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        let stored: ISettingsData = {
+            ...DEFAULT_SETTINGS,
+            authorName: 'Saved author',
+            clientDiagnosticsPreference: 'denied',
+        };
+        mockGet.mockResolvedValue(stored);
+        mockSave.mockRejectedValueOnce(new Error('ENOSPC: no space left on device'));
+        const {useSettings} = await import('@app/composables/useSettings');
+        const instance = useSettings();
+        await instance.load();
+        instance.updateSetting('authorName', 'Chosen author');
+        await expect(instance.save()).resolves.toBe(false);
+        expect(instance.settingsSaveStatus.value).toBe('failed');
+        mockSave.mockImplementation(async patch => {
+            stored = {
+                ...stored,
+                ...patch,
+            };
+            emitSettingsChange(stored);
+        });
+        stored = {
+            ...stored,
+            authorName: 'Other window',
+        };
+        emitSettingsChange(stored);
+        await new Promise(resolve => setTimeout(resolve, 550));
+        expect(instance.settings.value.authorName).toBe('Chosen author');
+        expect(instance.settingsSaveStatus.value).toBe('failed');
+        expect(instance.settingsSaveError.value).toContain('ENOSPC');
+        expect(instance.settingsSaveFailure.value).not.toBeNull();
+        expect(stored.authorName).toBe('Other window');
+
+        await expect(instance.save()).resolves.toBe(true);
+        expect(stored.authorName).toBe('Chosen author');
+        expect(instance.settingsSaveStatus.value).toBe('idle');
+        expect(instance.settingsSaveError.value).toBeNull();
+        expect(instance.settingsSaveFailure.value).toBeNull();
+    });
+
     it('settles an undo to the saved value after a failed write and adopts another window', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const baseline = {

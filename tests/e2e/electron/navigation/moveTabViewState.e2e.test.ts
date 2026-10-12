@@ -590,6 +590,102 @@ async function readRenderedSettings(page: Page) {
 }
 
 describe('Settings changes reach every open window', () => {
+    it('does not silently replay a failed choice over another window save', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'settings-failed-choice-'));
+        onTestFinished(() => rmSync(home, {
+            recursive: true,
+            force: true,
+        }));
+        const marker = join(home, 'fail-save');
+        const preload = join(home, 'fail-settings.cjs');
+        // Test-owned Node preload: reject only the armed settings temp-file write,
+        // leaving the product build and every later write unchanged.
+        writeFileSync(preload, `
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const writeFile = fs.promises.writeFile;
+            fs.promises.writeFile = async (...args) => {
+                if (process.versions.electron
+                    && path.dirname(String(args[0])) === process.env.EVB_AUTOMATION_USER_DATA_DIR
+                    && path.extname(String(args[0])) === '.tmp'
+                    && fs.existsSync(${JSON.stringify(`${marker}.arm`)})) {
+                    fs.unlinkSync(${JSON.stringify(`${marker}.arm`)});
+                    fs.writeFileSync(${JSON.stringify(`${marker}.failed`)}, 'ENOSPC');
+                    throw Object.assign(new Error('ENOSPC: no space left on device'), {code: 'ENOSPC'});
+                }
+                return writeFile(...args);
+            };
+            require('node:module').syncBuiltinESMExports();
+        `);
+        await sessions.restart({
+            clean: true,
+            extraEnv: {
+                HOME: home,
+                CODEX_HOME: join(home, '.codex'),
+                NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(preload)}`,
+            },
+        });
+        const session = sessions.getSession();
+        const source = session.page;
+        const fixture = join(home, 'failed-save.pdf');
+        await createTwelvePageFixture(fixture);
+        await openPdfInApp(source, fixture);
+        await waitForPdfLoaded(source);
+        const destination = await moveTabToNewWindow(source);
+        await openSettingsView(source, 'en');
+        await openSettingsView(destination, 'en');
+        const settingsPath = join(electronUserDataPath(session.name), 'settings.json');
+        const readAuthor = (page: Page) => page.$eval('#settings-author', element => (element as HTMLInputElement).value);
+        const typeAuthor = async (page: Page, value: string) => {
+            await clickAsUser(page, '#settings-author', {count: 3});
+            await page.keyboard.press('Backspace');
+            await page.keyboard.type(value);
+        };
+        await typeAuthor(source, 'Saved author');
+        await vi.waitFor(async () => {
+            expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Saved author');
+            expect(await readAuthor(destination)).toBe('Saved author');
+        }, {timeout: 15_000});
+        writeFileSync(`${marker}.arm`, 'arm');
+        await typeAuthor(source, 'Chosen author');
+        await vi.waitFor(async () => expect(await readFile(`${marker}.failed`, 'utf8')).toBe('ENOSPC'), {timeout: 15_000});
+        await source.waitForFunction(() => document.body.textContent?.includes('ENOSPC'));
+        expect(await readAuthor(source)).toBe('Chosen author');
+        expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Saved author');
+
+        await typeAuthor(destination, 'Other window');
+        // Observe after the 400 ms save debounce and notification delivery have settled.
+        await new Promise(resolve => setTimeout(resolve, 2_000));
+        const result = {
+            saved: JSON.parse(await readFile(settingsPath, 'utf8')),
+            sourceAuthor: await readAuthor(source),
+            destinationAuthor: await readAuthor(destination),
+            failureVisible: await source.evaluate(() => document.body.textContent?.includes('ENOSPC')),
+        };
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            writeFileSync(join(process.env.EVB_R3_EVIDENCE_DIR, 'failed-save-remote.json'), JSON.stringify(result, null, 2));
+            await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'remote-source.png')});
+            await destination.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'remote-destination.png')});
+        }
+        expect(result.saved.authorName).toBe('Other window');
+        expect(result.sourceAuthor).toBe('Chosen author');
+        expect(result.destinationAuthor).toBe('Other window');
+        expect(result.failureVisible).toBe(true);
+
+        await clickFoundAsUser(source, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+            .find(button => button.textContent?.trim() === label), LOCALE_MESSAGES.en.common.retry, {description: 'Retry the retained author choice'});
+        await vi.waitFor(async () => {
+            expect(JSON.parse(await readFile(settingsPath, 'utf8')).authorName).toBe('Chosen author');
+            expect(await readAuthor(source)).toBe('Chosen author');
+            expect(await readAuthor(destination)).toBe('Chosen author');
+        }, {timeout: 15_000});
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            writeFileSync(join(process.env.EVB_R3_EVIDENCE_DIR, 'failed-save-retry.json'), await readFile(settingsPath, 'utf8'));
+            await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'retry-source.png')});
+            await destination.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, 'retry-destination.png')});
+        }
+    }, 180_000);
+
     it('shows a diagnostics withdrawal, a theme and a language change in the window a tab moved to', async () => {
         const session = sessions.getSession();
         const source = session.page;

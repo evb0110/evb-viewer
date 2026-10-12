@@ -138,10 +138,6 @@ export const useSettings = () => {
     const settingsLoadFailure = useState<IPresentedFailureCapture | null>('settings:load-failure', () => null);
     const settingsSaveFailure = useState<IPresentedFailureCapture | null>('settings:save-failure', () => null);
 
-    function rememberSavedSettings(nextSettings: ISettingsData) {
-        lastSavedSettings.value = sanitizeSettings(nextSettings);
-    }
-
     function refreshSettingsBootstrapCookieSnapshot() {
         hasSettingsCookieSnapshot.value = localeCookie.value != null
             || themeCookie.value != null;
@@ -162,7 +158,7 @@ export const useSettings = () => {
         },
         onLoaded(nextSettings) {
             refreshSettingsBootstrapCookieSnapshot();
-            rememberSavedSettings(nextSettings);
+            lastSavedSettings.value = sanitizeSettings(nextSettings);
             if (pendingSettingsIntent.size > 0) {
                 settings.value = sanitizeSettings({
                     ...nextSettings,
@@ -202,8 +198,8 @@ export const useSettings = () => {
                     BrowserLogger.warn('settings', 'Failed to apply the language saved in another window', error);
                 });
             }
-            rememberSavedSettings(committed);
-            if (isLoaded.value && pendingSettingsIntent.size > 0) void getSettingsPersistenceQueue().save();
+            lastSavedSettings.value = sanitizeSettings(committed);
+            if (isLoaded.value && pendingSettingsIntent.size > 0 && settingsSaveStatus.value !== 'failed') void getSettingsPersistenceQueue().save();
             else if (settingsSaveStatus.value === 'saving') settingsSaveStatus.value = 'idle';
         });
     }
