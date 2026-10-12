@@ -54,6 +54,7 @@ import {
     type TWorkingCopyContentBackupMode,
 } from '@electron/file-access/workingCopyJournal';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
+import {isErrnoException} from '@contracts/runtimeGuards';
 
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
@@ -71,9 +72,11 @@ const runContentTransitionSerially = createKeyedSerialQueue();
 // for that transition nor rolls it back or deletes its backup.
 function repairEndedTransition(workingCopyPath: string, originalPath: string | undefined) {
     const key = getRevisionQueueKey(workingCopyPath);
-    const repair = () => runContentTransitionSerially(key, async () => {
-        await recoverWorkingCopyTransition(workingCopyPath);
-    });
+    // A file another program holds open must not fail a read: the journal keeps naming it for a later read,
+    // save or close to finish, and a save still refuses until then.
+    const repair = () => runContentTransitionSerially(key, () => recoverWorkingCopyTransition(workingCopyPath).then(() => undefined, (error: unknown) => {
+        if (!isErrnoException(error) || error.code !== 'EBUSY') throw error;
+    }));
     if (!runContentTransitionSerially.isIdle(key)) {
         return Promise.resolve();
     }
@@ -86,17 +89,6 @@ function requireDocumentRef(value: string): TDocumentRef {
         throw new TypeError('Working copy path must be an absolute document ref');
     }
     return parsed;
-}
-
-async function measureRevisionTransitionPhase<T>(
-    phase: string,
-    onPhase: ((phase: string, durationMs: number) => void) | undefined,
-    operation: () => Promise<T>,
-): Promise<T> {
-    return measureOperationPhase(operation, durationMs => {
-        try { onPhase?.(phase, durationMs); }
-        catch (error) { log.warn(`Document revision phase reporter failed: ${getErrorMessage(error)}`); }
-    });
 }
 
 function getRevisionQueueKey(workingCopyPath: string) {
@@ -423,22 +415,24 @@ async function runWorkingCopyContentRevisionTransition(
     onPhase?: (phase: string, durationMs: number) => void,
     contentBackupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
 ): Promise<IDocumentRevisionChangedEvent> {
+    const measureRevisionTransitionPhase = <T>(phase: string, operation: () => Promise<T>) =>
+        measureOperationPhase(operation, durationMs => onPhase?.(phase, durationMs));
     const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
     if (!normalizedWorkingPath) {
         throw new Error('Invalid file path');
     }
     assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
-    await measureRevisionTransitionPhase('revision-await-existing-durability', onPhase, () =>
+    await measureRevisionTransitionPhase('revision-await-existing-durability', () =>
         awaitWorkingCopyRevisionDurability(normalizedWorkingPath));
     const linkedOriginalExpectationFence = await captureLinkedOriginalExpectationFence(
         normalizedWorkingPath,
         senderId,
     );
 
-    const previous = await measureRevisionTransitionPhase('revision-read-previous', onPhase, () =>
+    const previous = await measureRevisionTransitionPhase('revision-read-previous', () =>
         readWorkingCopyRevision(normalizedWorkingPath));
     const revision = createRevision(normalizedWorkingPath, (previous?.contentRevision ?? 0) + 1, senderId);
-    const journal = await measureRevisionTransitionPhase('revision-prepare-journal', onPhase, () =>
+    const journal = await measureRevisionTransitionPhase('revision-prepare-journal', () =>
         prepareWorkingCopyTransition(
             normalizedWorkingPath,
             revision.token,
@@ -446,10 +440,10 @@ async function runWorkingCopyContentRevisionTransition(
             contentBackupMode,
         ));
     try {
-        await measureRevisionTransitionPhase('revision-commit-files', onPhase, () =>
+        await measureRevisionTransitionPhase('revision-commit-files', () =>
             commit(revision, journal));
         // The durable manifest write is the transaction commit point.
-        await measureRevisionTransitionPhase('revision-write-manifest', onPhase, () =>
+        await measureRevisionTransitionPhase('revision-write-manifest', () =>
             writeWorkingCopyManifestRevision(normalizedWorkingPath, revision, {},
                 journal.original?.state === 'published' && journal.original.publishedSnapshot
                     ? {
@@ -462,7 +456,7 @@ async function runWorkingCopyContentRevisionTransition(
         throw error;
     }
     try {
-        await measureRevisionTransitionPhase('revision-complete-journal', onPhase, () =>
+        await measureRevisionTransitionPhase('revision-complete-journal', () =>
             completeWorkingCopyTransition(journal));
     } catch (error) {
         log.debug(`Failed to clean committed working-copy journal: ${getErrorMessage(error)}`);

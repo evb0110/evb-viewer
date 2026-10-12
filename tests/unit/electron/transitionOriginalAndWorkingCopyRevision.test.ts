@@ -1924,4 +1924,46 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             vi.doUnmock('fs/promises');
         }
     });
+
+    it('keeps reads working while another program holds a saved backup, and close removes it once released', async () => {
+        const fs = await import('node:fs/promises');
+        let holding = false;
+        let originalDirectory = '';
+        vi.doMock('node:fs/promises', () => ({
+            ...fs,
+            // Windows refuses to delete a file another program holds without delete sharing.
+            rm: async (...args: Parameters<typeof fs.rm>) => {
+                const path = String(args[0]);
+                if (holding && dirname(path) === originalDirectory && path.includes('.evb-transition-')) {
+                    throw Object.assign(new Error('EBUSY: resource busy or locked'), {code: 'EBUSY'});
+                }
+                return fs.rm(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-held-backup');
+            const readNeighbours = await writeUnrelatedNeighbours(originalPath);
+            const before = await readdir(dirname(originalPath));
+            originalDirectory = dirname(originalPath);
+            holding = true;
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 67))).resolves.toMatchObject({applied: true});
+            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({contentRevision: 2});
+            expect((await readdir(originalDirectory)).filter(name => !before.includes(name))).toHaveLength(1);
+
+            holding = false;
+            const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
+            await cleanupWorkingCopy(workingCopyPath, 7);
+            expect((await readdir(originalDirectory)).sort()).toEqual([...before].sort());
+            await expect(readNeighbours()).resolves.toEqual([
+                'another program',
+                'another program',
+                'another program',
+            ]);
+        } finally {
+            vi.doUnmock('node:fs/promises');
+        }
+    });
 });

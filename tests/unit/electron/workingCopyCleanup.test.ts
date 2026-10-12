@@ -202,6 +202,8 @@ vi.mock('@electron/utils/appTempDir', () => ({
 
 vi.mock('@electron/file-access/workingCopyMutationQueue', () => ({drainWorkingCopyMutations: vi.fn(async () => undefined)}));
 
+vi.mock('@electron/file-access/workingCopyJournal', () => ({recoverWorkingCopyTransition: vi.fn(async () => false)}));
+
 vi.mock('@electron/file-access/documentRevisionStore', () => ({
     clearWorkingCopyRevisionInitializations: vi.fn(),
     forgetWorkingCopyRevisionInitialization: vi.fn(),

@@ -41,6 +41,7 @@ import {
     hasWorkingCopySyncRequired,
 } from '@electron/file-access/documentRevisionStore';
 import {cleanupStaleAtomicReplaceBackups} from '@electron/utils/atomicReplace';
+import {recoverWorkingCopyTransition} from '@electron/file-access/workingCopyJournal';
 import {
     cancelWorkingCopyMaterialization,
     ensureWorkingCopyMaterialized,
@@ -296,6 +297,10 @@ async function cleanupWorkingCopyDirectory(
                 logger.warn('Refused to delete a working directory containing its original backing', {workDir});
                 return;
             }
+            // The journal names what a save left beside the original; finish it before its folder goes.
+            await recoverWorkingCopyTransition(normalizedPath).catch((error: unknown) => {
+                logger.warn('Could not finish a working-copy journal before closing', {error: getErrorMessage(error)});
+            });
             await rm(workDir, {
                 recursive: true,
                 force: true,
