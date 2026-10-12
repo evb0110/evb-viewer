@@ -186,7 +186,7 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         return;
     }
 
-    const cargoEnvironment = getCargoBuildEnvironment();
+    const cargoEnvironment = getCargoBuildEnvironment({ projectRoot });
     const metadataArgs = [
         'metadata',
         '--manifest-path',

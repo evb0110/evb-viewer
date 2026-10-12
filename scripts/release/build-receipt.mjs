@@ -207,7 +207,10 @@ export function computeReleaseBuildState({
         runCommand,
     });
     const effectiveNuxtEnv = nuxtBuildEnvironment(env, projectRoot);
-    const nativeEnv = getCargoBuildEnvironment({env}).env;
+    const nativeEnv = getCargoBuildEnvironment({
+        env,
+        projectRoot,
+    }).env;
     const contract = {
         nativeConfiguration: createHash('sha256')
             .update(JSON.stringify(getCargoFingerprintEnvironment(nativeEnv)))

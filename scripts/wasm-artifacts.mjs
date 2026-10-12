@@ -69,7 +69,10 @@ export const WASM_ARTIFACTS = [
         manifestPath: 'native/pdf-page-ops/Cargo.toml',
         publicRelativePath: 'public/wasm/evb-pdf-page-ops.wasm',
         requiredExports: getRequiredExports('wasm/evb-pdf-page-ops.wasm'),
-        rustflags: ['--cfg getrandom_backend="custom"'],
+        rustflags: [
+            '--cfg',
+            'getrandom_backend="custom"',
+        ],
     },
 ];
 
@@ -80,12 +83,4 @@ export function getWasmArtifactByCrateName(crateName) {
         throw new Error(`Unknown WASM artifact crate: ${crateName}`);
     }
     return artifact;
-}
-
-/** @param {NodeJS.ProcessEnv} env @param {string[]} rustflags @returns {string} */
-export function appendRustflags(env, rustflags) {
-    return [
-        env.RUSTFLAGS,
-        ...rustflags,
-    ].filter(Boolean).join(' ');
 }

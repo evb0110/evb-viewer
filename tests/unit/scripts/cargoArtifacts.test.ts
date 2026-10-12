@@ -214,13 +214,66 @@ describe('Cargo artifact staging', () => {
         ])).toThrow('Usage:');
     });
 
+    it('remaps the build folder, cargo home and rustup home out of native and WASM builds', () => {
+        const env = {
+            CARGO_HOME: '/home/dev/cargo home',
+            RUSTFLAGS: '--cfg inherited',
+            RUSTUP_HOME: '/opt/rustup',
+        };
+        const remaps = [
+            '--remap-path-prefix=/home/dev/cargo home=/cargo-home',
+            '--remap-path-prefix=/opt/rustup=/rustup-home',
+            '--remap-path-prefix=/work/evb viewer=/evb-viewer',
+        ];
+        const native = getCargoBuildEnvironment({
+            env,
+            platform: 'linux',
+            projectRoot: '/work/evb viewer',
+            runCommand: vi.fn(),
+        });
+        expect(native.env.CARGO_ENCODED_RUSTFLAGS.split('\u001f')).toEqual([
+            '--cfg',
+            'inherited',
+            ...remaps,
+        ]);
+        const apple = getCargoBuildEnvironment({
+            env,
+            platform: 'darwin',
+            projectRoot: '/work/evb viewer',
+            runCommand: vi.fn(),
+        });
+        expect(apple.env.CARGO_ENCODED_RUSTFLAGS.split('\u001f')).toEqual([
+            '--cfg',
+            'inherited',
+            ...remaps,
+            '-C',
+            'link-arg=-Wl,-oso_prefix,/work/evb viewer',
+        ]);
+        const plan = createWasmToolBuildPlan({
+            artifact: getWasmArtifactByCrateName('pdf-page-ops'),
+            env,
+            projectRoot: '/work/evb viewer',
+        });
+        expect(plan.rustflags).toEqual([
+            '--cfg',
+            'inherited',
+            ...remaps,
+            '--cfg',
+            'getrandom_backend="custom"',
+        ]);
+    });
+
     it('uses an existing Rust wrapper, probes sccache, and safely degrades when unavailable', () => {
         const existing = {RUSTC_WRAPPER: '/custom/wrapper'};
         expect(getCargoBuildEnvironment({
             env: existing,
+            projectRoot: '/repo',
             runCommand: vi.fn(),
         })).toEqual({
-            env: existing,
+            env: {
+                ...existing,
+                CARGO_ENCODED_RUSTFLAGS: expect.any(String),
+            },
             sccache: 'configured (/custom/wrapper)',
         });
         expect(getCargoBuildEnvironment({
@@ -228,6 +281,7 @@ describe('Cargo artifact staging', () => {
                 CARGO_HOME: '/cargo',
                 EVB_RUST_SCCACHE: '1',
             },
+            projectRoot: '/repo',
             runCommand: vi.fn(() => ({
                 status: 0,
                 stdout: 'sccache 0.10.0\n',
@@ -235,6 +289,7 @@ describe('Cargo artifact staging', () => {
         })).toEqual({
             env: {
                 CARGO_HOME: '/cargo',
+                CARGO_ENCODED_RUSTFLAGS: expect.any(String),
                 EVB_RUST_SCCACHE: '1',
                 RUSTC_WRAPPER: 'sccache',
             },
@@ -245,6 +300,7 @@ describe('Cargo artifact staging', () => {
                 CARGO_HOME: '/cargo',
                 EVB_RUST_SCCACHE: '1',
             },
+            projectRoot: '/repo',
             runCommand: vi.fn(() => ({
                 status: null,
                 stdout: '',
@@ -252,15 +308,20 @@ describe('Cargo artifact staging', () => {
         })).toEqual({
             env: {
                 CARGO_HOME: '/cargo',
+                CARGO_ENCODED_RUSTFLAGS: expect.any(String),
                 EVB_RUST_SCCACHE: '1',
             },
             sccache: 'unavailable',
         });
         expect(getCargoBuildEnvironment({
             env: {CARGO_HOME: '/cargo'},
+            projectRoot: '/repo',
             runCommand: vi.fn(),
         })).toEqual({
-            env: {CARGO_HOME: '/cargo'},
+            env: {
+                CARGO_HOME: '/cargo',
+                CARGO_ENCODED_RUSTFLAGS: expect.any(String),
+            },
             sccache: 'disabled',
         });
         expect(getCargoFingerprintEnvironment({
@@ -520,7 +581,10 @@ describe('Cargo artifact staging', () => {
             expect(plan.manifestPath).toBe(`native/${tool.crateName}/Cargo.toml`);
             expect(plan.destinationPath).toBe(path.join('/repo', artifact.publicRelativePath));
             expect(plan.requiredExports).toBe(artifact.requiredExports);
-            expect(plan.rustflags).toContain('--cfg existing');
+            expect(plan.rustflags.slice(0, 2)).toEqual([
+                '--cfg',
+                'existing',
+            ]);
         }
         expect(() => getWasmArtifactByCrateName('pdf-search')).toThrow(
             'Unknown WASM artifact crate: pdf-search',

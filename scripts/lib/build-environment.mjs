@@ -100,7 +100,7 @@ export function getCargoFingerprintEnvironment(env) {
 export function getCargoConfigurationInputs({
     env = process.env, projectRoot,
 }) {
-    const cargoHome = env.CARGO_HOME ? path.resolve(projectRoot, env.CARGO_HOME) : path.join(homedir(), '.cargo');
+    const cargoHome = getCargoHome(env, projectRoot);
     return [
         path.join(projectRoot, '.cargo', 'config'),
         path.join(projectRoot, '.cargo', 'config.toml'),
@@ -110,29 +110,88 @@ export function getCargoConfigurationInputs({
     ].filter(inputPath => existsSync(inputPath));
 }
 
+/** @param {NodeJS.ProcessEnv} env @param {string} projectRoot */
+function getCargoHome(env, projectRoot) {
+    return env.CARGO_HOME ? path.resolve(projectRoot, env.CARGO_HOME) : path.join(homedir(), '.cargo');
+}
+
+/** @param {NodeJS.ProcessEnv} env @param {string} projectRoot */
+function getRustupHome(env, projectRoot) {
+    return env.RUSTUP_HOME ? path.resolve(projectRoot, env.RUSTUP_HOME) : path.join(homedir(), '.rustup');
+}
+
+// CARGO_ENCODED_RUSTFLAGS separates flags with the Unit Separator. RUSTFLAGS splits
+// on whitespace, so a home folder with a space in it would become two arguments.
+export const CARGO_ENCODED_RUSTFLAGS_SEPARATOR = '\u001f';
+
+/**
+ * The Rust flags of every native and WASM build. Rust records the source, registry and
+ * toolchain paths it compiled from in panic locations, so the same commit built in
+ * another folder or home gave other bytes and another provenance hash. These remaps
+ * give those paths fixed names. Optimisation and features are unchanged.
+ *
+ * @param {{env?: NodeJS.ProcessEnv, extraRustflags?: string[], projectRoot: string}} options
+ * @returns {string[]}
+ */
+export function getCargoRustflags({
+    env = process.env,
+    extraRustflags = [],
+    projectRoot,
+}) {
+    const inherited = env.CARGO_ENCODED_RUSTFLAGS === undefined
+        ? (env.RUSTFLAGS ?? '').split(/\s+/u)
+        : env.CARGO_ENCODED_RUSTFLAGS.split(CARGO_ENCODED_RUSTFLAGS_SEPARATOR);
+    return [
+        ...inherited.filter(Boolean),
+        `--remap-path-prefix=${getCargoHome(env, projectRoot)}=/cargo-home`,
+        `--remap-path-prefix=${getRustupHome(env, projectRoot)}=/rustup-home`,
+        `--remap-path-prefix=${projectRoot}=/evb-viewer`,
+        ...extraRustflags,
+    ];
+}
+
 /**
  * @param {{
  *   env?: NodeJS.ProcessEnv;
+ *   platform?: NodeJS.Platform;
+ *   projectRoot: string;
  *   runCommand?: (
  *     command: string,
  *     args: string[],
  *     options: {encoding: BufferEncoding},
  *   ) => {status: number | null; stdout: string};
- * }} [options]
+ * }} options
  */
 export function getCargoBuildEnvironment({
     env = process.env,
+    platform = process.platform,
+    projectRoot,
     runCommand = spawnSync,
-} = {}) {
+}) {
+    const remappedEnv = {
+        ...env,
+        CARGO_ENCODED_RUSTFLAGS: getCargoRustflags({
+            env,
+            // ld64 writes each object's path into the debug map before stripping, and
+            // LC_UUID hashes that map. The prefix keeps the build folder out of the UUID.
+            extraRustflags: platform === 'darwin'
+                ? [
+                    '-C',
+                    `link-arg=-Wl,-oso_prefix,${projectRoot}`,
+                ]
+                : [],
+            projectRoot,
+        }).join(CARGO_ENCODED_RUSTFLAGS_SEPARATOR),
+    };
     if (env.RUSTC_WRAPPER) {
         return {
-            env,
+            env: remappedEnv,
             sccache: `configured (${env.RUSTC_WRAPPER})`,
         };
     }
     if (env.EVB_RUST_SCCACHE !== '1') {
         return {
-            env,
+            env: remappedEnv,
             sccache: 'disabled',
         };
     }
@@ -140,14 +199,14 @@ export function getCargoBuildEnvironment({
     if (result.status === 0) {
         return {
             env: {
-                ...env,
+                ...remappedEnv,
                 RUSTC_WRAPPER: 'sccache',
             },
             sccache: String(result.stdout).trim(),
         };
     }
     return {
-        env,
+        env: remappedEnv,
         sccache: 'unavailable',
     };
 }
