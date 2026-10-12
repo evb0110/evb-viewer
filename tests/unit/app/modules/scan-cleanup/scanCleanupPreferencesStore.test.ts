@@ -116,6 +116,42 @@ describe('scan cleanup renderer preference store', () => {
         })));
     });
 
+
+    it('keeps another window reading-order commit when an older local save reply arrives late', async () => {
+        const {
+            store, filePath,
+        } = await createDurableSettingsStore();
+        connectMainProcessSettings(store);
+        const shown = getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        let release!: (value: Awaited<ReturnType<typeof store.update>>) => void;
+        let committed!: (value: Awaited<ReturnType<typeof store.update>>) => void;
+        const started = new Promise<Awaited<ReturnType<typeof store.update>>>(done => { committed = done; });
+        capability.value.updateSettings.mockImplementationOnce(async request => {
+            const value = await store.update(request);
+            committed(value);
+            return new Promise(done => { release = done; });
+        });
+        shown.binarization = 'sauvola';
+        const saving = flushScanCleanupPreferencesStore();
+        const older = await started;
+        await store.update({settingsPatch: {readingOrder: 'rtl'}});
+        expect(shown.readingOrder).toBe('rtl');
+        release(older);
+        await saving;
+        expect(JSON.parse(await readFile(filePath, 'utf8')).settings).toMatchObject({
+            readingOrder: 'rtl',
+            binarization: 'sauvola',
+        });
+        expect({
+            readingOrder: shown.readingOrder,
+            binarization: shown.binarization,
+        }).toEqual({
+            readingOrder: 'rtl',
+            binarization: 'sauvola',
+        });
+    });
+
     it('rereads a cached document changed by another window', async () => {
         const {store} = await createDurableSettingsStore();
         connectMainProcessSettings(store);
