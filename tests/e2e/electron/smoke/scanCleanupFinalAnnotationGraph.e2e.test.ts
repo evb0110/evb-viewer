@@ -11,9 +11,11 @@ import {
     describe, it, expect,
 } from 'vitest';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import { clickAsUser } from '@tests/e2e/electron/helpers/userInput';
 import {
-    openPdfInApp, waitForPdfLoaded, waitForViewerInteractive, clickVisibleToolbarButton,
+    clickAsUser, clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
+import {
+    openPdfInApp, clickVisibleToolbarButton,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     type IWorkspaceExposeProbeWindow, readWorkspaceStateValues,
@@ -32,8 +34,7 @@ describe('public catalog cleanup proof', () => {
         'identity-lossless',
     ])
         it(mode, async () => {
-            const session = fixture.getSession();
-            const page = session.page;
+            const {page} = fixture.getSession();
             const source = resolve(evidence, `${mode}-source.pdf`);
             writeFileSync(source, Buffer.from(readFileSync(resolve('tests/fixtures/release/scan-cleanup-final-graph.pdf.hex'), 'utf8').replace(/\s/gu, ''), 'hex'));
             if (mode === 'compact-fit-split') {
@@ -69,81 +70,77 @@ describe('public catalog cleanup proof', () => {
                 writeFileSync(source, await sourceDocument.save());
             }
             await openPdfInApp(page, source);
-            await waitForPdfLoaded(page);
-            await waitForViewerInteractive(page);
-            await page.screenshot({ path: resolve(evidence, `${mode}-source.png`) });
+            for (const toast of await page.$$('button[data-slot="close"]')) {
+                if (await toast.isVisible()) await clickAsUser(page, toast);
+            }
             await clickVisibleToolbarButton(page, 'Scan cleanup');
-            await page.waitForSelector('.scan-cleanup-surface');
-            await page.waitForFunction(() => document.querySelectorAll('.scan-thumbnail-exclude-toggle').length === 3, { timeout: 90000 });
-            const exclusion = await page.$$('.scan-thumbnail-exclude-toggle');
-            if (await exclusion[2]!.evaluate(el => el.getAttribute('aria-checked') === 'true') !== (mode === 'identity-lossless'))
-                await clickAsUser(page, exclusion[2]!);
-            async function checkbox(labelText: string, wanted: boolean) {
-                const labels = await page.$$('label');
-                for (const label of labels)
-                    if (await label.evaluate((el, text) => el.textContent?.trim() === text, labelText)) {
-                        const current = await label.evaluate(el => {
-                            const id = el.getAttribute('for');
-                            const control = id ? document.getElementById(id) : el.parentElement?.querySelector('[role="checkbox"],input[type="checkbox"]');
-                            return control?.getAttribute('aria-checked') === 'true' || (control as HTMLInputElement)?.checked === true;
-                        });
-                        if (current !== wanted)
-                            await clickAsUser(page, label);
-                        return;
-                    }
-                throw new Error(`Checkbox label unavailable: ${labelText}`);
+            await page.waitForFunction(() => document.querySelectorAll('.scan-thumbnail-exclude-toggle').length === 3
+                && document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed', {timeout: 90000});
+            if (await page.$('.scan-cleanup-first-run-guidance')) {
+                await clickAsUser(page, '.scan-cleanup-first-run-guidance button');
+                await page.waitForSelector('.scan-cleanup-first-run-guidance', {hidden: true});
+            }
+            const choices: Record<string, string> = {};
+            async function toggle(control: string, wanted: boolean) {
+                if (await page.$eval(control, el => el.getAttribute('aria-checked') === 'true') !== wanted)
+                    await clickAsUser(page, control);
+                await page.waitForFunction((control, wanted) => document.querySelector(control)?.getAttribute('aria-checked') === String(wanted), {}, control, wanted);
+                choices[control] = String(wanted);
+            }
+            const inclusion = [
+                'true',
+                'true',
+                String(mode === 'identity-lossless'),
+            ];
+            const exclusion = '.scan-thumbnail-overlay[data-page-number="3"] .scan-thumbnail-exclude-toggle';
+            await toggle(exclusion, mode === 'identity-lossless');
+
+            await toggle('[data-settings-scope="all"]', true);
+            const layout = mode === 'compact-fit-split' ? 'Force two-page spreads' : 'Force single pages';
+            if (await page.$eval('[aria-label="Page layout"]', el => el.textContent?.trim()) !== layout) {
+                await clickAsUser(page, '[aria-label="Page layout"]');
+                await clickFoundAsUser(page, layout => Array.from(document.querySelectorAll('[role="option"]'))
+                    .find(el => el.checkVisibility() && el.textContent?.trim() === layout), layout, {description: layout});
+            }
+            await page.waitForFunction(layout => {
+                const control = document.querySelector('[aria-label="Page layout"]');
+                return control?.textContent?.trim() === layout && control.getAttribute('aria-expanded') === 'false';
+            }, {}, layout);
+            async function checkbox(label: string, wanted: boolean) {
+                const id = await page.$$eval('label', (labels, text) => labels.find(el => el.textContent?.trim() === text)?.getAttribute('for'), label);
+                expect(id, label).toBeTruthy();
+                await toggle(`[id="${id}"]`, wanted);
             }
             await checkbox('Preserve original quality (no rasterization)', !mode.startsWith('compact'));
-            await clickAsUser(page, '[data-settings-scope="all"]');
-            await page.waitForFunction(() => document.querySelector('[data-settings-scope="all"]')?.getAttribute('aria-checked') === 'true');
-            await clickAsUser(page, '[aria-label="Page layout"]');
-            await page.waitForSelector('[role="option"]');
-            const layouts = await page.$$('[role="option"]');
-            const single = await Promise.all(layouts.map(option => option.evaluate((el, split) => (split ? [
-                'Force two-page spreads',
-                'Two-page spread',
-            ] : [
-                'Force single pages',
-                'Single page',
-            ]).includes(el.textContent?.trim() ?? ''), mode === 'compact-fit-split')));
-            if (!single.includes(true))
-                throw new Error('Single-page layout option unavailable');
-            await clickAsUser(page, layouts[single.indexOf(true)]!);
-            await checkbox('Crop each output page to its content', false);
-            await checkbox('Skip blank pages', false);
-            await checkbox('Match page size with other pages', false);
             if (mode.startsWith('compact')) {
-                await clickAsUser(page, '[role=radio][aria-label="Auto — recommended per page"]');
+                await toggle('[role=radio][aria-label="Auto — recommended per page"]', true);
+            }
+            await checkbox('Crop each output page to its content', false);
+            await checkbox('Match page size with other pages', false);
+            await checkbox('Skip blank pages', false);
+            if (mode.startsWith('compact')) {
                 if (await page.$eval('.scan-cleanup-advanced-toggle', el => el.getAttribute('aria-expanded') !== 'true'))
                     await clickAsUser(page, '.scan-cleanup-advanced-toggle');
+                await page.waitForFunction(() => document.querySelector('.scan-cleanup-advanced-toggle')?.getAttribute('aria-expanded') === 'true');
                 await checkbox('Normalize uneven illumination', false);
             }
-            expect(await page.$$eval('.scan-thumbnail-exclude-toggle', els => els.map(el => el.getAttribute('aria-checked')))).toEqual(mode === 'identity-lossless' ? [
-                'true',
-                'true',
-                'true',
-            ] : [
-                'true',
-                'true',
-                'false',
-            ]);
-            await page.screenshot({ path: resolve(evidence, `${mode}-settings.png`) });
             await page.waitForFunction(selector => {
                 const button = document.querySelector<HTMLButtonElement>(selector);
                 return button && !button.disabled && button.textContent?.includes('Clean');
             }, { timeout: 90000 }, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
+            expect(await page.$$eval('.scan-thumbnail-exclude-toggle', els => els.map(el => el.getAttribute('aria-checked')))).toEqual(inclusion);
+            expect(await page.evaluate(choices => Object.entries(choices)
+                .every(choice => document.querySelector(choice[0])?.getAttribute('aria-checked') === choice[1]), choices)).toBe(true);
+            expect(await page.$eval('[aria-label="Page layout"]', el => el.textContent?.trim())).toBe(layout);
+            await page.screenshot({ path: resolve(evidence, `${mode}-settings.png`) });
             await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
             await page.waitForFunction(source => {
                 const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.readActiveWorkspaceStateValues?.(['originalPath']);
                 return typeof state?.originalPath === 'string' && state.originalPath !== source && state.originalPath.endsWith('— cleaned.pdf');
             }, { timeout: 180000 }, source);
             const state = await readWorkspaceStateValues(page, ['originalPath']);
-            copyFileSync(state.originalPath as string, resolve(evidence, `${mode}-output.pdf`));
             const saved = resolve(evidence, `${mode}-output.pdf`);
-            await openPdfInApp(page, saved);
-            await waitForPdfLoaded(page);
-            await waitForViewerInteractive(page);
-            await page.screenshot({ path: resolve(evidence, `${mode}-reopened.png`) });
+            copyFileSync(state.originalPath as string, saved);
             const savedDocument = await PDFDocument.load(readFileSync(saved), { updateMetadata: false });
             const savedPdf = await pdfjs.getDocument({
                 data: new Uint8Array(readFileSync(saved)),
@@ -160,7 +157,6 @@ describe('public catalog cleanup proof', () => {
                         expect(link.dest[1].name).toBe('Fit');
                         expect(await savedPdf.getPageIndex(link.dest[0])).toBe(0);
                     }
-                    writeFileSync(resolve(evidence, `${mode}-annotations.json`), JSON.stringify(links, null, 2));
                     return;
                 }
                 const pages = [];
@@ -190,7 +186,6 @@ describe('public catalog cleanup proof', () => {
                 expect.soft(savedPdf.numPages).toBe(mode === 'identity-lossless' ? 3 : 2);
                 expect.soft(savedDocument.catalog.has(PDFName.of('StructTreeRoot'))).toBe(mode === 'identity-lossless');
                 expect.soft(savedDocument.catalog.has(PDFName.of('MarkInfo'))).toBe(mode === 'identity-lossless');
-                writeFileSync(resolve(evidence, `${mode}-annotations.json`), JSON.stringify(pages, null, 2));
             }
             finally {
                 await savedPdf.loadingTask.destroy();
