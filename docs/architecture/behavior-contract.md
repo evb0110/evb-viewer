@@ -189,10 +189,11 @@ After a crash or forced quit during a save, the next Save compares the PDF on
 disk with the last revision EVB read or wrote. A replacement with identical
 bytes and a touch that only changes the modification time are admitted. Every
 byte change, including one made while EVB was stopped, is refused with an offer
-to Save As, and recovery leaves no file of its own beside the PDF. When a save
-finds the PDF changed elsewhere after displacing it, the file as it was just
-before that save stays beside the PDF as "<name> (original).pdf", then
-"<name> (original 2).pdf" and on, never replacing an existing file.
+to Save As, and recovery leaves no file of its own beside the PDF. When a save,
+or recovery after a crash, finds the PDF changed elsewhere after the save
+displaced it, the file as it was just before that save stays beside the PDF as
+"<name> (original).pdf", then "<name> (original 2).pdf" and on, never replacing
+an existing file.
 
 **T4. A split shows one document in two views.** Applies to a PDF split from
 its tab with Split Right or Split Down; New Pane and a separately opened copy
