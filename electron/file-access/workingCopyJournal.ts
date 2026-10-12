@@ -69,14 +69,6 @@ const journalSchema = v.pipe(
 
 export type IWorkingCopyJournal = v.InferOutput<typeof journalSchema>;
 
-function parseJournal(value: unknown, workingCopyPath: string): IWorkingCopyJournal | null {
-    const result = v.safeParse(journalSchema, value, {abortEarly: true});
-    if (!result.success || result.output.workingCopyPath !== workingCopyPath) {
-        return null;
-    }
-    return result.output;
-}
-
 async function readJournal(workingCopyPath: string) {
     const journalPath = getWorkingCopyJournalPath(workingCopyPath);
     let raw: string;
@@ -88,16 +80,17 @@ async function readJournal(workingCopyPath: string) {
         }
         throw new Error(`Working-copy journal could not be read: ${journalPath}`, {cause: error});
     }
-    let journal: IWorkingCopyJournal | null = null;
+    let value: unknown;
     try {
-        journal = parseJournal(JSON.parse(raw), workingCopyPath);
+        value = JSON.parse(raw);
     } catch {
         // Reported below.
     }
-    if (!journal) {
+    const result = v.safeParse(journalSchema, value, {abortEarly: true});
+    if (!result.success || result.output.workingCopyPath !== workingCopyPath) {
         throw new Error(`Working-copy journal is invalid: ${journalPath}`);
     }
-    return journal;
+    return result.output;
 }
 
 function writeJournal(journal: IWorkingCopyJournal) {
@@ -182,16 +175,20 @@ async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
 }
 
 /**
- * Removes the journal, then every backup it named. A crash in between leaves
- * only an unreferenced backup, never a journal whose backup is gone.
+ * Completion starts once the original holds the committed or restored bytes,
+ * so the original's backup and publication name go first: nothing beside the
+ * original outlives the journal that names it, and a crash repeats the step.
+ * The working-copy backup goes after the journal, because recovering an
+ * unfinished rollback copies from it; a crash leaves it unreferenced.
  */
 export async function completeWorkingCopyTransition(journal: IWorkingCopyJournal) {
     if (journal.original?.state === 'conflicted') return;
-    // A crash during publication can leave its temporary link, named for the backup.
-    if (journal.original) await rm(getPublicationTemporaryPath(journal.original.path, journal.original.backupPath), {force: true});
+    if (journal.original) {
+        await rm(journal.original.backupPath, {force: true});
+        await rm(getPublicationTemporaryPath(journal.original.path, journal.original.backupPath), {force: true});
+    }
     await rm(getWorkingCopyJournalPath(journal.workingCopyPath), {force: true});
     await rm(journal.backupPath, {force: true});
-    if (journal.original) await rm(journal.original.backupPath, {force: true});
 }
 
 /**

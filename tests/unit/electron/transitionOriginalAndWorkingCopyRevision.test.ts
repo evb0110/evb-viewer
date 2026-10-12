@@ -1758,4 +1758,50 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             vi.doUnmock('@electron/file-access/workingCopyDirectory');
         }
     });
+
+    it('leaves nothing of a completed save beside the PDF when a crash follows the journal removal', async () => {
+        const fs = await import('node:fs/promises');
+        let journalPath = '';
+        let crashed = (): void => undefined;
+        vi.doMock('node:fs/promises', () => ({
+            ...fs,
+            // The process dies right after the completed save removes its journal.
+            rm: async (...args: Parameters<typeof fs.rm>) => {
+                await fs.rm(...args);
+                if (journalPath !== '' && String(args[0]) === journalPath) {
+                    crashed();
+                    return new Promise<never>(() => undefined);
+                }
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-crash-after-journal');
+            const readNeighbours = await writeUnrelatedNeighbours(originalPath);
+            const before = await readdir(dirname(originalPath));
+            const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+            const saved = Buffer.alloc(2 * 1024 * 1024, 67);
+            const crash = new Promise<void>(resolve => {
+                crashed = resolve;
+            });
+            journalPath = getWorkingCopyJournalPath(workingCopyPath);
+            void saveAnnotations(saved);
+            await crash;
+            journalPath = '';
+
+            vi.resetModules();
+            const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
+            await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(false);
+            expect((await readdir(dirname(originalPath))).sort()).toEqual([...before].sort());
+            await expect(readNeighbours()).resolves.toEqual([
+                'another program',
+                'another program',
+                'another program',
+            ]);
+            expect((await readFile(originalPath)).equals(saved)).toBe(true);
+        } finally {
+            vi.doUnmock('node:fs/promises');
+        }
+    });
 });
