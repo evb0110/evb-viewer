@@ -215,14 +215,17 @@ describe('Cargo artifact staging', () => {
     });
 
     it('remaps the build folder, cargo home and rustup home out of native and WASM builds', () => {
+        // Toolchain homes are absolute paths on the host, so a Windows host gives them a drive letter.
+        const cargoHome = path.resolve('/home/dev/cargo home');
+        const rustupHome = path.resolve('/opt/rustup');
         const env = {
-            CARGO_HOME: '/home/dev/cargo home',
+            CARGO_HOME: cargoHome,
             RUSTFLAGS: '--cfg inherited',
-            RUSTUP_HOME: '/opt/rustup',
+            RUSTUP_HOME: rustupHome,
         };
         const remaps = [
-            '--remap-path-prefix=/home/dev/cargo home=/cargo-home',
-            '--remap-path-prefix=/opt/rustup=/rustup-home',
+            `--remap-path-prefix=${cargoHome}=/cargo-home`,
+            `--remap-path-prefix=${rustupHome}=/rustup-home`,
             '--remap-path-prefix=/work/evb viewer=/evb-viewer',
         ];
         const native = getCargoBuildEnvironment({
