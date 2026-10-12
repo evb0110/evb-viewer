@@ -58,6 +58,8 @@ function createCapability() {
 }
 
 async function runUnderCapFlow() {
+    const previousPicker = Reflect.get(window, 'showSaveFilePicker');
+    Reflect.set(window, 'showSaveFilePicker', undefined);
     const sourcePath: TLegacyDocumentRef = requireDocumentRef(await browserDocumentStore.createStoredDocument(
         'browser-annotation-acceptance.pdf',
         await createAnnotatedFixture(),
@@ -119,8 +121,9 @@ async function runUnderCapFlow() {
             throw new Error('Browser annotation acceptance save did not commit the canonical writer result');
         }
 
-        const reopenedRevision = await browserDocumentStore.getDocumentRevision(workingPath);
-        const parsedAfter = await capability.parsePdfAnnotations(workingPath, {expectedDocumentRevisionToken: reopenedRevision.token});
+        browserDocumentStore.unload(sourcePath);
+        const reopenedRevision = await browserDocumentStore.getDocumentRevision(sourcePath);
+        const parsedAfter = await capability.parsePdfAnnotations(sourcePath, {expectedDocumentRevisionToken: reopenedRevision.token});
         const reopenedNote = parsedAfter.entities.find(entity => entity.kind === 'note');
         return {
             openedWithAnnotations: note.contents === 'до Привет café',
@@ -134,6 +137,7 @@ async function runUnderCapFlow() {
             await browserDocumentStore.remove(workingPath).catch(() => undefined);
         }
         await browserDocumentStore.remove(sourcePath).catch(() => undefined);
+        Reflect.set(window, 'showSaveFilePicker', previousPicker);
     }
 }
 

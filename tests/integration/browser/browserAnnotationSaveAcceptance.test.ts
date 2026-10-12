@@ -15,6 +15,9 @@ import {
 import {build} from 'esbuild';
 import {chromium} from 'playwright';
 import {
+    PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
+} from 'pdf-lib';
+import {
     afterAll,
     beforeAll,
     describe,
@@ -99,6 +102,7 @@ describe('browser annotation save acceptance in Chromium', () => {
                 path: bundlePath,
                 type: 'module',
             });
+            const savedDownload = page.waitForEvent('download');
             const result = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserAnnotationSaveAcceptance');
                 if (typeof run !== 'function') {
@@ -106,6 +110,13 @@ describe('browser annotation save acceptance in Chromium', () => {
                 }
                 return run();
             });
+            const savedPath = resolve(process.cwd(), '.devkit/browser-annotation-acceptance-saved.pdf');
+            await (await savedDownload).saveAs(savedPath);
+            const savedPdf = await PDFDocument.load(await readFile(savedPath));
+            const annots = savedPdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            expect(Array.from({length: annots.size()}, (_value, index) => annots.lookup(index, PDFDict)
+                .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText()))
+                .toContain('после Привет café');
             expect(result).toEqual({
                 underCap: {
                     openedWithAnnotations: true,
