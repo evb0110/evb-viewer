@@ -47,7 +47,6 @@ files:
   - "!nuxt-output/public/evb-viewer-seo.png"
   - "!nuxt-output/public/evb-viewer-preview-cropped.png"
   - "!nuxt-output/public/evb-viewer-og.png"
-  - "!nuxt-output/public/mobile-reader-proof/**"
   - "!nuxt-output/public/robots.txt"
   - "!nuxt-output/public/sitemap.xml"
   - "!.devkit/**/*"

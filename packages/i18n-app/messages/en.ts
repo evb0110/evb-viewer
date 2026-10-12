@@ -1544,8 +1544,6 @@ export default {
         'clientDiagnostics': 'Send privacy-sanitized error diagnostics',
         'clientDiagnosticsDescription': 'Send error codes, sanitized error messages, app version, platform, and EVB Viewer application stack frames to Sentry. Documents, filenames, paths, document text, annotations, searches, screenshots, local logs, and account information are not sent.',
         'clientDiagnosticsPrivacyNotice': 'Read the complete privacy notice',
-        'dialogDescription': 'Configure the viewer, annotation defaults, shortcuts, and updates.',
-        'browserDialogDescription': 'Configure the browser viewer, annotation defaults, and the shortcuts available in the web app.',
         'general': 'General',
         'author': 'Author Name',
         'authorPlaceholder': 'Your name for annotations',

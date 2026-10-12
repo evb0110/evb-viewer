@@ -1544,8 +1544,6 @@ export default {
         'clientDiagnostics': 'Datenschutzbereinigte Fehlerdiagnosen senden',
         'clientDiagnosticsDescription': 'Fehlercodes, bereinigte Fehlermeldungen, App-Version, Plattform und EVB-Viewer-Anwendungs-Stackframes an Sentry senden. Dokumente, Dateinamen, Pfade, Dokumenttext, Anmerkungen, Suchen, Screenshots, lokale Protokolle und Kontoinformationen werden nicht gesendet.',
         'clientDiagnosticsPrivacyNotice': 'Vollständigen Datenschutzhinweis lesen',
-        'dialogDescription': 'Konfigurieren Sie den Viewer, die Standardwerte für Anmerkungen, Kurzbefehle und Aktualisierungen.',
-        'browserDialogDescription': 'Konfigurieren Sie den Browser-Viewer, die Standardwerte für Anmerkungen und die im Web verfügbaren Kurzbefehle.',
         'general': 'Allgemein',
         'author': 'Autorenname',
         'authorPlaceholder': 'Ihr Name für Anmerkungen',

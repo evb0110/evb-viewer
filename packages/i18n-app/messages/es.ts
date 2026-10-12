@@ -1544,8 +1544,6 @@ export default {
         'clientDiagnostics': 'Enviar diagnósticos de errores con privacidad protegida',
         'clientDiagnosticsDescription': 'Enviar a Sentry códigos de error, mensajes de error depurados, versión de la aplicación, plataforma y marcos de pila de la aplicación EVB Viewer. No se envían documentos, nombres de archivos, rutas, texto de documentos, anotaciones, búsquedas, capturas de pantalla, registros locales ni información de la cuenta.',
         'clientDiagnosticsPrivacyNotice': 'Leer el aviso de privacidad completo',
-        'dialogDescription': 'Configure el visor, los valores predeterminados de anotación, los atajos y las actualizaciones.',
-        'browserDialogDescription': 'Configure el visor del navegador, los valores predeterminados de anotación y los atajos disponibles en la aplicación web.',
         'general': 'General',
         'author': 'Nombre del autor',
         'authorPlaceholder': 'Su nombre para las anotaciones',

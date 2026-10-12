@@ -350,10 +350,6 @@ export default defineNuxtConfig({
                 'X-Robots-Tag': 'noindex, nofollow',
             }),
         },
-        '/mobile-reader-proof': {
-            prerender: true,
-            headers: withAppSecurityHeaders(appShellCacheHeaders),
-        },
         '/privacy': {
             prerender: true,
             headers: withAppSecurityHeaders(),
@@ -646,7 +642,6 @@ export default defineNuxtConfig({
                 '/',
                 '/electron',
                 '/workspace',
-                '/mobile-reader-proof',
                 '/privacy',
                 '/robots.txt',
                 '/sitemap.xml',

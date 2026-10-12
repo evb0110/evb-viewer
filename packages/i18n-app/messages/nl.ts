@@ -1544,8 +1544,6 @@ export default {
         'clientDiagnostics': 'Privacyvriendelijke foutdiagnostiek verzenden',
         'clientDiagnosticsDescription': 'Foutcodes, opgeschoonde foutmeldingen, appversie, platform en stackframes van de EVB Viewer-app naar Sentry verzenden. Documenten, bestandsnamen, paden, documenttekst, annotaties, zoekopdrachten, schermafbeeldingen, lokale logboeken en accountgegevens worden niet verzonden.',
         'clientDiagnosticsPrivacyNotice': 'De volledige privacyverklaring lezen',
-        'dialogDescription': 'Configureer de viewer, annotatiestandaarden, sneltoetsen en updates.',
-        'browserDialogDescription': 'Configureer de browserviewer, annotatiestandaarden en de sneltoetsen die beschikbaar zijn in de webapp.',
         'general': 'Algemeen',
         'author': 'Auteursnaam',
         'authorPlaceholder': 'Uw naam voor annotaties',

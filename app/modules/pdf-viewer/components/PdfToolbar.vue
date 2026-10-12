@@ -1,7 +1,7 @@
 <template>
     <header
         ref="toolbarRef"
-        :class="['toolbar', `toolbar--${variant}`, {'toolbar--has-ocr-action': hasOcrAction}]"
+        :class="['toolbar', {'toolbar--has-ocr-action': hasOcrAction}]"
         :data-collapse-tier="collapseTier"
         role="toolbar"
         :aria-label="t('toolbar.readerToolbar')"
@@ -308,7 +308,6 @@ import {
 const {
     hasPdf,
     surface = undefined,
-    variant = 'editor',
     documentBusy = false,
     isOpeningDocument = false,
     isFullscreen = false,
@@ -322,7 +321,6 @@ const {
     isPreparingPrint = false,
 } = defineProps<{
     hasPdf: boolean;
-    variant?: 'editor' | 'reader';
     documentBusy?: boolean;
     isFullscreen?: boolean;
     fullscreenSupported?: boolean;
@@ -580,30 +578,6 @@ function handleToolbarCommand(command: TToolbarCommand) {
     align-items: center;
     gap: var(--toolbar-micro-gap);
     flex-shrink: 0;
-    min-width: max-content;
-}
-
-.toolbar--reader {
-    gap: var(--app-space-3xl);
-    padding: var(--app-space-3xl) var(--app-space-6xl);
-}
-
-.toolbar--reader .toolbar-separator {
-    display: none;
-}
-
-.toolbar--reader .toolbar-left,
-.toolbar--reader .toolbar-center,
-.toolbar--reader .toolbar-right {
-    gap: var(--app-space-3xl);
-}
-
-.toolbar--reader .toolbar-center {
-    flex: 0 1 auto;
-}
-
-.toolbar--reader .toolbar-left,
-.toolbar--reader .toolbar-right {
     min-width: max-content;
 }
 

@@ -313,7 +313,6 @@
     --app-context-menu-radius: var(--app-radius-2xl);
     --app-pdf-context-menu-grid-padding: var(--app-space-sm);
     --app-pdf-context-menu-item-radius: var(--app-radius-md);
-    --app-settings-dialog-width: 52rem;
     --app-settings-select-max-size: 24rem;
     --app-sidebar-content-padding: var(--app-space-3xl);
     --app-sidebar-row-padding-block: var(--app-space-2xl);
