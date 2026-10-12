@@ -1,4 +1,3 @@
-import {rm} from 'node:fs/promises';
 import type {TDocumentRevisionChangeReason} from '@contracts/documentRevision';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {transitionWorkingCopyContentRevision} from '@electron/file-access/documentRevisionStore';
@@ -28,6 +27,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
     captureOriginalWitness: () => Promise<IOriginalPathSaveWitness | null>;
     publishOriginal: (assertDestinationCurrent: () => Promise<void>, destinationBackupPath: string) => Promise<void>;
     publishedSourcePath: string;
+    publishedContentFingerprint?: string;
     afterWorkingCopySync?: (originalFileExpectation?: ReturnType<IOriginalPathSaveWitness['getOriginalFileExpectation']>) => Promise<void>;
     afterOriginalRestore?: () => Promise<void>;
     onPhase?: (phase: string, durationMs: number) => void;
@@ -59,7 +59,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         backupPath: originalBackupPath,
                         state: 'prepared',
                         preparedSnapshot: witness.getSnapshotForJournal(),
-                        intendedFingerprint: await captureIntendedContentFingerprint(input.publishedSourcePath, input.signal),
+                        intendedFingerprint: input.publishedContentFingerprint ?? await captureIntendedContentFingerprint(input.publishedSourcePath, input.signal),
                     } as const;
                     await measurePhase('transition-journal-prepared', () =>
                         recordWorkingCopyJournalOriginal(transitionJournal, original));
@@ -67,7 +67,6 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         async () => witness.rebaseOnUnchangedContent(undefined, input.signal));
                     await measurePhase('transition-publish-original', () =>
                         input.publishOriginal(async () => {
-                            input.signal?.throwIfAborted();
                             await witness.assertCurrent();
                             input.signal?.throwIfAborted();
                         }, originalBackupPath));
@@ -133,9 +132,8 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 }
             } finally {
                 if (!committed && (!journal?.original || journal.original.state === 'restored' || journal.original.state === 'conflicted')) {
-                    // Recovery keeps failed rollbacks. An unjournaled backup is ours alone.
+                    // Recovery owns the journaled backups and keeps failed rollbacks.
                     await (journal && recoverWorkingCopyTransition(input.workingCopyPath).catch(() => undefined));
-                    await (journal?.original ? undefined : rm(originalBackupPath, {force: true}));
                 }
             }
         }

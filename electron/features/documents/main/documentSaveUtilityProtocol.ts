@@ -108,6 +108,7 @@ const documentSaveUtilityResultSchema = v.variant('ok', [
         ok: v.literal(true),
         bytes: positiveSafeIntegerSchema,
         sha256: v.pipe(v.string(), v.regex(/^[a-f0-9]{64}$/u)),
+        contentFingerprint: v.exactOptional(v.pipe(v.string(), v.regex(/^sha256-full-v1:[0-9a-f]{64}$/u))),
     }),
     v.object({
         type: v.literal('result'),

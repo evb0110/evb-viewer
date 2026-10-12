@@ -22,6 +22,7 @@ const FINGERPRINT_TIMEOUT_MS = 2 * 60_000;
 interface IDocumentSaveUtilityResult {
     bytes: number;
     sha256: string;
+    contentFingerprint?: string;
 }
 
 interface IRetainedDocumentSaveUtility {
@@ -297,6 +298,7 @@ export async function runDocumentSaveUtilityProcess(options: {
             void finish(undefined, {
                 bytes: result.bytes,
                 sha256: result.sha256,
+                ...(result.contentFingerprint === undefined ? {} : {contentFingerprint: result.contentFingerprint}),
             });
         });
         child.once('error', (_type, location) => {

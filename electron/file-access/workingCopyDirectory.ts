@@ -248,15 +248,19 @@ export async function attemptWorkingCopyClone(
     return 'unknown-error-eager-fallback';
 }
 
-export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string) {
+export async function copyFileCopyOnWrite(sourcePath: string, targetPath: string, options: ICopyFromStableSourceOptions = {}) {
     const outcome = await attemptWorkingCopyClone(sourcePath, targetPath);
-    if (outcome === 'known-unsupported') {
-        await copyFileFromStableSource(sourcePath, targetPath);
-    }
+    options.signal?.throwIfAborted();
+    return outcome === 'known-unsupported'
+        ? copyFileFromStableSource(sourcePath, targetPath, options)
+        : null;
 }
 
 /** `fingerprintSource` hashes the source bytes as they are read, for a registration of that source. */
-interface ICopyFromStableSourceOptions {fingerprintSource?: boolean;}
+interface ICopyFromStableSourceOptions {
+    fingerprintSource?: boolean;
+    signal?: AbortSignal;
+}
 
 /**
  * Copies one source revision into a new target. The source handle prevents a
@@ -288,6 +292,7 @@ export async function copyFileFromStableSource(
         const buffer = Buffer.allocUnsafe(1024 * 1024);
         let offset = 0n;
         while (offset < sourceStat.size) {
+            options.signal?.throwIfAborted();
             const length = Number(
                 sourceStat.size - offset > BigInt(buffer.byteLength)
                     ? BigInt(buffer.byteLength)
@@ -297,6 +302,7 @@ export async function copyFileFromStableSource(
             if (result.bytesRead !== length) {
                 throw Object.assign(new Error('The source changed while it was being copied'), {code: 'SOURCE_BACKING_CHANGED'});
             }
+            options.signal?.throwIfAborted();
             hash?.update(buffer.subarray(0, length));
             await targetHandle.write(buffer, 0, length, Number(offset));
             offset += BigInt(length);

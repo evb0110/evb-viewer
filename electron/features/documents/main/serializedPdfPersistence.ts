@@ -52,6 +52,7 @@ import {
     isPdfPersistencePreloadToMainPayload,
     normalizePdfPersistencePreloadToMainPayload,
 } from '@electron/features/documents/serializedPdfPersistenceContract';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
@@ -105,6 +106,7 @@ interface ISerializedPdfPersistenceSession {
     portQueueOverflowed: boolean;
     handle: FileHandle;
     hash: Hash;
+    contentHash: Hash;
     streamedTail: Buffer;
     stagedOutput: ITypedStagedArtifact | null;
     stagedValidation: IPdfValidationResult | null;
@@ -348,6 +350,7 @@ async function createSession(options: {
         portQueueOverflowed: false,
         handle,
         hash: createHash('sha256'),
+        contentHash: createOriginalFileContentFingerprintHash(options.totalBytes),
         streamedTail: Buffer.alloc(0),
         stagedOutput: null,
         stagedValidation: null,
@@ -459,6 +462,7 @@ async function stageSession(
         trustedFingerprint: {
             bytes: session.totalBytes,
             sha256: session.hash.digest('hex'),
+            contentFingerprint: `sha256-full-v1:${session.contentHash.digest('hex')}`,
         },
     };
     const stagedOutput = await createTypedStagedArtifact(
@@ -713,6 +717,7 @@ async function handlePortMessage(
             await writeSessionBytes(session.handle, bytes);
             session.receivedBytes = receivedBytes;
             session.hash.update(bytes);
+            session.contentHash.update(bytes);
             session.streamedTail = updateStreamedTail(session.streamedTail, bytes);
             port.postMessage(createPdfPersistenceAckFrame(session.nextSeq, session.receivedBytes));
             session.nextSeq += 1;

@@ -319,6 +319,7 @@ interface ICreateTypedStagedArtifactOptions {
     trustedFingerprint?: {
         bytes: number;
         sha256: string;
+        contentFingerprint?: string;
     };
 }
 
@@ -413,6 +414,7 @@ async function createTypedStagedArtifactAtPath(
         path: requireDocumentRef(path),
         size: inspection.bytes,
         sha256: inspection.sha256,
+        ...(inspection.contentFingerprint === undefined ? {} : {contentFingerprint: inspection.contentFingerprint}),
         fileIdentity,
         validations,
         leaseId,

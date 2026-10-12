@@ -1,3 +1,4 @@
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {stat} from 'node:fs/promises';
@@ -12,10 +13,12 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
         throw new Error('Document file size changed during inspection');
     }
     const hash = createHash('sha256');
+    const contentHash = createOriginalFileContentFingerprintHash(expectedBytes);
     await pipeline(
         createReadStream(path, {highWaterMark: FINGERPRINT_CHUNK_BYTES}),
         new Writable({write(chunk: Buffer, _encoding, callback) {
             hash.update(chunk);
+            contentHash.update(chunk);
             callback();
         }}),
     );
@@ -29,5 +32,6 @@ export async function fingerprintFileBounded(path: string, expectedBytes: number
     return {
         bytes: after.size,
         sha256: hash.digest('hex'),
+        contentFingerprint: `sha256-full-v1:${contentHash.digest('hex')}`,
     };
 }

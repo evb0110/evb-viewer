@@ -8,10 +8,6 @@ import type {
     TDocumentSaveResult,
 } from '@contracts/electronApiDocuments';
 import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
     atomicReplace,
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
@@ -34,7 +30,10 @@ import {
     enqueueWorkingCopyMutation,
     type IWorkingCopyMutationOperation,
 } from '@electron/file-access/workingCopyMutationQueue';
-import {assertQueuedWorkingCopyMutationPreconditions} from '@electron/file-access/documentMutationGuards';
+import {
+    assertQueuedWorkingCopyMutationPreconditions,
+    normalizeExpectedDocumentRevisionToken as normalizeMutationRevisionToken,
+} from '@electron/file-access/documentMutationGuards';
 import { copyFileCopyOnWrite } from '@electron/file-access/workingCopyDirectory';
 import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {captureOriginalPathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
@@ -72,16 +71,11 @@ function createOriginalChangedValidationResult(): IPdfValidationResult {
     };
 }
 
-function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): TDocumentRevisionToken | null {
-    const token = options?.expectedDocumentRevisionToken;
-    if (token === undefined) {
-        return null;
-    }
-    const parsedToken = parseDocumentRevisionToken(token);
-    if (parsedToken === null) {
+function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null) {
+    if (options?.expectedDocumentRevisionToken === null) {
         throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
     }
-    return parsedToken;
+    return normalizeMutationRevisionToken(options);
 }
 
 function getValidationSaveFailureReason(validation: IPdfValidationResult): TDocumentSaveFailureReason {
@@ -144,7 +138,7 @@ async function replaceOriginalWithValidatedTemp(
     originalPath: string,
     workingPath: string,
     senderWebContentsId: number,
-    writeTemp: (tempPath: string) => Promise<void>,
+    writeTemp: (tempPath: string) => Promise<Awaited<ReturnType<typeof copyFileCopyOnWrite>>> | Promise<void>,
     options: {
         optimize?: 'large' | 'force';
         signal?: AbortSignal;
@@ -152,9 +146,8 @@ async function replaceOriginalWithValidatedTemp(
     } = {},
 ): Promise<IReplaceOriginalWithValidatedTempResult> {
     const tempPath = makeSiblingTempPath(originalPath);
-    let replaced = false;
     try {
-        await writeTemp(tempPath);
+        const copied = await writeTemp(tempPath);
         const optimizedValidation = options.optimize === 'force'
             ? await optimizePdfForSave(tempPath, {
                 force: true,
@@ -186,10 +179,11 @@ async function replaceOriginalWithValidatedTemp(
             ),
             ...(options.signal === undefined ? {} : {signal: options.signal}),
             publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(tempPath, originalPath, {
-                ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                assertDestinationCurrent,
+                destinationBackupPath,
             }),
             publishedSourcePath: tempPath,
+            ...(optimizedValidation === null && copied ? {publishedContentFingerprint: copied.contentFingerprint} : {}),
             afterWorkingCopySync: expectation => refreshWorkingCopyOriginalFileExpectationForSave(workingPath, senderWebContentsId, expectation),
             afterOriginalRestore: () => refreshWorkingCopyOriginalFileExpectationForSave(
                 workingPath,
@@ -202,15 +196,12 @@ async function replaceOriginalWithValidatedTemp(
                 optimized: false,
             };
         }
-        replaced = true;
         return {
             validation,
             optimized: optimizedValidation !== null,
         };
     } finally {
-        if (!replaced) {
-            await rm(tempPath, { force: true }).catch(() => undefined);
-        }
+        await rm(tempPath, { force: true }).catch(() => undefined);
     }
 }
 
@@ -222,7 +213,7 @@ async function runNativePdfSaveMutation(
         normalizedWorkingPath: string,
         tempPath: string,
         operation: IWorkingCopyMutationOperation,
-    ) => Promise<void>,
+    ) => Promise<Awaited<ReturnType<typeof copyFileCopyOnWrite>>> | Promise<void>,
     optimize: 'large' | 'force',
     failureMessage: string,
 ): Promise<IPdfValidationResult> {
@@ -288,7 +279,10 @@ export async function handleFileSaveStructured(
                 originalPath,
                 normalizedWorkingPath,
                 senderId,
-                tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
+                tempPath => copyFileCopyOnWrite(normalizedWorkingPath, tempPath, {
+                    fingerprintSource: true,
+                    signal: operation.signal,
+                }),
                 {
                     validation: 'structural',
                     signal: operation.signal,
@@ -389,7 +383,10 @@ export async function handleOptimizePdfForInteraction(
         context,
         workingPath,
         options,
-        (normalizedWorkingPath, tempPath) => copyFileCopyOnWrite(normalizedWorkingPath, tempPath),
+        (normalizedWorkingPath, tempPath, operation) => copyFileCopyOnWrite(normalizedWorkingPath, tempPath, {
+            fingerprintSource: true,
+            signal: operation.signal,
+        }),
         'force',
         'Failed to optimize PDF',
     );

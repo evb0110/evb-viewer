@@ -481,7 +481,6 @@ export async function handleCommitStagedPdfNativeMutations(
     const operationStartedAtEpochMs = Date.now();
     const refreshWorkingCopy = (expectation?: Parameters<typeof refreshWorkingCopyOriginalFileExpectation>[2]) => syncNativeOutputToRequestingWorkingCopy(normalizedWorkingPath, senderId, expectation);
     let result: IPdfNativeNoteTextSaveResult | null = null;
-    let stagedArtifactCleaned = false as boolean;
     try {
         result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async operation => {
             await assertQueuedWorkingCopyMutationPreconditions(
@@ -496,6 +495,7 @@ export async function handleCommitStagedPdfNativeMutations(
                 senderId,
                 signal: operation.signal,
                 publishedSourcePath: stagedOutput.path,
+                ...(stagedOutput.contentFingerprint === undefined ? {} : {publishedContentFingerprint: stagedOutput.contentFingerprint}),
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(
                     normalizedWorkingPath,
                     originalPath,
@@ -529,11 +529,6 @@ export async function handleCommitStagedPdfNativeMutations(
                     reason: 'original-changed',
                 };
 
-            releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-            await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
-                cleanupTempPath(stagedOutput.path));
-            stagedArtifactCleaned = true;
-
             if (queuedResult.applied) {
                 try {
                     await measureNativeNotePhase(
@@ -561,11 +556,9 @@ export async function handleCommitStagedPdfNativeMutations(
             ...(error.keptFilePath === undefined ? {} : {keptFilePath: error.keptFilePath}),
         };
     } finally {
-        if (!stagedArtifactCleaned) {
-            releaseManagedTempFileHandle(context, stagedOutput.leaseId);
-            await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
-                cleanupTempPath(stagedOutput.path));
-        }
+        releaseManagedTempFileHandle(context, stagedOutput.leaseId);
+        await measureNativeNotePhase(phaseTimings, 'release-staged-artifact', () =>
+            cleanupTempPath(stagedOutput.path));
     }
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
     const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
