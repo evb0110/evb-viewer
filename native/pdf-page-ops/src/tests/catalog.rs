@@ -1730,10 +1730,12 @@ fn saved_unicode_named_destination_keeps_its_bytes() {
 #[test]
 fn saved_untouched_names_keep_their_name_tree_bytes() {
     // A PDFDocEncoding name and an ASCII name in UTF-16 decode to text the
-    // writer would encode differently; readers match the key by its bytes.
+    // writer would encode differently, and a name with surrounding spaces is
+    // not one to trim; readers match the key by its bytes.
     let cases = [
         ("caf\u{e9}", Object::String(b"caf\xe9".to_vec(), StringFormat::Literal)),
         ("chapter", Object::String(encode_pdf_text_string("chapter"), StringFormat::Hexadecimal)),
+        (" intro ", Object::string_literal(" intro ")),
     ];
     for ((name, key), append) in cases.into_iter().flat_map(|case| [(case.clone(), false), (case, true)]) {
         let (mut document, page_id) = create_test_document();

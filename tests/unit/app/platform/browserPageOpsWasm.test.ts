@@ -841,6 +841,11 @@ describe('browser page-ops WASM fast path', () => {
             'chapter',
             PDFHexString.fromText('chapter'),
         ],
+        [
+            'a name with surrounding spaces',
+            ' intro ',
+            PDFString.of(' intro '),
+        ],
     ])('keeps the name tree bytes of an untouched named destination in %s when another bookmark is renamed', async (_case, name, key) => {
         const data = await createOutlinePdf((pdfDocument, pages) => {
             pdfDocument.catalog.set(PDFName.of('Names'), pdfDocument.context.obj({Dests: {Names: [

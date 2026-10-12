@@ -5,7 +5,6 @@ use std::fmt;
 
 pub const MAX_BOOKMARK_ITEMS: usize = 5_000;
 pub const MAX_BOOKMARK_DEPTH: usize = 64;
-pub const MAX_PAGE_LABEL_RANGES: usize = 2_048;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -493,12 +492,12 @@ pub fn normalize_bookmark_entries(
         .iter()
         .map(|item| {
             let title = item.title.trim();
+            // Readers match a name by its bytes, so it is kept as it is; a name
+            // someone types is trimmed where it is typed.
             let named_dest = item
                 .named_dest
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned);
+                .clone()
+                .filter(|name| !name.trim().is_empty());
             BookmarkEntry {
                 title: if title.is_empty() {
                     untitled_label.to_string()
