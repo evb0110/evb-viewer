@@ -641,7 +641,17 @@ describe('Electron E2E - bookmark destination round trip', () => {
             await activateBookmark(page, definition.title);
             await waitForToolbarCurrentPage(page, definition.page + 1);
         }
+        const editStart = performance.now();
         await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
+        await page.waitForSelector('.pdf-bookmark-item-actions-trigger', {visible: true});
+        const editMs = performance.now() - editStart;
+        console.info('BOOKMARK_EDIT_MODE ' + JSON.stringify({
+            count: 10_000,
+            editMs,
+        }));
+        // Generous compared with the viewport-sized edit list, while rejecting
+        // the tens of seconds spent mounting the entire imported outline.
+        expect(editMs).toBeLessThan(10_000);
         const row = await findBookmarkRow(page, 'XYZ unspecified');
         await clickAsUser(page, row, {button: 'right'});
         await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
@@ -695,6 +705,191 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.screenshot({path: join(evidence, 'reopened.png')});
         console.info(`Bookmark fidelity evidence: ${evidence}`);
     }, 300_000);
+
+    it('keeps virtual bookmark editing, focus and offscreen drag targets usable', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`virtual-outline-${Date.now()}.pdf`, [
+            fixtureBookmark('مرحبا', 0),
+            fixtureBookmark('Second', 1),
+            fixtureBookmark('Parent', 2, [fixtureBookmark('Nested', 3)]),
+            ...Array.from({length: 117}, (_, index) => fixtureBookmark(`Row ${index + 4}`, index % 4)),
+        ]);
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, 'button[aria-label="Enter bookmark edit mode"]');
+        await clickAsUser(page, await findBookmarkRow(page, 'مرحبا'), {button: 'right'});
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type('مرحبا جديد');
+        expect(await page.$eval('.pdf-bookmark-item-input', input => getComputedStyle(input).direction)).toBe('rtl');
+        const list = await page.$eval('.document-bookmark-tree__list', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.x + rect.width / 2,
+                y: rect.y + rect.height / 2,
+            };
+        });
+        await page.mouse.move(list.x, list.y);
+        await page.mouse.wheel({deltaY: 2_000});
+        await waitForFunctionInPage(page, () => (document.querySelector('.document-bookmark-tree__list')?.scrollTop ?? 0) > 1_000);
+        expect(await page.$eval('input.pdf-bookmark-item-input', input => ({
+            value: input.value,
+            focused: document.activeElement === input,
+        })))
+            .toEqual({
+                value: 'مرحبا جديد',
+                focused: true,
+            });
+        await page.keyboard.press('Escape');
+        await waitForFunctionInPage(page, () => document.activeElement?.matches('.pdf-bookmark-item-row') === true);
+        await page.keyboard.press('End');
+        await waitForFunctionInPage(page, () => document.activeElement?.textContent?.trim() === 'Row 120');
+        await page.keyboard.press('ArrowUp');
+        await waitForFunctionInPage(page, () => document.activeElement?.textContent?.trim() === 'Row 119');
+        await page.keyboard.press('Home');
+        await waitForFunctionInPage(page, () => document.activeElement?.textContent?.trim() === 'مرحبا');
+        await page.keyboard.press('Space');
+        await waitForToolbarCurrentPage(page, 1);
+        const first = await findBookmarkRow(page, 'مرحبا');
+        await clickAsUser(page, (await first.$('.pdf-bookmark-item-actions-trigger'))!);
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type('Renamed');
+        await page.keyboard.press('Enter');
+        await waitForFunctionInPage(page, () => document.activeElement?.textContent?.trim() === 'Renamed');
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await scrollBookmarkListToTop(page);
+        await findBookmarkRow(page, 'مرحبا');
+
+        const reorderSource = await (await findBookmarkRow(page, 'Second')).boundingBox();
+        const reorderTarget = await (await findBookmarkRow(page, 'مرحبا')).boundingBox();
+        expect(reorderSource).not.toBeNull();
+        expect(reorderTarget).not.toBeNull();
+        await page.setDragInterception(true);
+        await page.mouse.dragAndDrop({
+            x: reorderSource!.x + reorderSource!.width / 2,
+            y: reorderSource!.y + reorderSource!.height / 2,
+        }, {
+            x: reorderTarget!.x + reorderTarget!.width / 2,
+            y: reorderTarget!.y + 4,
+        });
+        await expect.poll(() => page.$$eval('.document-bookmark-item__title', titles => titles.slice(0, 3).map(title => title.textContent)))
+            .toEqual([
+                'Second',
+                'مرحبا',
+                'Parent',
+            ]);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await scrollBookmarkListToTop(page);
+        await expect.poll(() => page.$$eval('.document-bookmark-item__title', titles => titles.slice(0, 3).map(title => title.textContent)))
+            .toEqual([
+                'مرحبا',
+                'Second',
+                'Parent',
+            ]);
+
+        await clickAsUser(page, await findBookmarkRow(page, 'مرحبا'));
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        await clickAsUser(page, await findBookmarkRow(page, 'Second'));
+        await page.keyboard.up(modifier);
+        expect(await page.$$eval('.pdf-bookmark-item-row.is-selected', rows => rows.map(row => row.textContent?.trim())))
+            .toEqual([
+                'مرحبا',
+                'Second',
+            ]);
+        await page.keyboard.down('Shift');
+        await clickAsUser(page, await findBookmarkRow(page, 'Row 5'));
+        await page.keyboard.up('Shift');
+        expect(await page.$$eval('.pdf-bookmark-item-row.is-selected', rows => rows.map(row => row.textContent?.trim())))
+            .toEqual([
+                'Second',
+                'Parent',
+                'Row 4',
+                'Row 5',
+            ]);
+        await waitForToolbarCurrentPage(page, 1);
+        await clickAsUser(page, await findBookmarkRow(page, 'مرحبا'));
+
+        // Native HTML drag input, including browser edge auto-scroll. The
+        // source must survive leaving the virtual window until mouseup.
+        const source = await findBookmarkRow(page, 'مرحبا');
+        const sourceBox = await source.boundingBox();
+        expect(sourceBox).not.toBeNull();
+        const edge = await page.$eval('.document-bookmark-tree__list', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.x + rect.width / 2,
+                y: rect.bottom - 4,
+            };
+        });
+        const dragData = await page.mouse.drag({
+            x: sourceBox!.x + sourceBox!.width / 2,
+            y: sourceBox!.y + sourceBox!.height / 2,
+        }, edge);
+        await page.mouse.dragEnter(edge, dragData);
+        await page.mouse.dragOver(edge, dragData);
+        let targetTitle = '';
+        try {
+            await waitForFunctionInPage(page, () => (document.querySelector('.document-bookmark-tree__list')?.scrollTop ?? 0) > 1_000, {timeout: 15_000});
+            targetTitle = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row'))
+                .find(row => {
+                    const box = row.getBoundingClientRect();
+                    const listBox = document.querySelector('.document-bookmark-tree__list')!.getBoundingClientRect();
+                    return box.top > listBox.top + 100 && box.bottom < listBox.bottom - 100;
+                })?.textContent?.trim()) ?? '';
+            expect(targetTitle).toMatch(/^Row /u);
+            const targetRow = await findBookmarkRow(page, targetTitle);
+            const targetBox = await targetRow.boundingBox();
+            const dropPoint = {
+                x: targetBox!.x + targetBox!.width / 2,
+                y: targetBox!.y + targetBox!.height / 2,
+            };
+            await page.mouse.dragOver(dropPoint, dragData);
+            await page.mouse.drop(dropPoint, dragData);
+        } finally {
+            await page.mouse.up();
+        }
+        await findBookmarkRow(page, 'مرحبا');
+        expect(await page.evaluate((title: string) => {
+            const rows = Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row'));
+            const parent = rows.find(row => row.textContent?.trim() === title)!;
+            const child = rows.find(row => row.textContent?.trim() === 'مرحبا')!;
+            return child.getBoundingClientRect().left > parent.getBoundingClientRect().left;
+        }, targetTitle)).toBe(true);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await scrollBookmarkListToTop(page);
+        await findBookmarkRow(page, 'مرحبا');
+        const parentRow = await findBookmarkRow(page, 'Parent');
+        await clickAsUser(page, (await parentRow.$('.document-bookmark-item__toggle'))!);
+        await findBookmarkRow(page, 'Nested');
+        await clickAsUser(page, await findBookmarkRow(page, 'Parent'), {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('.bookmarks-context-menu [role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Add child bookmark'), null, {description: 'Add bookmark child'});
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type('Added child');
+        await page.keyboard.press('Enter');
+        await findBookmarkRow(page, 'Added child');
+        await clickAsUser(page, await findBookmarkRow(page, 'Added child'), {button: 'right'});
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action--danger');
+        await waitForFunctionInPage(page, () => !Array.from(document.querySelectorAll('.document-bookmark-item__title')).some(title => title.textContent === 'Added child'));
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await scrollBookmarkListToTop(page);
+        const restoredParent = await findBookmarkRow(page, 'Parent');
+        const restoredToggle = (await restoredParent.$('.document-bookmark-item__toggle'))!;
+        if (await restoredToggle.evaluate(button => button.getAttribute('aria-expanded')) !== 'true') {
+            await clickAsUser(page, restoredToggle);
+        }
+        await findBookmarkRow(page, 'Added child');
+        await saveViaVisibleToolbar(page, 90_000, fixture);
+        const saved = (await readPdfMetadataWithQpdf(fixture)).outlines;
+        expect(saved[0]?.title).toBe('مرحبا');
+        expect(saved.find(item => item.title === 'Parent')?.kids?.map(item => item.title)).toEqual([
+            'Nested',
+            'Added child',
+        ]);
+    }, 90_000);
 
     it('keeps imported destinations when one bookmark title is renamed and saved', async () => {
         const evidenceDirectory = await mkdtemp(join(tmpdir(), 'evb-e2e-bookmark-rename-'));

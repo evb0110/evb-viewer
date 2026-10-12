@@ -21,7 +21,6 @@ import {
     nextTick,
     reactive,
 } from 'vue';
-import type { IBookmarkItem } from '@app/types/pdfOutline';
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type { IDocumentBookmarkTreeItem } from '@app/modules/document-viewer/bookmarks/documentBookmarks';
@@ -80,53 +79,24 @@ vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', async () => 
         emits: [
             'activate',
             'toggle-expand',
+            'save-edit',
         ],
         setup: (props, {emit}) => {
             vue.watchEffect(() => {
                 treeStub.items = props.items;
+                outlineItemRenames.clear();
+                for (const item of props.items) {
+                    outlineItemRenames.set(item.id, (title: string) => emit('save-edit', {
+                        id: item.id,
+                        title,
+                    }));
+                }
                 treeStub.activeId = props.activeId;
                 treeStub.expandedIds = props.expandedIds;
             });
             treeStub.toggleExpand = (id: string) => emit('toggle-expand', id);
             treeStub.activate = (id: string) => emit('activate', id);
             return () => vue.h('div', {'data-tree-stub': ''});
-        },
-    })};
-});
-
-vi.mock('@app/modules/pdf-viewer/components/PdfOutlineItem.vue', async () => {
-    const vue = await import('vue');
-    return {default: vue.defineComponent({
-        props: {
-            item: {
-                type: Object as PropType<IBookmarkItem>,
-                required: true,
-            },
-            pdfDocument: {
-                type: Object,
-                default: null,
-            },
-        },
-        emits: [
-            'go-to-page',
-            'activate',
-            'toggle-expand',
-            'open-actions',
-            'save-edit',
-            'cancel-edit',
-            'drag-start',
-            'drag-hover',
-            'drop-bookmark',
-            'drag-end',
-        ],
-        setup: (props, {emit}) => {
-            vue.watchEffect(() => {
-                outlineItemRenames.set(props.item.id, (title: string) => emit('save-edit', {
-                    id: props.item.id,
-                    title,
-                }));
-            });
-            return () => vue.h('div', {'data-outline-item': props.item.id});
         },
     })};
 });

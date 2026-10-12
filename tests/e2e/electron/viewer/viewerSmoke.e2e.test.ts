@@ -1923,10 +1923,10 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(toggle).not.toBeNull();
         await toggle!.focus();
         await page.keyboard.press('Enter');
-        await waitForFunctionInPage(page, () => !document.querySelector('.pdf-bookmark-item-children'));
+        await waitForFunctionInPage(page, () => !Array.from(document.querySelectorAll('.document-bookmark-item__title')).some(title => title.textContent === 'Child'));
         await waitForToolbarCurrentPage(page, 2);
         await page.keyboard.press('Space');
-        await page.waitForSelector('.pdf-bookmark-item-children');
+        await waitForFunctionInPage(page, () => Array.from(document.querySelectorAll('.document-bookmark-item__title')).some(title => title.textContent === 'Child'));
         await activate('Parent');
         await expectActive('Parent', 1);
     }, 90_000);

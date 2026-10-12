@@ -54,11 +54,6 @@ vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', () => ({defa
 })}));
 vi.mock('@app/components/document-viewer/DocumentPanelEmptyState.vue', () => stub('data-empty-state-stub'));
 vi.mock('@app/modules/pdf-viewer/components/PdfOutlineContextMenu.vue', () => stub('data-context-menu-stub'));
-vi.mock('@app/modules/pdf-viewer/components/PdfOutlineItem.vue', () => ({default: defineComponent({
-    inheritAttrs: false,
-    setup: () => () => null,
-})}));
-
 const activeUnmounts = new Set<() => void>();
 
 afterEach(() => {
