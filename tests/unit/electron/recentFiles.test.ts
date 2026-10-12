@@ -96,6 +96,7 @@ describe('recentFiles persistence', () => {
         mocks.resetStat();
         appDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-app-data-'));
         userDataDir = mkdtempSync(join(tmpdir(), 'evb-recentFiles-'));
+        vi.stubEnv('EVB_APP_STATE_DIR', userDataDir);
         vi.stubEnv('TMPDIR', userDataDir);
         vi.stubEnv('TEMP', userDataDir);
         vi.stubEnv('TMP', userDataDir);

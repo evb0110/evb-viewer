@@ -497,15 +497,15 @@ function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: numbe
     const pathDirname = windowsPath ? win32.dirname : dirname;
     const pathBasename = windowsPath ? win32.basename : basename;
     const appTempParent = pathDirname(parentPath);
-    const normalizedCurrentTemp = normalizePathForLookup(getAppTempDirPath());
     const normalizedLegacyTemp = normalizePathForLookup(getLegacyAppTempDirPath());
-    const legacyTempParent = pathDirname(normalizedLegacyTemp);
-    const isKnownAppTemp = appTempParent === normalizedCurrentTemp
-        || appTempParent === normalizedLegacyTemp;
-    const isAnotherProfileAppTemp = pathDirname(appTempParent) === legacyTempParent
+    // Any profile's namespace: in the per-user state folder, or in temp where earlier releases kept it.
+    const isProfileAppTemp = [
+        getAppTempDirPath(),
+        normalizedLegacyTemp,
+    ].some(path => pathDirname(normalizePathForLookup(path)) === pathDirname(appTempParent))
         && pathBasename(appTempParent).startsWith(`${pathBasename(normalizedLegacyTemp)}-`);
     if (
-        (isKnownAppTemp || isAnotherProfileAppTemp)
+        (appTempParent === normalizedLegacyTemp || isProfileAppTemp)
         && isWorkingCopyDirectoryName(pathBasename(parentPath))
     ) {
         logger.warn(`Refusing to persist unmapped managed working-copy path as recent: ${filePath}`);

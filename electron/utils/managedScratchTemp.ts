@@ -16,6 +16,10 @@ import {
     resolve,
 } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
+import {
+    fsyncDirectory,
+    fsyncFile,
+} from '@electron/utils/fsyncPath';
 import { getErrorMessage } from '@electron/utils/error';
 import { atomicReplace } from '@electron/utils/atomicReplace';
 import {
@@ -29,10 +33,11 @@ import {
     isErrnoException,
     isRecord,
 } from '@contracts/runtimeGuards';
+import * as v from 'valibot';
 
 const logger = createLogger('managed-scratch-temp');
 const MANAGED_SCRATCH_MARKER_FILE = '.evb-managed-scratch.json';
-const MANAGED_SCRATCH_RECORD_FILE = '.evb-scratch-record';
+export const MANAGED_SCRATCH_RECORD_FILE = '.evb-scratch-record';
 // The names makeSiblingTempPath gives a temporary file beside a stage or target.
 const MANAGED_SCRATCH_TEMP_NAME_PATTERN = /^\.[0-9a-f]{16}\.tmp$/u;
 const MANAGED_SCRATCH_PREFIXES = [
@@ -56,38 +61,11 @@ function isManagedScratchDirectoryName(entryName: string) {
     return MANAGED_SCRATCH_PREFIXES.some(prefix => entryName.startsWith(prefix));
 }
 
-interface IManagedScratchMarker {
-    createdAt: number
-    pid: number
-    prefix: TManagedScratchPrefix
-}
-
-function parseManagedScratchMarker(value: unknown): IManagedScratchMarker | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    const prefix = typeof value.prefix === 'string' && MANAGED_SCRATCH_PREFIXES.includes(
-        value.prefix as TManagedScratchPrefix,
-    )
-        ? value.prefix as TManagedScratchPrefix
-        : null;
-    if (
-        !prefix
-        || typeof value.createdAt !== 'number'
-        || !Number.isFinite(value.createdAt)
-        || value.createdAt < 0
-        || typeof value.pid !== 'number'
-        || !Number.isInteger(value.pid)
-        || value.pid <= 0
-    ) {
-        return null;
-    }
-    return {
-        createdAt: value.createdAt,
-        pid: value.pid,
-        prefix,
-    };
-}
+const managedScratchMarkerSchema = v.object({
+    createdAt: v.pipe(v.number(), v.finite(), v.minValue(0)),
+    pid: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    prefix: v.picklist(MANAGED_SCRATCH_PREFIXES),
+});
 
 async function readManagedScratchMarker(directoryPath: string) {
     try {
@@ -96,7 +74,7 @@ async function readManagedScratchMarker(directoryPath: string) {
         if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
             return null;
         }
-        return parseManagedScratchMarker(JSON.parse(await readFile(markerPath, 'utf8')));
+        return v.parse(managedScratchMarkerSchema, JSON.parse(await readFile(markerPath, 'utf8')));
     } catch {
         return null;
     }
@@ -198,9 +176,26 @@ type TManagedScratchRecordEntry =
     | IManagedScratchPublishEntry
     | {kind: 'complete'};
 
+// Each line reaches the disk before the step it names, so a power cut keeps
+// it. The first also makes the marker and both directory entries durable: the
+// sweep applies a record only beside its marker, which a caller's own scratch
+// does not have.
 async function appendManagedScratchRecord(scratchPath: string | null, entry: TManagedScratchRecordEntry) {
-    if (scratchPath) {
-        await appendFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE), `${JSON.stringify(entry)}\n`, 'utf8');
+    if (!scratchPath) {
+        return;
+    }
+    const recordPath = join(scratchPath, MANAGED_SCRATCH_RECORD_FILE);
+    const isFirstLine = await lstat(recordPath).then(() => false, () => true);
+    await appendFile(recordPath, `${JSON.stringify(entry)}\n`, {
+        encoding: 'utf8',
+        flush: true,
+    });
+    if (isFirstLine) {
+        await fsyncFile(join(scratchPath, MANAGED_SCRATCH_MARKER_FILE)).catch((error: unknown) => {
+            if (!isErrnoException(error) || error.code !== 'ENOENT') throw error;
+        });
+        await fsyncDirectory(scratchPath);
+        await fsyncDirectory(dirname(scratchPath));
     }
 }
 

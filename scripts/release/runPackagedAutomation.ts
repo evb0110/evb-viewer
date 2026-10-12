@@ -205,6 +205,8 @@ export async function startOwnedPackagedProcess(options: {
             EVB_AUTOMATION_SESSION_NAME: options.sessionName ?? `packaged-automation-${process.pid}`,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
+            // Working copies and recovery records stay under the task root.
+            EVB_APP_STATE_DIR: join(workDirectory, 'app-state'),
             EVB_FILE_LOG_DIR: logDirectory,
         },
     });

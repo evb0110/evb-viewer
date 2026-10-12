@@ -113,6 +113,7 @@ describe('workingCopy', () => {
         vi.resetModules();
         vi.clearAllMocks();
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-working-copy-test-'));
+        vi.stubEnv('EVB_APP_STATE_DIR', tempRoot);
         vi.stubEnv('TMPDIR', tempRoot);
         vi.stubEnv('TEMP', tempRoot);
         vi.stubEnv('TMP', tempRoot);

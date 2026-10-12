@@ -29,6 +29,13 @@ export function fsyncFileSync(filePath: string) {
     }
 }
 
+/** Synchronous directory flush, for folders created synchronously. */
+export function fsyncDirectorySync(directoryPath: string) {
+    if (process.platform !== 'win32') {
+        fsyncFileSync(directoryPath);
+    }
+}
+
 /**
  * Flush a directory entry list so a rename or create in it survives a crash.
  * Windows cannot open a directory for fsync (NTFS journals the metadata), so

@@ -20,7 +20,10 @@ import {
     sep,
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
-import { getAppTempDir } from '@electron/utils/appTempDir';
+import {
+    getAppTempDir,
+    getManagedAppTempRoots,
+} from '@electron/utils/appTempDir';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {
     normalizePathForLookup,
@@ -28,6 +31,7 @@ import {
 } from '@electron/file-access/workingCopyStore';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import {createLogger} from '@electron/utils/createLogger';
+import {fsyncDirectorySync} from '@electron/utils/fsyncPath';
 
 const COPY_ON_WRITE_FALLBACK_CODES = new Set([
     'ENOTSUP',
@@ -136,6 +140,8 @@ export function createWorkingDirectory() {
     const tempDir = getAppTempDir();
     const workDir = join(tempDir, `pdf-work-${randomUUID()}`);
     mkdirSync(workDir, { recursive: true });
+    // Its journal is durable only if the folder that holds it is.
+    fsyncDirectorySync(tempDir);
     return workDir;
 }
 
@@ -147,16 +153,12 @@ export function isWorkingCopyDocumentPath(path: string) {
     return isWorkingCopyDirectoryName(basename(dirname(path)));
 }
 
-/** A working-copy document inside this profile's app temp namespace. */
+/** A working-copy document in this profile's app namespace, or in the one an earlier release left in temp. */
 export function isManagedWorkingCopyPath(path: string) {
-    const relativePath = relative(
-        normalizePathForLookup(getAppTempDir()),
-        normalizePathForLookup(dirname(path)),
-    );
-    return relativePath !== '..'
-        && !relativePath.startsWith(`..${sep}`)
-        && !isAbsolute(relativePath)
-        && isWorkingCopyDocumentPath(path);
+    return isWorkingCopyDocumentPath(path) && getManagedAppTempRoots().some((root) => {
+        const relativePath = relative(normalizePathForLookup(root), normalizePathForLookup(dirname(path)));
+        return relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath);
+    });
 }
 
 /**

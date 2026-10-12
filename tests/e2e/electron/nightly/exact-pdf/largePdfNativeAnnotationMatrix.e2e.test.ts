@@ -64,10 +64,7 @@ import type {Page} from 'puppeteer-core';
 import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
-import {
-    getAppTempNamespacePath, getAppTempUserId,
-} from '@node-runtime/appTempNamespace';
-import { electronUserDataPath } from '@scripts/electron-run/electronRunSessionPaths';
+import { electronAppTempDirPath } from '@scripts/electron-run/electronRunSessionPaths';
 
 const MATRIX_TIMEOUT_MS = 15 * 60_000;
 const NATIVE_SAVE_TIMEOUT_MS = 120_000;
@@ -1360,12 +1357,7 @@ describe('Electron E2E - exact large PDF canonical annotation matrix', () => {
         await setupScrollToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         const initialIndex = await readPdfAnnotationIndex(documentPath);
-        const appTempDirectory = getAppTempNamespacePath(
-            electronUserDataPath(session.name),
-            tmpdir(),
-            getAppTempUserId(),
-            process.platform === 'win32',
-        );
+        const appTempDirectory = electronAppTempDirPath(session.name);
         const imagePath = join(appTempDirectory, `issue-192-placed-image-${process.pid}.jpg`);
         writeFileSync(imagePath, PLACED_IMAGE_JPEG);
         exactFixtureArtifactDirectories.push(imagePath);

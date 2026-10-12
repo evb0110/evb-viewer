@@ -47,7 +47,7 @@ const sourcePath = resolve('tests/fixtures/electron/djvu-fixtures/djvu-open-canc
 // Page 1 is encoded at 72 DPI and page 2 at 300 DPI.
 const mixedDpiPath = resolve('tests/fixtures/djvu/sources/mixed-dpi.djvu');
 
-// The scratch lives in the app's temp namespace below the temp root.
+// The scratch lives in the app's namespace below the state root the test gives it.
 function listExportScratch(tempRoot: string) {
     return readdirSync(tempRoot, {
         recursive: true,
@@ -93,6 +93,7 @@ describe('DjVu conversion scratch', () => {
         TMPDIR: tempRoot,
         TMP: tempRoot,
         TEMP: tempRoot,
+        EVB_APP_STATE_DIR: tempRoot,
         EVB_E2E_SAVE_DIALOG_PATH: join(tempRoot, 'converted.pdf'),
         EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
     });

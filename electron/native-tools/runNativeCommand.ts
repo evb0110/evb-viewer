@@ -6,7 +6,6 @@ import {
     removeManagedScratchTempDir,
 } from '@electron/utils/managedScratchTemp';
 import { isProcessTreeAlive } from '@electron/utils/processTree';
-import { tmpdir } from 'node:os';
 import { getAppTempNamespacePathForNamespace } from '@node-runtime/appTempNamespace';
 import { StringDecoder } from 'string_decoder';
 import {
@@ -328,7 +327,7 @@ export async function runNativeCommand(
     if (!appTempNamespace || !/^[a-z\d][a-z\d-]{0,63}$/u.test(appTempNamespace) || !isAbsolute(command)) {
         return runNativeCommandCore(command, args, options);
     }
-    const namespacePath = getAppTempNamespacePathForNamespace(tmpdir(), appTempNamespace);
+    const namespacePath = getAppTempNamespacePathForNamespace(appTempNamespace);
     const scratchPath = await createManagedScratchTempDir(NATIVE_COMMAND_SCRATCH_PREFIX, namespacePath);
     const manifestIndex = args.indexOf('--manifest');
     const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];

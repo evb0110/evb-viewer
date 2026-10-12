@@ -33,6 +33,8 @@ if (!existsSync(emptyGitConfig)) {
 process.env.GIT_CONFIG_GLOBAL = emptyGitConfig;
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 process.env.GIT_CEILING_DIRECTORIES = realpathSync(tmpdir());
+// App namespaces stay in the OS temp folder here, as isolated per run as TMPDIR.
+process.env.EVB_APP_STATE_DIR ??= tmpdir();
 
 let consoleWarnSpy: ReturnType<typeof vi.spyOn> | null = null;
 let consoleErrorSpy: ReturnType<typeof vi.spyOn> | null = null;

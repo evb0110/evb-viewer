@@ -131,12 +131,11 @@ import {
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type { IMainOperationSnapshot } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import { sweepStaleManagedScratchTempDirs } from '@electron/utils/managedScratchTemp';
 import {
-    cleanupStaleAppTempNamespaces,
     getAppTempDir,
     initializeAppTempNamespace,
 } from '@electron/utils/appTempDir';
+import {cleanupStaleAppTempNamespaces} from '@electron/utils/cleanupStaleAppTempNamespaces';
 import {sweepStaleScanCleanupScratchDirs} from '@evb/scan-cleanup/core/scratchCleanup';
 import {reapOrphanedManagedProcesses} from '@electron/native-tools/managedProcessRegistry';
 import {
@@ -840,7 +839,6 @@ void runInitSequence({
     sweepStaleDefaultAppTempPdfs,
     sweepStalePdfAnnotationParseArtifacts,
     sweepStalePdfEmbeddedShapeIndexArtifacts,
-    sweepStaleManagedScratchTempDirs: () => sweepStaleManagedScratchTempDirs(getAppTempDir()),
     sweepStaleScanCleanupScratchDirs: () => sweepStaleScanCleanupScratchDirs(getAppTempDir(), {log: (level, message) => logger[level](message)}),
     sweepStaleOcrTempArtifacts,
     pruneStaleDjvuArtifactJobs,

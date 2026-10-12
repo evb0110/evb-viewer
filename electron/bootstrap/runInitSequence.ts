@@ -129,7 +129,6 @@ export interface IRunInitSequenceOptions {
     sweepStaleDefaultAppTempPdfs(): Promise<unknown>;
     sweepStalePdfAnnotationParseArtifacts?: () => Promise<unknown>;
     sweepStalePdfEmbeddedShapeIndexArtifacts?: () => Promise<unknown>;
-    sweepStaleManagedScratchTempDirs?: () => Promise<unknown>;
     sweepStaleScanCleanupScratchDirs?: () => Promise<unknown>;
     sweepStaleOcrTempArtifacts?: () => Promise<unknown>;
     pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
@@ -427,13 +426,18 @@ function createPostRendererReadyMaintenanceRunner(
         sweepStaleDefaultAppTempPdfs,
         sweepStalePdfAnnotationParseArtifacts,
         sweepStalePdfEmbeddedShapeIndexArtifacts,
-        sweepStaleManagedScratchTempDirs,
         sweepStaleScanCleanupScratchDirs,
         sweepStaleOcrTempArtifacts,
         pruneStaleDjvuArtifactJobs,
     } = options;
 
     const steps: IStartupMaintenanceStepDefinition[] = [
+        ...(reapOrphanedManagedNativeProcesses
+            ? [{
+                label: 'orphaned managed native processes',
+                run: reapOrphanedManagedNativeProcesses,
+            }]
+            : []),
         ...(cleanupStaleAppTempNamespaces
             ? [{
                 label: 'EVB app temp namespaces',
@@ -443,12 +447,6 @@ function createPostRendererReadyMaintenanceRunner(
                         logger.info(`Removed stale EVB app temp namespaces: ${removed}`);
                     }
                 },
-            }]
-            : []),
-        ...(reapOrphanedManagedNativeProcesses
-            ? [{
-                label: 'orphaned managed native processes',
-                run: reapOrphanedManagedNativeProcesses,
             }]
             : []),
         {
@@ -477,12 +475,6 @@ function createPostRendererReadyMaintenanceRunner(
             ? [{
                 label: 'PDF embedded shape index sidecars',
                 run: sweepStalePdfEmbeddedShapeIndexArtifacts,
-            }]
-            : []),
-        ...(sweepStaleManagedScratchTempDirs
-            ? [{
-                label: 'managed scratch temp directories',
-                run: sweepStaleManagedScratchTempDirs,
             }]
             : []),
         ...(sweepStaleScanCleanupScratchDirs

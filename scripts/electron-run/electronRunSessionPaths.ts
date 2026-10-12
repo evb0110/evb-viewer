@@ -2,7 +2,6 @@ import {
     isAbsolute,
     join,
 } from 'node:path';
-import {tmpdir} from 'node:os';
 import {
     getAppTempNamespacePath,
     getAppTempUserId,
@@ -73,10 +72,15 @@ export function electronUserDataPath(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'electron-user-data');
 }
 
+/** The state folder a launch gives the app: the one the run names in EVB_APP_STATE_DIR, else the session's own. */
+export function electronAppStatePath(name = getCurrentSessionName()) {
+    return process.env.EVB_APP_STATE_DIR ?? join(sessionDir(name), 'app-state');
+}
+
 export function electronAppTempDirPath(name = getCurrentSessionName()) {
     return getAppTempNamespacePath(
         electronUserDataPath(name),
-        tmpdir(),
+        electronAppStatePath(name),
         getAppTempUserId(),
         process.platform === 'win32',
     );

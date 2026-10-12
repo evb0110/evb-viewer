@@ -1,5 +1,5 @@
 import {
-    copyFileSync, mkdtempSync, readFileSync, rmSync,
+    copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -12,6 +12,9 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {clickAnnotationTool} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {
+    createMultiPageTextFixturePdf, readPdfPageSnapshots,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     readWorkspaceStateValues, requireWorkspaceCommand, waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -124,5 +127,55 @@ it('restores focused text draft after a crash checkpoint', async () => {
             recursive: true,
             force: true,
         });
+    }
+});
+
+it('keeps an unsaved page edit through a crash and a reboot that empties the temp folder', async () => {
+    const sourcePath = await createMultiPageTextFixturePdf(`reboot-recovery-${Date.now()}.pdf`, 2);
+    const sessionName = `e2e-reboot-recovery-${Date.now()}`;
+    let session = await startElectronE2ESession(sessionName, {
+        clean: true,
+        initialOpenPaths: [sourcePath],
+    });
+    try {
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
+        await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
+        await expect.poll(() => {
+            if (!hasWorkspaceCrashCheckpoint(session.name)) return null;
+            const record = readWorkspaceRecoveryRecords(session.name)[0] as {checkpoint?: {tabs?: Array<{isDirty?: boolean}>}} | undefined;
+            return record?.checkpoint?.tabs?.[0]?.isDirty ?? null;
+        }, {timeout: 60_000}).toBe(true);
+
+        const crashed = session;
+        await crashed.browser.disconnect();
+        await stopSingleSession(crashed.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        // The reboot: the OS empties its temp folder (tmpfs on Linux, at boot
+        // on macOS, a temp cleanup on Windows), here everything EVB put there.
+        for (const entry of readdirSync(tmpdir()).filter(name => name.startsWith('evb-viewer'))) {
+            rmSync(join(tmpdir(), entry), {
+                recursive: true,
+                force: true,
+            });
+        }
+        session = await startElectronE2ESession(sessionName, {clean: false});
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+
+        await session.page.waitForFunction(() => {
+            const rect = document.querySelector('.editor-pane.is-active .page_container[data-page="1"]')?.getBoundingClientRect();
+            return Boolean(rect && rect.width > rect.height);
+        }, {timeout: 60_000});
+        const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
+        expect(state.dirtyState?.fileDirty).toBe(true);
+        expect((await readPdfPageSnapshots(await getActiveWorkspaceWorkingCopyPath(session.page)))[0]?.rotation).toBe(90);
+        expect((await readPdfPageSnapshots(sourcePath))[0]?.rotation).toBe(0);
+    } finally {
+        await session.stop();
+        rmSync(sourcePath, {force: true});
     }
 });

@@ -5,6 +5,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    renameSync,
     rmSync,
     symlinkSync,
     utimesSync,
@@ -27,14 +28,22 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('electron', () => ({app: {getPath: (name: string) => mocks.paths[name]}}));
 
+const {cleanupStaleAppTempNamespaces} = await import('@electron/utils/cleanupStaleAppTempNamespaces');
 const {
-    cleanupStaleAppTempNamespaces,
     createAppTempNamespace,
     getAppTempDir,
     getAppTempDirPath,
     getAppTempDirPathForUserData,
+    getRetiredAppTempDirPath,
     initializeAppTempNamespace,
 } = await import('@electron/utils/appTempDir');
+const {getAppStateDir} = await import('@node-runtime/appTempNamespace');
+const {
+    createManagedScratchTempDir,
+    recordManagedScratchBackup,
+    recordManagedScratchPublish,
+} = await import('@electron/utils/managedScratchTemp');
+const {readFileIdentity} = await import('@electron/utils/fileIdentity');
 
 describe('app temp directory namespace', () => {
     afterEach(() => {
@@ -50,14 +59,38 @@ describe('app temp directory namespace', () => {
         expect(first).not.toContain('profiles');
     });
 
-    it('propagates the profile namespace for worker-safe temp resolution', () => {
+    it('propagates the profile namespace for worker-safe resolution, kept out of temp', () => {
+        vi.stubEnv('EVB_APP_STATE_DIR', '/state');
         vi.stubEnv('TMPDIR', '/tmp');
         vi.stubEnv('TEMP', '/tmp');
         vi.stubEnv('TMP', '/tmp');
         const namespace = initializeAppTempNamespace('/profiles/automation-a');
 
         expect(process.env.EVB_APP_TEMP_NAMESPACE).toBe(namespace);
-        expect(getAppTempDirPath()).toBe(join('/tmp', `evb-viewer-${namespace}`));
+        expect(getAppTempDirPath()).toBe(join('/state', `evb-viewer-${namespace}`));
+        expect(getRetiredAppTempDirPath()).toBe(join('/tmp', `evb-viewer-${namespace}`));
+    });
+
+    it('keeps app state in a per-user folder that survives a reboot and does not roam', () => {
+        const env = {
+            LOCALAPPDATA: 'C:\\Users\\a\\AppData\\Local',
+            APPDATA: 'C:\\Users\\a\\AppData\\Roaming',
+            TMPDIR: '/tmp',
+            TEMP: 'C:\\Users\\a\\AppData\\Local\\Temp',
+        };
+        expect(getAppStateDir(env, 'win32', 'C:\\Users\\a')).toBe('C:\\Users\\a\\AppData\\Local\\evb-viewer-state');
+        expect(getAppStateDir({}, 'win32', 'C:\\Users\\a')).toBe('C:\\Users\\a\\AppData\\Local\\evb-viewer-state');
+        expect(getAppStateDir(env, 'darwin', '/Users/a')).toBe(join('/Users/a', 'Library', 'Application Support', 'evb-viewer-state'));
+        expect(getAppStateDir(env, 'linux', '/home/a')).toBe(join('/home/a', '.local', 'state', 'evb-viewer-state'));
+        expect(getAppStateDir({XDG_STATE_HOME: '/data/state'}, 'linux', '/home/a')).toBe(join('/data/state', 'evb-viewer-state'));
+        expect(getAppStateDir({XDG_STATE_HOME: 'relative'}, 'linux', '/home/a')).toBe(join('/home/a', '.local', 'state', 'evb-viewer-state'));
+        // An automation profile never reaches the person's folder.
+        expect(getAppStateDir({EVB_AUTOMATION_USER_DATA_DIR: '/task/user-data'}, 'linux', '/home/a')).toBe(join('/task/user-data', 'evb-viewer-state'));
+        expect(getAppStateDir({EVB_AUTOMATION_USER_DATA_DIR: 'C:\\task\\user-data'}, 'win32', 'C:\\Users\\a')).toBe('C:\\task\\user-data\\evb-viewer-state');
+        expect(getAppStateDir({
+            EVB_APP_STATE_DIR: '/state',
+            EVB_AUTOMATION_USER_DATA_DIR: '/task/user-data',
+        }, 'linux', '/home/a')).toBe('/state');
     });
 
     it('derives the temp namespace path outside Electron from a profile path', () => {
@@ -77,9 +110,7 @@ describe('app temp directory namespace', () => {
         const markerTarget = join(tempRoot, 'marker-target');
 
         try {
-            vi.stubEnv('TMPDIR', tempRoot);
-            vi.stubEnv('TEMP', tempRoot);
-            vi.stubEnv('TMP', tempRoot);
+            vi.stubEnv('EVB_APP_STATE_DIR', tempRoot);
             mocks.paths.userData = userDataPath;
             initializeAppTempNamespace(userDataPath);
             mkdirSync(namespacePath, {recursive: true});
@@ -138,6 +169,7 @@ describe('app temp directory namespace', () => {
                 deadOwner.once('error', reject);
                 deadOwner.once('exit', () => resolve());
             });
+            vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
             vi.stubEnv('TMPDIR', tempRoot);
             vi.stubEnv('TEMP', tempRoot);
             vi.stubEnv('TMP', tempRoot);
@@ -218,6 +250,119 @@ describe('app temp directory namespace', () => {
                 process.env.EVB_APP_TEMP_NAMESPACE = previousNamespace;
             }
             mocks.paths.userData = previousUserDataPath;
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+    it('keeps a dead namespace whose save journal is not finished yet', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-journal-'));
+        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        const deadOwner = spawn(process.execPath, [
+            '-e',
+            'process.exit(0);',
+        ], {stdio: 'ignore'});
+        try {
+            await new Promise<void>(resolve => deadOwner.once('exit', () => resolve()));
+            vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
+            vi.stubEnv('TMPDIR', tempRoot);
+            vi.stubEnv('TEMP', tempRoot);
+            vi.stubEnv('TMP', tempRoot);
+            mocks.paths.userData = '/profiles/current';
+            initializeAppTempNamespace('/profiles/current');
+            const deadNamespace = (profile: string, journal: boolean) => {
+                const namespacePath = getAppTempDirPathForUserData(profile, tempRoot);
+                mkdirSync(join(namespacePath, 'pdf-work-held'), {recursive: true});
+                writeFileSync(join(namespacePath, 'pdf-work-held', 'document.pdf'), 'saved');
+                if (journal) {
+                    // A save the antivirus held: its journal still names the original's backup.
+                    writeFileSync(join(namespacePath, 'pdf-work-held', 'journal.json'), '{"version":1}\n');
+                }
+                writeFileSync(join(namespacePath, '.evb-app-temp-owner.json'), `${JSON.stringify({
+                    namespace: createAppTempNamespace(profile),
+                    userDataPath: profile,
+                    pid: deadOwner.pid,
+                    startedAt: 0,
+                })}\n`);
+                utimesSync(namespacePath, staleDate, staleDate);
+                return namespacePath;
+            };
+            const journaled = deadNamespace('/profiles/journaled', true);
+            const finished = deadNamespace('/profiles/finished', false);
+
+            await expect(cleanupStaleAppTempNamespaces({maxAgeMs: 60_000})).resolves.toBe(1);
+
+            expect(existsSync(join(journaled, 'pdf-work-held', 'journal.json')), 'the working-copy sweep finishes it').toBe(true);
+            expect(existsSync(finished)).toBe(false);
+        } finally {
+            mocks.paths.userData = '/profiles/default';
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('puts back the original a dead namespace\'s export replaced before removing it, and keeps one it cannot', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-export-'));
+        const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+        const outDir = join(tempRoot, 'out');
+        const deadOwner = spawn(process.execPath, [
+            '-e',
+            'process.exit(0);',
+        ], {stdio: 'ignore'});
+        try {
+            await new Promise<void>(resolve => deadOwner.once('exit', () => resolve()));
+            vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
+            vi.stubEnv('TMPDIR', tempRoot);
+            vi.stubEnv('TEMP', tempRoot);
+            vi.stubEnv('TMP', tempRoot);
+            mocks.paths.userData = '/profiles/current';
+            initializeAppTempNamespace('/profiles/current');
+            mkdirSync(outDir);
+            const exportInto = async (profile: string, name: string) => {
+                const namespacePath = getAppTempDirPathForUserData(profile, tempRoot);
+                const target = join(outDir, name);
+                const backup = join(outDir, `.${name.length.toString(16).padStart(16, '0')}.tmp`);
+                writeFileSync(target, 'original');
+                const scratch = await createManagedScratchTempDir('pdfExport-', namespacePath);
+                writeFileSync(join(scratch, '.evb-managed-scratch.json'), JSON.stringify({
+                    createdAt: 0,
+                    pid: deadOwner.pid,
+                    prefix: 'pdfExport-',
+                }));
+                await recordManagedScratchBackup(scratch, backup, target, (await readFileIdentity(target))!);
+                writeFileSync(backup, 'original');
+                writeFileSync(join(outDir, 'staged'), 'exported');
+                await recordManagedScratchPublish(scratch, target, (await readFileIdentity(join(outDir, 'staged')))!);
+                renameSync(join(outDir, 'staged'), target);
+                writeFileSync(join(namespacePath, '.evb-app-temp-owner.json'), `${JSON.stringify({
+                    namespace: createAppTempNamespace(profile),
+                    userDataPath: profile,
+                    pid: deadOwner.pid,
+                    startedAt: 0,
+                })}\n`);
+                utimesSync(namespacePath, staleDate, staleDate);
+                return {
+                    namespacePath,
+                    target,
+                    backup,
+                };
+            };
+            const settled = await exportInto('/profiles/settled', 'page 1.png');
+            const unsettled = await exportInto('/profiles/unsettled', 'page 22.png');
+            rmSync(unsettled.backup);
+
+            await expect(cleanupStaleAppTempNamespaces({maxAgeMs: 60_000})).resolves.toBe(1);
+
+            expect(readFileSync(settled.target, 'utf8')).toBe('original');
+            expect(existsSync(settled.backup)).toBe(false);
+            expect(existsSync(settled.namespacePath)).toBe(false);
+            expect(readFileSync(unsettled.target, 'utf8')).toBe('exported');
+            expect(existsSync(unsettled.namespacePath), 'its record still names a published file').toBe(true);
+        } finally {
+            mocks.paths.userData = '/profiles/default';
             rmSync(tempRoot, {
                 force: true,
                 recursive: true,

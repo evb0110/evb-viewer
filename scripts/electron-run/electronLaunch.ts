@@ -48,6 +48,7 @@ import {
 } from '@scripts/electron-run/terminalLog';
 import { recordSessionStartingAttempt } from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
+    electronAppStatePath,
     electronUserDataPath,
     getCurrentSessionName,
     sessionDir,
@@ -132,6 +133,9 @@ export function buildElectronRuntimeEnv(cdpPort: number, mainJs: string, initial
         EVB_WAIT_RENDERER_READY: resolveAutomationRendererReadyEnv(process.env, automationWindowEnv),
         ...automationWindowEnv,
         EVB_AUTOMATION_USER_DATA_DIR: automationUserDataDir,
+        // Working copies and recovery records stay in the session, or in the folder
+        // the run asked for, never in the person's state folder.
+        EVB_APP_STATE_DIR: electronAppStatePath(),
         EVB_AUTOMATION_SESSION_NAME: getCurrentSessionName(),
         EVB_FILE_LOG_DIR: resolveAutomationFileLogDir(process.env),
         EVB_AUTOMATION_BOOTSTRAP_DEV_PROFILE: shouldBootstrapDevProfile ? '1' : '0',

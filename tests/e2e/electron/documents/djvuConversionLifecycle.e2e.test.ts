@@ -65,7 +65,7 @@ const sha256 = (path: string) => createHash('sha256').update(readFileSync(path))
 const sourceSha = sha256(sourcePath);
 
 // The export replaces the chosen PDF inside the job's `djvu-export-` scratch,
-// so the scratch leaving the app's temp root marks the job's end.
+// so the scratch leaving the app's state root marks the job's end.
 function listExportScratch(tempRoot: string) {
     return readdirSync(tempRoot, {
         recursive: true,
@@ -102,7 +102,7 @@ async function startConversion(session: IElectronE2ESession, tempRoot: string) {
 }
 
 describe('DjVu conversion lifecycle', () => {
-    // Each test's app gets its own temp root and save path.
+    // Each test's app gets its own temp and state root and save path.
     const suiteRoot = join(tmpdir(), `evb-e2e-djvu-lifecycle-${Date.now()}`);
     const switchRoot = join(suiteRoot, 'switch');
     const closeRoot = join(suiteRoot, 'close');
@@ -110,6 +110,7 @@ describe('DjVu conversion lifecycle', () => {
         TMPDIR: tempRoot,
         TMP: tempRoot,
         TEMP: tempRoot,
+        EVB_APP_STATE_DIR: tempRoot,
         EVB_E2E_SAVE_DIALOG_PATH: join(tempRoot, 'converted.pdf'),
         EVB_PDF_IMAGE_COMBINE_ENABLE: '1',
     });

@@ -179,9 +179,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
     // An annotation save as the renderer makes it: an opaque native stage committed through the real handler.
     async function prepareAnnotationSaves(directoryName: string) {
-        vi.stubEnv('TMPDIR', tempRoot);
-        vi.stubEnv('TEMP', tempRoot);
-        vi.stubEnv('TMP', tempRoot);
+        vi.stubEnv('EVB_APP_STATE_DIR', tempRoot);
         const {getAppTempDir} = await import('@electron/utils/appTempDir');
         const fixture = await prepare('old-original', 'old-working', 'original.pdf', join(getAppTempDir(), directoryName));
         const {makeSiblingTempPath} = await import('@electron/utils/atomicReplace');

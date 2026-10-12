@@ -34,8 +34,8 @@ import {
     safeRemoveDirectory,
 } from '@electron/file-access/workingCopyDirectory';
 import {
-    getAppTempDir,
     getLegacyAppTempDirPath,
+    getManagedAppTempRoots,
 } from '@electron/utils/appTempDir';
 import { drainWorkingCopyMutations } from '@electron/file-access/workingCopyMutationQueue';
 import {
@@ -179,10 +179,7 @@ export async function supersedeClosedWorkingCopyJournals(originalPath: string) {
 }
 
 async function listWorkingCopyDirectories() {
-    const tempDirs = Array.from(new Set([
-        resolve(getAppTempDir()),
-        resolve(getLegacyAppTempDirPath()),
-    ]));
+    const tempDirs = Array.from(new Set(getManagedAppTempRoots().concat(getLegacyAppTempDirPath()).map(dir => resolve(dir))));
     const entriesByTempDir = await Promise.all(tempDirs.map(async tempDir =>
         (await readdir(tempDir).catch(() => [])).map(entryName => resolve(join(tempDir, entryName)))));
     return entriesByTempDir.flat()
@@ -306,10 +303,8 @@ async function cleanupWorkingCopyDirectory(
 
     try {
         const workDir = normalizePathForLookup(dirname(normalizedPath));
-        const isWithinTemp = [
-            getAppTempDir(),
-            getLegacyAppTempDirPath(),
-        ].some(tempDir => isPathWithin(normalizePathForLookup(tempDir), workDir));
+        const isWithinTemp = getManagedAppTempRoots().concat(getLegacyAppTempDirPath())
+            .some(tempDir => isPathWithin(normalizePathForLookup(tempDir), workDir));
 
         if (isWithinTemp && isWorkingCopyDirectoryName(basename(workDir))) {
             const resolvedOriginalPath = originalPath ? normalizePathForLookup(originalPath) : null;
