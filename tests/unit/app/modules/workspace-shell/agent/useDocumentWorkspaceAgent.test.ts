@@ -749,6 +749,66 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(bookmarkItems.value[0]?.originalDestination).toBeUndefined();
     });
 
+    it('replaces a resolved named target with an explicitly accepted page position', async () => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            ...createBookmark('Named'),
+            pageIndex: requirePageIndex(0),
+            pageYRatio: 0.25,
+            namedDest: 'chapter-two',
+        }]);
+        const options = createAgentOptions({bookmarkItems});
+        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        const agent = createDocumentWorkspaceAgent(options);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            pageYRatio: 0.5,
+        });
+        expect(bookmarkItems.value[0]).toMatchObject({
+            namedDest: null,
+            pageIndex: 0,
+            pageYRatio: 0.5,
+        });
+    });
+
+    it.each([
+        'namedDest',
+        'dest',
+    ])('replaces a resolved imported target with %s and removes its page projection', async (key) => {
+        const bookmarkItems = ref<IPdfBookmarkEntry[]>([{
+            ...createBookmark('Imported'),
+            pageIndex: requirePageIndex(0),
+            pageYRatio: 0.25,
+            originalDestination: {
+                kind: 'FitH',
+                sourceTarget: 0,
+                coordinates: [null],
+            },
+        }]);
+        const options = createAgentOptions({bookmarkItems});
+        options.handleBookmarksChange = ({bookmarks}) => {bookmarkItems.value = bookmarks;};
+        const agent = createDocumentWorkspaceAgent(options);
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            [key]: 'chapter-two',
+        });
+        expect(bookmarkItems.value[0]).toMatchObject({
+            namedDest: 'chapter-two',
+            pageIndex: null,
+            pageYRatio: null,
+        });
+        expect(bookmarkItems.value[0]?.originalDestination).toBeUndefined();
+        await agent.runAgentAction('bookmarks.update', {
+            path: [0],
+            page: 2,
+            pageYRatio: 0.5,
+        });
+        expect(bookmarkItems.value[0]).toMatchObject({
+            namedDest: null,
+            pageIndex: 1,
+            pageYRatio: 0.5,
+        });
+    });
+
     it('adds nested bookmarks with children aliases and pageYRatio anchors', async () => {
         const bookmarkItems = ref<IPdfBookmarkEntry[]>([createBookmark('Lesson 5')]);
         const handleBookmarksChange = vi.fn(({bookmarks}) => {

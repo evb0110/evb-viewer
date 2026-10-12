@@ -894,10 +894,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             return;
         }
 
-        const firstIssue = newBlockingIssues[0];
-        if (!firstIssue) {
-            return;
-        }
+        const firstIssue = newBlockingIssues[0]!;
         throw new Error(`${actionId} refused to apply unsafe bookmark destinations: ${firstIssue.message}`);
     }
 
@@ -994,21 +991,22 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         ) {
             updated.pageIndex = normalizeAgentBookmarkPageIndex(bookmarkUpdates, actionId);
             updated.pageYRatio = normalizeAgentBookmarkPageYRatioInput(bookmarkUpdates, updated.pageIndex, actionId);
-        }
-        if (hasAgentBookmarkPageYRatioInput(bookmarkUpdates)) {
+            updated.namedDest = null;
+            delete updated.originalDestination;
+        } else if (hasAgentBookmarkPageYRatioInput(bookmarkUpdates)) {
             updated.pageYRatio = normalizeAgentBookmarkPageYRatioInput(bookmarkUpdates, updated.pageIndex, actionId);
+            if (updated.pageIndex !== null) {
+                updated.namedDest = null;
+                delete updated.originalDestination;
+            }
         }
         if (hasAgentInputKey(bookmarkUpdates, 'namedDest') || hasAgentInputKey(bookmarkUpdates, 'dest')) {
             const namedDest = getAgentRawStringInput(bookmarkUpdates, 'namedDest')
                 ?? getAgentRawStringInput(bookmarkUpdates, 'dest')
                 ?? null;
             updated.namedDest = namedDest && namedDest.trim().length > 0 ? namedDest.trim() : null;
-        }
-        if (
-            hasAgentInputKey(bookmarkUpdates, 'page') || hasAgentInputKey(bookmarkUpdates, 'pageNumber')
-            || hasAgentInputKey(bookmarkUpdates, 'pageIndex') || (hasAgentBookmarkPageYRatioInput(bookmarkUpdates) && updated.pageIndex !== null)
-            || hasAgentInputKey(bookmarkUpdates, 'namedDest') || hasAgentInputKey(bookmarkUpdates, 'dest')
-        ) {
+            updated.pageIndex = null;
+            updated.pageYRatio = null;
             delete updated.originalDestination;
         }
         if (hasAgentInputKey(bookmarkUpdates, 'bold')) {

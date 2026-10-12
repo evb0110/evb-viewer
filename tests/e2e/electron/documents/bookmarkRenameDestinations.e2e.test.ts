@@ -26,6 +26,7 @@ import {
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import type {Page} from 'puppeteer-core';
+import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 describe('Electron E2E - bookmark destination round trip', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-bookmark-rename-${Date.now()}`});
@@ -62,6 +63,63 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await activateBookmark(page, 'Rotated crop top');
         await waitForToolbarCurrentPage(page, 1);
         await waitForViewportQuiet(page);
+    }, 90_000);
+
+    it('saves an explicit named replacement at its new page after an accepted page target', async () => {
+        const fixture = await createOutlinePageLabelFixturePdf(`named-replacement-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        const importedOutline = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict);
+        importedOutline.lookup(PDFName.of('First'), PDFDict).set(PDFName.of('Dest'), pdf.context.obj([
+            pdf.getPages()[0]!.ref,
+            PDFName.of('FitH'),
+            null,
+        ]));
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-two': [
+            pdf.getPages()[2]!.ref,
+            PDFName.of('FitH'),
+            null,
+        ]}));
+        await writeFile(fixture, await pdf.save());
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await activateBookmark(page, 'Imported');
+        await waitForToolbarCurrentPage(page, 1);
+        const previousTarget = await callWorkspaceCommand<{bookmarks: Array<{pageIndex: number | null}>}>(page, 'runAgentAction', [
+            'bookmarks.update',
+            {
+                path: [0],
+                page: 1,
+            },
+        ]);
+        expect(previousTarget.value?.bookmarks[0]?.pageIndex).toBe(0);
+        const result = await callWorkspaceCommand<{ok: boolean}>(page, 'runAgentAction', [
+            'bookmarks.update',
+            {
+                path: [0],
+                namedDest: 'chapter-two',
+            },
+        ]);
+        expect(result.value?.ok).toBe(true);
+        await saveViaVisibleToolbar(page, 90_000, fixture);
+        const saved = await PDFDocument.load(await readFile(fixture));
+        const outline = saved.catalog.lookup(PDFName.of('Outlines'), PDFDict);
+        const entry = outline.lookup(PDFName.of('First'), PDFDict);
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-named-replacement-'));
+        await copyFile(fixture, join(evidence, 'saved.pdf'));
+        console.info(`Named replacement saved destination: ${entry.lookup(PDFName.of('Dest'))?.toString()}`);
+        console.info(`Named replacement evidence: ${evidence}`);
+        expect(entry.lookup(PDFName.of('Dest'), PDFString).decodeText()).toBe('chapter-two');
+        await clickAsUser(page, 'button[aria-label="Close Tab"]');
+        await page.waitForSelector('.page_container', {hidden: true});
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await activateBookmark(page, 'Imported');
+        await waitForToolbarCurrentPage(page, 3);
+        expect(await page.$eval('.page_container[data-page="3"]', node => node.textContent)).toContain('Metadata matrix page 3');
+        await page.screenshot({path: join(evidence, 'reopened.png')});
     }, 90_000);
 
     it('keeps destination kinds and null coordinates when renaming a large outline', async () => {
