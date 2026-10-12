@@ -3598,10 +3598,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         const problems: string[] = [];
         session.page.on('pageerror', error => problems.push(String(error)));
         session.page.on('console', message => {
-            if ([
-                'warning',
-                'error',
-            ].includes(message.type())) problems.push(message.text());
+            if (message.type() === 'warn' || message.type() === 'error') problems.push(message.text());
         });
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
@@ -3614,10 +3611,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             ]);
             const lines = number === 1
                 ? Array.from({length: 70}, (_, row) => `Inspection ${row + 1}: valve valve valve valve valve valve valve valve`)
-                : [`PLANT MANUAL PAGE ${number}${[
-                    64,
-                    80,
-                ].includes(number) ? ` valve LATER_DISTINCTIVE_${number}` : ''}`];
+                : [`PLANT MANUAL PAGE ${number}${(number === 64 || number === 80) ? ` valve LATER_DISTINCTIVE_${number}` : ''}`];
             lines.forEach((line, row) => page.drawText(line, {
                 x: 40,
                 y: 752 - row * 9.7,
@@ -3641,8 +3635,6 @@ describe('Electron E2E - Viewer Smoke', () => {
             return panel?.querySelector('.document-search-results-header-summary')?.textContent?.includes('500')
                 && !panel.querySelector('.document-search-results-spinner');
         }, {timeout: 15_000}, sidebar);
-        const heap = await session.page.createCDPSession();
-        onTestFinished(() => heap.detach());
         const samples: unknown[] = [];
         const inspect = async (ordinal: number, pageNumber: number, text: string) => {
             const pageOrdinal = pageNumber === 1 ? ordinal + 1 : 1;
@@ -3652,17 +3644,19 @@ describe('Electron E2E - Viewer Smoke', () => {
                 return Number(row?.dataset.pageNumber) === number
                     && row?.querySelector('.document-search-result-match')?.textContent === `Match ${match}`
                     && !panel?.querySelector('.document-search-results-spinner');
-            }, {timeout: 15_000}, sidebar, pageNumber, pageOrdinal).catch(async error => {
-                await session.page.screenshot({path: join(evidence, `unreachable-${ordinal}.png`)});
-                await writeFile(join(evidence, 'failure.json'), JSON.stringify({
-                    ordinal,
-                    pageNumber,
-                    pageOrdinal,
-                    rendered: await session.page.$eval(`${sidebar} .document-search-results`, node => node.textContent),
-                    problems,
-                }, null, 2));
-                throw error;
-            });
+            }, {timeout: 15_000}, sidebar, pageNumber, pageOrdinal);
+            await waitForToolbarCurrentPage(session.page, pageNumber);
+            await waitForViewportQuiet(session.page, 500, 10_000);
+            expect(isToolbarPageVisible(await readViewportPageObservation(session.page))).toBe(true);
+            await waitForFunctionInPage(session.page, (number: number, text: string) => {
+                const viewer = document.querySelector('.editor-pane.is-active #pdf-viewer');
+                const page = viewer?.querySelector(`.page_container[data-page="${number}"]`);
+                const mark = page?.querySelector('.pdf-search-highlight--current');
+                const bounds = mark?.getBoundingClientRect();
+                const viewport = viewer?.getBoundingClientRect();
+                return page?.querySelector('.text-layer')?.textContent?.includes(text) && mark?.textContent === 'valve'
+                    && bounds && viewport && bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+            }, {timeout: 10_000}, pageNumber, text);
             const snapshot = await session.page.evaluate((root: string) => {
                 const panel = document.querySelector(`${root} .document-search-results`);
                 const row = panel?.querySelector<HTMLElement>('.document-search-result.is-active');
@@ -3673,35 +3667,40 @@ describe('Electron E2E - Viewer Smoke', () => {
                     rows: panel?.querySelectorAll('.document-search-result').length,
                 };
             }, sidebar);
-            samples.push({
-                ordinal,
-                ...snapshot,
-                heap: await heap.send('Runtime.getHeapUsage'),
-            });
+            samples.push(snapshot);
             expect(snapshot.pageNumber).toBe(pageNumber);
             expect(snapshot.text).toContain(text);
             expect(snapshot.retained).toBeLessThanOrEqual(500);
             expect(snapshot.rows).toBeLessThan(30);
         };
+        // Select retained rows through the list; next/previous must cross windows.
+        const jump = async (index: number, retained: number) => {
+            const list = `${sidebar} .document-search-results-list`;
+            const row = `${sidebar} .document-search-result[data-result-index="${index}"]`;
+            await session.page.hover(list);
+            await session.page.mouse.wheel({deltaY: await session.page.$eval(list, (node, index, retained) => node.scrollHeight * index / retained - node.scrollTop, index, retained)});
+            await waitForFunctionInPage(session.page, (row: string) => Boolean(document.querySelector(row)), {timeout: 10_000}, row);
+            await clickAsUser(session.page, row);
+        };
         await inspect(0, 1, 'Inspection 1');
         await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
-        for (let ordinal = 2; ordinal <= 561; ordinal++) {
-            await session.page.keyboard.press('Space');
-            if (ordinal === 500) await inspect(500, 1, 'Inspection 63');
-            if (ordinal === 560) await inspect(560, 64, 'LATER_DISTINCTIVE_64');
-        }
+        await jump(499, 500);
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
+        await inspect(500, 1, 'Inspection 63');
+        await jump(60, 62);
+        await inspect(560, 64, 'LATER_DISTINCTIVE_64');
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
         await inspect(561, 80, 'LATER_DISTINCTIVE_80');
-        await waitForFunctionInPage(session.page, () => document.querySelector('.editor-pane.is-active .pdf-search-highlight--current')?.textContent === 'valve', {timeout: 15_000});
         await session.page.screenshot({path: join(evidence, 'later-match.png')});
         await session.page.keyboard.press('Space');
         await inspect(0, 1, 'Inspection 1');
         await clickAsUser(session.page, `${sidebar} button[aria-label="Previous match"]`);
         await inspect(561, 80, 'LATER_DISTINCTIVE_80');
-        for (let ordinal = 560; ordinal >= 61; ordinal--) {
-            await session.page.keyboard.press('Space');
-            if (ordinal === 499) await inspect(499, 1, 'Inspection 63');
-            if (ordinal === 61) await inspect(61, 1, 'Inspection 8');
-        }
+        await jump(437, 500);
+        await inspect(499, 1, 'Inspection 63');
+        await jump(0, 500);
+        await clickAsUser(session.page, `${sidebar} button[aria-label="Previous match"]`);
+        await inspect(61, 1, 'Inspection 8');
         await writeFile(join(evidence, 'observations.json'), JSON.stringify({
             samples,
             problems,
