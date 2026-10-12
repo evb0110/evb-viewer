@@ -1,3 +1,4 @@
+import {resolve} from 'node:path';
 import {
     describe,
     expect,
@@ -104,6 +105,69 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('Electron E2E - PDF search match scrolling', () => {
+    it('keeps every normalized ligature result inside the settled viewport', async () => {
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, resolve('tests/fixtures/electron/search/mixed-ligature-dictionary.pdf'));
+        await waitForPdfLoaded(page);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'search');
+        await clickAsUser(page, '.document-search-bar input');
+        await page.keyboard.type('office');
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('.document-search-results')?.textContent?.includes('38 results for'));
+        await page.waitForFunction(() => ![...document.querySelectorAll('.document-search-results-header-spinner')]
+            .some(element => element.getBoundingClientRect().width > 0));
+        for (let index = 0; index < 38; index += 1) {
+            if (index === 0) {
+                await clickAsUser(page, '.document-search-result[data-result-index="0"]');
+            } else {
+                await clickAsUser(page, 'button[aria-label="Next match"]');
+            }
+            await page.waitForFunction(currentIndex => document.querySelector('.document-search-result.is-active')
+                ?.getAttribute('data-result-index') === String(currentIndex), {}, index);
+            const settled = await page.evaluate(async () => {
+                const invariants = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {
+                    timeoutMs: number;
+                    requireNavigationIdle: boolean
+                }) => Promise<{
+                    settled: boolean;
+                    reason: string | null
+                }>;};
+                return invariants.waitForSettled({
+                    timeoutMs: 10_000,
+                    requireNavigationIdle: true,
+                });
+            });
+            expect(settled.settled, settled.reason ?? 'Viewer did not settle').toBe(true);
+            const current = await page.evaluate(() => {
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                const viewport = viewer.getBoundingClientRect();
+                const ranges = [...CSS.highlights?.get('pdf-search-current-match') ?? []]
+                    .filter((range): range is Range => range instanceof Range);
+                const highlights = [...viewer.querySelectorAll<HTMLElement>('.pdf-search-highlight--current, .pdf-word-box--current')];
+                const rects = [
+                    ...ranges.flatMap(range => [...range.getClientRects()]),
+                    ...highlights.map(element => element.getBoundingClientRect()),
+                ]
+                    .filter(rect => rect.width > 0 && rect.height > 0);
+                return {
+                    text: ranges.length ? ranges.map(range => range.toString()).join('')
+                        : highlights.map(element => element.textContent || element.dataset.word || '').join(''),
+                    viewport: viewport.toJSON(),
+                    rects: rects.map(rect => rect.toJSON()),
+                    visible: rects.length > 0 && rects.every(rect => rect.top >= viewport.top
+                        && rect.bottom <= viewport.bottom && rect.left >= viewport.left && rect.right <= viewport.right),
+                };
+            });
+            expect.soft(current.text, `Result ${index}`).toBe('oﬃce');
+            expect.soft(current.visible, `Result ${index}: ${JSON.stringify(current)}`).toBe(true);
+            console.log(`LIGATURE_NAVIGATION ${JSON.stringify({
+                index,
+                ...current,
+            })}`);
+        }
+    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+
     it('keeps the final result visible and centers its match after a high-zoom xlarge search', async () => {
         const session = sessionFixture.getSession();
 

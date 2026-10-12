@@ -75,18 +75,6 @@ function getFallbackCurrentMatchIndex(
         return -1;
     }
 
-    const requestedPageMatchIndex = currentMatch.pageMatchIndex;
-    // Equal counts preserve the page-local ordinal across extraction drift,
-    // provided the native result order is still document order.
-    if (
-        matches.length === pageMatches.matches.length
-        && arePageMatchesInSearchOrder(pageMatches)
-        && typeof requestedPageMatchIndex === 'number'
-        && Number.isSafeInteger(requestedPageMatchIndex)
-    ) {
-        return matches.findIndex(match => match.pageMatchIndex === requestedPageMatchIndex);
-    }
-
     if (!matches.every(match => match.canUseBackendIdentity)) {
         const distance = (match: IVisualSearchMatch) => Math.abs(match.start - currentMatch.startOffset)
             + Math.abs(match.end - currentMatch.endOffset);
@@ -173,12 +161,18 @@ export async function reconcileVisualMatchesWithCurrent(
         const key = `${match.start}:${match.end}`;
         backendRangeCounts.set(key, (backendRangeCounts.get(key) ?? 0) + 1);
     }
+    const ordered = arePageMatchesInSearchOrder(pageMatches);
     const evaluate = async (assembled: IAssembledSearchablePageText) => {
         const result = await matchLayer(assembled);
-        const matchedRanges = new Set(result.matches.map(match => `${match.startOffset}:${match.endOffset}`));
+        const matchedRanges = new Map(result.matches.map(match => [
+            `${match.startOffset}:${match.endOffset}`,
+            match.pageMatchIndex,
+        ]));
         const compatible = new Set(pageMatches.matches.flatMap((match, index) => {
             const key = `${match.start}:${match.end}`;
-            return backendRangeCounts.get(key) === 1 && matchedRanges.has(key) ? [index] : [];
+            return backendRangeCounts.get(key) === 1 && matchedRanges.has(key)
+                && (!ordered || result.matches.length !== pageMatches.matches.length || matchedRanges.get(key) === ordinals[index])
+                ? [index] : [];
         }));
         return {
             assembled,
@@ -200,7 +194,6 @@ export async function reconcileVisualMatchesWithCurrent(
     ]));
     const matches = buildBackendVisualMatches(pageMatches, assembled, compatible);
     const seenRanges = new Set(matches.map(match => `${match.start}:${match.end}`));
-    const ordered = arePageMatchesInSearchOrder(pageMatches);
     pageMatches.matches.forEach((backendMatch, index) => {
         if (compatible.has(index)) return;
         const pageMatchIndex = ordinals[index]!;

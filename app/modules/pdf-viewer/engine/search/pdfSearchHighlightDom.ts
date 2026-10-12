@@ -3,7 +3,7 @@ import { getHighlightMatchBoundsInSpan } from '@app/modules/pdf-viewer/engine/se
 import { getRelevantHighlightMatches } from '@app/modules/pdf-viewer/engine/search/getRelevantHighlightMatches';
 import {
     assembleSearchablePageText,
-    buildPdfSearchRegex,
+    findPdfSearchMatches,
     mapAssembledSearchablePageTextRange,
 } from '@pdf-core';
 import type {
@@ -57,16 +57,6 @@ export function getTextLayerTextMapping(textLayerDiv: HTMLElement): ITextLayerTe
         : null;
 }
 
-function countNonEmptyMatches(text: string, pattern: RegExp) {
-    let count = 0;
-    for (const match of text.matchAll(pattern)) {
-        if (match[0].length > 0) {
-            count += 1;
-        }
-    }
-    return count;
-}
-
 export function assembleTextLayerSearchText(
     index: ITextLayerIndexCacheEntry,
     query?: string,
@@ -76,12 +66,7 @@ export function assembleTextLayerSearchText(
     const separated = assembleSearchablePageText(index.runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
     if (query && !options?.useRegex) {
         try {
-            const pattern = buildPdfSearchRegex(query, {
-                matchCase: options?.matchCase ?? false,
-                wholeWord: options?.wholeWord ?? false,
-                useRegex: options?.useRegex ?? false,
-            });
-            const separatedMatchCount = countNonEmptyMatches(separated.text, pattern);
+            const separatedMatchCount = findPdfSearchMatches(separated.text, query, options).length;
             if (separatedMatchCount > 0
                 && (expectedPageMatchCount === undefined || separatedMatchCount === expectedPageMatchCount)) {
                 return separated;
@@ -92,7 +77,7 @@ export function assembleTextLayerSearchText(
             if (separatedMatchCount === 0) {
                 return contiguous;
             }
-            return countNonEmptyMatches(contiguous.text, pattern) === expectedPageMatchCount ? contiguous : separated;
+            return findPdfSearchMatches(contiguous.text, query, options).length === expectedPageMatchCount ? contiguous : separated;
         } catch {
             // Invalid queries have no visual occurrences; the caller handles them.
         }
@@ -312,19 +297,12 @@ export function createTextLayerRangeForSearchOccurrence(
         return null;
     }
 
-    let pattern: RegExp;
+    let occurrences: ReturnType<typeof findPdfSearchMatches>;
     try {
-        pattern = buildPdfSearchRegex(query, {
-            matchCase: options.searchOptions?.matchCase ?? false,
-            wholeWord: options.searchOptions?.wholeWord ?? false,
-            useRegex: options.searchOptions?.useRegex ?? false,
-        });
+        occurrences = findPdfSearchMatches(assembled.text, query, options.searchOptions);
     } catch {
         return null;
     }
-
-    const occurrences = [...assembled.text.matchAll(pattern)]
-        .filter(match => match[0].length > 0);
     const expectedPageMatchCount = options.expectedPageMatchCount;
     if (
         typeof expectedPageMatchCount === 'number'
@@ -343,10 +321,7 @@ export function createTextLayerRangeForSearchOccurrence(
         return null;
     }
 
-    return createTextLayerRangeForSearchMatchFromIndex(textLayerDiv, index, assembled, {
-        startOffset: occurrence.index,
-        endOffset: occurrence.index + occurrence[0].length,
-    });
+    return createTextLayerRangeForSearchMatchFromIndex(textLayerDiv, index, assembled, occurrence);
 }
 
 export function clearTextLayerIndexCache(textLayerDiv: HTMLElement) {

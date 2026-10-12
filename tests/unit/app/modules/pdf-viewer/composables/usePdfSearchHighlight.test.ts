@@ -21,7 +21,9 @@ import {
     registerTextLayerTextMapping,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { requirePageIndex } from '@contracts/pageNumbers';
-import { assembleSearchablePageText } from '@pdf-core';
+import {
+    assembleSearchablePageText, findPdfSearchMatches,
+} from '@pdf-core';
 import { matchPdfSearchPageWindow } from '@pdf-core/pdfSearchCore';
 import { matchBrowserSearchPageWindowInWorker } from '@app/platform/browser-api/public';
 
@@ -243,6 +245,44 @@ describe('usePdfSearchHighlight', () => {
             end: 13,
             isCurrent: false,
         }]);
+    });
+
+    it('keeps each ordinal when a drifted native range coincides with another ligature', async () => {
+        const layerText = 'oﬃce oﬃce oﬃce';
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'office',
+            matches: [
+                0,
+                10,
+                20,
+            ].map((start, matchIndex) => ({
+                matchIndex,
+                start,
+                end: start + 4,
+            })),
+        };
+        const sourceMatches = findPdfSearchMatches(layerText, 'office');
+        for (const [
+            pageMatchIndex,
+            source,
+        ] of sourceMatches.entries()) {
+            const current = pageMatches.matches[pageMatchIndex]!;
+            const ranges = await reconcileVisualMatchesWithCurrent(pageMatches, {
+                pageIndex: requirePageIndex(0),
+                pageMatchIndex,
+                matchIndex: current.matchIndex,
+                startOffset: current.start,
+                endOffset: current.end,
+            }, layerText);
+            expect(ranges).toHaveLength(3);
+            expect(ranges.filter(range => range.isCurrent)).toEqual([{
+                start: source.startOffset,
+                end: source.endOffset,
+                isCurrent: true,
+            }]);
+        }
     });
 
     it('keeps the page-local current occurrence when equal-count native offsets drift', async () => {
@@ -995,6 +1035,46 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             expectedPageMatchCount: 2,
         })?.toString()).toBe(text);
         expect(textLayer.textContent).toBe(pageText);
+    });
+
+    it('maps normalized ligature occurrences to their source glyphs and page ordinal', () => {
+        const textLayer = document.createElement('div');
+        const span = document.createElement('span');
+        span.textContent = 'office oﬃce office oﬃce';
+        textLayer.append(span);
+        const matches = findPdfSearchMatches(span.textContent, 'office');
+        expect(matches).toHaveLength(4);
+        for (const [
+            pageMatchIndex,
+            match,
+        ] of matches.entries()) {
+            const range = createTextLayerRangeForSearchOccurrence(textLayer, {
+                text: 'oﬃce',
+                searchQuery: 'office',
+                pageMatchIndex,
+                expectedPageMatchCount: matches.length,
+            });
+            expect(range?.toString()).toBe(span.textContent.slice(match.startOffset, match.endOffset));
+            expect(range?.startOffset).toBe(match.startOffset);
+            expect(range?.endOffset).toBe(match.endOffset);
+        }
+        expect(createTextLayerRangeForSearchOccurrence(textLayer, {
+            text: 'oﬃce',
+            searchQuery: 'office',
+            pageMatchIndex: 1,
+            expectedPageMatchCount: 3,
+        })).toBeNull();
+        for (const query of [
+            'office',
+            'oﬃce',
+        ]) {
+            expect(createTextLayerRangeForSearchOccurrence(textLayer, {
+                text: query,
+                searchQuery: query,
+                pageMatchIndex: 3,
+                expectedPageMatchCount: 4,
+            })?.toString()).toBe('oﬃce');
+        }
     });
 
     it('preserves word-separated occurrences when contiguous text contains fewer matches', () => {
