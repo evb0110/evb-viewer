@@ -39,7 +39,7 @@ export interface IOriginalPathSaveWitness {
     getOriginalFileExpectation: () => IWorkingCopyOriginalFileExpectation;
     getSnapshotForJournal: () => IOriginalPathSaveJournalSnapshot;
     rebaseOnUnchangedContent: (proof?: Parameters<typeof rebaseUnchangedSnapshot>[2], signal?: AbortSignal) => Promise<void>;
-    rebaseAfterPublish: () => Promise<void>;
+    rebaseAfterPublish: (intendedFingerprint: string, keptFilePath?: string) => Promise<void>;
 }
 
 function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectation) {
@@ -54,8 +54,6 @@ function isExpectationUsableForCurrentPlatform(expected: IWorkingCopyOriginalFil
         ? /^sha256-full-v1:[0-9a-f]{64}$/u.test(expected.contentFingerprint ?? '')
         : hasImmutablePosixExpectation(expected);
 }
-
-
 
 async function matchesBaselineOnWitnessPath(
     originalPath: string,
@@ -127,11 +125,11 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         }
     }
 
-    async rebaseAfterPublish() {
+    async rebaseAfterPublish(intendedFingerprint: string, keptFilePath?: string) {
         try {
             const snapshot = await captureAdmittedPathSnapshot(this.originalPath);
-            if (!snapshotsMatch(snapshot, await capturePathSnapshot(this.originalPath))) {
-                throw new OriginalPathSaveConflictError();
+            if (snapshot.contentFingerprint !== intendedFingerprint) {
+                throw new OriginalPathSaveConflictError(keptFilePath);
             }
             this.snapshot = snapshot;
         } catch (error) {

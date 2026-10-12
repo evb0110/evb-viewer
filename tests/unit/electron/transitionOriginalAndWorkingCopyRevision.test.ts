@@ -337,6 +337,45 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it.each([
+        'in-place',
+        'replacement',
+    ])(
+        'keeps accepted work when an external %s edit follows publication', async mutation => {
+            const fixture = await prepare('old-original', 'accepted-unsaved-work');
+            const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+            const result = await transitionOriginalAndWorkingCopyRevision({
+                ...fixture,
+                publishedSourcePath: fixture.stagedPath,
+                senderId: 7,
+                reason: 'save-sync',
+                captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7),
+                publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
+                    await atomicReplace(fixture.stagedPath, fixture.originalPath, {
+                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                        ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                    });
+                    const target = mutation === 'replacement' ? `${fixture.originalPath}.external` : fixture.originalPath;
+                    await writeFile(target, 'external-after-publication');
+                    if (mutation === 'replacement') await rename(target, fixture.originalPath);
+                },
+            }).catch((error: unknown) => error);
+            expect(result).toMatchObject({keptFilePath: expect.any(String)});
+            expect(await readFile(fixture.originalPath, 'utf8')).toBe('external-after-publication');
+            expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
+            const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+            const journal = JSON.parse(await readFile(getWorkingCopyJournalPath(fixture.workingCopyPath), 'utf8')) as WorkingCopyJournalModule.IWorkingCopyJournal;
+            expect(result).toMatchObject({keptFilePath: journal.backupPath});
+            expect(await readFile(journal.backupPath, 'utf8')).toBe('accepted-unsaved-work');
+            const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
+            await recoverWorkingCopyTransition(fixture.workingCopyPath);
+            expect(await readFile(journal.backupPath, 'utf8')).toBe('accepted-unsaved-work');
+            expect(await readFile(fixture.originalPath, 'utf8')).toBe('external-after-publication');
+        },
+    );
+
     it('keeps the admitted baseline when the original changes during backup creation', async () => {
         const fs = await import('node:fs/promises');
         let originalPath = '';

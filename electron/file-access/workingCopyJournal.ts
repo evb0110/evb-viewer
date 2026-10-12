@@ -200,11 +200,10 @@ async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
  * only an unreferenced backup, never a journal whose backup is gone.
  */
 export async function completeWorkingCopyTransition(journal: IWorkingCopyJournal) {
+    if (journal.original?.state === 'conflicted') return;
     await rm(getWorkingCopyJournalPath(journal.workingCopyPath), {force: true});
-    await Promise.all([
-        rm(journal.backupPath, {force: true}),
-        ...(journal.original && journal.original.state !== 'conflicted' ? [rm(journal.original.backupPath, {force: true})] : []),
-    ]);
+    await rm(journal.backupPath, {force: true});
+    if (journal.original) await rm(journal.original.backupPath, {force: true});
 }
 
 /**

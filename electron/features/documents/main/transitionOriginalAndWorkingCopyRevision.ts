@@ -9,7 +9,9 @@ import {
     recoverWorkingCopyTransition,
     type IWorkingCopyJournal,
 } from '@electron/file-access/workingCopyJournal';
-import {captureIntendedContentFingerprint} from '@electron/file-access/workingCopyJournalOriginal';
+import {
+    captureIntendedContentFingerprint, restoreOriginal,
+} from '@electron/file-access/workingCopyJournalOriginal';
 import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
@@ -78,18 +80,17 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                             await witness.assertCurrent();
                             input.signal?.throwIfAborted();
                         } : undefined, witness ? originalBackupPath : undefined));
-                    if (witness) {
-                        try {
-                            await assertPathMatchesSaveWitnessSnapshot(originalBackupPath, original.preparedSnapshot!, {contentOnly: true});
-                        } catch (error) {
-                            await recordWorkingCopyJournalOriginal(transitionJournal, {
-                                ...original,
-                                state: 'conflicted',
-                            });
-                            throw error;
-                        }
+                    try {
+                        if (witness) await assertPathMatchesSaveWitnessSnapshot(originalBackupPath, original.preparedSnapshot!, {contentOnly: true});
+                        await measurePhase('transition-rebase-original-witness-after-publish',
+                            async () => witness?.rebaseAfterPublish(original.intendedFingerprint!, transitionJournal.backupPath));
+                    } catch (error) {
+                        await recordWorkingCopyJournalOriginal(transitionJournal, {
+                            ...original,
+                            state: 'conflicted',
+                        });
+                        throw error;
                     }
-                    await measurePhase('transition-rebase-original-witness-after-publish', async () => witness?.rebaseAfterPublish());
                     await measurePhase('transition-journal-original-published', () =>
                         recordWorkingCopyJournalOriginal(transitionJournal, {
                             ...original,
@@ -116,7 +117,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         } catch (error) {
             if (error instanceof OriginalPathSaveConflictError) {
                 if (journal?.original) {
-                    if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(journal.original.backupPath);
+                    if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(error.keptFilePath ?? journal.original.backupPath);
                     await recordWorkingCopyJournalOriginal(journal, {
                         ...journal.original,
                         state: 'restored',
@@ -129,10 +130,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             try {
                 if (!committed && journal?.original
                     && (journal.original.state === 'prepared' || journal.original.state === 'published')) {
-                    const restoreOptions = witness === null
-                        ? {}
-                        : {assertDestinationCurrent: () => witness.assertCurrent({allowBackupMetadataChange: true})};
-                    await copyFileAtomic(originalBackupPath, input.originalPath, restoreOptions);
+                    await restoreOriginal(journal.original);
                     try {
                         await recordWorkingCopyJournalOriginal(journal, {
                             ...journal.original,
