@@ -483,13 +483,15 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             expect(result).toMatchObject({keptFilePath: expect.any(String)});
             expect(await readFile(fixture.originalPath, 'utf8')).toBe('external-after-publication');
             expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
+            const keptFilePath = join(tempRoot, 'original (original).pdf');
+            expect(result).toMatchObject({keptFilePath});
+            expect(await readFile(keptFilePath, 'utf8')).toBe('old-original');
+            // The save finished its journal, so later reads neither copy the working copy back nor touch the kept file.
             const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
-            const journal = JSON.parse(await readFile(getWorkingCopyJournalPath(fixture.workingCopyPath), 'utf8')) as WorkingCopyJournalModule.IWorkingCopyJournal;
-            expect(result).toMatchObject({keptFilePath: journal.original!.backupPath});
-            expect(await readFile(journal.original!.backupPath, 'utf8')).toBe('old-original');
+            await expect(stat(getWorkingCopyJournalPath(fixture.workingCopyPath))).rejects.toMatchObject({code: 'ENOENT'});
             const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
-            await recoverWorkingCopyTransition(fixture.workingCopyPath);
-            expect(await readFile(journal.original!.backupPath, 'utf8')).toBe('old-original');
+            await expect(recoverWorkingCopyTransition(fixture.workingCopyPath)).resolves.toBe(false);
+            expect(await readFile(keptFilePath, 'utf8')).toBe('old-original');
             expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
             expect(await readFile(fixture.originalPath, 'utf8')).toBe('external-after-publication');
         },
@@ -1026,7 +1028,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
     });
 
-    it('keeps an external edit made while recovery checks the original against its intended bytes', async () => {
+    it('keeps an external edit made while recovery checks the original, and the file before the save beside it', async () => {
         let replaceAfterHash: (() => Promise<void>) | null = null;
         vi.doMock('@electron/file-access/originalPathSnapshot', async (importOriginal) => {
             const actual = await importOriginal<typeof OriginalPathSnapshotModule>();
@@ -1077,9 +1079,12 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 await rename(externalPath, originalPath);
             };
 
-            await expect(recoverWorkingCopyTransition(workingCopyPath)).rejects.toThrow();
+            await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
             await expect(readFile(originalPath, 'utf8')).resolves.toBe('external-edit');
-            await expect(stat(getWorkingCopyJournalPath(workingCopyPath))).resolves.toBeTruthy();
+            await expect(readFile(join(tempRoot, 'original (original).pdf'), 'utf8')).resolves.toBe('old-original');
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            await expect(stat(getWorkingCopyJournalPath(workingCopyPath))).rejects.toMatchObject({code: 'ENOENT'});
+            expect((await readdir(tempRoot)).filter(name => name.includes('.evb-transition-'))).toEqual([]);
         } finally {
             vi.doUnmock('@electron/file-access/originalPathSnapshot');
         }

@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {existsSync} from 'node:fs';
 import {
     open as openFileHandle,
     readFile,
@@ -17,6 +18,7 @@ import {
 } from '@contracts/documentRevision';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import {readWorkingCopyManifest} from '@electron/file-access/workingCopyManifest';
+import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {
     copyFileAtomic,
     getPublicationTemporaryPath,
@@ -71,6 +73,7 @@ const journalSchema = v.pipe(
 );
 
 export type IWorkingCopyJournal = v.InferOutput<typeof journalSchema>;
+const journalFileSchema = v.pipe(v.string(), v.parseJson(), journalSchema);
 
 async function readJournal(workingCopyPath: string) {
     const journalPath = getWorkingCopyJournalPath(workingCopyPath);
@@ -83,13 +86,7 @@ async function readJournal(workingCopyPath: string) {
         }
         throw new Error(`Working-copy journal could not be read: ${journalPath}`, {cause: error});
     }
-    let value: unknown;
-    try {
-        value = JSON.parse(raw);
-    } catch {
-        // Reported below.
-    }
-    const result = v.safeParse(journalSchema, value, {abortEarly: true});
+    const result = v.safeParse(journalFileSchema, raw, {abortEarly: true});
     if (!result.success || result.output.workingCopyPath !== workingCopyPath) {
         throw new Error(`Working-copy journal is invalid: ${journalPath}`);
     }
@@ -153,10 +150,9 @@ async function truncateWorkingCopy(workingCopyPath: string, length: number) {
     }
 }
 
-// A working copy that is still the backup's inode was never replaced, so it holds the backup's bytes
-// plus any in-place append; only a replaced working copy needs the backup copied back.
+// A working copy that is still the backup's inode was never replaced; only a replaced one needs the backup copied
+// back. An append-mode backup is a hard link to the appended file, so either way the append is cut off afterwards.
 async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
-    const appendedLength = journal.previousLength;
     const [
         workingCopyStat,
         backupStat,
@@ -164,28 +160,22 @@ async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
         stat(journal.workingCopyPath),
         stat(journal.backupPath),
     ]).catch(() => []);
-    if (workingCopyStat?.dev === backupStat?.dev && workingCopyStat?.ino === backupStat?.ino && workingCopyStat !== undefined) {
-        if (appendedLength !== undefined) await truncateWorkingCopy(journal.workingCopyPath, appendedLength);
-        return;
+    if (workingCopyStat === undefined || workingCopyStat.dev !== backupStat?.dev || workingCopyStat.ino !== backupStat.ino) {
+        await copyFileAtomic(journal.backupPath, journal.workingCopyPath);
     }
-    await copyFileAtomic(journal.backupPath, journal.workingCopyPath);
-    if (appendedLength !== undefined) {
-        // The backup is a hard link to the appended file, so the copy carries
-        // the append too; cut it back to the recorded pre-append length.
-        await truncateWorkingCopy(journal.workingCopyPath, appendedLength);
-    }
+    if (journal.previousLength !== undefined) await truncateWorkingCopy(journal.workingCopyPath, journal.previousLength);
 }
 
 /**
  * Completion starts once the original holds the committed or restored bytes,
  * so the original's backup and publication name go first: nothing beside the
  * original outlives the journal that names it, and a crash repeats the step.
+ * A conflicted original's backup is the file kept beside the PDF, so it stays.
  * The working-copy backup goes after the journal, because recovering an
  * unfinished rollback copies from it; a crash leaves it unreferenced.
  */
 export async function completeWorkingCopyTransition(journal: IWorkingCopyJournal) {
-    if (journal.original?.state === 'conflicted') return;
-    if (journal.original) {
+    if (journal.original && journal.original.state !== 'conflicted') {
         await rm(journal.original.backupPath, {force: true});
         await rm(getPublicationTemporaryPath(journal.original.path, journal.original.backupPath), {force: true});
     }
@@ -205,6 +195,13 @@ export async function rollbackWorkingCopyTransition(journal: IWorkingCopyJournal
     }
 }
 
+// Another program changed the PDF before recovery could restore it: what the save displaced stays beside it as a
+// conflicted save's does, and the transition finishes, so reads work and the next Save refuses with Save As.
+async function keepChangedOriginal(original: IWorkingCopyJournalOriginal, error: unknown) {
+    const keptPath = error instanceof OriginalPathSaveConflictError && await moveFileToLabelledPathBeside(original.backupPath, original.path, 'original');
+    if (keptPath === false || keptPath === original.backupPath && existsSync(keptPath)) throw error;
+}
+
 /** Completes committed journals and rolls back others; unreadable journals fail closed. */
 export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     const journal = await readJournal(workingCopyPath);
@@ -214,7 +211,7 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     const manifest = await readWorkingCopyManifest(workingCopyPath);
     if (manifest?.revision.token !== journal.nextRevisionToken) {
         if (journal.original) {
-            await restoreOriginal(journal.original);
+            await restoreOriginal(journal.original).catch((error: unknown) => keepChangedOriginal(journal.original!, error));
         }
         await restoreWorkingCopyContent(journal);
     }
