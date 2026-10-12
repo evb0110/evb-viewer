@@ -4855,7 +4855,11 @@ it.each([
             }).click();
             // Terminal transfer protection lasts 60 seconds. Observe collection
             // after it expires and a normal lifecycle event publishes the graph.
-            await new Promise(resolveWait => setTimeout(resolveWait, 61_000));
+            const expiredAt = Date.now() + 61_000;
+            await Promise.all([
+                page,
+                creator,
+            ].map(participant => participant.clock.setFixedTime(expiredAt)));
             await page.getByRole('button', {
                 name: 'New Tab',
                 exact: true,
