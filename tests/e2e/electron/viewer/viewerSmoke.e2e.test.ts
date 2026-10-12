@@ -5166,6 +5166,60 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(pageTwoSnapshot.effectiveZoom).toBe(pageOneSnapshot.effectiveZoom);
     });
 
+    it('repaints visible pages and thumbnails after opening the sidebar at DPR 2', async () => {
+        onTestFinished(() => sessionFixture.restart({
+            clean: true,
+            extraEnv: {EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '1'},
+        }).then(() => {}));
+        const session = await sessionFixture.restart({
+            clean: true,
+            extraEnv: {EVB_AUTOMATION_DEVICE_SCALE_FACTOR: '2'},
+        });
+        const {page} = session;
+        await page.setViewport({
+            width: 1200,
+            height: 1600,
+            deviceScaleFactor: 2,
+        });
+        const fixture = await createMultiPageTextFixturePdf(`sidebar-raster-replacement-${Date.now()}.pdf`, 36);
+        onTestFinished(() => rm(fixture, {force: true}));
+        await openPdfInApp(page, fixture, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewportQuiet(page);
+        expect(await page.evaluate(() => devicePixelRatio)).toBe(2);
+        await ensureSidebarOpen(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        await expect.poll(() => page.evaluate(() => {
+            const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+            const bounds = viewport.getBoundingClientRect();
+            const visible = [...viewport.querySelectorAll<HTMLElement>('.page_container[data-page]')].filter(element => {
+                const box = element.getBoundingClientRect();
+                return box.top < bounds.bottom && box.bottom > bounds.top;
+            });
+            return {
+                pages: visible.length > 0 && visible.every(element => {
+                    const canvas = element.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                    return element.classList.contains('page_container--rendered') && Boolean(canvas
+                        && Math.abs(canvas.width - element.getBoundingClientRect().width * devicePixelRatio) <= 2
+                        && canvas.height > 0 && canvas.checkVisibility())
+                        && !element.querySelector('.pdf-page-render-error');
+                }),
+                thumbnails: [
+                    1,
+                    2,
+                    3,
+                    4,
+                ].every(number => {
+                    const canvas = document.querySelector<HTMLCanvasElement>(`.editor-pane.is-active [data-thumbnail-page="${number}"] .document-thumbnail-list__canvas-host canvas`);
+                    return Boolean(canvas && canvas.width > 0 && canvas.height > 0 && canvas.checkVisibility());
+                }),
+            };
+        }), {timeout: 10_000}).toEqual({
+            pages: true,
+            thumbnails: true,
+        });
+    });
+
     it('keeps the visible thumbnail triplet painted through sustained raster pressure', async () => {
         let session = sessionFixture.getSession();
 

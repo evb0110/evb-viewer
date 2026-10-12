@@ -1391,6 +1391,86 @@ describe('PdfPageRasterScheduler', () => {
         expect(budget.getSnapshot().reservedBytes).toBe(800);
     });
 
+    it('reclaims stale visible rasters so their replacements do not starve thumbnails', async () => {
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        const replacement = Promise.withResolvers<undefined>();
+        const painted = new Map<number, number>();
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            maxConcurrency: 3,
+            surfaceBudget: budget,
+            leasePage: async pageNumber => ({
+                page: cast<IPdfPage>({pageNumber}),
+                release() {},
+            }),
+        });
+        const target: IPdfRasterRenderTarget<{
+            pageNumber: number;
+            generation: number
+        }> = {
+            id: 'stale-visible-replacement',
+            prepare: async demand => {
+                if (demand.consumerGeneration === 2) await replacement.promise;
+                return {
+                    pageNumber: demand.pageNumber,
+                    generation: demand.consumerGeneration,
+                };
+            },
+            start: () => createTask(),
+            commit: prepared => {
+                painted.set(prepared.pageNumber, prepared.generation);
+                return true;
+            },
+            discard() {},
+            release() {},
+        };
+        const publish = (generation: number, pixels: number) => scheduler.setDemand({
+            sourceId: 'viewport',
+            input: [
+                1,
+                2,
+            ].map(page => ({
+                ...createDemand(page, 'viewport-visible', generation),
+                estimatedPixels: pixels,
+            })),
+            policy: {
+                expand: input => input,
+                compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+            },
+            target,
+        });
+        try {
+            publish(1, 100);
+            await vi.waitFor(() => expect([...painted.values()]).toEqual([
+                1,
+                1,
+            ]));
+            publish(2, 50);
+            const thumbnail = scheduler.request({
+                sourceId: 'thumbnails',
+                demand: {
+                    ...createDemand(3, 'thumbnail-visible'),
+                    estimatedPixels: 25,
+                },
+                target,
+            });
+            await vi.waitFor(() => expect(painted.get(3)).toBe(1));
+            expect(budget.getSnapshot().reservedBytes).toBeLessThanOrEqual(1_000);
+            replacement.resolve(undefined);
+            expect((await thumbnail).status).toBe('committed');
+            await vi.waitFor(() => expect([
+                painted.get(1),
+                painted.get(2),
+            ]).toEqual([
+                2,
+                2,
+            ]));
+        } finally {
+            replacement.resolve(undefined);
+            await scheduler.dispose();
+        }
+    });
+
     it('admits every required visible page while releasing overflow when visibility contracts', async () => {
         const budget = createWorkspaceSurfaceBudgetController(800);
         const scheduler = createPdfPageRasterScheduler({

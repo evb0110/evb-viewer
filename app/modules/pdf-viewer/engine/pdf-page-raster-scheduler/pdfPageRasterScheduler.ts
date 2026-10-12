@@ -291,24 +291,15 @@ export function createPdfPageRasterScheduler(
         work.pageLease = null;
     }
 
-    function hasPendingWorkForPage(targetId: string, pageNumber: TPageNumber) {
-        const prefix = `${targetId}\0${String(pageNumber)}\0`;
-        for (const key of queued.keys()) {
-            if (key.startsWith(prefix)) {
-                return true;
-            }
-        }
-        for (const key of inFlight.keys()) {
-            if (key.startsWith(prefix)) {
-                return true;
-            }
-        }
-        for (const key of retryPending.keys()) {
-            if (key.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
+    function hasPendingReplacement(work: IRasterWork) {
+        return [
+            ...queued.values(),
+            ...inFlight.values(),
+            ...retryPending.values(),
+        ].some(candidate => candidate.key !== work.key
+            && candidate.target.id === work.target.id
+            && candidate.demand.pageNumber === work.demand.pageNumber
+            && isDemandCurrent(candidate));
     }
 
     function hasCommittedResidentForPage(targetId: string, pageNumber: TPageNumber) {
@@ -526,16 +517,15 @@ export function createPdfPageRasterScheduler(
                 category,
                 bytes: Math.max(1, Math.ceil(work.demand.estimatedPixels)) * 4,
                 priority: LANE_ORDER[work.demand.lane],
-                // A resident whose own replacement is queued or in flight
-                // refuses eviction: evicting it would blank a visible page
-                // for the gap before its replacement commits. Budget pressure
-                // falls on genuinely cold residents instead.
+                // Current visible rasters keep their leases. A pending replacement
+                // supersedes its stale resident, so budget pressure can reclaim
+                // that lease instead of charging both canvases. The target keeps
+                // the old pixels on screen until the new raster commits.
                 canEvict: () => residents.has(work.key)
-                    && !hasPendingWorkForPage(work.target.id, work.demand.pageNumber)
                     && !(isDemandCurrent(work) && (
                         work.demand.lane === 'navigation-target'
                         || work.demand.lane === 'viewport-visible'
-                    )),
+                    ) && !hasPendingReplacement(work)),
                 evict: () => {
                     const resident = residents.get(work.key);
                     if (resident) {
