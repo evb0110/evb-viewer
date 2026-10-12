@@ -52,7 +52,6 @@ function viewState(overrides: Partial<ITabViewSessionState> = {}): ITabViewSessi
     return {
         surfaceMode: 'reader',
         zoom: 1,
-        effectiveZoom: 1,
         zoomMode: 'custom',
         fitMode: 'width',
         viewMode: 'single',

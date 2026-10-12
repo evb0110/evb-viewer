@@ -361,7 +361,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                     ...payload,
                     viewState: {
                         zoom: snapshot.zoom,
-                        effectiveZoom: snapshot.effectiveZoom,
                         zoomMode: snapshot.zoomMode,
                         viewMode: snapshot.viewMode,
                         viewRotation: snapshot.viewRotation,

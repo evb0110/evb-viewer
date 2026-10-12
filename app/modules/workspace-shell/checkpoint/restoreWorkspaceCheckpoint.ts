@@ -117,12 +117,7 @@ function createLinkedViewSeed(
         ...documentToolbar,
         ...(checkpointTab.currentPage !== null ? {currentPage: checkpointTab.currentPage} : {}),
         ...(checkpointTab.zoomMode !== null ? {zoomMode: checkpointTab.zoomMode} : {}),
-        ...(checkpointTab.zoom !== null
-            ? {
-                zoom: checkpointTab.zoom,
-                effectiveZoom: checkpointTab.zoom,
-            }
-            : {}),
+        ...(checkpointTab.zoom !== null ? {zoom: checkpointTab.zoom} : {}),
         ...(checkpointTab.continuousScroll != null ? {continuousScroll: checkpointTab.continuousScroll} : {}),
         ...(checkpointTab.viewMode != null ? {viewMode: checkpointTab.viewMode} : {}),
         ...(checkpointTab.viewRotation != null ? {viewRotation: checkpointTab.viewRotation} : {}),

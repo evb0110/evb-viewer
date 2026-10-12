@@ -524,7 +524,6 @@ describe('window tab transfer orchestration helpers', () => {
                     currentPage: 6,
                     viewState: {
                         zoom: 2,
-                        effectiveZoom: 2,
                         zoomMode: 'custom',
                         viewMode: 'single',
                         viewRotation: 0,

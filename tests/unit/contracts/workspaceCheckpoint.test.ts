@@ -121,13 +121,14 @@ describe('decodeWorkspaceCheckpoint', () => {
         expect(decodeWorkspaceCheckpoint(createCheckpoint())).toEqual(createCheckpoint());
     });
 
-    it('strips unrecognized fields from the parsed checkpoint output', () => {
+    it('restores old checkpoints while discarding their effective zoom and other unknown fields', () => {
         const checkpoint = createCheckpoint();
         const candidate = {
             ...checkpoint,
             ignored: true,
             tabs: checkpoint.tabs.map(tab => ({
                 ...tab,
+                effectiveZoom: 10,
                 ignored: true,
             })),
         };

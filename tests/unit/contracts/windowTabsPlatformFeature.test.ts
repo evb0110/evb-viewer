@@ -30,6 +30,14 @@ const transferRequest: IWindowTabTransferRequest = {
         originalPath: requireDocumentRef('/tmp/sample.pdf'),
         snapshotPath: requireDocumentRef('/tmp/snapshot.pdf'),
         isDirty: false,
+        viewState: {
+            zoom: 1,
+            zoomMode: 'fit-width',
+            viewMode: 'single',
+            viewRotation: 0,
+            showSidebar: false,
+            continuousScroll: true,
+        },
     },
 };
 const checkpoint: IWorkspaceCheckpoint = {
@@ -82,6 +90,16 @@ describe('window tabs platform feature schemas', () => {
 
     it('round-trips transfer, checkpoint, target-window, and external-open values', () => {
         expect(codecs[channels.transfer]!.decodeArgs([transferRequest])).toEqual([transferRequest]);
+        expect(codecs[channels.transfer]!.decodeArgs([{
+            ...transferRequest,
+            payload: {
+                ...transferRequest.payload,
+                viewState: {
+                    ...(transferRequest.payload.kind === 'pdfSnapshot' ? transferRequest.payload.viewState : {}),
+                    effectiveZoom: 10,
+                },
+            },
+        }])).toEqual([transferRequest]);
         expect(codecs[channels.transfer]!.decodeResult(transferResult)).toEqual(transferResult);
         expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeArgs([checkpoint])).toEqual([checkpoint]);
         expect(codecs[channels.discardWorkspaceCheckpoint]!.decodeArgs([])).toEqual([]);
