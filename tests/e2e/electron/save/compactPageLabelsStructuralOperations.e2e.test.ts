@@ -328,6 +328,29 @@ async function waitForPageOperationComplete(session: IElectronE2ESession) {
     }, {timeout: 60_000}).toBe(false);
 }
 
+/**
+ * A page operation stops reporting itself in progress before the viewer has
+ * adopted the rewritten document, which can follow up to a second later under
+ * load. The operation has finished once none is in progress and the document
+ * has the page count it produces.
+ */
+async function waitForPageOperationResult(session: IElectronE2ESession, totalPages: number) {
+    await expect.poll(async () => {
+        try {
+            const state = await readWorkspaceStateValues<{
+                isPageOperationInProgress?: boolean;
+                totalPages?: number;
+            }>(session.page, [
+                'isPageOperationInProgress',
+                'totalPages',
+            ]);
+            return state.isPageOperationInProgress === false && state.totalPages === totalPages;
+        } catch {
+            return false;
+        }
+    }, {timeout: 60_000}).toBe(true);
+}
+
 async function runCommand<T>(session: IElectronE2ESession, name: string, args: unknown[]) {
     if ([
         'handleSave',
@@ -437,8 +460,7 @@ describe('Electron E2E, compact page labels through structural operations', () =
         await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
         await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
             .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete the earlier page'});
-        await waitForPageOperationComplete(session!);
-        await expect.poll(async () => (await readWorkspaceStateValues(page, ['totalPages'])).totalPages).toBe(7);
+        await waitForPageOperationResult(session!, 7);
         await waitForViewerInteractive(page);
         await waitForViewportQuiet(page);
         const readingPage = await page.evaluate(() => {
