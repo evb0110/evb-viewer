@@ -439,6 +439,57 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         highlight.clearHighlights(layer);
     });
 
+    it.each([
+        false,
+        true,
+    ])('selects the fragmented second occurrence despite full ordinal coverage (regex: %s)', async (useRegex) => {
+        const layer = document.createElement('div');
+        const items = [
+            'needle',
+            '\n',
+            ...'needle',
+            '\n',
+            'needle',
+        ];
+        const spans = items.map(text => {
+            const span = document.createElement('span');
+            span.textContent = text;
+            layer.append(span);
+            return span;
+        });
+        registerTextLayerTextMapping(layer, {
+            textDivs: spans,
+            textContentItemsStr: items,
+        });
+        const highlight = usePdfSearchHighlight();
+        highlight.highlightPage(layer, {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'needle',
+            searchOptions: {
+                useRegex,
+                matchCase: false,
+                wholeWord: false,
+            },
+            matches: [{
+                start: 7,
+                end: 13,
+                matchIndex: 1,
+                pageMatchIndex: 1,
+            }],
+        }, {
+            pageIndex: requirePageIndex(0),
+            startOffset: 7,
+            endOffset: 13,
+            matchIndex: 1,
+            pageMatchIndex: 1,
+        });
+        await expect.poll(() => spans.slice(2, 8).map(span => span.querySelector('.pdf-search-highlight--current')?.textContent ?? '').join('')).toBe('needle');
+        expect(spans.at(-1)?.querySelector('.pdf-search-highlight')).toBeNull();
+        expect(layer.textContent).toBe(items.join(''));
+        highlight.clearHighlights(layer);
+    });
+
     it('reconciles a literal highlight when matching workers are unavailable', async () => {
         vi.mocked(matchBrowserSearchPageWindowInWorker).mockRejectedValueOnce(new Error('Worker unavailable'));
         const layer = document.createElement('div');

@@ -4837,3 +4837,138 @@ async function readBrowserPayloadCounts(page: Page) {
         } finally { db.close(); }
     });
 }
+it.each([
+    false,
+    true,
+])('selects the fragmented second PDF occurrence with trusted search input (regex: %s)', async (regex) => {
+    const out = resolve(process.cwd(), '.devkit/core4-r6/app', process.env.PROOF_REVISION ?? 'head', regex ? 'regex-triple' : 'literal-triple');
+    mkdirSync(out, {recursive: true});
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const sheet = pdf.addPage([
+        612,
+        792,
+    ]);
+    sheet.drawText('needle', {
+        x: 72,
+        y: 700,
+        font,
+        size: 24,
+    });
+    let x = 72;
+    for (const [
+        index,
+        char,
+    ] of [...'needle'].entries()) {
+        const glyphFont = index % 2 ? bold : font;
+        sheet.drawText(char, {
+            x,
+            y: 650,
+            font: glyphFont,
+            size: 24,
+        });
+        x += glyphFont.widthOfTextAtSize(char, 24);
+    }
+    sheet.drawText('needle', {
+        x: 72,
+        y: 600,
+        font,
+        size: 24,
+    });
+    const bytes = Buffer.from(await pdf.save());
+    writeFileSync(resolve(out, 'fixture.pdf'), bytes);
+    const browser = await chromium.launch({headless: true});
+    let page: Page | undefined;
+    try {
+        page = await browser.newPage({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            recordVideo: {dir: out},
+        });
+        // Setup supplies the reviewer's known backend extraction coordinates,
+        // without geometry, at the result-to-UI boundary. The actual fixture,
+        // PDF.js text layer, search controls and compositor remain real.
+        await page.route('**/runtime/composables/usePdfSearch.ts*', async route => {
+            const response = await route.fetch();
+            const source = await response.text();
+            const marker = 'const resultsWithPageIndex = response.results.map';
+            if (!source.includes(marker)) throw new Error('Search result setup seam missing');
+            const ordinal = 1;
+            const start = 7;
+            const setup = `response.results = response.results.slice(0, 1).map(result => ({...result, pageNumber: 1, pageMatchIndex: ${ordinal}, matchIndex: ${ordinal}, startOffset: ${start}, endOffset: ${start + 6}, words: undefined, excerpt: {before: '', match: 'needle', after: ''}})); `;
+            await route.fulfill({
+                response,
+                body: source.replace(marker, setup + marker),
+            });
+        });
+        await page.addInitScript(() => {
+            Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            Reflect.set(window, 'showSaveFilePicker', undefined);
+            window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+        });
+        page.on('console', m => { if (m.type() === 'error') console.log('APP ERROR', m.text()); });
+        await page.goto(origin, {waitUntil: 'domcontentloaded'});
+        await waitForOpenFileReady(page);
+        keepFileChooserInterceptionEnabled(page);
+        const chooser = page.waitForEvent('filechooser');
+        await page.getByRole('button', {
+            name: 'Open File',
+            exact: true,
+        }).first().click();
+        await (await chooser).setFiles({
+            name: 'glyph-run-search.pdf',
+            mimeType: 'application/pdf',
+            buffer: bytes,
+        });
+        const layer = page.locator('.page_container[data-page="1"] .textLayer').first();
+        await page.waitForFunction(() => document.querySelector('.page_container[data-page="1"] .textLayer')?.getAttribute('data-pdf-text-layer-ready') === 'true', undefined, {timeout: 30000});
+        writeFileSync(resolve(out, 'text-runs.json'), JSON.stringify(await layer.locator(':scope > span').allTextContents(), null, 2));
+        await page.evaluate(async () => {
+            const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+            if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF did not settle');
+        });
+        if (!await page.getByRole('tab', {
+            name: 'Search',
+            exact: true,
+        }).isVisible()) await page.getByRole('button', {
+            name: 'Toggle Sidebar',
+            exact: true,
+        }).click();
+        await page.getByRole('tab', {
+            name: 'Search',
+            exact: true,
+        }).click();
+        if (regex) await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
+
+        const input = page.locator('.document-search-bar input:visible').first();
+        await input.pressSequentially('needle');
+        await input.press('Enter');
+        await expect.poll(() => page!.locator('.document-search-result:visible').count(), {timeout: 30000}).toBe(1);
+        await page.locator('.document-search-result:visible').first().click();
+        await expect.poll(async () => (await layer.locator('.pdf-search-highlight--current').allTextContents()).join(''), {timeout: 10000}).toBe('needle');
+        const rects = await layer.locator('.pdf-search-highlight--current').evaluateAll(elements => elements.map(el => ({
+            text: el.textContent,
+            rect: el.getBoundingClientRect().toJSON(),
+            color: getComputedStyle(el).backgroundColor,
+        })));
+        expect(rects.every(rect => rect.rect.width > 0 && rect.color !== 'rgba(0, 0, 0, 0)')).toBe(true);
+        expect(rects).toHaveLength(6);
+        expect(await layer.locator(':scope > span').last().locator('.pdf-search-highlight').count()).toBe(0);
+        writeFileSync(resolve(out, 'paint.json'), JSON.stringify(rects, null, 2));
+    } finally {
+        if (page) {
+            await page.screenshot({path: resolve(out, 'final.png')}).catch(() => {});
+            writeFileSync(resolve(out, 'state.json'), JSON.stringify(await page.evaluate(() => ({
+                current: [...document.querySelectorAll('.pdf-search-highlight--current')].map(el => el.textContent).join(''),
+                all: [...document.querySelectorAll('.textLayer')].map(el => el.textContent),
+            })).catch(() => null), null, 2));
+            const video = page.video();
+            await page.close();
+            await video?.saveAs(resolve(out, 'proof.webm'));
+        }
+        await browser.close();
+    }
+}, 120000);

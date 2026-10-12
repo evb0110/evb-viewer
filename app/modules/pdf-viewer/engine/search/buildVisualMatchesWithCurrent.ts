@@ -59,14 +59,6 @@ function isCurrentVisualMatch(
         );
 }
 
-function getCurrentMatchOffsetDistance(
-    match: IVisualSearchMatch,
-    currentMatch: IPdfSearchMatch,
-) {
-    return Math.abs(match.start - currentMatch.startOffset)
-        + Math.abs(match.end - currentMatch.endOffset);
-}
-
 function arePageMatchesInSearchOrder(pageMatches: IPdfPageMatches) {
     return pageMatches.matches.every((match, index) => {
         const previous = pageMatches.matches[index - 1];
@@ -95,21 +87,12 @@ function getFallbackCurrentMatchIndex(
         return matches.findIndex(match => match.pageMatchIndex === requestedPageMatchIndex);
     }
 
-    const shouldUseBackendIdentity = matches.every(match => match.canUseBackendIdentity);
-    if (!shouldUseBackendIdentity) {
+    if (!matches.every(match => match.canUseBackendIdentity)) {
+        const distance = (match: IVisualSearchMatch) => Math.abs(match.start - currentMatch.startOffset)
+            + Math.abs(match.end - currentMatch.endOffset);
         return matches.reduce((bestIndex, match, index) => {
-            if (bestIndex < 0) {
-                return index;
-            }
-
             const bestMatch = matches[bestIndex];
-            if (!bestMatch) {
-                return index;
-            }
-
-            return getCurrentMatchOffsetDistance(match, currentMatch) < getCurrentMatchOffsetDistance(bestMatch, currentMatch)
-                ? index
-                : bestIndex;
+            return !bestMatch || distance(match) < distance(bestMatch) ? index : bestIndex;
         }, -1);
     }
 
@@ -185,31 +168,36 @@ export async function reconcileVisualMatchesWithCurrent(
     const matchLayer = (assembled: IAssembledSearchablePageText) => options.useRegex
         ? matchBrowserSearchPageWindowInWorker(assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal, budget, signal)
         : matchPdfSearchPageWindow(assembled.text, pageMatches.searchQuery, options, maxMatches, firstOrdinal);
-    let assembled = assembledLayerText;
-    let result = await matchLayer(assembled);
-    const coverage = (candidate: typeof result) => ordinals.filter(ordinal => candidate.matches.some(match => match.pageMatchIndex === ordinal)).length;
-    if (assembled.text !== contiguous.text && coverage(result) < ordinals.length) {
-        const contiguousResult = await matchLayer(contiguous);
-        if (coverage(contiguousResult) > coverage(result)) {
-            assembled = contiguous;
-            result = contiguousResult;
-        }
-    }
-    const occurrences = new Map(result.matches.map(match => [
-        match.pageMatchIndex,
-        match,
-    ]));
-    const matchedRanges = new Set(result.matches.map(match => `${match.startOffset}:${match.endOffset}`));
     const backendRangeCounts = new Map<string, number>();
     for (const match of pageMatches.matches) {
         const key = `${match.start}:${match.end}`;
         backendRangeCounts.set(key, (backendRangeCounts.get(key) ?? 0) + 1);
     }
-    const compatible = new Set<number>();
-    pageMatches.matches.forEach((match, index) => {
-        const key = `${match.start}:${match.end}`;
-        if (backendRangeCounts.get(key) === 1 && matchedRanges.has(key)) compatible.add(index);
-    });
+    const evaluate = async (assembled: IAssembledSearchablePageText) => {
+        const result = await matchLayer(assembled);
+        const matchedRanges = new Set(result.matches.map(match => `${match.startOffset}:${match.endOffset}`));
+        const compatible = new Set(pageMatches.matches.flatMap((match, index) => {
+            const key = `${match.start}:${match.end}`;
+            return backendRangeCounts.get(key) === 1 && matchedRanges.has(key) ? [index] : [];
+        }));
+        return {
+            assembled,
+            result,
+            compatible,
+        };
+    };
+    const candidates = [await evaluate(assembledLayerText)];
+    if (assembledLayerText.text !== contiguous.text) candidates.push(await evaluate(contiguous));
+    const coverage = (candidate: typeof candidates[number]) => ordinals.filter(ordinal => candidate.result.matches.some(match => match.pageMatchIndex === ordinal)).length;
+    // Coverage alone can label the third word as ordinal 1 after missing a
+    // fragmented second word. Prefer agreement with the authoritative ranges.
+    const {
+        assembled, result, compatible,
+    } = candidates.sort((a, b) => b.compatible.size - a.compatible.size || coverage(b) - coverage(a))[0]!;
+    const occurrences = new Map(result.matches.map(match => [
+        match.pageMatchIndex,
+        match,
+    ]));
     const matches = buildBackendVisualMatches(pageMatches, assembled, compatible);
     const seenRanges = new Set(matches.map(match => `${match.start}:${match.end}`));
     const ordered = arePageMatchesInSearchOrder(pageMatches);
