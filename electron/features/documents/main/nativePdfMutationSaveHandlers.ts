@@ -2,6 +2,7 @@ import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathS
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
+import {existsSync} from 'fs';
 import {
     readFile,
     rm,
@@ -31,7 +32,6 @@ import {
     normalizePdfNativeAnnotationIdentityBindings,
     type TPdfNativeMutationSetNativeToolPayload,
 } from '@pdf-core';
-import { isErrnoException } from '@contracts/runtimeGuards';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
@@ -235,9 +235,6 @@ async function assertNativeOutputReady(outputPath: string): Promise<void> {
 
 async function cleanupTempPath(path: string): Promise<void> {
     await rm(path, {force: true}).catch((error: unknown) => {
-        if (isErrnoException(error) && error.code === 'ENOENT') {
-            return;
-        }
         log.debug('Failed to cleanup native note text temp file', {
             path,
             error: getErrorMessage(error),
@@ -547,7 +544,8 @@ export async function handleCommitStagedPdfNativeMutations(
             ...(error.keptFilePath === undefined ? {} : {keptFilePath: error.keptFilePath}),
         };
     } finally {
-        await releaseStagedArtifact();
+        // Publication already released a published stage; this releases one it never reached or failed to remove.
+        if (existsSync(stagedOutput.path)) await releaseStagedArtifact();
     }
     const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
     const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
