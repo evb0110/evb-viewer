@@ -182,7 +182,12 @@ describe('DjVu conversion lifecycle', () => {
 
     // Issue 979: a New Tab that makes the converting tab cold must not discard its conversion.
     it('saves the conversion of a tab made cold by New Tab and shows it when the tab returns', async () => {
-        const session = sessions.getSession();
+        // Its own app: an earlier test's session may run with the image combiner off.
+        const session = await sessions.start({
+            clean: true,
+            sessionName: () => `e2e-djvu-lifecycle-switch-${Date.now()}`,
+            extraEnv: conversionEnv(switchRoot),
+        });
         const savePath = join(switchRoot, 'converted.pdf');
         // Warm cap 0: the inactive DjVu tab's viewer unmounts.
         await setTabMemoryPolicyForE2E(session.page, 'aggressive');
