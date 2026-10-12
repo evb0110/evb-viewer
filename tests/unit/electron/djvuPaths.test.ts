@@ -1,15 +1,54 @@
 import path from 'node:path';
+import {execFileSync} from 'node:child_process';
+import {
+    mkdtempSync, copyFileSync, readFileSync, readdirSync, rmSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
 import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
 import {
     getDjvuNativeToolsBase,
     needsDjvuPathAlias,
     resolveDjvuNativeToolPaths,
+    runDjvuSourceCommand,
 } from '@electron/features/djvu/main/nativeToolPaths';
+
+const native = vi.hoisted(() => ({
+    platform: process.platform,
+    scratchRoot: '',
+}));
+vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => native.scratchRoot}));
+// Keep real filesystem and DjVuLibre decoding. Only the process launcher is
+// replaced, so the Windows alias branch can run on any host.
+vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: async (command: string, args: string[], options: {cwd?: string} = {}) => {
+    if (command === 'powershell.exe') return {
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+    };
+    const toolRoot = path.resolve('resources/djvulibre', `${native.platform}-${process.arch}`);
+    const stdout = execFileSync(command, args, {
+        ...options,
+        encoding: 'utf8',
+        windowsHide: true,
+        env: {
+            ...process.env,
+            Path: `${path.join(toolRoot, 'bin')};${path.join(toolRoot, 'lib')};${process.env.Path ?? ''}`,
+            LD_LIBRARY_PATH: path.join(toolRoot, 'lib'),
+            DYLD_LIBRARY_PATH: path.join(toolRoot, 'lib'),
+        },
+    });
+    return {
+        stdout,
+        stderr: '',
+        exitCode: 0,
+    };
+}}));
 
 describe('DjVu native tool path boundary', () => {
     it.each([
@@ -32,6 +71,70 @@ describe('DjVu native tool path boundary', () => {
         expect(needsDjvuPathAlias(`C:\\${'x'.repeat(260)}.djvu`, 'win32')).toBe(true);
         expect(needsDjvuPathAlias('C:\\scratch\\space name 100%20 literal.djvu', 'win32')).toBe(false);
         expect(needsDjvuPathAlias('C:\\scratch\\ascii.djvu', 'win32')).toBe(false);
+    });
+
+    it.each([
+        'bundled',
+        'indirect',
+    ])('renders a renamed café-index.djvu with its %s components', async (kind) => {
+        const root = mkdtempSync(path.join(tmpdir(), 'djvu-paths-'));
+        native.scratchRoot = path.join(root, 'scratch');
+        const toolRoot = path.resolve('resources/djvulibre', `${native.platform}-${process.arch}`, 'bin');
+        const tool = (name: string) => path.join(toolRoot, `${name}${native.platform === 'win32' ? '.exe' : ''}`);
+        const {runNativeCommand} = await import('@electron/native-tools/runNativeCommand');
+        const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+        try {
+            const source = path.join(root, 'café-index.djvu');
+            const original = path.resolve('tests/fixtures/djvu/sources/mixed-dpi.djvu');
+            if (kind === 'indirect') {
+                const index = path.join(root, 'index.djvu');
+                await runNativeCommand(tool('djvused'), [
+                    original,
+                    '-e',
+                    `save-indirect "${index.replaceAll('\\', '/')}"`,
+                ]);
+                copyFileSync(index, source);
+            } else copyFileSync(original, source);
+            const sourceBytes = new Map(readdirSync(root).map(name => [
+                name,
+                readFileSync(path.join(root, name)),
+            ]));
+            Object.defineProperty(process, 'platform', {
+                ...platformDescriptor,
+                value: 'win32',
+            });
+            const count = await runDjvuSourceCommand(tool('djvused'), [
+                source,
+                '-e',
+                'n',
+            ], 0);
+            expect(count.stdout.trim()).toBe('2');
+            for (const page of [
+                1,
+                2,
+            ]) {
+                const output = path.join(root, `page-${page}.ppm`);
+                await runDjvuSourceCommand(tool('ddjvu'), [
+                    '-format=ppm',
+                    `-page=${page}`,
+                    '-size=100x100',
+                    source,
+                    output,
+                ], 3);
+                expect(readFileSync(output).subarray(0, 2).toString()).toBe('P6');
+            }
+            for (const [
+                name,
+                bytes,
+            ] of sourceBytes) expect(readFileSync(path.join(root, name))).toEqual(bytes);
+            expect(readdirSync(native.scratchRoot).filter(name => name.startsWith('djvu-export-'))).toEqual([]);
+        } finally {
+            Object.defineProperty(process, 'platform', platformDescriptor);
+            rmSync(root, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 
     it('resolves ddjvu, djvudump, and djvused from the DjVuLibre resource root', () => {

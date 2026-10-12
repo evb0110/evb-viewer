@@ -4,6 +4,9 @@ import { randomUUID } from 'node:crypto';
 import {
     copyFile,
     link,
+    mkdir,
+    open,
+    readdir,
     rename,
     symlink,
     unlink,
@@ -159,27 +162,31 @@ export function needsDjvuPathAlias(filePath: string, platform = process.platform
     return platform === 'win32' && (filePath.length >= WINDOWS_MAX_PATH || /[^\x20-\x7e]/u.test(filePath));
 }
 
-async function getDjvuScratchRoot() {
-    const root = getAppTempDir();
-    // Reserve enough room for mkdtemp's suffix and the longest alias below.
-    const aliasSuffix = join('djvu-export-XXXXXX', 'output', `djvu-${'x'.repeat(36)}.tmp`);
-    if (!needsDjvuPathAlias(join(root, aliasSuffix))) {
-        return root;
-    }
-    // Node hands this environment value to PowerShell as UTF-16. No user path
-    // is interpolated into shell code, and a disabled 8.3 policy is harmless.
-    const shortPath = await runNativeCommand('powershell.exe', [
+// Node hands this environment value to PowerShell as UTF-16, without shell
+// interpolation. A disabled 8.3 policy simply leaves a path needing an alias.
+async function getWindowsShortPath(filePath: string, kind: 'GetFile' | 'GetFolder') {
+    return runNativeCommand('powershell.exe', [
         '-NoProfile',
         '-NonInteractive',
         '-Command',
         '$ErrorActionPreference="Stop"; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); '
-        + '(New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:EVB_DJVU_SCRATCH_ROOT).ShortPath',
+        + `(New-Object -ComObject Scripting.FileSystemObject).${kind}($env:EVB_DJVU_SCRATCH_ROOT).ShortPath`,
     ], {
-        env: {EVB_DJVU_SCRATCH_ROOT: root},
+        env: {EVB_DJVU_SCRATCH_ROOT: filePath},
         includeProcessEnv: true,
         windowsHide: true,
         timeoutMs: 15_000,
     }).then(result => result.stdout.trim(), () => '');
+}
+
+async function getDjvuScratchRoot() {
+    const root = getAppTempDir();
+    // Reserve enough room for mkdtemp's suffix and the longest alias below.
+    const aliasSuffix = join('djvu-export-XXXXXX', 'source', `input-${'x'.repeat(36)}.djvu`);
+    if (!needsDjvuPathAlias(join(root, aliasSuffix))) {
+        return root;
+    }
+    const shortPath = await getWindowsShortPath(root, 'GetFolder');
     if (shortPath && !needsDjvuPathAlias(join(shortPath, aliasSuffix))) {
         return shortPath;
     }
@@ -197,8 +204,10 @@ async function getDjvuScratchRoot() {
 /**
  * Owns the ANSI filename boundary for all DjVuLibre commands. Windows inputs
  * use a folder junction when the filename is ASCII, or a hard link (a copy
- * only when linking is unavailable). Outputs use a junction to their managed
- * destination folder and are renamed after a proven successful tool exit.
+ * only across volumes). Indirect indexes keep their component folder, using
+ * its short name or a linked view when the index must be renamed. Outputs use
+ * a junction to their destination folder and are renamed after a proven
+ * successful tool exit.
  * Unproven native termination retains aliases under the managed scratch owner.
  */
 export async function runDjvuSourceCommand(
@@ -240,25 +249,51 @@ export async function runDjvuSourceCommand(
         try {
             if (needsDjvuPathAlias(sourcePath)) {
                 const sourceFolderAlias = join(scratchPath, 'source');
-                if (!needsDjvuPathAlias(join(sourceFolderAlias, basename(sourcePath)))) {
-                    await symlink(dirname(resolve(sourcePath)), sourceFolderAlias, 'junction');
+                // DIRM is the first chunk in FORM:DJVM; bit 7 distinguishes
+                // bundled from indirect. Read only its unencoded header,
+                // leaving directory decoding and component names to DjVuLibre.
+                const file = await open(sourcePath, 'r');
+                const header = Buffer.alloc(25);
+                try {
+                    await file.read(header, 0, header.length, 0);
+                } finally {
+                    await file.close();
+                }
+                const indirect = header.toString('ascii', 12, 20) === 'DJVMDIRM' && (header[24]! & 0x80) === 0;
+                const shortSource = indirect && needsDjvuPathAlias(basename(sourcePath))
+                    ? await getWindowsShortPath(sourcePath, 'GetFile') : '';
+                const sourceName = basename(shortSource || sourcePath);
+                if (!needsDjvuPathAlias(join(sourceFolderAlias, sourceName))) {
+                    // One junction serves even thousands of components, including
+                    // an index with an ASCII short filename on an 8.3 volume.
+                    await symlink(dirname(sourcePath), sourceFolderAlias, 'junction');
                     junctions.push(sourceFolderAlias);
-                    aliasArgs[sourceIndex] = join(sourceFolderAlias, basename(sourcePath));
+                    aliasArgs[sourceIndex] = join(sourceFolderAlias, sourceName);
                 } else {
-                    const sourceAlias = join(scratchPath, 'input.djvu');
-                    await link(sourcePath, sourceAlias).catch(async (error: unknown) => {
-                        if (!isErrnoException(error) || ![
-                            'EXDEV',
-                            'EPERM',
-                            'EACCES',
-                            'ENOTSUP',
-                            'EMLINK',
-                        ].includes(String(error.code ?? ''))) {
-                            throw error;
-                        }
-                        await copyFile(sourcePath, sourceAlias);
-                    });
+                    const linkFile = async (source: string, alias: string) => {
+                        await link(source, alias).catch(async (error: unknown) => {
+                            if (!isErrnoException(error) || error.code !== 'EXDEV') throw error;
+                            await copyFile(source, alias);
+                        });
+                    };
+                    await mkdir(sourceFolderAlias);
+                    const sourceAlias = join(sourceFolderAlias, `input-${randomUUID()}.djvu`);
+                    await linkFile(sourcePath, sourceAlias);
                     aliasArgs[sourceIndex] = sourceAlias;
+                    if (indirect) {
+                        // No short index name: preserve sibling names in a private
+                        // directory view. Link files; junction directories so
+                        // nested components need no recursive copying.
+                        for (const entry of await readdir(dirname(sourcePath), {withFileTypes: true})) {
+                            if (entry.name === basename(sourcePath)) continue;
+                            const original = join(dirname(sourcePath), entry.name);
+                            const alias = join(sourceFolderAlias, entry.name);
+                            if (entry.isDirectory()) {
+                                await symlink(original, alias, 'junction');
+                                junctions.push(alias);
+                            } else await linkFile(original, alias);
+                        }
+                    }
                 }
             }
             if (outputPath !== undefined && needsDjvuPathAlias(outputPath)) {
