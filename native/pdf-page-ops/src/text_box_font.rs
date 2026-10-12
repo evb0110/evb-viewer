@@ -72,133 +72,60 @@ pub(crate) fn baseline_from_top(font_size: f64) -> f64 {
 mod text_layout;
 pub(crate) use text_layout::{layout, layout_simple, layout_with_fonts, Line};
 
-fn font_objects_match(
-    actual_document: &impl PdfObjectSource,
-    actual: &Object,
-    expected_document: &Document,
-    expected: &Object,
-    depth: usize,
-) -> bool {
-    if depth > 12 {
-        return false;
-    }
-    let (Ok(actual), Ok(expected)) = (
-        actual_document.resolved(actual),
-        expected_document.resolved(expected),
-    ) else {
-        return false;
-    };
-    match (actual, expected) {
-        (Object::Dictionary(actual), Object::Dictionary(expected)) => {
-            actual.len() == expected.len()
-                && expected.iter().all(|(key, value)| {
-                    actual.get(key).is_ok_and(|actual| {
-                        font_objects_match(
-                            actual_document,
-                            actual,
-                            expected_document,
-                            value,
-                            depth + 1,
-                        )
-                    })
-                })
-        }
-        (Object::Array(actual), Object::Array(expected)) => {
-            actual.len() == expected.len()
-                && actual.iter().zip(expected).all(|(actual, expected)| {
-                    font_objects_match(
-                        actual_document,
-                        actual,
-                        expected_document,
-                        expected,
-                        depth + 1,
-                    )
-                })
-        }
-        (Object::Stream(actual), Object::Stream(expected)) => {
-            // Recompression by another PDF editor is harmless. Missing stream
-            // bytes, a changed cmap, or a replaced program are never trusted.
-            if actual.content.is_empty() {
-                return false;
-            }
-            let bytes_match = match (
-                crate::decompressed_stream_with_limit(actual, 1024 * 1024),
-                crate::decompressed_stream_with_limit(expected, 1024 * 1024),
-            ) {
-                (Ok(actual), Ok(expected)) => actual == expected,
-                _ => false,
-            };
-            let semantic_key = |key: &[u8]| !matches!(key, b"Length" | b"Filter" | b"DecodeParms");
-            let same_keys = actual
-                .dict
-                .iter()
-                .filter(|(key, _)| semantic_key(key))
-                .count()
-                == expected
-                    .dict
-                    .iter()
-                    .filter(|(key, _)| semantic_key(key))
-                    .count();
-            bytes_match
-                && same_keys
-                && expected
-                    .dict
-                    .iter()
-                    .filter(|(key, _)| {
-                        !matches!(key.as_slice(), b"Length" | b"Filter" | b"DecodeParms")
-                    })
-                    .all(|(key, value)| {
-                        actual.dict.get(key).is_ok_and(|actual| {
-                            font_objects_match(
-                                actual_document,
-                                actual,
-                                expected_document,
-                                value,
-                                depth + 1,
-                            )
-                        })
-                    })
-        }
-        (Object::String(_, _), Object::String(_, _)) => {
-            pdf_string_to_text(actual) == pdf_string_to_text(expected)
-        }
-        (Object::Integer(actual), Object::Real(expected)) => *actual as f64 == f64::from(*expected),
-        (Object::Real(actual), Object::Integer(expected)) => f64::from(*actual) == *expected as f64,
-        _ => actual == expected,
-    }
-}
-
 #[path = "text_font_program.rs"]
 mod text_font_program;
 pub(crate) use text_font_program::simple_font_advances;
 
+/// Fonts shared by the text boxes of one save. Each appearance names the
+/// subsets it draws with; `embed` then writes one subset per program with the
+/// glyphs of every appearance, and widths and Unicode mappings for those only.
+#[derive(Default)]
+pub(crate) struct SharedFonts(BTreeMap<usize, (ObjectId, std::collections::BTreeSet<u16>)>);
+
+impl SharedFonts {
+    pub(crate) fn resources(&mut self, document: &mut Document, lines: &[Line]) -> Dictionary {
+        let mut fonts = Dictionary::new();
+        for glyph in lines.iter().flat_map(|line| &line.glyphs) {
+            let (id, glyphs) = self
+                .0
+                .entry(glyph.font)
+                .or_insert_with(|| (document.new_object_id(), Default::default()));
+            glyphs.insert(glyph.id);
+            fonts.set(format!("TextFont{}", glyph.font), *id);
+        }
+        fonts
+    }
+
+    pub(crate) fn embed(self, document: &mut Document, programs: &[&[u8]]) -> Result<()> {
+        use sha2::{Digest, Sha256};
+        for (index, (id, glyphs)) in self.0 {
+            let mut digest = Sha256::new();
+            digest.update(programs[index]);
+            for glyph in &glyphs {
+                digest.update(glyph.to_be_bytes());
+            }
+            let tag: String = digest.finalize()[..6]
+                .iter()
+                .map(|byte| char::from(b'A' + byte % 26))
+                .collect();
+            let name = format!("{tag}+TextFont{index}");
+            let font =
+                text_font_program::embed_font_program(document, programs[index], &name, &glyphs)?;
+            document.set_object(id, font);
+        }
+        Ok(())
+    }
+}
+
 pub(crate) fn embed_fonts(
     document: &mut Document,
-    lines: &[text_layout::Line],
+    lines: &[Line],
     programs: &[&[u8]],
 ) -> Result<Dictionary> {
-    use sha2::{Digest, Sha256};
-    let mut fonts = Dictionary::new();
-    let mut glyphs = BTreeMap::<usize, std::collections::BTreeSet<u16>>::new();
-    for glyph in lines.iter().flat_map(|line| &line.glyphs) {
-        glyphs.entry(glyph.font).or_default().insert(glyph.id);
-    }
-    for (index, glyphs) in glyphs {
-        let mut digest = Sha256::new();
-        digest.update(programs[index]);
-        for glyph in &glyphs {
-            digest.update(glyph.to_be_bytes());
-        }
-        let tag: String = digest.finalize()[..6]
-            .iter()
-            .map(|byte| char::from(b'A' + byte % 26))
-            .collect();
-        let name = format!("{tag}+TextFont{index}");
-        let reference =
-            text_font_program::embed_font_program(document, programs[index], &name, &glyphs)?;
-        fonts.set(format!("TextFont{index}"), reference);
-    }
-    Ok(fonts)
+    let mut fonts = SharedFonts::default();
+    let resources = fonts.resources(document, lines);
+    fonts.embed(document, programs)?;
+    Ok(resources)
 }
 
 pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
@@ -211,33 +138,6 @@ pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
         result.push_str(&format!("{unit:04X}"));
     }
     result
-}
-
-pub(crate) fn validate_appearance_font(
-    document: &impl PdfObjectSource,
-    annotation: &Dictionary,
-    editor: &TextBoxMutation,
-    page_rotation: i64,
-) -> Result<()> {
-    crate::postconditions::validate_appearance(document, annotation)?;
-    let appearance = document.resolved(annotation.get(b"AP")?)?.as_dict()?;
-    let normal = document.resolved(appearance.get(b"N")?)?.as_stream()?;
-    let resources = document
-        .resolved(normal.dict.get(b"Resources")?)?
-        .as_dict()?;
-    let mut expected = Document::new();
-    let id = crate::annotations::build_text_box_appearance(
-        &mut expected,
-        editor,
-        parse_rect(annotation.get(b"Rect")?)?,
-        page_rotation,
-    )?;
-    let reference = expected.get_object(id)?.as_stream()?;
-    let fonts = reference.dict.get(b"Resources")?.as_dict()?.get(b"Font")?;
-    if !font_objects_match(document, resources.get(b"Font")?, &expected, fonts, 0) {
-        return Err("Text box appearance does not use the verified portable font graph".into());
-    }
-    Ok(())
 }
 
 pub(crate) struct Geometry {

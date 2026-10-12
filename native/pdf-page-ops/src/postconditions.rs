@@ -472,7 +472,6 @@ pub(crate) fn validate_text_box_document_postconditions(
             .checked_add(1)
             .ok_or("Invalid FreeText editor page index")?;
         let page_id = page_resolver.page_id(document, page_number)?;
-        let page_rotation = resolve_page_rotation(document, page_id)?;
         let page_view = resolve_page_view(document, page_id)?;
         let expected_rect = validate_text_box_rect(editor, page_view)?;
         let expected_name = text_box_name(editor);
@@ -539,7 +538,7 @@ pub(crate) fn validate_text_box_document_postconditions(
             dict,
             actual_rect,
             i64::from(editor.rotation),
-            page_rotation,
+            resolve_page_rotation(document, page_id)?,
         )?;
         validate_rect_approximately(
             source_rect,
@@ -561,7 +560,7 @@ pub(crate) fn validate_text_box_document_postconditions(
             .ok_or("FreeText editor is missing DA")?;
         let expected_color = editor.color.map(|component| f64::from(component) / 255.0);
         validate_text_box_default_appearance(default_appearance, editor.font_size, expected_color)?;
-        crate::text_box_font::validate_appearance_font(document, dict, editor, page_rotation)?;
+        validate_appearance(document, dict)?;
     }
     Ok(())
 }

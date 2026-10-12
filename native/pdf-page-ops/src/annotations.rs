@@ -736,6 +736,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
     }
     let page_resolver = PageTreeResolver::new(document)?;
     let mut annotation_indexes = HashMap::new();
+    let mut fonts = crate::text_box_font::SharedFonts::default();
     for editor in editors {
         let page_number = editor
             .page_index
@@ -752,15 +753,15 @@ pub(crate) fn upsert_text_boxes_with_counter(
         let rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let name = text_box_name(editor);
-        let appearance_ref = build_text_box_appearance(document, editor, rect, page_rotation)?;
+        let appearance_ref =
+            build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts)?;
         let existing_annotation_ref = resolve_text_box_target(document, page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
             annotation_indexes
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
         }) {
-            let (existing_appearance, existing_default_appearance) =
-                existing_text_box_values(document, annotation_ref)?;
+            let existing = existing_text_box_values(document, annotation_ref)?;
             let dict = document.get_dictionary_mut(annotation_ref)?;
             set_text_box_fields(
                 dict,
@@ -770,17 +771,12 @@ pub(crate) fn upsert_text_boxes_with_counter(
                 modified_at,
                 appearance_ref,
                 page_rotation,
-                false,
-                existing_appearance,
-                existing_default_appearance,
+                Some(existing),
             );
             continue;
         }
         let annotation_ref = document.new_object_id();
-        let mut dict = Dictionary::new();
-        dict.set("Type", Object::Name(b"Annot".to_vec()));
-        dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
-        dict.set("F", Object::Integer(4));
+        let mut dict = dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "F" => 4};
         set_text_box_fields(
             &mut dict,
             editor,
@@ -789,8 +785,6 @@ pub(crate) fn upsert_text_boxes_with_counter(
             modified_at,
             appearance_ref,
             page_rotation,
-            true,
-            None,
             None,
         );
         document.set_object(annotation_ref, Object::Dictionary(dict));
@@ -800,6 +794,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
             .expect("FreeText editor pages are indexed before mutation")
             .append_free_text_without_popup(&name, annotation_ref);
     }
+    fonts.embed(document, &crate::text_box_font::FONTS)?;
     for (page_id, index) in annotation_indexes {
         write_page_annotation_index(document, page_id, index)?;
     }
@@ -818,6 +813,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
     }
     let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let mut annotation_indexes = HashMap::new();
+    let mut fonts = crate::text_box_font::SharedFonts::default();
     for editor in editors {
         let page_number = editor
             .page_index
@@ -834,8 +830,13 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
         let rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let name = text_box_name(editor);
-        let appearance_ref =
-            build_text_box_appearance(&mut incremental.new_document, editor, rect, page_rotation)?;
+        let appearance_ref = build_text_box_appearance(
+            &mut incremental.new_document,
+            editor,
+            rect,
+            page_rotation,
+            &mut fonts,
+        )?;
         let existing_annotation_ref =
             resolve_text_box_target(&AppendedRevision::new(incremental), page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
@@ -843,7 +844,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
         }) {
-            let (existing_appearance, existing_default_appearance) =
+            let existing =
                 existing_text_box_values(&AppendedRevision::new(incremental), annotation_ref)?;
             incremental.opt_clone_object_to_new_document(annotation_ref)?;
             let dict = incremental
@@ -857,17 +858,12 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
                 modified_at,
                 appearance_ref,
                 page_rotation,
-                false,
-                existing_appearance,
-                existing_default_appearance,
+                Some(existing),
             );
             continue;
         }
         let annotation_ref = incremental.new_document.new_object_id();
-        let mut dict = Dictionary::new();
-        dict.set("Type", Object::Name(b"Annot".to_vec()));
-        dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
-        dict.set("F", Object::Integer(4));
+        let mut dict = dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "F" => 4};
         set_text_box_fields(
             &mut dict,
             editor,
@@ -876,8 +872,6 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
             modified_at,
             appearance_ref,
             page_rotation,
-            true,
-            None,
             None,
         );
         incremental
@@ -889,6 +883,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
             .expect("FreeText editor pages are indexed before mutation")
             .append_free_text_without_popup(&name, annotation_ref);
     }
+    fonts.embed(&mut incremental.new_document, &crate::text_box_font::FONTS)?;
     for (page_id, index) in annotation_indexes {
         write_page_annotation_index_incremental(incremental, page_id, index)?;
     }
@@ -1055,6 +1050,7 @@ pub(crate) fn build_text_box_appearance(
     editor: &TextBoxMutation,
     rect: PdfRect,
     page_rotation: i64,
+    shared: &mut crate::text_box_font::SharedFonts,
 ) -> Result<ObjectId> {
     use crate::text_box_font::{self, LINE_HEIGHT, PADDING_X, PADDING_Y};
     let source = PdfRect {
@@ -1098,7 +1094,7 @@ pub(crate) fn build_text_box_appearance(
         (size, lines) = (range.0, layout(range.0));
     }
     let content_width = content_width(size);
-    let fonts = text_box_font::embed_fonts(document, &lines, &text_box_font::FONTS)?;
+    let fonts = shared.resources(document, &lines);
     for (index, line) in lines.iter().enumerate() {
         let left = PADDING_X * size
             + if line.rtl {
@@ -1112,15 +1108,17 @@ pub(crate) fn build_text_box_appearance(
             "/Span << /ActualText <{}> >> BDC\n",
             text_box_font::unicode_hex(&line.text, true)
         ));
-        for glyph in &line.glyphs {
-            content.push_str(&format!(
-                "/TextFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
-                glyph.font,
-                number_to_content(size),
-                number_to_content(left + glyph.x),
-                number_to_content(baseline + glyph.y),
-                glyph.id,
-            ));
+        for run in line.glyphs.chunk_by(|a, b| a.font == b.font) {
+            let size = number_to_content(size);
+            content.push_str(&format!("/TextFont{} {size} Tf\n", run[0].font));
+            for glyph in run {
+                content.push_str(&format!(
+                    "1 0 0 1 {} {} Tm <{:04X}> Tj\n",
+                    number_to_content(left + glyph.x),
+                    number_to_content(baseline + glyph.y),
+                    glyph.id,
+                ));
+            }
         }
         content.push_str("EMC\n");
     }
@@ -1276,10 +1274,10 @@ fn set_text_box_fields(
     modified_at: &str,
     appearance_ref: ObjectId,
     page_rotation: i64,
-    is_new: bool,
-    existing_appearance: Option<Dictionary>,
-    existing_default_appearance: Option<Vec<u8>>,
+    existing: Option<(Option<Dictionary>, Option<Vec<u8>>)>,
 ) {
+    let is_new = existing.is_none();
+    let (existing_appearance, existing_default_appearance) = existing.unwrap_or_default();
     crate::text_box_font::write_editor_geometry(
         dict,
         editor.rect,

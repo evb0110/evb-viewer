@@ -14,7 +14,7 @@ pub(super) fn embed_font_program(
     program: &[u8],
     name: &str,
     glyphs: &std::collections::BTreeSet<u16>,
-) -> Result<ObjectId> {
+) -> Result<Dictionary> {
     let font = FontRef::from_index(program, 0)?;
     let metrics = font.metrics(Size::unscaled(), LocationRef::default());
     let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
@@ -41,16 +41,14 @@ pub(super) fn embed_font_program(
     let mapping = (0..=*glyphs.last().unwrap_or(&0))
         .flat_map(|id| remapper.get(id).unwrap_or(0).to_be_bytes())
         .collect();
-    let widths: Vec<Object> = (0..metrics.glyph_count)
-        .map(|id| {
-            number_object(
-                f64::from(
-                    glyph_metrics
-                        .advance_width(GlyphId::new(u32::from(id)))
-                        .unwrap_or(0.0),
-                ) * 1000.0
-                    / units,
-            )
+    let widths: Vec<Object> = glyphs
+        .iter()
+        .flat_map(|&id| {
+            let width = glyph_metrics.advance_width(GlyphId::new(u32::from(id)));
+            [
+                Object::Integer(id.into()),
+                vec![metric(width.unwrap_or(0.0))].into(),
+            ]
         })
         .collect();
     let mapping = compressed_stream(document, Dictionary::new(), mapping);
@@ -58,10 +56,11 @@ pub(super) fn embed_font_program(
         "Type" => "Font", "Subtype" => "CIDFontType2", "BaseFont" => name,
         "CIDSystemInfo" => lopdf::dictionary! { "Registry" => Object::string_literal("Adobe"), "Ordering" => Object::string_literal("Identity"), "Supplement" => 0 },
         "FontDescriptor" => descriptor, "CIDToGIDMap" => mapping,
-        "W" => vec![Object::Integer(0), Object::Array(widths)],
+        "W" => widths,
     });
     let mut mapping = BTreeMap::<u16, String>::new();
-    for (codepoint, glyph) in font.charmap().mappings() {
+    let drawn = |(_, glyph): &(u32, GlyphId)| glyphs.contains(&(glyph.to_u32() as u16));
+    for (codepoint, glyph) in font.charmap().mappings().filter(drawn) {
         if let Some(character) = char::from_u32(codepoint) {
             // Presentation forms and ligatures extract as their logical
             // sequence even in readers that do not consume ActualText.
@@ -84,11 +83,11 @@ pub(super) fn embed_font_program(
     }
     cmap.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend");
     let to_unicode = compressed_stream(document, Dictionary::new(), cmap.into_bytes());
-    Ok(document.add_object(lopdf::dictionary! {
+    Ok(lopdf::dictionary! {
         "Type" => "Font", "Subtype" => "Type0", "BaseFont" => name,
         "Encoding" => "Identity-H", "DescendantFonts" => vec![Object::Reference(descendant)],
         "ToUnicode" => to_unicode,
-    }))
+    })
 }
 
 /// Retain a simple source font only when its painted advances can be measured.
