@@ -652,11 +652,11 @@ describe('browser page-ops WASM fast path', () => {
             throw new Error('Expected a successful browser page-ops catalog read');
         }
         expect(mergedCatalog.bookmarks).toHaveLength(2);
-        expect(mergedCatalog.bookmarks.map(bookmark => bookmark.pageIndex)).toEqual([
+        expect(mergedCatalog.bookmarks?.map(bookmark => bookmark.pageIndex)).toEqual([
             2,
             5,
         ]);
-        expect(mergedCatalog.pageLabels.map(range => range.pageIndex)).toEqual([
+        expect(mergedCatalog.pageLabels?.map(range => range.pageIndex)).toEqual([
             0,
             1,
             3,
