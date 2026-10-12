@@ -323,7 +323,6 @@ export async function exportDjvuAsMultiPageTiff(
         const pagePaths: string[] = [];
         let batchDpi: number | undefined;
         let stagedBytes = 0;
-        let outputPart = 0;
         const exportPages = [...iterateExportPages(pageCount, pages)];
         const totalPages = exportPages.length;
         const hasMixedPageDpi = new Set(exportPages.map(page => pageDpiByNumber.get(page) ?? null)).size > 1;
@@ -338,10 +337,8 @@ export async function exportDjvuAsMultiPageTiff(
             batchDpi = undefined;
             stagedBytes = 0;
             try {
-                const stagedPath = join(
-                    tempDirectory,
-                    `combined-part-${String(outputPart + 1).padStart(3, '0')}.tiff`,
-                );
+                const stagedPath = makeSiblingTempPath(targetPath);
+                stagedGroups.push({stagedPath});
                 const combineLease = await mainJobBroker.acquire({
                     ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
                     kind: 'djvu-tiff-combine',
@@ -366,97 +363,94 @@ export async function exportDjvuAsMultiPageTiff(
                     combineLease.release();
                 }
                 if (!combined) {
-                    await rm(stagedPath, {force: true}).catch(() => undefined);
                     throw new Error('Native TIFF output service is unavailable for DjVu export');
                 }
-                stagedGroups.push({stagedPath});
-                outputPart += 1;
             } finally {
                 await Promise.all(batchPaths.map(batchPath => rm(batchPath, {force: true}).catch(() => undefined)));
             }
         };
 
-        let processedPages = 0;
-        for (const page of exportPages) {
-            throwIfAborted(options.signal);
-            const pageDpi = pageDpiByNumber.get(page);
-            if (pagePaths.length > 0 && pageDpi !== batchDpi) {
-                await combineBatch();
-            }
-            const brokerLease = await mainJobBroker.acquire({
-                ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
-                kind: 'djvu-tiff-render-page',
-                priority: 'user',
-                resources: {
-                    cpuTokens: 1,
-                    estimatedResidentBytes: 128 * 1024 * 1024,
-                    nativeProcesses: 1,
-                    ioWeight: 2,
-                },
-                ...(options.signal ? {signal: options.signal} : {}),
-            });
-            const ppmPath = join(tempDirectory, `page-${page}.ppm`);
-            const render = await convertDjvuPageToImage(djvuPath, ppmPath, page, `djvu-tiff-export-${randomUUID()}`, {
-                format: 'ppm',
-                ...(options.signal ? {signal: options.signal} : {}),
-            }).finally(() => brokerLease.release());
-            if (!render.success) throw new Error(render.error ?? `Failed to render DjVu page ${page}`);
-            if (
-                pagePaths.length > 0
-                && (
-                    pagePaths.length >= DJVU_TIFF_BATCH_MAX_PAGES
-                    || stagedBytes + render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES
-                )
-            ) {
-                await combineBatch();
-            }
-            if (render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
-                throw new Error('DjVu TIFF page exceeds the staged-byte limit');
-            }
-            stagedBytes += render.fileSize;
-            pagePaths.push(ppmPath);
-            batchDpi ??= pageDpi;
-            processedPages += 1;
-            options.onProgress?.({
-                phase: 'rendering',
-                processed: processedPages,
-                total: totalPages,
-                percent: (processedPages / totalPages) * 90,
-            });
-        }
-        await combineBatch();
-        const outputPaths = resolveOutputPathConflicts(
-            stagedGroups.map((_, index) => buildDjvuTiffOutputPath(targetPath, index + 1, splitOutput)),
-        );
-        const stagedFiles = stagedGroups.map(({stagedPath}, index) => {
-            const targetOutputPath = outputPaths[index];
-            if (!targetOutputPath) {
-                throw new Error('Multi-page TIFF export target path is missing');
-            }
-            return {
-                stagedPath,
-                targetPath: targetOutputPath,
-                targetExisted: false,
-            };
-        });
         let promoted = false;
         try {
+            let processedPages = 0;
+            for (const page of exportPages) {
+                throwIfAborted(options.signal);
+                const pageDpi = pageDpiByNumber.get(page);
+                if (pagePaths.length > 0 && pageDpi !== batchDpi) {
+                    await combineBatch();
+                }
+                const brokerLease = await mainJobBroker.acquire({
+                    ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
+                    kind: 'djvu-tiff-render-page',
+                    priority: 'user',
+                    resources: {
+                        cpuTokens: 1,
+                        estimatedResidentBytes: 128 * 1024 * 1024,
+                        nativeProcesses: 1,
+                        ioWeight: 2,
+                    },
+                    ...(options.signal ? {signal: options.signal} : {}),
+                });
+                const ppmPath = join(tempDirectory, `page-${page}.ppm`);
+                const render = await convertDjvuPageToImage(djvuPath, ppmPath, page, `djvu-tiff-export-${randomUUID()}`, {
+                    format: 'ppm',
+                    ...(options.signal ? {signal: options.signal} : {}),
+                }).finally(() => brokerLease.release());
+                if (!render.success) throw new Error(render.error ?? `Failed to render DjVu page ${page}`);
+                if (
+                    pagePaths.length > 0
+                    && (
+                        pagePaths.length >= DJVU_TIFF_BATCH_MAX_PAGES
+                        || stagedBytes + render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES
+                    )
+                ) {
+                    await combineBatch();
+                }
+                if (render.fileSize > DJVU_EXPORT_MAX_BATCH_STAGED_BYTES) {
+                    throw new Error('DjVu TIFF page exceeds the staged-byte limit');
+                }
+                stagedBytes += render.fileSize;
+                pagePaths.push(ppmPath);
+                batchDpi ??= pageDpi;
+                processedPages += 1;
+                options.onProgress?.({
+                    phase: 'rendering',
+                    processed: processedPages,
+                    total: totalPages,
+                    percent: (processedPages / totalPages) * 90,
+                });
+            }
+            await combineBatch();
+            const outputPaths = resolveOutputPathConflicts(
+                stagedGroups.map((_, index) => buildDjvuTiffOutputPath(targetPath, index + 1, splitOutput)),
+            );
+            const stagedFiles = stagedGroups.map(({stagedPath}, index) => {
+                const targetOutputPath = outputPaths[index];
+                if (!targetOutputPath) {
+                    throw new Error('Multi-page TIFF export target path is missing');
+                }
+                return {
+                    stagedPath,
+                    targetPath: targetOutputPath,
+                    targetExisted: false,
+                };
+            });
             throwIfAborted(options.signal);
             await options.beforePublish?.();
             await promoteStagedFiles(stagedFiles, options.signal);
             promoted = true;
+            options.onProgress?.({
+                phase: 'combining',
+                processed: outputPaths.length,
+                total: outputPaths.length,
+                percent: 100,
+            });
+            return outputPaths;
         } finally {
             if (!promoted) {
                 await Promise.all(stagedGroups.map(({stagedPath}) => rm(stagedPath, {force: true}).catch(() => undefined)));
             }
         }
-        options.onProgress?.({
-            phase: 'combining',
-            processed: outputPaths.length,
-            total: outputPaths.length,
-            percent: 100,
-        });
-        return outputPaths;
     });
 }
 

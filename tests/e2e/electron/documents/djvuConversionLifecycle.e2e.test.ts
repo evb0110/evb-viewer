@@ -5,9 +5,11 @@ import {
     copyFileSync,
     existsSync,
     mkdirSync,
+    mkdtempSync,
     readdirSync,
     readFileSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -25,7 +27,9 @@ import {
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
+import * as UTIF from 'utif';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {createRequestId} from '@contracts/shared';
 import type {IDjvuOpenResult} from '@contracts/electronApiDjvu';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
@@ -424,4 +428,45 @@ describe('DjVu conversion lifecycle', () => {
         copyFileSync(textSource, join(artifactRoot, 'source.djvu'));
         copyFileSync(savePath, join(artifactRoot, 'destination.pdf'));
     });
+
+    // The app's temp folder is tmpfs and the destination is on another device, as
+    // with a tmpfs /tmp or a USB volume. The multi-page TIFF must still publish.
+    it.skipIf(process.platform !== 'linux')('publishes a two-page DjVu as multi-page TIFF across devices', async () => {
+        const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
+        const tempRoot = mkdtempSync(join('/dev/shm', 'evb-tiff-'));
+        const destinationRoot = join(suiteRoot, 'cross-device-destination');
+        const savePath = join(destinationRoot, 'pencil-export.tif');
+        mkdirSync(destinationRoot, {recursive: true});
+        try {
+            expect(statSync(destinationRoot).dev, 'the destination must be on another device than the app temp folder')
+                .not.toBe(statSync(tempRoot).dev);
+            const session = await sessions.start({
+                clean: true,
+                sessionName: () => `e2e-djvu-tiff-cross-device-${Date.now()}`,
+                extraEnv: {
+                    ...conversionEnv(tempRoot),
+                    EVB_E2E_SAVE_DIALOG_PATH: savePath,
+                    EVB_TIFF_COMBINE_NATIVE_ENABLE: '1',
+                },
+            });
+            await openDjvuInApp(session.page, fixture, 120_000);
+            await waitForDjvuLoaded(session.page, 120_000);
+            const result = await session.page.evaluate(
+                (path, requestId) => window.electronAPI!.imageExport.exportPdfToMultiPageTiff(path, undefined, requestId, 'djvu'),
+                requireDocumentRef(fixture),
+                createRequestId('djvu-tiff-cross-device'),
+            );
+            expect(result).toMatchObject({
+                success: true,
+                outputPaths: [savePath],
+            });
+            expect(UTIF.decode(new Uint8Array(readFileSync(savePath)))).toHaveLength(2);
+            expect(readdirSync(destinationRoot)).toEqual(['pencil-export.tif']);
+        } finally {
+            rmSync(tempRoot, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 180_000);
 });

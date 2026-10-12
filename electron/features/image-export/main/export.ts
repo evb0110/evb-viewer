@@ -17,6 +17,7 @@ import {
     dirname,
     extname,
     join,
+    resolve,
 } from 'path';
 import { fileURLToPath } from 'url';
 import type { ResourceLimits } from 'worker_threads';
@@ -522,6 +523,9 @@ export async function promoteStagedFiles(
             const targetPath = normalizePathForLookup(file.targetPath);
             if (targetPaths.has(targetPath)) {
                 throw new Error(`Duplicate image export target: ${file.targetPath}`);
+            }
+            if (resolve(dirname(file.stagedPath)) !== resolve(dirname(file.targetPath))) {
+                throw new Error(`Image export staged output is not beside its target: ${file.stagedPath}`);
             }
             targetPaths.add(targetPath);
         }
@@ -1185,90 +1189,76 @@ async function combinePagesIntoMultiPageTiff(
     defaultDpi = DEFAULT_RENDER_DPI,
 ) {
     throwIfAborted(signal);
-    const tempOutputPath = makeSiblingTempPath(outputPath);
-    let replacedOutput = false;
-
     const workerPath = resolveTiffCombineWorkerPath();
 
-    try {
-        if (!existsSync(workerPath)) {
-            if (!(await canUseLocalTiffCombineFallback(
-                pagePaths,
-                TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
-                TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
-            ))) {
-                logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback at ${workerPath}`);
-                throw getTiffCombineFallbackDisabledError();
-            }
-
-            logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages, defaultDpi);
-            throwIfAborted(signal);
-            await atomicReplace(tempOutputPath, outputPath);
-            replacedOutput = true;
-            return;
+    if (!existsSync(workerPath)) {
+        if (!(await canUseLocalTiffCombineFallback(
+            pagePaths,
+            TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
+            TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
+        ))) {
+            logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback at ${workerPath}`);
+            throw getTiffCombineFallbackDisabledError();
         }
 
-        try {
-            await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
-                workerPath,
-                workerData: {
-                    deleteSourcePages,
-                    defaultDpi,
-                    pagePaths,
-                    outputPath: tempOutputPath,
-                },
-                invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
-                createStartError: message => new TiffCombineWorkerStartupError(
-                    `TIFF combine worker failed to start: ${message}`,
-                ),
-                createStartupError: message => new TiffCombineWorkerStartupError(
-                    `TIFF combine worker failed before becoming ready: ${message}`,
-                ),
-                createStartupExitError: code => new TiffCombineWorkerStartupError(
-                    `TIFF combine worker exited during startup with code ${code}`,
-                ),
-                createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
-                decodeResult: decodeUndefinedWorkerResult,
-                invalidResultMessage: 'TIFF combine worker returned an invalid result',
-                resourceLimits: TIFF_COMBINE_WORKER_RESOURCE_LIMITS,
-                ...(signal ? { signal } : {}),
-                createCancelMessage: () => ({type: 'cancel'}),
-                cooperativeCancelDelayMs: 1_500,
-                timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
-            }), {
-                thresholdMs: 25,
-                details: {
-                    pageCount: pagePaths.length,
-                    outputPath,
-                },
-            });
-        } catch (error) {
-            if (!(error instanceof TiffCombineWorkerStartupError)) {
-                throw error;
-            }
-
-            if (!(await canUseLocalTiffCombineFallback(
-                pagePaths,
-                TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
-                TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
-            ))) {
-                logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback: ${error.message}`);
-                throw getTiffCombineFallbackDisabledError();
-            }
-
-            logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages, defaultDpi);
-        }
-
-        throwIfAborted(signal);
-        await atomicReplace(tempOutputPath, outputPath);
-        replacedOutput = true;
-    } finally {
-        if (!replacedOutput) {
-            await rm(tempOutputPath, { force: true }).catch(() => undefined);
-        }
+        logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
+        await runLocalTiffCombine(pagePaths, outputPath, signal, deleteSourcePages, defaultDpi);
+        return;
     }
+
+    try {
+        await measureElectronPerfAsync('image-export:tiffCombineWorker', () => runResultWorkerTask<undefined>({
+            workerPath,
+            workerData: {
+                deleteSourcePages,
+                defaultDpi,
+                pagePaths,
+                outputPath,
+            },
+            invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
+            createStartError: message => new TiffCombineWorkerStartupError(
+                `TIFF combine worker failed to start: ${message}`,
+            ),
+            createStartupError: message => new TiffCombineWorkerStartupError(
+                `TIFF combine worker failed before becoming ready: ${message}`,
+            ),
+            createStartupExitError: code => new TiffCombineWorkerStartupError(
+                `TIFF combine worker exited during startup with code ${code}`,
+            ),
+            createWorkerExitError: code => new Error(`TIFF combine worker exited with code ${code}`),
+            decodeResult: decodeUndefinedWorkerResult,
+            invalidResultMessage: 'TIFF combine worker returned an invalid result',
+            resourceLimits: TIFF_COMBINE_WORKER_RESOURCE_LIMITS,
+            ...(signal ? { signal } : {}),
+            createCancelMessage: () => ({type: 'cancel'}),
+            cooperativeCancelDelayMs: 1_500,
+            timeoutMs: TIFF_COMBINE_WORKER_TIMEOUT_MS,
+        }), {
+            thresholdMs: 25,
+            details: {
+                pageCount: pagePaths.length,
+                outputPath,
+            },
+        });
+    } catch (error) {
+        if (!(error instanceof TiffCombineWorkerStartupError)) {
+            throw error;
+        }
+
+        if (!(await canUseLocalTiffCombineFallback(
+            pagePaths,
+            TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
+            TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
+        ))) {
+            logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback: ${error.message}`);
+            throw getTiffCombineFallbackDisabledError();
+        }
+
+        logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
+        await runLocalTiffCombine(pagePaths, outputPath, signal, deleteSourcePages, defaultDpi);
+    }
+
+    throwIfAborted(signal);
 }
 
 export async function exportPdfAsMultiPageTiff(
@@ -1302,91 +1292,92 @@ export async function exportPdfAsMultiPageTiff(
                 percent: 0,
             });
             const stagedGroupPaths: string[] = [];
-            let combinedGroupCount = 0;
             const expectedRenderWindowCount = Math.max(1, Math.ceil(pageCount / PDF_EXPORT_RENDER_CHUNK_PAGES));
-            for (const pageRange of createPageRanges(pageCount)) {
-                throwIfAborted(options.signal);
-                const renderDir = await mkdtemp(join(tempDir, 'render-pages-'));
-                try {
-                    const renderedPageFiles = await renderPdfToTempPages(
-                        preparedSourcePdf,
-                        'tiff',
-                        pageRange,
-                        renderDir,
-                        renderDpi,
-                        options.signal,
-                        options.cancelGroup,
-                    );
-                    let stagedPageBytes = 0;
-                    for (const renderedPageFile of renderedPageFiles) {
-                        stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
-                            'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
-                    }
-                    renderedPageCount += renderedPageFiles.length;
-                    emitExportProgress(options, {
-                        phase: 'rendering',
-                        processed: renderedPageCount,
-                        total: pageCount,
-                        percent: (renderedPageCount / pageCount) * 90,
-                    });
-
-                    const tiffPageDescriptors = await readTiffPageDescriptors(
-                        renderedPageFiles.map(pageFile => pageFile.path),
-                        options.signal,
-                        renderDpi,
-                    );
-                    const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
-                    for (const tiffPageGroup of tiffPageGroups) {
-                        throwIfAborted(options.signal);
-                        const stagedPath = join(
-                            tempDir,
-                            `tiff-group-${String(combinedGroupCount + 1).padStart(6, '0')}.tiff`,
-                        );
-                        await combinePagesIntoMultiPageTiff(
-                            tiffPageGroup.map(page => page.path),
-                            stagedPath,
+            try {
+                for (const pageRange of createPageRanges(pageCount)) {
+                    throwIfAborted(options.signal);
+                    const renderDir = await mkdtemp(join(tempDir, 'render-pages-'));
+                    try {
+                        const renderedPageFiles = await renderPdfToTempPages(
+                            preparedSourcePdf,
+                            'tiff',
+                            pageRange,
+                            renderDir,
+                            renderDpi,
                             options.signal,
-                            true,
+                            options.cancelGroup,
+                        );
+                        let stagedPageBytes = 0;
+                        for (const renderedPageFile of renderedPageFiles) {
+                            stagedPageBytes = await addStagedImageFileBytes(stagedPageBytes, renderedPageFile.path,
+                                'Multi-page TIFF export exceeds the 2 GiB scratch limit for one render window');
+                        }
+                        renderedPageCount += renderedPageFiles.length;
+                        emitExportProgress(options, {
+                            phase: 'rendering',
+                            processed: renderedPageCount,
+                            total: pageCount,
+                            percent: (renderedPageCount / pageCount) * 90,
+                        });
+
+                        const tiffPageDescriptors = await readTiffPageDescriptors(
+                            renderedPageFiles.map(pageFile => pageFile.path),
+                            options.signal,
                             renderDpi,
                         );
-                        stagedGroupPaths.push(stagedPath);
-                        combinedGroupCount += 1;
-                        emitExportProgress(options, {
-                            phase: 'combining',
-                            processed: combinedGroupCount,
-                            total: Math.max(expectedRenderWindowCount, combinedGroupCount),
-                            percent: 90 + ((combinedGroupCount / Math.max(expectedRenderWindowCount, combinedGroupCount)) * 10),
-                        });
+                        const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
+                        for (const tiffPageGroup of tiffPageGroups) {
+                            throwIfAborted(options.signal);
+                            const stagedPath = makeSiblingTempPath(targetPath);
+                            stagedGroupPaths.push(stagedPath);
+                            await combinePagesIntoMultiPageTiff(
+                                tiffPageGroup.map(page => page.path),
+                                stagedPath,
+                                options.signal,
+                                true,
+                                renderDpi,
+                            );
+                            const combinedGroupCount = stagedGroupPaths.length;
+                            emitExportProgress(options, {
+                                phase: 'combining',
+                                processed: combinedGroupCount,
+                                total: Math.max(expectedRenderWindowCount, combinedGroupCount),
+                                percent: 90 + ((combinedGroupCount / Math.max(expectedRenderWindowCount, combinedGroupCount)) * 10),
+                            });
+                        }
+                    } finally {
+                        await rm(renderDir, {
+                            recursive: true,
+                            force: true,
+                        }).catch(() => undefined);
                     }
-                } finally {
-                    await rm(renderDir, {
-                        recursive: true,
-                        force: true,
-                    }).catch(() => undefined);
                 }
-            }
-            const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, stagedGroupPaths.length));
-            const stagedFiles = stagedGroupPaths.map((stagedPath, index) => {
-                const targetOutputPath = outputPaths[index];
-                if (!targetOutputPath) {
-                    throw new Error('Multi-page TIFF export target path is missing');
+                const outputPaths = resolveOutputPathConflicts(buildMultiPageTiffOutputPaths(targetPath, stagedGroupPaths.length));
+                const stagedFiles = stagedGroupPaths.map((stagedPath, index) => {
+                    const targetOutputPath = outputPaths[index];
+                    if (!targetOutputPath) {
+                        throw new Error('Multi-page TIFF export target path is missing');
+                    }
+                    return {
+                        stagedPath,
+                        targetPath: targetOutputPath,
+                        targetExisted: existsSync(targetOutputPath),
+                    };
+                });
+                throwIfAborted(options.signal);
+                await options.beforePublish?.();
+                await promoteStagedFiles(stagedFiles, options.signal);
+                for (const outputPath of outputPaths) {
+                    if (!existsSync(outputPath)) {
+                        throw new Error('Multi-page TIFF export did not produce an output file');
+                    }
                 }
-                return {
-                    stagedPath,
-                    targetPath: targetOutputPath,
-                    targetExisted: existsSync(targetOutputPath),
-                };
-            });
-            throwIfAborted(options.signal);
-            await options.beforePublish?.();
-            await promoteStagedFiles(stagedFiles, options.signal);
-            for (const outputPath of outputPaths) {
-                if (!existsSync(outputPath)) {
-                    throw new Error('Multi-page TIFF export did not produce an output file');
-                }
-            }
 
-            return outputPaths;
+                return outputPaths;
+            } catch (error) {
+                await Promise.all(stagedGroupPaths.map(stagedPath => rm(stagedPath, {force: true}).catch(() => undefined)));
+                throw error;
+            }
         },
     ));
 }

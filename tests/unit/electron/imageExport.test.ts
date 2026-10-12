@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
     basename,
+    dirname,
     join,
 } from 'path';
 import {
@@ -718,6 +719,8 @@ describe('image export', () => {
         mocks.pdfPageCount = 50;
         mocks.tiffWorkerPath = join(tempDir, 'mock-tiff-worker.js');
         await writeFile(mocks.tiffWorkerPath, 'mock worker');
+        let siblingCount = 0;
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => `${targetPath}.${++siblingCount}.tmp`);
         let firstWindowReleasedBeforeSecondRender = false;
         const defaultRunCommand = mocks.runCommand.getMockImplementation();
         if (!defaultRunCommand) {
@@ -777,6 +780,50 @@ describe('image export', () => {
         expect(existsSync(outputPath)).toBe(false);
         expect(existsSync(`${outputPath}.tmp`)).toBe(false);
         expect(mocks.tiffWorkerPageGroups).toHaveLength(1);
+    });
+
+    it('publishes a multi-page TIFF with a same-directory rename when the app temp folder is on another device', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        mocks.atomicReplace.mockImplementation(realAtomicReplace.atomicReplace);
+        mocks.rename.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (dirname(sourcePath) !== dirname(targetPath)) {
+                throw Object.assign(new Error('Cross-device link'), {code: 'EXDEV'});
+            }
+            await realFs.rename(sourcePath, targetPath);
+        });
+        const outputPath = join(tempDir, 'cross-device.tiff');
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
+
+        expect(UTIF.decode(new Uint8Array(await readFile(outputPath)))).toHaveLength(2);
+        expect(readdirSync(tempDir).filter(name => name.endsWith('.tmp'))).toEqual([]);
+    });
+
+    it('leaves no TIFF part beside the target when export is canceled after the first part is staged', async () => {
+        mocks.renderPageCount = 50;
+        mocks.pdfPageCount = 50;
+        mocks.tiffWorkerPath = join(tempDir, 'mock-tiff-worker.js');
+        await writeFile(mocks.tiffWorkerPath, 'mock worker');
+        const controller = new AbortController();
+        const defaultRunCommand = mocks.runCommand.getMockImplementation();
+        if (!defaultRunCommand) {
+            throw new Error('Expected default command mock');
+        }
+        mocks.runCommand.mockImplementation(async (command: string, args: string[], options?: Record<string, unknown>) => {
+            if (command === '/mock/pdftoppm' && Number(args[args.indexOf('-f') + 1]) > 1) {
+                controller.abort();
+            }
+            return defaultRunCommand(command, args, options);
+        });
+        const outputPath = join(tempDir, 'canceled-after-first-part.tiff');
+
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {signal: controller.signal}))
+            .rejects
+            .toThrow('The operation was aborted');
+
+        expect(mocks.tiffWorkerPageGroups).toHaveLength(1);
+        expect(readdirSync(tempDir)).toEqual(['mock-tiff-worker.js']);
     });
 
     it('renders every page at its source resolution instead of upscaling it', async () => {
@@ -2027,16 +2074,7 @@ describe('image export', () => {
         mocks.pdfPageCount = 2;
         const outputPath = join(tempDir, 'cleanup.tiff');
         let firstRenderedPagePath = '';
-
-        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
-            if (targetPath === `${outputPath}.tmp`) {
-                expect(firstRenderedPagePath).not.toBe('');
-                expect(existsSync(firstRenderedPagePath)).toBe(false);
-            }
-
-            await writeFile(targetPath, await readFile(sourcePath));
-            await rm(sourcePath, { force: true });
-        });
+        let checkedBeforePublish = false;
 
         const recordRenderedPageTemp = (progress: IImageExportProgressForTest) => {
             if (progress.phase === 'rendering' && progress.processed === 2) {
@@ -2050,8 +2088,16 @@ describe('image export', () => {
             }
         };
 
-        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {onProgress: recordRenderedPageTemp})).resolves.toEqual([outputPath]);
+        await expect(exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath, {
+            onProgress: recordRenderedPageTemp,
+            beforePublish: () => {
+                checkedBeforePublish = true;
+                expect(firstRenderedPagePath).not.toBe('');
+                expect(existsSync(firstRenderedPagePath)).toBe(false);
+            },
+        })).resolves.toEqual([outputPath]);
 
+        expect(checkedBeforePublish).toBe(true);
         expect(existsSync(outputPath)).toBe(true);
     });
 });
