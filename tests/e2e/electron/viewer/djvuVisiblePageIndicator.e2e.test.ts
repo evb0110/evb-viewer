@@ -1,5 +1,5 @@
 import {
-    copyFileSync, mkdtempSync, writeFileSync,
+    copyFileSync, mkdirSync, mkdtempSync, writeFileSync,
 } from 'node:fs';
 import {rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -11,18 +11,20 @@ import {
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    openDjvuInApp, waitForDjvuLoaded, waitForPdfLoaded, waitForViewerInteractive,
+    clickToolbarButtonWhenEnabled, openDjvuInApp, waitForDjvuLoaded, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     activateMenuItemAsUser, clickAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
-    waitForWorkspaceToolbarSnapshot, readWorkspaceStateValues,
+    waitForWorkspaceToolbarSnapshot, readWorkspaceStateValues, requireWorkspaceCommand,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type {Page} from 'puppeteer-core';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {collectDocumentOpenDiagnostics} from '@tests/e2e/electron/helpers/collectDocumentOpenDiagnostics';
 
 
@@ -62,6 +64,80 @@ async function readPageGeometry(page: Page) {
 
 describe('Electron E2E - DjVu visible page indicator', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-djvu-visible-indicator-${Date.now()}`});
+
+
+    it('repaints the DjVu Fit Width page sharply after every sidebar close', async () => {
+        const session = sessions.getSession();
+        const {page} = session;
+        await page.setViewport(null);
+        await session.command('windowResize', [
+            620,
+            760,
+        ]);
+        const fixture = resolve('tests/fixtures/djvu/sources/color-text-stamps-maps.djvu');
+        await openDjvuInApp(page, fixture, 90_000);
+        await waitForDjvuLoaded(page, 90_000);
+        const nativeWidth = await page.evaluate(async path => (
+            await (window as IE2EWindow).electronAPI!.djvu.getPageSourceInfo(path, 1)
+        ).pageSize.width, requireDocumentRef(fixture));
+        const readRaster = () => page.evaluate(nativeWidth => {
+            const image = Array.from(document.querySelectorAll<HTMLImageElement>(
+                '.editor-pane.is-active [data-document-page-number="1"] img[data-testid="document-page-source-image"]',
+            )).find(element => element.checkVisibility() && element.getBoundingClientRect().width > 0);
+            const width = image?.getBoundingClientRect().width ?? 0;
+            const naturalWidth = image?.complete ? image.naturalWidth : 0;
+            const needed = Math.round(Math.min(width * window.devicePixelRatio, nativeWidth));
+            return {
+                width: Math.round(width),
+                naturalWidth,
+                needed,
+                sharp: naturalWidth > 0 && naturalWidth >= needed - 2,
+            };
+        }, nativeWidth);
+        const evidenceDirectory = resolve('.devkit/evidence/djvublur', session.name);
+        mkdirSync(evidenceDirectory, {recursive: true});
+        const blurred: number[] = [];
+        // Repeated real slides cover the race between resize settle and the
+        // anchor-restore frame. Shrinking first prevents a retained large raster
+        // from hiding a missing repaint on the next enlargement.
+        for (let cycle = 1; cycle <= 18; cycle += 1) {
+            await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
+            await new Promise(resolve => setTimeout(resolve, 1_500));
+            for (let step = 0; step < 3; step += 1) {
+                await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+-'});
+            }
+            await new Promise(resolve => setTimeout(resolve, 1_500));
+            await requireWorkspaceCommand(page, 'handleFitWidth');
+            await new Promise(resolve => setTimeout(resolve, 1_500));
+            const narrow = await readRaster();
+            expect(narrow.sharp, `cycle ${cycle}: narrow raster is ready`).toBe(true);
+            await clickToolbarButtonWhenEnabled(page, 'Toggle Sidebar');
+            // The normal settle budget, rather than the old 8.5-second stall.
+            await new Promise(resolve => setTimeout(resolve, 2_500));
+            const closed = await readRaster();
+            expect(closed.width, `cycle ${cycle}: sidebar really enlarged the page`).toBeGreaterThan(narrow.width + 100);
+            console.info('[djvublur]', JSON.stringify({
+                cycle,
+                narrow,
+                closed,
+            }));
+            if (!closed.sharp) blurred.push(cycle);
+            if (!closed.sharp || cycle === 18) {
+                // Retain the actual painted pixels alongside raster/display
+                // geometry, including the final fixed view and every failure.
+                await page.screenshot({path: join(evidenceDirectory, `sidebar-close-${cycle}.png`)});
+            }
+            if (!closed.sharp) {
+                await new Promise(resolve => setTimeout(resolve, 6_000));
+                console.info('[djvublur-at8500ms]', JSON.stringify({
+                    cycle,
+                    raster: await readRaster(),
+                }));
+            }
+        }
+        console.info('[djvublur-summary]', `${blurred.length}/18 cycles blurred at 2.5 s`);
+        expect(blurred, 'every sidebar close paints at its settled display resolution').toEqual([]);
+    }, 360_000);
 
     // T5/L2: a replacement open must paint its page in the current opening.
     it.each([
