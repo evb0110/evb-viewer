@@ -174,16 +174,25 @@ describe('JFIF density helper', () => {
 });
 
 describe('PNG density', () => {
+    function chunkTypes(bytes: Uint8Array) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const types: string[] = [];
+        for (let offset = 8; offset < bytes.byteLength; offset += view.getUint32(offset) + 12) {
+            types.push(String.fromCharCode(...bytes.subarray(offset + 4, offset + 8)));
+        }
+        return types;
+    }
+
     it.each([
-        false,
-        true,
-    ])('writes one density before image data, replacing existing density (%s)', (existing) => {
+        0,
+        1,
+        2,
+    ])('replaces %s existing density chunks with one before image data', (existingChunks) => {
         const encoded = encodePng({
             width: 1,
             height: 1,
             channels: 3,
             data: Uint8Array.of(17, 33, 55),
-
         });
         // fast-png encodes no pHYs; insert a valid 96 DPI chunk after IHDR.
         const density = Uint8Array.of(
@@ -191,20 +200,17 @@ describe('PNG density', () => {
             0x73, 0x00, 0x00, 0x0e, 0xc4, 0x00, 0x00,
             0x0e, 0xc4, 0x01, 0x95, 0x2b, 0x0e, 0x1b,
         );
-        const png = existing
-            ? Uint8Array.from([
-                ...encoded.subarray(0, 33),
-                ...density,
-                ...encoded.subarray(33),
-            ])
-            : encoded;
-        expect(decodePng(png).resolution?.x).toBe(existing ? 3780 : undefined);
+        const png = Uint8Array.from([
+            ...encoded.subarray(0, 33),
+            ...(existingChunks ? density : []),
+            ...encoded.subarray(33, -12),
+            ...(existingChunks === 2 ? density : []),
+            ...encoded.subarray(-12),
+        ]);
+        expect(chunkTypes(png).filter(type => type === 'pHYs')).toHaveLength(existingChunks);
+        expect(decodePng(png).resolution?.x).toBe(existingChunks ? 3780 : undefined);
         const bytes = addPngPhysicalResolution(png, 300);
-        const chunks: string[] = [];
-        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        for (let offset = 8; offset < bytes.byteLength; offset += view.getUint32(offset) + 12) {
-            chunks.push(String.fromCharCode(...bytes.subarray(offset + 4, offset + 8)));
-        }
+        const chunks = chunkTypes(bytes);
         expect(chunks.filter(type => type === 'pHYs')).toHaveLength(1);
         expect(chunks.indexOf('pHYs')).toBeLessThan(chunks.indexOf('IDAT'));
         const decoded = decodePng(bytes);
