@@ -847,7 +847,7 @@ describe('Electron E2E - pending external page drop', () => {
             return state && state.isPageOperationInProgress === false && state.totalPages !== 4;
         }, {timeout:120_000});
         // Let the app's own insertion or explicit cancellation become observable.
-        await page.waitForFunction(() => document.body.innerText.includes('Document changed')
+        await page.waitForFunction(() => document.body.innerText.includes('The drop was cancelled because the pages changed')
             || (window.__evbTestApi?.readActiveWorkspaceStateValues<{totalPages: number}>(['totalPages']).totalPages ?? 0) > 4, {timeout: 120_000});
         const result = await page.evaluate(() => ({
             ...window.__evbTestApi?.readActiveWorkspaceStateValues<{
@@ -861,7 +861,7 @@ describe('Electron E2E - pending external page drop', () => {
         }));
         console.log('pending page drop outcome', result);
         expect(result.totalPages).toBe(3);
-        expect(result.visible).toContain('Document changed');
+        expect(result.visible).toContain('The drop was cancelled because the pages changed');
         await clickToolbarButtonWhenEnabled(page, 'Undo');
         await page.waitForFunction(() => window.__evbTestApi
             ?.readActiveWorkspaceStateValues(['totalPages']).totalPages === 4);
