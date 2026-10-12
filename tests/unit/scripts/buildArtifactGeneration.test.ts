@@ -27,6 +27,7 @@ import {
 } from '@scripts/generateReleaseTargetManifest';
 import { NATIVE_TOOL_RESOURCE_FAMILIES } from '@scripts/nativeResourceManifest';
 import {
+    generateFirstUnsupportedAnnotationCharacter,
     renderFirstUnsupportedAnnotationCharacter,
     unicodeRanges,
 } from '@scripts/generateFirstUnsupportedAnnotationCharacter';
@@ -121,7 +122,6 @@ describe('build artifact generation', () => {
     });
 });
 
-const bundledFontPath = path.join(process.cwd(), 'public/fonts/annotation/DejaVuSans.ttf');
 const checkedInTablePath = path.join(process.cwd(), 'packages/contracts/firstUnsupportedAnnotationCharacter.ts');
 
 function u16(...values: number[]) {
@@ -198,11 +198,14 @@ function sfnt(subtables: ReadonlyArray<{
 }
 
 describe('first unsupported annotation character table generation', () => {
-    it('reproduces the checked-in table from the bundled DejaVu Sans font', async () => {
-        const font = await readFile(bundledFontPath);
+    it('keeps the contract and combined coverage unchanged through build regeneration', async () => {
         const checkedIn = await readFile(checkedInTablePath, 'utf8');
-
-        expect(renderFirstUnsupportedAnnotationCharacter(font)).toBe(checkedIn);
+        const coveragePath = path.join(process.cwd(), 'packages/contracts/annotationFontCoverage.json');
+        const coverage = await readFile(coveragePath, 'utf8');
+        await expect(generateFirstUnsupportedAnnotationCharacter()).resolves.toBe(false);
+        expect(await readFile(checkedInTablePath, 'utf8')).toBe(checkedIn);
+        expect(await readFile(coveragePath, 'utf8')).toBe(coverage);
+        expect(renderFirstUnsupportedAnnotationCharacter()).toBe(checkedIn);
     });
 
     it('reads the full-repertoire format 12 subtable over a BMP format 4 subtable and drops glyph 0 mappings', () => {
@@ -310,7 +313,7 @@ describe('first unsupported annotation character table generation', () => {
         expect(() => unicodeRanges(font)).toThrow(/unsupported cmap subtable/);
     });
 
-    it('changes the rendered table and source digest when the font bytes change', () => {
+    it('merges updated font cmap coverage without duplicate ranges', () => {
         const original = sfnt([{
             platform: 3,
             encoding: 10,
@@ -330,10 +333,16 @@ describe('first unsupported annotation character table generation', () => {
             ]]),
         }]);
 
-        const originalTable = renderFirstUnsupportedAnnotationCharacter(original);
-        const changedTable = renderFirstUnsupportedAnnotationCharacter(changed);
+        const originalTable = unicodeRanges(original);
+        const changedTable = unicodeRanges([
+            original,
+            changed,
+        ]);
 
-        expect(changedTable).not.toBe(originalTable);
-        expect(changedTable).toContain('        0x41,\n        0x42,');
+        expect(changedTable).not.toEqual(originalTable);
+        expect(changedTable).toEqual([[
+            0x41,
+            0x42,
+        ]]);
     });
 });

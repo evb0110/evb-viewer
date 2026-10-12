@@ -519,7 +519,7 @@ function normalizeTextBoxes(
         const unsupportedCharacter = firstUnsupportedAnnotationCharacter(editor.text);
         if (unsupportedCharacter !== undefined) {
             const codepoint = unsupportedCharacter.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0');
-            fail(`${label}[${index}].text uses U+${codepoint}, which the text box font DejaVu Sans does not support`, options);
+            fail(`${label}[${index}].text uses U+${codepoint}, which the text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support`, options);
         }
         if (!Array.isArray(editor.rect) || editor.rect.length !== 4) {
             fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);

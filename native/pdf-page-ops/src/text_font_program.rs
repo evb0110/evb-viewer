@@ -2,6 +2,12 @@
 
 use super::*;
 
+pub(crate) const FONTS: [&[u8]; 3] = [
+    include_bytes!("../../../public/fonts/annotation/NotoSansHebrew-Regular.ttf"),
+    FONT,
+    include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf"),
+];
+
 fn compressed_stream(document: &mut Document, dictionary: Dictionary, bytes: Vec<u8>) -> ObjectId {
     let mut stream = Stream::new(dictionary, bytes);
     // Compression failure does not affect semantics or permit font substitution.

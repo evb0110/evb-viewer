@@ -23,15 +23,14 @@ fn invisible(character: char) -> bool {
 }
 
 pub(crate) fn validate_text(text: &str) -> Result<()> {
-    let font = face();
-    let charmap = font.charmap();
-    for character in text.chars() {
-        if invisible(character) {
-            continue;
-        }
-        if character.is_control() || charmap.map(character).is_none() {
+    let fonts = FONTS.map(|bytes| FontRef::from_index(bytes, 0).expect("bundled font"));
+    for character in text.chars().filter(|c| !invisible(*c)) {
+        let covered = fonts
+            .iter()
+            .any(|font| font.charmap().map(character).is_some());
+        if character.is_control() || !covered {
             return Err(format!(
-                "Text box font DejaVu Sans does not support U+{:04X}",
+                "Text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support U+{:04X}",
                 u32::from(character)
             )
             .into());
@@ -218,7 +217,7 @@ pub(crate) fn existing_font(document: &Document) -> Option<ObjectId> {
 
 #[path = "text_font_program.rs"]
 mod text_font_program;
-pub(crate) use text_font_program::{embed_font, embed_font_program, simple_font_advances};
+pub(crate) use text_font_program::{embed_font, embed_font_program, simple_font_advances, FONTS};
 
 pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
     let mut result = if bom {
@@ -808,7 +807,7 @@ mod tests {
             .to_string()
             .contains("U+4E2D"));
         assert!(validate_text("a\0b").is_err());
-        validate_text("a\r\nb\t\u{200f}שלום").unwrap();
+        validate_text("a\r\nb\t\u{200f}שלום\nܫܠܵܡܵܐ\nבְּרֵאשִׁ֖ית\nبَسْمِ لَا بــِسْمِ").unwrap();
     }
 
     #[test]

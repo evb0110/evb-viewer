@@ -12,6 +12,9 @@ import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMut
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 import type {IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';
+import coverage from '@contracts/annotationFontCoverage.json';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 
 const textBox: IPdfNativeTextBoxMutation = {
     pageIndex: requirePageIndex(0),
@@ -36,6 +39,12 @@ const textBox: IPdfNativeTextBoxMutation = {
 };
 
 describe('native PDF text-box mutation contracts', () => {
+    it('binds generated coverage to the shipped font programs', () => {
+        for (const font of coverage.fonts) {
+            const bytes = readFileSync(new URL(`../../../public/fonts/annotation/${font.file}`, import.meta.url));
+            expect(createHash('sha256').update(bytes).digest('hex')).toBe(font.sha256);
+        }
+    });
     it('normalizes canonical and legacy keys to textBoxes without emitting the alias', () => {
         const canonical = normalizePdfNativeMutationSet({textBoxes: [textBox]}, 'mutations');
         expect(canonical.textBoxes).toEqual([textBox]);
@@ -53,6 +62,9 @@ describe('native PDF text-box mutation contracts', () => {
         'Cafe\u0301 naïve Ελληνικά',
         'שָׁלוֹם',
         'العَرَبِيَّة',
+        'ܫܠܵܡܵܐ',
+        'בְּרֵאשִׁ֖ית',
+        'بَسْمِ لَا بــِسْمِ',
         'Latin שלום العربية 123\nSecond line\tПривет',
     ])('preserves portable Unicode text unchanged: %s', (text) => {
         const normalized = normalizePdfNativeMutationSet({textBoxes: [{

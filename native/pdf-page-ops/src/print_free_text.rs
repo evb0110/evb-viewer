@@ -176,13 +176,7 @@ pub(super) fn missing_free_text_appearance(
             let programs: Vec<&[u8]> = programs
                 .iter()
                 .map(Vec::as_slice)
-                .chain([
-                    include_bytes!("../../../public/fonts/annotation/NotoSansHebrew-Regular.ttf")
-                        .as_slice(),
-                    crate::text_box_font::FONT,
-                    include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf")
-                        .as_slice(),
-                ])
+                .chain(crate::text_box_font::FONTS)
                 .collect();
             let padding = crate::text_box_font::PADDING_X * size;
             let width = (geometry.width - 2.0 * padding).max(0.0);
