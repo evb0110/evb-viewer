@@ -61,6 +61,7 @@ interface IAddedChecksModule {findAddedChecks: (
         status: string
     }>,
     readAddedLines: (path: string) => string[],
+    readRemovedLines?: (path: string) => string[],
 ) => string[];}
 
 const addedChecks = await import(
@@ -406,6 +407,47 @@ describe('added check and flake tolerance detection', () => {
             }],
             () => ['await new Promise(resolve => setTimeout(resolve, 500));'],
         )).toEqual([]);
+    });
+    it('treats tests moved between files as edits, not new checks', () => {
+        const removed: Record<string, string[]> = {'tests/a.test.ts': [
+            'it(\'keeps notes\', async () => {',
+            '    }, 120_000);',
+            '    ])(\'reads table row %s\', async row => {',
+        ]};
+        const moved: Record<string, string[]> = {'tests/b.test.ts': [
+            'it(\'keeps notes\', async () => {',
+            '    }, 120_000);',
+            '    ])(\'reads table row %s\', async row => {',
+        ]};
+        const entries = [
+            {
+                path: 'tests/a.test.ts',
+                status: 'M',
+            },
+            {
+                path: 'tests/b.test.ts',
+                status: 'A',
+            },
+        ];
+        expect(addedChecks.findAddedChecks(entries, filePath => moved[filePath] ?? [], filePath => removed[filePath] ?? [])).toEqual([]);
+        const fresh: Record<string, string[]> = {'tests/b.test.ts': [
+            'it(\'keeps notes\', async () => {',
+            'it(\'adds a check\', async () => {',
+            '    }, 90_000);',
+        ]};
+        expect(addedChecks.findAddedChecks(entries, filePath => fresh[filePath] ?? [], filePath => removed[filePath] ?? []))
+            .toEqual(['new test file: tests/b.test.ts']);
+        expect(addedChecks.findAddedChecks(
+            [{
+                path: 'tests/a.test.ts',
+                status: 'M',
+            }],
+            () => [
+                '    }, 120_000);',
+                '    }, 90_000);',
+            ],
+            () => ['    }, 120_000);'],
+        )).toEqual(['test timeout override: tests/a.test.ts (}, 90_000);)']);
     });
 });
 
