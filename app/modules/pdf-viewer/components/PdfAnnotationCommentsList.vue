@@ -840,6 +840,7 @@ function deleteComment(comment: IAnnotationCommentSummary) {
 
     /* Keep waves inside each line box. Padding on a clamped box exposes the
        next line's glyphs beneath the ellipsis. */
+    font-family: "EVB Annotation Sans", sans-serif;
     font-size: var(--app-sidebar-row-font-size);
     line-height: 1.55;
     color: var(--ui-text-highlighted);

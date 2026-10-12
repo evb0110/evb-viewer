@@ -32,11 +32,13 @@ import {
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openAnnotationsTab,
+    openDocumentSidebarTab,
     openPdfInApp,
     saveViaVisibleToolbar,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const POINTER_READY_TIMEOUT_MS = 30_000;
@@ -768,6 +770,85 @@ describe('Electron E2E - annotation controls', () => {
 
     it.each([
         [
+            'Syriac',
+            'ܫܠܵܡܵܐ',
+            'NotoSansSyriac-Regular',
+        ],
+        [
+            'Hebrew cantillation',
+            'שָׁל֑וֹם',
+            'NotoSansHebrew-Regular',
+        ],
+    ])('paints the UI search input and results for %s with the bundled font', async (script, text, postScriptName) => {
+        const {page} = sessionFixture.getSession();
+        const evidence = resolve('.devkit/semtext-r4/evidence', process.env.SEMTEXT_REVISION ?? 'candidate', script);
+        mkdirSync(evidence, {recursive: true});
+        // core4's public two-page RTL fixture has exact pointed text, embedded
+        // glyphs and ToUnicode mappings. Search itself is already correct.
+        await openPdfInApp(page, resolve('tests/fixtures/electron/semtext/search.pdf'));
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Search');
+        const input = '.editor-pane.is-active .document-search-bar input';
+        await clickAsUser(page, input);
+        await page.keyboard.type(text);
+        await page.keyboard.press('Enter');
+        await page.waitForFunction((query: string) => {
+            const panel = document.querySelector('.editor-pane.is-active .document-search-results');
+            return panel?.querySelector('.document-search-results-header-summary')?.textContent?.includes(query)
+                && !panel.querySelector('.document-search-results-spinner')
+                && panel.querySelectorAll('.document-search-result').length === 2;
+        }, {timeout: POINTER_READY_TIMEOUT_MS}, text);
+        await page.evaluate(async () => {
+            await document.fonts.ready;
+            await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+        });
+        await page.screenshot({path: join(evidence, 'search-page.png')});
+        await (await page.$(input))!.screenshot({path: join(evidence, 'search-input.png')});
+        await (await page.$('.editor-pane.is-active .document-search-results'))!.screenshot({path: join(evidence, 'search-results.png')});
+        const client = await page.createCDPSession();
+        await client.send('DOM.enable');
+        await client.send('CSS.enable');
+        const tree = await client.send('DOM.getDocument', {pierce: true});
+        const samples = [];
+        for (const selector of [
+            input,
+            '.editor-pane.is-active .document-search-result-highlight',
+        ]) {
+            const node = await client.send('DOM.querySelector', {
+                nodeId: tree.root.nodeId,
+                selector,
+            });
+            const {fonts} = await client.send('CSS.getPlatformFontsForNode', {nodeId: node.nodeId});
+            samples.push({
+                selector,
+                fonts,
+            });
+        }
+        await client.detach();
+        const value = await page.$eval(input, element => (element as HTMLInputElement).value);
+        const matches = await page.$$eval('.editor-pane.is-active .document-search-result-highlight', elements => elements.map(element => element.textContent));
+        writeFileSync(join(evidence, 'painted-fonts.json'), JSON.stringify({
+            script,
+            text,
+            value,
+            matches,
+            samples,
+        }, null, 2));
+        expect(value).toBe(text);
+        expect(matches).toEqual([
+            text,
+            text,
+        ]);
+        for (const sample of samples) {
+            const glyphs = sample.fonts.filter(font => font.glyphCount > 0);
+            expect.soft(glyphs.length, `${script} ${sample.selector} has painted glyphs`).toBeGreaterThan(0);
+            expect.soft(glyphs.every(font => font.isCustomFont && font.postScriptName === postScriptName),
+                `${script} ${sample.selector} uses the shipped covering font`).toBe(true);
+        }
+    });
+
+    it.each([
+        [
             'Arabic',
             'بَسْمِ لَا بــِسْمِ',
             'DejaVuSans.ttf',
@@ -812,6 +893,22 @@ describe('Electron E2E - annotation controls', () => {
                 selector: '.editor-pane.is-active .pdf-annotation-editor-text-box',
             });
             const platform = await client.send('CSS.getPlatformFontsForNode', {nodeId: node.nodeId});
+            const previewSelector = '.editor-pane.is-active .note-item .note-item-text';
+            const preview = await page.waitForSelector(previewSelector);
+            const previewEvidence = resolve('.devkit/semtext-r4/evidence', process.env.SEMTEXT_REVISION ?? 'candidate', 'comment previews', script);
+            mkdirSync(previewEvidence, {recursive: true});
+            await preview!.screenshot({path: join(previewEvidence, `${label}-preview.png`)});
+            await page.screenshot({path: join(previewEvidence, `${label}-page.png`)});
+            const previewNode = await client.send('DOM.querySelector', {
+                nodeId: tree.root.nodeId,
+                selector: `${previewSelector} span span`,
+            });
+            const previewFonts = await client.send('CSS.getPlatformFontsForNode', {nodeId: previewNode.nodeId});
+            writeFileSync(join(previewEvidence, `${label}-fonts.json`), JSON.stringify(previewFonts, null, 2));
+            const previewGlyphs = previewFonts.fonts.filter(font => font.glyphCount > 0);
+            expect.soft(previewGlyphs.length, `${script} comment preview paints text`).toBeGreaterThan(0);
+            expect.soft(previewGlyphs.every(font => font.isCustomFont && font.postScriptName === fontFile.replace('.ttf', '')),
+                `${script} comment preview uses the same bundled program as its page box`).toBe(true);
             await client.detach();
             const paintedFonts = platform.fonts.filter(font => font.glyphCount > 0);
             expect.soft(paintedFonts.length).toBeGreaterThan(0);
@@ -938,6 +1035,8 @@ describe('Electron E2E - annotation controls', () => {
         await page.waitForFunction((expected: string) => Array.from(document.querySelectorAll(
             '.editor-pane.is-active .pdf-annotation-editor-text-box',
         )).some(element => element.textContent === expected), {timeout: 30_000}, text);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
         await paintedTextMatchesBundledProgram('reopened');
     });
 
