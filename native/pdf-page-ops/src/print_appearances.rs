@@ -155,6 +155,56 @@ fn free_text_font_programs(document: &Document, page_id: ObjectId) -> Result<Vec
     Ok(programs)
 }
 
+/// Reads the unread font programs that missing FreeText appearances may draw
+/// with, in as few qpdf runs as the batch budgets allow: one for ordinary fonts.
+/// A program above the per-program ceiling, or one qpdf cannot read, stays
+/// unread, and synthesis skips it as an unusable program.
+fn read_font_programs(
+    incremental: &mut IncrementalDocument,
+    input_path: &Path,
+    qpdf_path: &Path,
+    page_ids: &BTreeMap<u32, ObjectId>,
+) -> Result<()> {
+    let document = &incremental.previous_document;
+    let mut programs = BTreeMap::new();
+    for page_id in page_ids.values() {
+        for id in free_text_font_programs(document, *page_id)? {
+            let declared = document
+                .get_object(id)
+                .and_then(Object::as_stream)
+                .ok()
+                .and_then(|stream| stream.dict.get(b"Length").ok())
+                .and_then(|length| document.dereference(length).ok()?.1.as_i64().ok())
+                .and_then(|length| usize::try_from(length).ok());
+            if let Some(bytes) = declared.filter(|bytes| {
+                *bytes <= FONT_PROGRAM_BYTES && incremental.unavailable_base_streams.contains(&id)
+            }) {
+                programs.insert(id, bytes);
+            }
+        }
+    }
+    let mut runs: Vec<(Vec<ObjectId>, usize)> = Vec::new();
+    for (id, bytes) in programs {
+        match runs.last_mut() {
+            Some((run, total))
+                if *total + bytes <= MAX_BATCH_RAW_BYTES && run.len() < MAX_BATCH_OBJECTS =>
+            {
+                run.push(id);
+                *total += bytes;
+            }
+            _ => runs.push((vec![id], bytes)),
+        }
+    }
+    for (run, _) in runs {
+        for (id, bytes) in read_qpdf_stream_batch(input_path, qpdf_path, &run).unwrap_or_default() {
+            if bytes.len() <= FONT_PROGRAM_BYTES {
+                incremental.set_base_stream_bytes(id, bytes)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Gives each printed annotation on the page that lacks a usable normal
 /// appearance the one a stock reader would draw, with the annotation's opacity
 /// and blend mode inside it, as readers expect of a stored appearance. Without
@@ -255,19 +305,11 @@ pub(crate) fn write_print_appearances_path(
     let base_max_id = incremental.previous_document.max_id;
     let mut text_font = None;
     let mut changed = Vec::new();
-    for page_id in incremental.previous_document.get_pages().into_values() {
-        if let Some(qpdf_path) = qpdf_path {
-            // A program that cannot be read stays unread, as an eager load's
-            // unusable one is skipped, and synthesis uses its fallback fonts.
-            for program in free_text_font_programs(&incremental.previous_document, page_id)? {
-                let _ = incremental.materialize_base_stream(
-                    input_path,
-                    qpdf_path,
-                    program,
-                    FONT_PROGRAM_BYTES,
-                );
-            }
-        }
+    let page_ids = incremental.previous_document.get_pages();
+    if let Some(qpdf_path) = qpdf_path {
+        read_font_programs(&mut incremental, input_path, qpdf_path, &page_ids)?;
+    }
+    for page_id in page_ids.into_values() {
         changed.extend(materialize_print_appearances(
             &mut incremental.previous_document,
             page_id,
