@@ -25,6 +25,7 @@ export function getNativeExternalBuildInputs(crateName) {
         ? [
             'public/fonts/annotation/DejaVuSans.ttf',
             'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+            'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
             'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
             'public/pdf/standard_fonts/LiberationSans-Bold.ttf',
             'public/pdf/standard_fonts/LiberationSans-Italic.ttf',

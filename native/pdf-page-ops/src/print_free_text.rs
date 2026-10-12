@@ -87,8 +87,7 @@ pub(super) fn missing_free_text_appearance(
     let text = annotation
         .get(b"Contents")
         .ok()
-        .and_then(|v| document.dereference(v).ok())
-        .and_then(|(_, v)| pdf_string_to_text(v))
+        .and_then(|v| pdf_string_to_text(document.dereference(v).ok()?.1))
         .unwrap_or_default();
     let page = materialized_page_dictionary(document, page_id)?;
     let catalog = document.catalog()?;
@@ -102,9 +101,8 @@ pub(super) fn missing_free_text_appearance(
         acroform.and_then(|d| d.get(b"DR").ok()),
     ]
     .into_iter()
-    .flatten()
     .filter_map(|r| {
-        let r = document.dereference(r).ok()?.1.as_dict().ok()?;
+        let r = document.dereference(r?).ok()?.1.as_dict().ok()?;
         document
             .dereference(r.get(b"Font").ok()?)
             .ok()?
@@ -113,11 +111,6 @@ pub(super) fn missing_free_text_appearance(
             .ok()
     })
     .collect();
-    let source_font = font_resources.iter().find_map(|fonts| {
-        let font = fonts.get(&font_name).ok()?;
-        crate::text_box_font::simple_font_advances(document, font, &text)
-            .map(|advances| (font.clone(), advances))
-    });
     let mut resources = Dictionary::new();
     let width = shape_stroke_width(document, annotation)
         .filter(|w| w.is_finite() && *w >= 0.0)
@@ -139,7 +132,11 @@ pub(super) fn missing_free_text_appearance(
         text_rect,
         resolve_page_rotation(document, page_id)?,
     ) {
-        if let Some((font, advances)) = source_font {
+        if let Some((font, advances)) = font_resources.iter().find_map(|fonts| {
+            let font = fonts.get(&font_name).ok()?;
+            crate::text_box_font::simple_font_advances(document, font, &text)
+                .map(|advances| (font.clone(), advances))
+        }) {
             resources.set("Font", Dictionary::from_iter([("PrintText", font)]));
             content.push_str(&format!(
                 "q {} cm 0 0 {} {} re W n BT {} {color_operator} /PrintText {size} Tf\n",
@@ -167,8 +164,7 @@ pub(super) fn missing_free_text_appearance(
         } else {
             let mut programs = Vec::new();
             for fonts in &font_resources {
-                // The DA font wins when it has this run's glyphs. Other embedded
-                // resources precede the portable fallbacks, never host fonts.
+                // Complete document programs precede the portable script fonts.
                 for (_, font) in fonts
                     .iter()
                     .filter(|(name, _)| *name == &font_name)
@@ -213,19 +209,22 @@ pub(super) fn missing_free_text_appearance(
                         }
                         Ok(bytes)
                     })();
-                    if let Ok(program) = program {
-                        if !programs.contains(&program) {
-                            programs.push(program);
-                        }
+                    if let Some(program) = program.ok().filter(|p| !programs.contains(p)) {
+                        programs.push(program);
                     }
                 }
             }
-            programs.push(crate::text_box_font::FONT.to_vec());
-            programs.push(
-                include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf")
-                    .to_vec(),
-            );
-            let programs: Vec<_> = programs.iter().map(Vec::as_slice).collect();
+            let programs: Vec<&[u8]> = programs
+                .iter()
+                .map(Vec::as_slice)
+                .chain([
+                    include_bytes!("../../../public/fonts/annotation/NotoSansHebrew-Regular.ttf")
+                        .as_slice(),
+                    crate::text_box_font::FONT,
+                    include_bytes!("../../../public/fonts/annotation/NotoSansSyriac-Regular.ttf")
+                        .as_slice(),
+                ])
+                .collect();
             let padding = crate::text_box_font::PADDING_X * size;
             let width = (geometry.width - 2.0 * padding).max(0.0);
             let lines = crate::text_box_font::layout_with_fonts(&text, width, size, &programs);

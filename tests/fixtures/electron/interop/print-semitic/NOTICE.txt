@@ -1,0 +1,29 @@
+Public generated FreeText printing fixtures for NP-06 (#1366).
+semitic.pdf embeds partial DejaVu Sans and Noto Sans Syriac programs and leaves
+Hebrew unresourced. reference.pdf paints complete Arabic/Syriac/Hebrew sequences
+as plain page content independently shaped by HarfBuzz (uharfbuzz 0.56.3).
+harfbuzz.json records its glyph IDs, font hashes and PDF positions.
+
+DejaVu Sans 2.37: Bitstream Vera license; DejaVu changes public domain.
+License: public/fonts/annotation/LICENSE.txt.
+Noto Sans Syriac Regular: copyright 2018 Google Inc., SIL OFL 1.1.
+License: public/fonts/annotation/NotoSansSyriac-OFL.txt.
+Noto Sans Hebrew Regular 3.001: copyright 2022 The Noto Project Authors
+(https://github.com/notofonts/hebrew), SIL OFL 1.1.
+License: public/fonts/annotation/NotoSansHebrew-OFL.txt.
+
+The input reproduces partial font joining, pointed/cantillated Hebrew, and
+red DA border/green background with an empty padded text area. Reference
+coordinates use a 32-point font, 0.3-em left inset and DejaVu's shared baseline.
+Font byte hashes and expected positions are recorded, not inferred from EVB.
+
+hebrew.pdf and hebrew-reference.pdf test the pointed/cantillated example and
+every U+0591-U+05AF mark attached separately to Beth. All five lines use the
+same independently shaped Noto Sans Hebrew positions. The mixed-script source
+uses one multiline annotation, plus a separate collapsed-color annotation.
+
+The border reference uses round joins to preserve the pre-existing synthesized
+FreeText outline style; the regression concerns its DA color and background.
+The fourth line, a TAB b, uses independent four-space DejaVu tab placement.
+This guards against reading a preferred/partial font's space advance in the
+units of another font that actually paints the text.

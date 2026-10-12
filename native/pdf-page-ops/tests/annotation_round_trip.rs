@@ -2005,6 +2005,37 @@ fn print_freetext_collapsed_text_keeps_background_and_border_colors() {
 }
 
 #[test]
+fn print_freetext_tabs_use_the_painted_font_units() {
+    let temp = TempPaths::new("print-tab-font-units");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/interop/print-semitic");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&fixture.join("semitic.pdf"), &printed);
+    let actual = poppler_pixels(&printed);
+    let reference = poppler_pixels(&fixture.join("reference.pdf"));
+    let band = 230 * 596 * 3..290 * 596 * 3;
+    assert!(
+        actual[band.clone()] == reference[band],
+        "tab stops use the same font units as the painted Latin glyphs"
+    );
+}
+
+#[test]
+fn print_freetext_cantillation_matches_independent_harfbuzz_marks() {
+    let temp = TempPaths::new("print-hebrew-cantillation");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/interop/print-semitic");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&fixture.join("hebrew.pdf"), &printed);
+    let actual = poppler_pixels(&printed);
+    let reference = poppler_pixels(&fixture.join("hebrew-reference.pdf"));
+    assert!(
+        actual == reference,
+        "Hebrew letters, points and cantillation must paint the HarfBuzz positions"
+    );
+}
+
+#[test]
 fn print_freetext_missing_fonts_use_pdf_rotation_without_editor_metadata() {
     let temp = TempPaths::new("print-text-pdf-rotation");
     let printed = temp.root.join("printed.pdf");

@@ -6001,6 +6001,64 @@ describe('Electron E2E - Document Output', () => {
         }
     }, 180_000);
 
+    it('prints joined Semitic words, cantillation and collapsed FreeText colors', async () => {
+        const fixtureDirectory = resolve(process.cwd(), 'tests/fixtures/electron/interop/print-semitic');
+        const fixturePath = join(fixtureDirectory, 'semitic.pdf');
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `semitic-print-${Date.now()}`);
+        await mkdir(printDirectory, {recursive: true});
+        const printedPath = join(printDirectory, 'printed.pdf');
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-semitic-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await clickVisibleToolbarButton(session.page, 'Print');
+        const portrait = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Portrait"])', {visible: true});
+        await clickAsUser(session.page, portrait!);
+        const submit = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])', {visible: true});
+        await clickAsUser(session.page, submit!);
+        await expect.poll(async () => existsSync(printedPath), {timeout: 30_000}).toBe(true);
+        const rasterizer = resolve(process.cwd(), 'resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftoppm.exe' : 'pdftoppm');
+        await execFileAsync(rasterizer, [
+            '-r',
+            '72',
+            '-singlefile',
+            '-png',
+            printedPath,
+            join(printDirectory, 'printed'),
+        ]);
+        await execFileAsync(rasterizer, [
+            '-r',
+            '72',
+            '-singlefile',
+            '-png',
+            join(fixtureDirectory, 'reference.pdf'),
+            join(printDirectory, 'reference'),
+        ]);
+        const evidenceDirectory = process.env.EVB_AU66BR7_EVIDENCE_DIR;
+        if (evidenceDirectory) {
+            await mkdir(evidenceDirectory, {recursive: true});
+            await copyFile(printedPath, join(evidenceDirectory, 'printed.pdf'));
+            await copyFile(join(printDirectory, 'printed.png'), join(evidenceDirectory, 'printed-page.png'));
+            await session.page.screenshot({path: join(evidenceDirectory, 'completed.png')});
+        }
+        // Reference text was independently shaped with HarfBuzz, including
+        // every mark offset, then painted as ordinary PDF page content.
+        const pixelHash = (bytes: Buffer) => createHash('sha256').update(decodePng(bytes).data).digest('hex');
+        expect(pixelHash(await readFile(join(printDirectory, 'printed.png'))))
+            .toBe(pixelHash(await readFile(join(printDirectory, 'reference.png'))));
+    }, 120_000);
+
     it('hands off the first dirty path-backed print without saving the original', async () => {
         const fixturePath = await createLargeScannedFixturePdf(`viewer-smoke-dirty-print-${Date.now()}.pdf`, 1, 17 * 1024 * 1024);
         const sourceChecksum = createHash('sha256').update(await readFile(fixturePath)).digest('hex');

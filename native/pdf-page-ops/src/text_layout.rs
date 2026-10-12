@@ -48,7 +48,6 @@ fn script_runs(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
 
 fn shape_line(
     fonts: &[(Shaper<'_>, FontRef<'_>)],
-    space_advance: f64,
     text: &str,
     bidi: &BidiInfo<'_>,
     paragraph: &ParagraphInfo,
@@ -139,7 +138,7 @@ fn shape_line(
                 font_runs.reverse();
             }
             for (index, segment) in font_runs {
-                let font = &fonts[index].0;
+                let (font, face) = &fonts[index];
                 let scale = font_size / f64::from(font.units_per_em());
                 let mut buffer = UnicodeBuffer::new();
                 buffer.push_str(&segment);
@@ -152,6 +151,14 @@ fn shape_line(
                 let shaped = font.shape(buffer, ShapeOptions::default());
                 for (info, position) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
                     if segment.as_bytes().get(info.cluster as usize) == Some(&b'\t') {
+                        let space_advance = face
+                            .charmap()
+                            .map(' ')
+                            .and_then(|id| {
+                                face.glyph_metrics(Size::unscaled(), LocationRef::default())
+                                    .advance_width(id)
+                            })
+                            .map_or(0.0, f64::from);
                         let tab_stop = 4.0 * space_advance * scale;
                         if tab_stop > 0.0 {
                             advance = ((advance / tab_stop).floor() + 1.0) * tab_stop;
@@ -215,29 +222,11 @@ fn layout_shaped(
     shapers: &[(Shaper<'_>, FontRef<'_>)],
     paragraph_level: Option<Level>,
 ) -> Vec<Line> {
-    let font = &shapers[0].1;
-    let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
-    let space_advance = f64::from(
-        font.charmap()
-            .map(' ')
-            .and_then(|id| glyph_metrics.advance_width(id))
-            .unwrap_or(0.0),
-    );
     wrap(
         text,
         width,
         paragraph_level,
-        |text, bidi, paragraph, range| {
-            shape_line(
-                shapers,
-                space_advance,
-                text,
-                bidi,
-                paragraph,
-                range,
-                font_size,
-            )
-        },
+        |text, bidi, paragraph, range| shape_line(shapers, text, bidi, paragraph, range, font_size),
     )
 }
 

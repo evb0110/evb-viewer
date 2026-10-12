@@ -1,0 +1,9 @@
+Noto Sans Hebrew Regular 3.001, Copyright 2022 The Noto Project Authors
+(https://github.com/notofonts/hebrew).
+Licensed under the SIL Open Font License 1.1 (NotoSansHebrew-OFL.txt).
+Unmodified hinted/ttf/NotoSansHebrew-Regular.ttf from the upstream release.
+Source: https://github.com/notofonts/hebrew/releases/tag/NotoSansHebrew-v3.001
+SHA-256: cdefaf8efd47045f6820928eba84db5bed7557539328952b5f828315485e02ee
+Size: 26860 bytes.
+Print fallback covers Hebrew letters, vowel points and cantillation with GPOS
+mark positioning; usable complete document font programs retain priority.

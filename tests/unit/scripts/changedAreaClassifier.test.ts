@@ -179,6 +179,7 @@ describe('changed-area classifier', () => {
         });
         for (const font of [
             'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+            'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
             'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
         ]) {
             expect(classifyChangedFiles([font])).toMatchObject({
