@@ -196,23 +196,19 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             && slot.targetScale !== null
             && isRasterScaleCurrent(slot.targetScale, viewport.scale.effectiveScale.value)
             && slot.targetOutputScale !== null
-            && isRasterScaleCurrent(slot.targetOutputScale, options.outputScale.value);
+            && isRasterScaleCurrent(slot.targetOutputScale, options.outputScale.value)
+            && (!pageRenderState.isPaintedWithoutAnnotations(pageNumber) || !pageRenderer.annotationProjectionReady.value);
     }
     function getPageRasterState(pageNumber: TPageNumber): TPdfPageRasterState {
         const slot = pageRenderState.getSlot(pageNumber);
         const pendingJob = [...viewportRasterJobs.values()].find(job => (
             job.demand.pageNumber === pageNumber
         ));
-        if (
-            viewportRasterWaiters.has(pageNumber)
-            || slot.job === 'rendering' && slot.version === renderVersion
-        ) {
-            return pendingJob && !isViewportRasterJobCurrent(pendingJob)
-                ? 'stale-scale'
-                : 'in-flight';
+        if (pendingJob?.rasterState === 'in-flight') {
+            return isViewportRasterJobCurrent(pendingJob) ? 'in-flight' : 'stale-scale';
         }
         if (isCommittedVisual(pageNumber)) {
-            return pageRenderState.isPaintedWithoutAnnotations(pageNumber) && pageRenderer.annotationProjectionReady.value ? 'stale-scale' : 'current';
+            return 'current';
         }
         if (isPageRenderFailed(pageNumber)) {
             return 'failed';
@@ -339,6 +335,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const job = viewportRasterJobs.get(demand.renderKey);
             if (!job || demand.consumerGeneration !== renderVersion) return;
             const requestId = beginViewportRaster(job, pageRenderState.getSlot(pageNumber).container);
+            job.rasterState = 'failed';
             pageRenderState.markRenderFailed(pageNumber, demand.consumerGeneration, requestId);
             resolveViewportRasterWaiters(pageNumber);
             renderedPageStateVersion.value += 1;
@@ -360,7 +357,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }));
         },
         commit(prepared, demand) {
-            if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand) {
+            if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand
+                || !prepared.render.paintsAnnotations && pageRenderer.annotationProjectionReady.value) {
                 return false;
             }
             const pageNumber = demand.pageNumber;
@@ -404,6 +402,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 }
                 return false;
             }
+            prepared.job.rasterState = 'current';
             pageCanvases.set(pageNumber, prepared.render.canvas);
             clearPageRotationPreview(pageNumber, false);
             if (preservedRevisionSwapCanvases.delete(pageNumber)) {

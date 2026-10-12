@@ -426,6 +426,105 @@ function transition(
 
 describe('PdfViewportSession behavior', () => {
     it.each([
+        'zoom',
+        'Retry',
+    ] as const)('keeps a queued %s raster alive when demand is published again', async reason => {
+        const lease = Promise.withResolvers<undefined>();
+        const signals: AbortSignal[] = [];
+        let fail = reason === 'Retry';
+        const page = Object.assign(Object.create(null), {
+            pageNumber: 1,
+            rotate: 0,
+            getViewport: ({scale}: {scale: number}) => ({
+                width: 600 * scale,
+                height: 900 * scale,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 600,
+                    pageHeight: 900,
+                },
+            }),
+            render: () => ({
+                promise: fail ? Promise.reject(new Error('page failed')) : Promise.resolve(),
+                cancel() {},
+            }),
+        });
+        let holdLease = false;
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: 'revision-1',
+            },
+            maxConcurrency: 1,
+            leasePage: async (_page, _retention, signal) => {
+                if (holdLease) {
+                    signals.push(signal!);
+                    await lease.promise;
+                }
+                return {
+                    page,
+                    release() {},
+                };
+            },
+            surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
+        });
+        const animation = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0);
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+        const fixture = createViewportFixture({
+            pageCount: 1,
+            bufferPages: 0,
+            rasterScheduler: scheduler,
+            zoomMode: 'custom',
+        });
+        document.body.append(fixture.container);
+        appendRasterTarget(fixture.container, 1);
+        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+        fixture.viewport.markPageMounted(requirePageNumber(1));
+        const rendering = fixture.rendering!;
+        try {
+            await rendering.renderVisiblePages({
+                start: 1,
+                end: 1,
+            });
+            expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(fail);
+            const previousCanvas = fixture.container.querySelector('canvas');
+            fail = false;
+            holdLease = true;
+            fixture.zoom.value = 2;
+            const raster = rendering.renderVisiblePages({
+                start: 1,
+                end: 1,
+            }, {forceRerender: reason === 'Retry'});
+            await expect.poll(() => signals.length).toBe(1);
+            const republished = rendering.renderVisiblePages({
+                start: 1,
+                end: 1,
+            }, {preserveInFlightRequiredPages: true});
+            await nextTick();
+            await Promise.resolve();
+            expect(signals[0]!.aborted).toBe(false);
+            lease.resolve(undefined);
+            await Promise.all([
+                raster,
+                republished,
+            ]);
+            expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(false);
+            const canvas = fixture.container.querySelector('canvas');
+            expect(canvas).not.toBe(previousCanvas);
+            expect(canvas!.width * canvas!.height).toBeGreaterThan(0);
+        } finally {
+            lease.resolve(undefined);
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            context.mockRestore();
+            animation.mockRestore();
+        }
+    });
+
+    it.each([
         false,
         true,
     ])('settles exhausted annotation rendering while retaining existing canvas=%s', async retained => {
