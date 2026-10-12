@@ -744,7 +744,10 @@ describe('Project 8 recovered close decisions', () => {
     }, E2E_TIMEOUT_MS);
 
     it('rejects Save after the source changes while EVB is stopped', async () => {
-        const replacementSourcePath = await createMultiPageTextFixturePdf(`project8-close-external-${Date.now()}.pdf`, 2);
+        // A same-generator 2-page file made in the same second is byte-identical to the
+        // source, and recovery accepts a byte-identical replacement (#1359 EC-06). Another
+        // page count makes the other program's version really differ.
+        const replacementSourcePath = await createMultiPageTextFixturePdf(`project8-close-external-${Date.now()}.pdf`, 3);
         const externalBytes = await readFile(replacementSourcePath);
         const recovered = await createRecoveredSession('external-replacement', {replacementSourcePath});
         session = recovered.session;

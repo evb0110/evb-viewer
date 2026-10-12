@@ -1337,6 +1337,48 @@ describe('workingCopy', () => {
         expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toEqual(restoredExpectation);
     });
 
+    it.each([
+        [
+            'the same bytes',
+            'admits',
+        ],
+        [
+            'different same-size bytes',
+            'refuses',
+        ],
+    ] as const)('%s replacing a recovered original while EVB is stopped: Save %s', async (replacement, outcome) => {
+        const {
+            createOriginalFileExpectationFromStat,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+        const originalPath = join(tempRoot, 'recovered-source.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-recovered-source', 'working.pdf');
+        const originalBytes = Buffer.alloc(256 * 1024, 62);
+        writeFileSync(originalPath, originalBytes);
+        const checkpointExpectation = {
+            ...createOriginalFileExpectationFromStat(statSync(originalPath, {bigint: true})),
+            contentFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(originalBytes.byteLength).update(originalBytes).digest('hex')}`,
+        };
+        // Another program replaces the source with a new file while EVB is stopped.
+        const replacementBytes = Buffer.from(originalBytes);
+        if (replacement === 'different same-size bytes') replacementBytes.write('EXTERNAL', 128 * 1024);
+        writeFileSync(`${originalPath}.replacement`, replacementBytes);
+        renameSync(`${originalPath}.replacement`, originalPath);
+
+        // EVB restarts and restores the recovered tab from its checkpoint.
+        await setWorkingCopyOriginalPath(workingPath, originalPath, 7, {
+            backingState: 'materialized',
+            deferOriginalFileExpectation: true,
+            originalFileExpectation: checkpointExpectation,
+        });
+
+        const witness = await captureOriginalPathSaveWitness(workingPath, originalPath, 7);
+        expect(witness === null ? 'refuses' : 'admits').toBe(outcome);
+        expect(readFileSync(originalPath).equals(replacementBytes)).toBe(true);
+    });
+
     it('never reuses registration IDs after the active registry is cleared', async () => {
         const {
             clearWorkingCopyOriginalPaths,
