@@ -4972,3 +4972,220 @@ it.each([
         await browser.close();
     }
 }, 120000);
+
+it.each([
+    'dom',
+    'css',
+])('real ligature regex overlap preserves the rendered text (%s)', async (mode) => {
+    const out = resolve(process.cwd(), '.devkit/core4-r6/app', process.env.PROOF_REVISION ?? 'head', `overlap-${mode}`);
+    mkdirSync(out, {recursive: true});
+    // Keep actual ligature glyphs and Unicode source ranges in the public PDF.
+    const fontData = readFileSync(resolve(process.cwd(), 'public/fonts/annotation/DejaVuSans.ttf'));
+    const tables = new Map<string, number>();
+    for (let index = 0; index < fontData.readUInt16BE(4); index += 1) {
+        const position = 12 + index * 16;
+        tables.set(fontData.toString('ascii', position, position + 4), fontData.readUInt32BE(position + 8));
+    }
+    const cmap = tables.get('cmap')!;
+    let glyph = 0;
+    for (let index = 0; index < fontData.readUInt16BE(cmap + 2); index += 1) {
+        const subtable = cmap + fontData.readUInt32BE(cmap + 4 + index * 8 + 4);
+        if (fontData.readUInt16BE(subtable) !== 12) continue;
+        for (let group = 0; group < fontData.readUInt32BE(subtable + 12); group += 1) {
+            const position = subtable + 16 + group * 12;
+            const start = fontData.readUInt32BE(position);
+            const end = fontData.readUInt32BE(position + 4);
+            if (start <= 0xFB03 && 0xFB03 <= end) glyph = fontData.readUInt32BE(position + 8) + 0xFB03 - start;
+        }
+    }
+    if (!glyph) throw new Error('The public DejaVu font has no ffi ligature');
+    const head = tables.get('head')!;
+    const hhea = tables.get('hhea')!;
+    const hmtx = tables.get('hmtx')!;
+    const width = 1000 * fontData.readUInt16BE(hmtx + Math.min(glyph, fontData.readUInt16BE(hhea + 34) - 1) * 4)
+        / fontData.readUInt16BE(head + 18);
+    const pdf = await PDFDocument.create();
+    const sheet = pdf.addPage([
+        612,
+        792,
+    ]);
+    const context = pdf.context;
+    const fontFile = context.register(context.flateStream(fontData, {Length1: fontData.length}));
+    const descriptor = context.register(context.obj({
+        Type: 'FontDescriptor',
+        FontName: 'DejaVuSans',
+        Flags: 4,
+        FontBBox: [
+            -1021,
+            -463,
+            1793,
+            1232,
+        ],
+        ItalicAngle: 0,
+        Ascent: 928,
+        Descent: -236,
+        CapHeight: 729,
+        StemV: 80,
+        FontFile2: fontFile,
+    }));
+    const gidMap = context.register(context.flateStream(Uint8Array.from([
+        0,
+        0,
+        glyph >> 8,
+        glyph & 255,
+    ])));
+    const descendant = context.register(context.obj({
+        Type: 'Font',
+        Subtype: 'CIDFontType2',
+        BaseFont: 'DejaVuSans',
+        CIDSystemInfo: {
+            Registry: PDFString.of('Adobe'),
+            Ordering: PDFString.of('Identity'),
+            Supplement: 0,
+        },
+        FontDescriptor: descriptor,
+        DW: 1000,
+        W: [
+            1,
+            [width],
+        ],
+        CIDToGIDMap: gidMap,
+    }));
+    const toUnicode = context.register(context.flateStream(`/CIDInit /ProcSet findresource begin
+12 dict begin
+begincmap
+/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def
+/CMapName /Ligature def
+/CMapType 2 def
+1 begincodespacerange
+<0000> <FFFF>
+endcodespacerange
+1 beginbfchar
+<0001> <FB03>
+endbfchar
+endcmap
+CMapName currentdict /CMap defineresource pop
+end
+end
+`));
+    const font = context.register(context.obj({
+        Type: 'Font',
+        Subtype: 'Type0',
+        BaseFont: 'DejaVuSans',
+        Encoding: 'Identity-H',
+        DescendantFonts: [descendant],
+        ToUnicode: toUnicode,
+    }));
+    sheet.node.set(PDFName.of('Resources'), context.obj({Font: {F1: font}}));
+    sheet.node.addContentStream(context.register(context.flateStream('BT /F1 36 Tf 72 700 Td <00010001> Tj ET')));
+    const bytes = Buffer.from(await pdf.save());
+    writeFileSync(resolve(out, 'fixture.pdf'), bytes);
+    const browser = await chromium.launch({headless: true});
+    let page: Page | undefined;
+    try {
+        page = await browser.newPage({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            recordVideo: {dir: out},
+        });
+        // Geometry-free results exercise the actual text-layer compositor.
+        // The matcher still supplies all four real normalized regex ranges.
+        await page.route('**/runtime/composables/usePdfSearch.ts*', async route => {
+            const response = await route.fetch();
+            const source = await response.text();
+            const marker = 'const resultsWithPageIndex = response.results.map';
+            if (!source.includes(marker)) throw new Error('Search setup seam missing');
+            await route.fulfill({
+                response,
+                body: source.replace(marker,
+                    'response.results = response.results.map(result => ({...result, words: undefined})); ' + marker),
+            });
+        });
+        await page.addInitScript(mode => {
+            Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+            window.localStorage.setItem('pdfHighlightMode', mode);
+            window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+        }, mode);
+        await page.goto(origin, {waitUntil: 'domcontentloaded'});
+        await waitForOpenFileReady(page);
+        keepFileChooserInterceptionEnabled(page);
+        const chooser = page.waitForEvent('filechooser');
+        await page.getByRole('button', {
+            name: 'Open File',
+            exact: true,
+        }).first().click();
+        await (await chooser).setFiles({
+            name: 'ligature-overlap.pdf',
+            mimeType: 'application/pdf',
+            buffer: bytes,
+        });
+        const layer = page.locator('.page_container[data-page="1"] .textLayer').first();
+        await page.waitForFunction(() => document.querySelector('.page_container[data-page="1"] .textLayer')?.getAttribute('data-pdf-text-layer-ready') === 'true', undefined, {timeout: 30000});
+        await page.evaluate(async () => {
+            if (!await (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi).waitForActiveDocumentOpenSettled?.()) throw new Error('PDF did not settle');
+        });
+        const before = await layer.textContent();
+        expect(before).toBe('ﬃﬃ');
+        writeFileSync(resolve(out, 'text-before.json'), JSON.stringify({
+            text: before,
+            runs: await layer.locator(':scope > span').allTextContents(),
+        }, null, 2));
+        if (!await page.getByRole('tab', {
+            name: 'Search',
+            exact: true,
+        }).isVisible()) await page.getByRole('button', {
+            name: 'Toggle Sidebar',
+            exact: true,
+        }).click();
+        await page.getByRole('tab', {
+            name: 'Search',
+            exact: true,
+        }).click();
+        await page.evaluate(async () => {
+            if (!await (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi).waitForActiveDocumentOpenSettled?.()) throw new Error('Sidebar layout did not settle');
+        });
+        // Sidebar opening can change fit-width, so sample ink in this layout.
+        const inkBounds = await layer.locator(':scope > span').evaluate(span => {
+            const range = document.createRange();
+            range.selectNodeContents(span);
+            return range.getBoundingClientRect().toJSON();
+        });
+        await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
+        const input = page.locator('.document-search-bar input:visible').first();
+        await input.pressSequentially('f|if');
+        await input.press('Enter');
+        await expect.poll(() => page!.locator('.document-search-result:visible').count(), {timeout: 30000}).toBe(4);
+        await page.locator('.document-search-result:visible').nth(2).click();
+        const readCurrent = () => mode === 'dom'
+            ? layer.locator('.pdf-search-highlight--current').allTextContents().then(texts => texts.join(''))
+            : page!.evaluate(() => [...CSS.highlights.get('pdf-search-current-match') ?? []].map(range => range.toString()).join(''));
+        await expect.poll(readCurrent, {timeout: 10000}).toBe(before);
+        const state = {
+            before,
+            after: await layer.textContent(),
+            current: await readCurrent(),
+            paint: await layer.locator('.pdf-search-highlight').allTextContents(),
+        };
+        writeFileSync(resolve(out, 'state.json'), JSON.stringify(state, null, 2));
+        expect(state.after).toBe(before);
+        expect(state.current).toBe(before);
+        const paintBounds = mode === 'dom'
+            ? await layer.locator('.pdf-search-highlight').evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()))
+            : await page.evaluate(() => [...CSS.highlights.get('pdf-search-current-match') ?? []].flatMap(range => range instanceof Range ? [range.getBoundingClientRect().toJSON()] : []));
+        writeFileSync(resolve(out, 'geometry.json'), JSON.stringify({
+            inkBounds,
+            paintBounds,
+        }, null, 2));
+        expect(paintBounds.every(rect => rect.width > 0 && rect.left >= inkBounds.left - 1 && rect.right <= inkBounds.right + 1)).toBe(true);
+    } finally {
+        if (page) {
+            await page.screenshot({path: resolve(out, 'final.png')}).catch(() => {});
+            const video = page.video();
+            await page.close();
+            await video?.saveAs(resolve(out, 'proof.webm'));
+        }
+        await browser.close();
+    }
+}, 120000);

@@ -490,6 +490,106 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         highlight.clearHighlights(layer);
     });
 
+    it.each([
+        {
+            text: 'ﬃﬃ',
+            query: 'f|if',
+            currentOrdinal: 0,
+            expected: 'ﬃ',
+        },
+        {
+            text: 'ﬃﬃ',
+            query: 'f|if',
+            currentOrdinal: 1,
+            expected: 'ﬃ',
+        },
+        {
+            text: 'ﬃﬃ',
+            query: 'f|if',
+            currentOrdinal: 2,
+            expected: 'ﬃﬃ',
+        },
+        {
+            text: 'ﬃﬃ',
+            query: 'f|if',
+            currentOrdinal: 3,
+            expected: 'ﬃ',
+        },
+        {
+            text: 'banana',
+            query: 'ana',
+            currentOrdinal: 0,
+            expected: 'ana',
+        },
+        {
+            text: 'banana',
+            query: 'ana',
+            currentOrdinal: 1,
+            expected: 'ana',
+        },
+    ])('preserves selectable text and current priority for overlapping ranges ($text, ordinal $currentOrdinal)', async ({
+        text, query, currentOrdinal, expected,
+    }) => {
+        const layer = document.createElement('div');
+        const span = document.createElement('span');
+        span.textContent = text;
+        layer.append(span);
+        registerTextLayerTextMapping(layer, {
+            textDivs: [span],
+            textContentItemsStr: [text],
+        });
+        const ranges = text === 'banana' ? [
+            {
+                start: 1,
+                end: 4,
+            },
+            {
+                start: 3,
+                end: 6,
+            },
+        ]
+            : matchPdfSearchPageWindow(text, query, {
+                useRegex: true,
+                matchCase: false,
+                wholeWord: false,
+            }, 10, 0).matches
+                .map(match => ({
+                    start: match.startOffset,
+                    end: match.endOffset,
+                }));
+        const selected = ranges[currentOrdinal]!;
+        const highlight = usePdfSearchHighlight();
+        const result = highlight.highlightPage(layer, {
+            pageIndex: requirePageIndex(0),
+            pageText: text,
+            searchQuery: query,
+            searchOptions: {
+                useRegex: true,
+                matchCase: false,
+                wholeWord: false,
+            },
+            matches: ranges.map((range, index) => ({
+                ...range,
+                pageMatchIndex: index,
+                matchIndex: index,
+            })),
+        }, {
+            pageIndex: requirePageIndex(0),
+            startOffset: selected.start,
+            endOffset: selected.end,
+            pageMatchIndex: currentOrdinal,
+            matchIndex: currentOrdinal,
+        });
+        expect(layer.textContent).toBe(text);
+        expect(result.currentMatchElements.map(element => element.textContent).join('')).toBe(expected);
+        await expect.poll(() => result.currentMatchElements.map(element => element.textContent).join('')).toBe(expected);
+        const selection = document.createRange();
+        selection.selectNodeContents(span);
+        expect(selection.toString()).toBe(text);
+        highlight.clearHighlights(layer);
+        expect(layer.textContent).toBe(text);
+    });
+
     it('reconciles a literal highlight when matching workers are unavailable', async () => {
         vi.mocked(matchBrowserSearchPageWindowInWorker).mockRejectedValueOnce(new Error('Worker unavailable'));
         const layer = document.createElement('div');

@@ -501,15 +501,25 @@ export function highlightTextRunInPdfjsStyle(
         currentPos = toOffset;
     }
 
-    for (const match of relevantMatches) {
+    // Normalization can map distinct matches onto intersecting glyph ranges.
+    // Split at their boundaries, with current paint taking priority, so every
+    // source character is appended once even when matches overlap or coincide.
+    const prioritized = relevantMatches.toSorted((a, b) => Number(b.isCurrent) - Number(a.isCurrent));
+    const boundaries = [...new Set(relevantMatches.flatMap(match => {
         const {
-            start: matchStartInSpan,
-            end: matchEndInSpan,
+            start, end,
         } = getHighlightMatchBoundsInSpan(text.length, run.startOffset, match);
-
-        if (matchStartInSpan >= matchEndInSpan) {
-            continue;
-        }
+        return [
+            start,
+            end,
+        ];
+    }))].sort((a, b) => a - b);
+    for (let index = 1; index < boundaries.length; index += 1) {
+        const matchStartInSpan = boundaries[index - 1]!;
+        const matchEndInSpan = boundaries[index]!;
+        const match = prioritized.find(candidate => candidate.start <= run.startOffset + matchStartInSpan
+            && candidate.end >= run.startOffset + matchEndInSpan);
+        if (!match) continue;
 
         appendPlainText(matchStartInSpan);
 
