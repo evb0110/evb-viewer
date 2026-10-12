@@ -108,7 +108,13 @@ pub fn deserialize_json_file_bounded<T: DeserializeOwned>(
     };
     let result = {
         let mut deserializer = serde_json::Deserializer::from_reader(&mut reader);
-        T::deserialize(&mut deserializer).and_then(|value| deserializer.end().map(|_| value))
+        // Typed recursive visitors admit depth before entering the next level.
+        deserializer.disable_recursion_limit();
+        T::deserialize(JsonDepthDeserializer {
+            inner: &mut deserializer,
+            depth: 0,
+        })
+        .and_then(|value| deserializer.end().map(|_| value))
     };
     let ceiling_hit = reader.ceiling_hit;
     let deserialization_code = take_deserialization_error();
@@ -130,10 +136,258 @@ pub fn deserialize_json_slice<T: DeserializeOwned>(
     clear_deserialization_error();
     let result = {
         let mut deserializer = serde_json::Deserializer::from_slice(bytes);
-        T::deserialize(&mut deserializer).and_then(|value| deserializer.end().map(|_| value))
+        // Typed recursive visitors admit depth before entering the next level.
+        deserializer.disable_recursion_limit();
+        T::deserialize(JsonDepthDeserializer {
+            inner: &mut deserializer,
+            depth: 0,
+        })
+        .and_then(|value| deserializer.end().map(|_| value))
     };
     let deserialization_code = take_deserialization_error();
     result.map_err(|error| json_error(label, error, None, false, deserialization_code))
+}
+
+// Each bookmark level has one object and one items array. The request,
+// metadata, envelope and original destination add at most six containers.
+// Keep generic callers bounded too: an untagged scalar can buffer Content
+// before its typed visitor sees an invalid nested object.
+const MAX_JSON_DEPTH: usize = 2 * crate::pdf_catalog::MAX_BOOKMARK_DEPTH + 6;
+
+struct JsonDepthDeserializer<D> {
+    inner: D,
+    depth: usize,
+}
+struct JsonDepthVisitor<V> {
+    inner: V,
+    depth: usize,
+}
+struct JsonDepthSeed<S> {
+    inner: S,
+    depth: usize,
+}
+struct JsonDepthAccess<A> {
+    inner: A,
+    depth: usize,
+}
+
+fn admit_json_depth<E: serde::de::Error>(depth: usize) -> Result<(), E> {
+    if depth >= MAX_JSON_DEPTH {
+        record_deserialization_error(NativeErrorCode::TooLarge);
+        return Err(E::custom(format!(
+            "JSON exceeds the {MAX_JSON_DEPTH}-container admission ceiling"
+        )));
+    }
+    Ok(())
+}
+
+macro_rules! depth_deserialize {
+    ($($method:ident $(($($argument:ident: $argument_type:ty),*))?),* $(,)?) => {
+        $(fn $method<V: Visitor<'de>>(self, $($($argument: $argument_type,)*)? visitor: V) -> Result<V::Value, D::Error> {
+            self.inner.$method($($($argument,)*)? JsonDepthVisitor { inner: visitor, depth: self.depth })
+        })*
+    };
+}
+
+impl<'de, D: Deserializer<'de>> Deserializer<'de> for JsonDepthDeserializer<D> {
+    type Error = D::Error;
+    depth_deserialize! {
+        deserialize_any, deserialize_bool, deserialize_i8, deserialize_i16,
+        deserialize_i32, deserialize_i64, deserialize_i128, deserialize_u8,
+        deserialize_u16, deserialize_u32, deserialize_u64, deserialize_u128,
+        deserialize_f32, deserialize_f64, deserialize_char, deserialize_str,
+        deserialize_string, deserialize_bytes, deserialize_byte_buf,
+        deserialize_option, deserialize_unit, deserialize_seq, deserialize_map,
+        deserialize_identifier, deserialize_ignored_any,
+        deserialize_unit_struct(name: &'static str),
+        deserialize_newtype_struct(name: &'static str),
+        deserialize_tuple(len: usize),
+        deserialize_tuple_struct(name: &'static str, len: usize),
+        deserialize_struct(name: &'static str, fields: &'static [&'static str]),
+        deserialize_enum(name: &'static str, variants: &'static [&'static str]),
+    }
+    fn is_human_readable(&self) -> bool {
+        self.inner.is_human_readable()
+    }
+}
+
+impl<'de, S: serde::de::DeserializeSeed<'de>> serde::de::DeserializeSeed<'de> for JsonDepthSeed<S> {
+    type Value = S::Value;
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        self.inner.deserialize(JsonDepthDeserializer {
+            inner: deserializer,
+            depth: self.depth,
+        })
+    }
+}
+
+macro_rules! depth_visit {
+    ($($method:ident($value_type:ty)),* $(,)?) => {
+        $(fn $method<E: serde::de::Error>(self, value: $value_type) -> Result<Self::Value, E> {
+            self.inner.$method(value)
+        })*
+    };
+}
+
+impl<'de, V: Visitor<'de>> Visitor<'de> for JsonDepthVisitor<V> {
+    type Value = V::Value;
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.expecting(formatter)
+    }
+    depth_visit! {
+        visit_bool(bool), visit_i8(i8), visit_i16(i16), visit_i32(i32),
+        visit_i64(i64), visit_i128(i128), visit_u8(u8), visit_u16(u16),
+        visit_u32(u32), visit_u64(u64), visit_u128(u128), visit_f32(f32),
+        visit_f64(f64), visit_char(char), visit_str(&str),
+        visit_borrowed_str(&'de str), visit_string(String), visit_bytes(&[u8]),
+        visit_borrowed_bytes(&'de [u8]), visit_byte_buf(Vec<u8>),
+    }
+    fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        self.inner.visit_unit()
+    }
+    fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        self.inner.visit_none()
+    }
+    fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        self.inner.visit_some(JsonDepthDeserializer {
+            inner: deserializer,
+            depth: self.depth,
+        })
+    }
+    fn visit_newtype_struct<D: Deserializer<'de>>(
+        self,
+        deserializer: D,
+    ) -> Result<Self::Value, D::Error> {
+        self.inner.visit_newtype_struct(JsonDepthDeserializer {
+            inner: deserializer,
+            depth: self.depth,
+        })
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, sequence: A) -> Result<Self::Value, A::Error> {
+        admit_json_depth(self.depth)?;
+        self.inner.visit_seq(JsonDepthAccess {
+            inner: sequence,
+            depth: self.depth + 1,
+        })
+    }
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        admit_json_depth(self.depth)?;
+        self.inner.visit_map(JsonDepthAccess {
+            inner: map,
+            depth: self.depth + 1,
+        })
+    }
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(
+        self,
+        enumeration: A,
+    ) -> Result<Self::Value, A::Error> {
+        admit_json_depth(self.depth)?;
+        self.inner.visit_enum(JsonDepthAccess {
+            inner: enumeration,
+            depth: self.depth + 1,
+        })
+    }
+}
+
+impl<'de, A: SeqAccess<'de>> SeqAccess<'de> for JsonDepthAccess<A> {
+    type Error = A::Error;
+    fn next_element_seed<T: serde::de::DeserializeSeed<'de>>(
+        &mut self,
+        seed: T,
+    ) -> Result<Option<T::Value>, Self::Error> {
+        self.inner.next_element_seed(JsonDepthSeed {
+            inner: seed,
+            depth: self.depth,
+        })
+    }
+    fn size_hint(&self) -> Option<usize> {
+        self.inner.size_hint()
+    }
+}
+impl<'de, A: serde::de::MapAccess<'de>> serde::de::MapAccess<'de> for JsonDepthAccess<A> {
+    type Error = A::Error;
+    fn next_key_seed<K: serde::de::DeserializeSeed<'de>>(
+        &mut self,
+        seed: K,
+    ) -> Result<Option<K::Value>, Self::Error> {
+        self.inner.next_key_seed(JsonDepthSeed {
+            inner: seed,
+            depth: self.depth,
+        })
+    }
+    fn next_value_seed<V: serde::de::DeserializeSeed<'de>>(
+        &mut self,
+        seed: V,
+    ) -> Result<V::Value, Self::Error> {
+        self.inner.next_value_seed(JsonDepthSeed {
+            inner: seed,
+            depth: self.depth,
+        })
+    }
+    fn size_hint(&self) -> Option<usize> {
+        self.inner.size_hint()
+    }
+}
+impl<'de, A: serde::de::EnumAccess<'de>> serde::de::EnumAccess<'de> for JsonDepthAccess<A> {
+    type Error = A::Error;
+    type Variant = JsonDepthAccess<A::Variant>;
+    fn variant_seed<V: serde::de::DeserializeSeed<'de>>(
+        self,
+        seed: V,
+    ) -> Result<(V::Value, Self::Variant), Self::Error> {
+        let (value, variant) = self.inner.variant_seed(JsonDepthSeed {
+            inner: seed,
+            depth: self.depth,
+        })?;
+        Ok((
+            value,
+            JsonDepthAccess {
+                inner: variant,
+                depth: self.depth,
+            },
+        ))
+    }
+}
+impl<'de, A: serde::de::VariantAccess<'de>> serde::de::VariantAccess<'de> for JsonDepthAccess<A> {
+    type Error = A::Error;
+    fn unit_variant(self) -> Result<(), Self::Error> {
+        self.inner.unit_variant()
+    }
+    fn newtype_variant_seed<T: serde::de::DeserializeSeed<'de>>(
+        self,
+        seed: T,
+    ) -> Result<T::Value, Self::Error> {
+        self.inner.newtype_variant_seed(JsonDepthSeed {
+            inner: seed,
+            depth: self.depth,
+        })
+    }
+    fn tuple_variant<V: Visitor<'de>>(
+        self,
+        len: usize,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        self.inner.tuple_variant(
+            len,
+            JsonDepthVisitor {
+                inner: visitor,
+                depth: self.depth,
+            },
+        )
+    }
+    fn struct_variant<V: Visitor<'de>>(
+        self,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error> {
+        self.inner.struct_variant(
+            fields,
+            JsonDepthVisitor {
+                inner: visitor,
+                depth: self.depth,
+            },
+        )
+    }
 }
 
 fn json_error(
@@ -280,6 +534,26 @@ mod tests {
             NativeErrorCode::InvalidRequest
         );
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn untagged_values_are_refused_before_they_can_buffer_unbounded_nesting() {
+        #[derive(Debug, Deserialize)]
+        #[serde(untagged)]
+        enum Scalar {
+            Number(u16),
+            Legacy(String),
+        }
+        let nested = format!("{}0{}", "[".repeat(100_000), "]".repeat(100_000));
+        let error = deserialize_json_slice::<Scalar>(nested.as_bytes(), "scalar").unwrap_err();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
+        assert!(error.message.contains("container admission ceiling"));
+        for source in ["90", "\"90\""] {
+            match deserialize_json_slice::<Scalar>(source.as_bytes(), "scalar").unwrap() {
+                Scalar::Number(value) => assert_eq!(value, 90),
+                Scalar::Legacy(value) => assert_eq!(value, "90"),
+            }
+        }
     }
 
     #[test]

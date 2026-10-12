@@ -16,11 +16,53 @@ pub struct PageLabelRange {
     pub start_number: u32,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(untagged, deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
 pub enum BookmarkSourceTarget {
     PageIndex(u32),
     Reference { num: u32, gen: u16 },
+}
+
+impl<'de> Deserialize<'de> for BookmarkSourceTarget {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Target;
+        impl<'de> Visitor<'de> for Target {
+            type Value = BookmarkSourceTarget;
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a page index or a bounded page reference")
+            }
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                u32::try_from(value)
+                    .map(BookmarkSourceTarget::PageIndex)
+                    .map_err(E::custom)
+            }
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+                let mut num = None;
+                let mut gen = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "num" if num.is_none() => num = Some(map.next_value::<u32>()?),
+                        "gen" if gen.is_none() => gen = Some(map.next_value::<u16>()?),
+                        "num" | "gen" => {
+                            return Err(serde::de::Error::custom("Duplicate page reference field"))
+                        }
+                        _ => return Err(serde::de::Error::unknown_field(&key, &["num", "gen"])),
+                    }
+                }
+                let num = num.ok_or_else(|| serde::de::Error::missing_field("num"))?;
+                if num == 0 {
+                    return Err(serde::de::Error::custom("Invalid page reference"));
+                }
+                Ok(BookmarkSourceTarget::Reference {
+                    num,
+                    gen: gen.ok_or_else(|| serde::de::Error::missing_field("gen"))?,
+                })
+            }
+        }
+        // An untagged derive buffers the whole value before checking its shape.
+        // Visit its two bounded shapes directly, before any nested input is read.
+        deserializer.deserialize_any(Target)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
@@ -84,10 +126,6 @@ impl<'de> Deserialize<'de> for BookmarkOriginalDestination {
                 .iter()
                 .flatten()
                 .any(|value| !(*value as f32).is_finite())
-            || matches!(
-                wire.source_target,
-                BookmarkSourceTarget::Reference { num: 0, .. }
-            )
         {
             return Err(serde::de::Error::custom(
                 "Invalid original bookmark destination",
@@ -508,6 +546,90 @@ fn parse_pdf_color(color: Option<&str>) -> Option<[f64; 3]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, Deserialize)]
+    struct BookmarkRoot {
+        #[serde(deserialize_with = "deserialize_bounded_bookmark_items")]
+        items: Vec<BookmarkEntry>,
+    }
+
+    fn nested_reference_bookmarks(depth: usize) -> String {
+        let prefix = r#"{"title":"nested","pageIndex":0,"originalDestination":{"kind":"Fit","sourceTarget":{"num":3,"gen":0},"coordinates":[]},"items":["#;
+        format!(
+            r#"{{"items":[{}{}]}}"#,
+            prefix.repeat(depth),
+            "]}".repeat(depth)
+        )
+    }
+
+    #[test]
+    fn accepts_full_bounded_depth_with_reference_destinations() {
+        let source = nested_reference_bookmarks(MAX_BOOKMARK_DEPTH);
+        let root: BookmarkRoot =
+            crate::bounded_io::deserialize_json_slice(source.as_bytes(), "bookmarks").unwrap();
+        let mut items = root.items.as_slice();
+        for _ in 0..MAX_BOOKMARK_DEPTH {
+            assert_eq!(items.len(), 1);
+            assert!(items[0].original_destination.is_some());
+            items = &items[0].items;
+        }
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn refuses_a_hundred_thousand_levels_at_the_bookmark_admission_boundary() {
+        let source = nested_reference_bookmarks(100_000);
+        let error = crate::bounded_io::deserialize_json_slice::<BookmarkRoot>(
+            source.as_bytes(),
+            "bookmarks",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
+        assert!(
+            error.message.contains("64-level admission ceiling"),
+            "{}",
+            error.message
+        );
+        let path =
+            std::env::temp_dir().join(format!("evb-bookmark-deep-{}.json", std::process::id()));
+        std::fs::write(&path, &source).unwrap();
+        let error = crate::bounded_io::deserialize_json_file_bounded::<BookmarkRoot>(
+            &path,
+            source.len(),
+            "bookmarks",
+        )
+        .unwrap_err();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(error.code, NativeErrorCode::TooLarge);
+        assert!(
+            error.message.contains("64-level admission ceiling"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn refuses_nested_source_targets_without_buffering_them() {
+        let nested = format!(
+            "{}0{}",
+            r#"{"nested":"#.repeat(100_000),
+            "}".repeat(100_000)
+        );
+        let source = format!(
+            r#"{{"kind":"Fit","sourceTarget":{{"num":{nested},"gen":0}},"coordinates":[]}}"#
+        );
+        let error = crate::bounded_io::deserialize_json_slice::<BookmarkOriginalDestination>(
+            source.as_bytes(),
+            "destination",
+        )
+        .unwrap_err();
+        assert_eq!(error.code, NativeErrorCode::InvalidRequest);
+        assert!(
+            !error.message.contains("recursion limit"),
+            "{}",
+            error.message
+        );
+    }
 
     #[test]
     fn rejects_unbounded_or_incomplete_original_destinations() {

@@ -548,7 +548,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     validate_native_mutations(parsed)
 }
 
-#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(test)]
 pub(crate) fn read_native_mutations_bytes(bytes: &[u8]) -> Result<NativeMutationsFile> {
     if bytes.len() > MAX_SIDECAR_BYTES {
         return Err(domain_error(
@@ -556,16 +556,16 @@ pub(crate) fn read_native_mutations_bytes(bytes: &[u8]) -> Result<NativeMutation
             "Native PDF mutation payload exceeds the admission ceiling",
         ));
     }
-    let parsed = serde_json::from_slice(bytes).map_err(|error| {
-        domain_error(
-            NativeErrorCode::InvalidRequest,
-            format!("Invalid native PDF mutation payload: {error}"),
-        )
-    })?;
+    let parsed = evb_native_support::bounded_io::deserialize_json_slice(
+        bytes,
+        "native PDF mutation payload",
+    )?;
     validate_native_mutations(parsed)
 }
 
-fn validate_native_mutations(parsed: NativeMutationsFile) -> Result<NativeMutationsFile> {
+pub(crate) fn validate_native_mutations(
+    parsed: NativeMutationsFile,
+) -> Result<NativeMutationsFile> {
     if parsed.updates.is_empty()
         && parsed.geometry_updates.is_empty()
         && parsed.notes.is_empty()
@@ -996,20 +996,42 @@ mod bounded_input_tests {
     }
 
     #[test]
+    fn native_mutation_bytes_and_file_accept_full_reference_depth() {
+        let node = r#"{"title":"Nested","pageIndex":null,"originalDestination":{"sourceTarget":{"num":3,"gen":0},"kind":"Fit","coordinates":[]},"items":["#;
+        let source = format!(
+            r#"{{"bookmarks":{{"totalPages":1,"untitledLabel":"Untitled","items":[{}{}]}}}}"#,
+            node.repeat(64),
+            "]}".repeat(64)
+        );
+        assert!(read_native_mutations_bytes(source.as_bytes()).is_ok());
+        let path = temp_path("reference-depth");
+        fs::write(&path, source).unwrap();
+        assert!(read_native_mutations(&path).is_ok());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn native_mutation_decode_rejects_a_deep_bookmark_tree_without_stack_overflow() {
         let path = temp_path("deep-bookmark");
         let mut source =
             String::from(r#"{"bookmarks":{"totalPages":1,"untitledLabel":"Untitled","items":["#);
-        for index in 0..=10_000 {
+        for index in 0..100_000 {
             source.push_str(&format!(
-                r#"{{"title":"Bookmark {index}","pageIndex":0,"pageYRatio":null,"namedDest":null,"bold":false,"italic":false,"color":null,"items":["#
+                r#"{{"title":"Bookmark {index}","pageIndex":0,"originalDestination":{{"sourceTarget":{{"num":3,"gen":0}},"kind":"Fit","coordinates":[]}},"pageYRatio":null,"namedDest":null,"bold":false,"italic":false,"color":null,"items":["#
             ));
         }
-        for _ in 0..=10_000 {
+        for _ in 0..100_000 {
             source.push_str("]}");
         }
         source.push_str("]}}");
-        fs::write(&path, source).unwrap();
+        fs::write(&path, &source).unwrap();
+        let bytes_error = read_native_mutations_bytes(source.as_bytes())
+            .err()
+            .unwrap();
+        assert_eq!(
+            bytes_error.downcast_ref::<NativeError>().unwrap().code,
+            NativeErrorCode::TooLarge
+        );
 
         let error = match read_native_mutations(&path) {
             Ok(_) => panic!("deep bookmark mutations must be rejected before native output"),
@@ -1018,9 +1040,9 @@ mod bounded_input_tests {
         let native_error = error
             .downcast_ref::<NativeError>()
             .expect("sidecar decode failures should carry a native error");
-        assert_eq!(native_error.code, NativeErrorCode::InvalidRequest);
+        assert_eq!(native_error.code, NativeErrorCode::TooLarge);
         assert!(
-            native_error.message.contains("recursion limit exceeded"),
+            native_error.message.contains("64-level admission ceiling"),
             "unexpected deep bookmark error: {}",
             native_error.message
         );
