@@ -38,30 +38,42 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
     const workspaceUndoTimeline = useWorkspaceCommandLedger();
     // This reload scope holds the existing owner, never a second metadata copy.
-    let preparePreservedReload: (() => ReturnType<typeof createPdfReloadWaiter>) | null = null;
-    const preservesSourceReload = () => preparePreservedReload !== null;
+    let preservedReload: {
+        prepareReload: () => ReturnType<typeof createPdfReloadWaiter>;
+        restoreCleanState: (() => void) | undefined;
+    } | null = null;
+    const preservesSourceReload = () => preservedReload !== null;
     async function runWithPreservedMetadataReload<T>(
         operation: () => Promise<T>,
         prepareReload: () => ReturnType<typeof createPdfReloadWaiter>,
     ) {
-        const previous = preparePreservedReload;
-        preparePreservedReload = prepareReload;
-        try { return await operation(); } finally { preparePreservedReload = previous; }
+        const previous = preservedReload;
+        preservedReload = {
+            prepareReload,
+            restoreCleanState: metadataHistory?.captureCleanState(),
+        };
+        try { return await operation(); } finally { preservedReload = previous; }
     }
     function registerCommand(command: IWorkspaceCommandRegistration) {
-        const prepareReload = preparePreservedReload;
-        if (command.source !== 'file' || !prepareReload) {
+        const scope = preservedReload;
+        if (command.source !== 'file' || !scope) {
             workspaceUndoTimeline.registerCommand(command);
             return;
         }
+        let restoreCleanState = scope.restoreCleanState;
         const run = (operation: IWorkspaceCommandRegistration['undo']) => runWithPreservedMetadataReload(async () => {
-            const reload = prepareReload();
+            const inverse = metadataHistory?.captureCleanState();
+            const reload = scope.prepareReload();
             try {
                 const changed = await operation();
-                if (changed) await reload.promise;
+                if (changed) {
+                    await reload.promise;
+                    restoreCleanState?.();
+                    restoreCleanState = inverse;
+                }
                 return changed;
             } finally { reload.cancel(); }
-        }, prepareReload);
+        }, scope.prepareReload);
         workspaceUndoTimeline.registerCommand({
             ...command,
             undo: () => run(command.undo),

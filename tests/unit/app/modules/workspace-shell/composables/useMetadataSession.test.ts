@@ -85,6 +85,71 @@ describe('useMetadataSession', () => {
         expect(session.bookmarkState.bookmarkItems.value).toEqual([]);
     });
 
+    it('persists accepted metadata after Save restores an older OCR file checkpoint', async () => {
+        const session = createSession();
+        session.bookmarkState.handleBookmarksChange({
+            bookmarks: [createBookmark('Accepted')],
+            dirty: true,
+        });
+        session.pageLabelState.handlePageLabelRangesUpdate([{
+            startPage: 1,
+            style: 'D',
+            prefix: 'Accepted-',
+            startNumber: 1,
+        }]);
+        await session.runWithPreservedMetadataReload(async () => {
+            session.workspaceCommandSink.register({
+                source: 'file',
+                undo: () => true,
+                cmd: () => true,
+            });
+        }, () => ({
+            promise: Promise.resolve(),
+            cancel: () => {},
+        }));
+        session.bookmarkState.markBookmarksSaved();
+        session.pageLabelState.markPageLabelsSaved();
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
+        expect(await session.workspaceUndoTimeline.undoTimeline()).toBe(true);
+        expect(session.bookmarkState.bookmarkItems.value[0]?.title).toBe('Accepted');
+        expect(session.pageLabelState.labelAt(1)).toBe('Accepted-1');
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(true);
+        expect(session.pageLabelState.pageLabelsDirty.value).toBe(true);
+        expect(await session.workspaceUndoTimeline.redoTimeline()).toBe(true);
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
+        expect(session.pageLabelState.pageLabelsDirty.value).toBe(false);
+    });
+
+    it('leaves untouched imported metadata clean when restoring its original file checkpoint', async () => {
+        const session = createSession();
+        const imported = {
+            ...createBookmark('Imported'),
+            originalDestination: {
+                sourceTarget: 0,
+                kind: 'Fit' as const,
+                coordinates: [],
+            },
+        };
+        session.bookmarkState.handleBookmarksChange({
+            bookmarks: [imported],
+            dirty: false,
+        });
+        await session.runWithPreservedMetadataReload(async () => {
+            session.workspaceCommandSink.register({
+                source: 'file',
+                undo: () => true,
+                cmd: () => true,
+            });
+        }, () => ({
+            promise: Promise.resolve(),
+            cancel: () => {},
+        }));
+        session.bookmarkState.markBookmarksSaved();
+        expect(await session.workspaceUndoTimeline.undoTimeline()).toBe(true);
+        expect(session.bookmarkState.bookmarkItems.value).toEqual([imported]);
+        expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
+    });
+
     it('recovers metadata against the admitted saved baseline without manufacturing undo history', async () => {
         const source = createSession();
         source.bookmarkState.handleBookmarksChange({

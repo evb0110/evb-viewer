@@ -963,6 +963,93 @@ if (process.versions.electron && process.type === 'browser') {
         await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
     }, 420_000);
 
+    it('review-b6yh preserves accepted metadata after OCR Save Undo Save', async () => {
+        const session = await sessionFixture.resetForE2E();
+        const {page} = session;
+        const sourcePath = await createScannedTextFixturePdf(
+            'ocr-save-undo-metadata-scan.pdf',
+            SCANNED_TEXT,
+            '60px EvbOcrJourneySans',
+        );
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        await session.command('windowResize', [
+            1200,
+            700,
+        ]);
+
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
+        await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
+        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type(ACCEPTED_BOOKMARK);
+        await page.keyboard.press('Enter');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+        await openDocumentSidebarTab(page, 'Pages');
+        const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
+        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+            await clickAsUser(page, disclosure);
+        }
+        await clickAsUser(page, '#page-label-prefix-input');
+        await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
+        await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
+            .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+
+        await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+        const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
+            item.textContent?.trim() === 'OCR'
+            && !item.hasAttribute('data-disabled')
+            && item.getAttribute('aria-disabled') !== 'true'
+            && item.checkVisibility()
+        )), {timeout: 30_000});
+        await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
+        await page.waitForSelector('[role="dialog"]', {visible: true});
+        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+        ), {timeout: OCR_TIMEOUT_MS});
+        await clickVisibleButton(page, '[role="dialog"]', 'Close');
+        await page.waitForSelector('[role="dialog"]', {hidden: true});
+        await waitForViewerInteractive(page, 90_000);
+
+        await waitForTextLayerWord(page);
+        expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
+        await expect.poll(async () => {
+            const working = await getActiveWorkspaceWorkingCopyPath(page);
+            return (await extractTextWithPdfjs(working))[0]?.text?.includes(SEARCHED_WORD) ?? false;
+        }, {timeout: 60_000}).toBe(false);
+        await waitForWorkspaceHistorySettled(page);
+        await waitForViewerInteractive(page, 90_000);
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-save-undo-save-'));
+        console.info(`Save Undo Save evidence: ${evidence}`);
+        const afterUndo = (await readToolbarPageIndicator(page)).primaryText;
+        const rows = await page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.filter(row => (row as HTMLElement).checkVisibility()).map(row => row.textContent?.trim()));
+        await page.screenshot({path: join(evidence, 'after-undo.png')});
+        console.info('REVIEW_UNDO '+JSON.stringify({
+            afterUndo,
+            rows,
+        }));
+        expect(afterUndo, 'Undo OCR must preserve metadata accepted before OCR').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        expect(rows).toContain(ACCEPTED_BOOKMARK);
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        const saved = await readPdfCatalogWithPdfjs(sourcePath);
+        const {outlines} = await readPdfMetadataWithQpdf(sourcePath);
+        console.info('REVIEW_SAVE_UNDO_SAVE '+JSON.stringify({
+            labels:saved.pageLabels,
+            titles:outlines.map(item=>item.title),
+        }));
+        await copyFile(sourcePath, join(evidence, 'saved.pdf'));
+        expect(saved.pageLabels?.[0], 'Save after Undo OCR must persist the retained accepted label').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        expect(outlines.map(item=>item.title)).toEqual([ACCEPTED_BOOKMARK]);
+    }, 420_000);
+
     // Owner report 2026-10-10: after OCR of the current page, the page under
     // the dialog moved to its blank top. Applying the searchable PDF rewrites
     // the pages the reader is looking at; it must not move the reading point.
