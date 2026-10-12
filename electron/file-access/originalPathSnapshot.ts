@@ -168,15 +168,19 @@ export async function captureAdmittedPathSnapshot(
         ctimeNs?: string;
         deviceId?: string;
         inode?: string;
+        mtimeNs?: string;
+        size?: number;
     },
     signal?: AbortSignal,
 ) {
-    const options = {ignoreIdentity: baseline?.contentFingerprint !== undefined};
+    const options = {ignoreIdentity: baseline?.contentFingerprint !== undefined && (process.platform !== 'win32' || baseline.deviceId === undefined || baseline.inode === undefined)};
     const snapshot = await capturePathSnapshot(originalPath, options);
     const canReuse = baseline?.contentFingerprint !== undefined
         && baseline.ctimeNs === snapshot.ctimeNs.toString()
         && baseline.deviceId === snapshot.deviceId.toString()
-        && baseline.inode === snapshot.inode.toString();
+        && baseline.inode === snapshot.inode.toString()
+        && baseline.mtimeNs === snapshot.mtimeNs.toString()
+        && baseline.size === Number(snapshot.size);
     snapshot.contentFingerprint = (canReuse ? baseline?.contentFingerprint : undefined)
         ?? await hashContentFingerprintFilePath(originalPath, snapshot.size, signal);
     if (!snapshotsMatch(snapshot, await capturePathSnapshot(originalPath, options), options)) {
@@ -222,13 +226,7 @@ export async function rebaseUnchangedSnapshot(
     }
     const ctimeMoved = admitted.ctimeNs !== snapshot.ctimeNs;
     const identityMoved = admitted.deviceId !== snapshot.deviceId || admitted.inode !== snapshot.inode;
-    const linkCountMoved = admitted.linkCount !== snapshot.linkCount;
-    const ownBackup = proof.kind === 'own-backup-link';
-    if (linkCountMoved && (!ownBackup || snapshot.linkCount !== admitted.linkCount + 1n)
-        || ownBackup && ctimeMoved && snapshot.linkCount !== admitted.linkCount + 1n) {
-        throw new OriginalPathSaveConflictError();
-    }
-    const source = ownBackup ? {contentFingerprint: admitted.contentFingerprint} : proof.source;
+    const source = proof.kind === 'own-backup-link' ? {contentFingerprint: admitted.contentFingerprint} : proof.source;
     const fingerprint = admitted.contentFingerprint
         ?? (source && 'contentFingerprint' in source ? source.contentFingerprint : undefined);
     if (fingerprint !== undefined) snapshot.contentFingerprint = fingerprint;

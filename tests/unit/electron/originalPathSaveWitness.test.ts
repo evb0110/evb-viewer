@@ -359,7 +359,7 @@ describe('originalPathSaveBaseMatches', () => {
         }
     });
 
-    it('rejects a Windows content change before admitting a transaction witness', async () => {
+    it('keeps a Windows external edit with complete stored identity', async () => {
         const originalPlatform = process.platform;
         Object.defineProperty(process, 'platform', {
             configurable: true,
@@ -372,22 +372,62 @@ describe('originalPathSaveBaseMatches', () => {
             originalHash.update(originalBytes);
             const originalFingerprint = `sha256-full-v1:${originalHash.digest('hex')}`;
 
+            await writeFile(originalPath, originalBytes);
+            const originalStat = await stat(originalPath, {bigint: true});
             const changedBytes = Buffer.from(originalBytes);
             changedBytes[70_000] = 8;
             await writeFile(originalPath, changedBytes);
-            const changedStat = await stat(originalPath, {bigint: true});
-            mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+            const expected = {
                 contentFingerprint: originalFingerprint,
-                ctimeNs: changedStat.ctimeNs.toString(),
-                deviceId: changedStat.dev.toString(),
-                inode: changedStat.ino.toString(),
-                mtimeMs: Number(changedStat.mtimeNs) / 1_000_000,
-                mtimeNs: changedStat.mtimeNs.toString(),
-                size: Number(changedStat.size),
+                ctimeNs: originalStat.ctimeNs.toString(),
+                deviceId: originalStat.dev.toString(),
+                inode: originalStat.ino.toString(),
+                mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
+                mtimeNs: originalStat.mtimeNs.toString(),
+                size: Number(originalStat.size),
+            };
+            mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue(expected);
+            const workingPath = join(tempDir, 'working.pdf');
+            const stagedPath = join(tempDir, 'staged.pdf');
+            await writeFile(workingPath, 'ACCEPTED');
+            await writeFile(stagedPath, 'EVB-PUBLISHED');
+            const {
+                setWorkingCopyOriginalPath, clearWorkingCopyOriginalPaths,
+            } = await import('@electron/file-access/workingCopyStore');
+            const {ensureWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+            const {atomicReplace} = await import('@electron/utils/atomicReplace');
+            const {OriginalPathSaveConflictError} = await import('@electron/file-access/originalPathSnapshot');
+            await setWorkingCopyOriginalPath(workingPath, originalPath, 12, {
+                backingState: 'eager',
+                deferOriginalFileExpectation: true,
+                originalFileExpectation: expected,
             });
-
-            await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
-                .resolves.toBeNull();
+            await ensureWorkingCopyRevision(workingPath, 12);
+            try {
+                const outcome: unknown = await transitionOriginalAndWorkingCopyRevision({
+                    workingCopyPath: workingPath,
+                    originalPath,
+                    publishedSourcePath: stagedPath,
+                    senderId: 12,
+                    reason: 'save-sync',
+                    captureOriginalWitness: () => captureOriginalPathSaveWitness(workingPath, originalPath, 12),
+                    publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(stagedPath, originalPath, {
+                        assertDestinationCurrent,
+                        destinationBackupPath,
+                    }),
+                }).catch((error: unknown) => error);
+                if (outcome === null) {
+                    await expect(readFile(originalPath)).resolves.toEqual(changedBytes);
+                } else {
+                    expect(outcome).toBeInstanceOf(OriginalPathSaveConflictError);
+                    if (!(outcome instanceof OriginalPathSaveConflictError) || !outcome.keptFilePath) throw new Error('Save did not report the kept external version');
+                    await expect(readFile(outcome.keptFilePath)).resolves.toEqual(changedBytes);
+                }
+                await expect(readFile(workingPath, 'utf8')).resolves.toBe('ACCEPTED');
+            } finally {
+                clearWorkingCopyOriginalPaths();
+            }
         } finally {
             Object.defineProperty(process, 'platform', {
                 configurable: true,

@@ -1,7 +1,6 @@
 import {
     createOriginalFileExpectationFromStat,
     expectationMatchesStat,
-    getExpectationStatMismatches,
 } from '@electron/file-access/originalFileExpectation';
 import type {BigIntStats} from 'node:fs';
 import {
@@ -30,9 +29,7 @@ import {
     serializeSnapshot,
     snapshotsMatch,
 } from '@electron/file-access/originalPathSnapshot';
-import {createLogger} from '@electron/utils/createLogger';
 
-const log = createLogger('original-path-save-witness');
 
 export interface IOriginalPathSaveWitness {
     assertCurrent: (options?: {allowBackupMetadataChange?: boolean}) => Promise<void>;
@@ -42,7 +39,7 @@ export interface IOriginalPathSaveWitness {
     rebaseAfterPublish: (intendedFingerprint: string, keptFilePath?: string) => Promise<void>;
 }
 
-function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectation) {
+function hasCompleteStoredIdentity(expected: IWorkingCopyOriginalFileExpectation) {
     return expected.deviceId !== undefined
         && expected.inode !== undefined
         && expected.ctimeNs !== undefined
@@ -52,7 +49,7 @@ function hasImmutablePosixExpectation(expected: IWorkingCopyOriginalFileExpectat
 function isExpectationUsableForCurrentPlatform(expected: IWorkingCopyOriginalFileExpectation) {
     return process.platform === 'win32'
         ? /^sha256-full-v1:[0-9a-f]{64}$/u.test(expected.contentFingerprint ?? '')
-        : hasImmutablePosixExpectation(expected);
+        : hasCompleteStoredIdentity(expected);
 }
 
 async function matchesBaselineOnWitnessPath(
@@ -225,7 +222,7 @@ export async function captureOriginalPathSaveWitness(
     }
 
     try {
-        const snapshot = await captureAdmittedPathSnapshot(originalPath, process.platform === 'win32' ? undefined : expected, signal);
+        const snapshot = await captureAdmittedPathSnapshot(originalPath, hasCompleteStoredIdentity(expected) ? expected : undefined, signal);
         const originalStat = await lstat(originalPath, {bigint: true});
         const expectationStatMatches = expectationMatchesStat(expected, originalStat);
         let contentFingerprintVerified = false;
@@ -250,20 +247,6 @@ export async function captureOriginalPathSaveWitness(
                     originalStat,
                 );
                 if (!restored) {
-                    log.debug('Original save witness rejected a changed file expectation', {
-                        fields: getExpectationStatMismatches(expected, originalStat),
-                        originalPath,
-                        expected,
-                        actual: {
-                            ctimeNs: originalStat.ctimeNs.toString(),
-                            deviceId: originalStat.dev.toString(),
-                            inode: originalStat.ino.toString(),
-                            linkCount: originalStat.nlink.toString(),
-                            mtimeNs: originalStat.mtimeNs.toString(),
-                            size: originalStat.size.toString(),
-                        },
-                        workingPath,
-                    });
                     return null;
                 }
                 expected = restored;
