@@ -175,6 +175,46 @@ describe('SettingsContent synchronized MCP status', () => {
         vi.stubGlobal('useToast', () => ({add: vi.fn()}));
     });
 
+
+    it('retains runtime completion details when an older status read arrives after the owner event', async () => {
+        let resolve!: (status: IAgentMcpIntegrationStatus) => void;
+        mcpStatusRead.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp(SettingsContent);
+        for (const name of [
+            'UIcon',
+            'UButton',
+            'NuxtLink',
+        ]) app.component(name, {render: () => h('span')});
+        app.component('UFormField', FormFieldStub);
+        app.component('USwitch', SwitchStub);
+        app.mount(host);
+        const unmount = () => { app.unmount(); host.remove(); activeUnmounts.delete(unmount); };
+        activeUnmounts.add(unmount);
+        await nextTick();
+        for (const listener of runtimeStatusListeners) listener({
+            ...createBrowserAgentMcpStatus(),
+            enabled: true,
+            serverRunning: true,
+            codexInstalled: true,
+            codexConfigured: true,
+        });
+        await nextTick();
+        expect(host.querySelector('[data-mcp-running]')?.textContent).toBe('true');
+        resolve({
+            ...createBrowserAgentMcpStatus(),
+            enabled: false,
+            serverRunning: false,
+            codexInstalled: true,
+            codexConfigured: false,
+        });
+        await vi.waitFor(() => expect(mcpStatusRead.mock.settledResults[0]?.type).toBe('fulfilled'));
+        await nextTick();
+        expect(host.querySelector('[data-mcp-enabled]')?.textContent).toBe('true');
+        expect(host.querySelector('[data-mcp-running]')?.textContent).toBe('true');
+    });
+
     it('shows a broadcast setting while an earlier MCP status read is pending', async () => {
         let resolve!: (status: IAgentMcpIntegrationStatus) => void;
         mcpStatusRead.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
@@ -201,10 +241,12 @@ describe('SettingsContent synchronized MCP status', () => {
 
         synchronizedSettings.value.agentMcpEnabled = false;
         await nextTick();
-        resolve({
+        const readStatus = {
             ...createBrowserAgentMcpStatus(),
             enabled: true,
-        });
+        };
+        for (const listener of runtimeStatusListeners) listener(readStatus);
+        resolve(readStatus);
         await vi.waitFor(() => expect(host.querySelector('[data-mcp-enabled]')?.textContent).toBe('false'));
         for (const listener of runtimeStatusListeners) {
             listener({

@@ -28,24 +28,32 @@ import {
 import {getAllRegisteredAppWindows} from '@electron/window/registry';
 import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
 import {createLogger} from '@electron/utils/createLogger';
+import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
+import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
 
 export function createAgentService() {
+    const runMcpLifecycle = createKeyedSerialQueue();
+    function publishMcpStatus(status: IAgentMcpIntegrationStatus) {
+        for (const window of getAllRegisteredAppWindows()) {
+            sendPlatformEvent<IAgentEventMap, typeof AGENT_PLATFORM_FEATURE.eventChannels.onMcpIntegrationChanged>(
+                window,
+                AGENT_PLATFORM_FEATURE.eventChannels.onMcpIntegrationChanged,
+                status,
+                error => createLogger('agent').warn(`Failed to send MCP runtime status: ${String(error)}`),
+            );
+        }
+    }
     return {
-        getMcpIntegrationStatus: () => getAgentMcpIntegrationStatus(),
-        async setMcpIntegrationEnabled(context, enabled) {
+        getMcpIntegrationStatus: () => runMcpLifecycle('mcp', async () => {
+            const status = await getAgentMcpIntegrationStatus();
+            publishMcpStatus(status);
+            return status;
+        }),
+        setMcpIntegrationEnabled: (context, enabled) => runMcpLifecycle('mcp', async () => {
             const result = await setAgentMcpIntegrationEnabled(enabled, BrowserWindow.fromWebContents(context.sender));
-            // The settings commit precedes server/registration work. Runtime details
-            // become observable only when that operation (including rollback) finishes.
-            for (const window of getAllRegisteredAppWindows()) {
-                sendPlatformEvent<IAgentEventMap, typeof AGENT_PLATFORM_FEATURE.eventChannels.onMcpIntegrationChanged>(
-                    window,
-                    AGENT_PLATFORM_FEATURE.eventChannels.onMcpIntegrationChanged,
-                    result.status,
-                    error => createLogger('agent').warn(`Failed to send MCP runtime status: ${String(error)}`),
-                );
-            }
+            publishMcpStatus(result.status);
             return result;
-        },
+        }),
         getAssistantState: (_context, request) =>
             getAgentAssistantState(request),
         installAssistantCodex: () => installAgentAssistantCodex(),

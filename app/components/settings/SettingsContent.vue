@@ -261,7 +261,6 @@ const { presentFailureToast } = useFailureToast();
 const {
     settings,
     isLoaded,
-    load,
     loadOrThrow,
     settingsLoadError,
     settingsLoadFailure,
@@ -780,11 +779,7 @@ async function refreshAgentMcpStatus() {
 
     isAgentMcpBusy.value = true;
     try {
-        const status = await getAgentCapability().getMcpIntegrationStatus();
-        if (lifecycle.isDisposed()) {
-            return;
-        }
-        agentMcpRuntime.value = status;
+        await getAgentCapability().getMcpIntegrationStatus();
     } catch (error) {
         if (lifecycle.isDisposed()) {
             return;
@@ -812,11 +807,6 @@ async function setAgentMcpEnabled(enabled: boolean) {
         if (lifecycle.isDisposed()) {
             return;
         }
-        agentMcpRuntime.value = result.status;
-        await load();
-        if (lifecycle.isDisposed()) {
-            return;
-        }
         if (!result.ok) {
             showExpectedAssistantOutcome(
                 'mcp-update',
@@ -837,10 +827,7 @@ async function setAgentMcpEnabled(enabled: boolean) {
             'Failed to update agent MCP integration status',
         );
         try {
-            const status = await getAgentCapability().getMcpIntegrationStatus();
-            if (!lifecycle.isDisposed()) {
-                agentMcpRuntime.value = status;
-            }
+            await getAgentCapability().getMcpIntegrationStatus();
         } catch (statusError) {
             BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', { statusError });
         }
