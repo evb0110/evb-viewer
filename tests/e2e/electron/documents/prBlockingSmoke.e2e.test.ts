@@ -991,11 +991,14 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 phase: string;
                 origin: string
             }) => {
+                // Main projects every status to each window; with one window, every
+                // status is this window's own.
                 (window as TUpdateOfferWindow).__emitUpdateStatusForAutomation?.({
                     ...payload,
                     version: '9.9.9',
                     percent: null,
                     message: null,
+                    requestedHere: true,
                 });
             },
             {
