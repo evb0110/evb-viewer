@@ -53,4 +53,10 @@ vi.stubGlobal('useRoute', () => ({path: '/'}));
 // component tests start from an inert browser fixture the same way.
 beforeEach(() => {
     setBrowserPlatformApi(createPlatformApiFixture({backend: 'browser'}));
+    // useSettings applies the committed theme through @nuxtjs/color-mode. Stubbed
+    // per test because some tests clear every global with vi.unstubAllGlobals().
+    vi.stubGlobal('useColorMode', () => ({
+        preference: 'system',
+        value: 'light',
+    }));
 });
