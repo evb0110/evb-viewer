@@ -547,28 +547,44 @@ describe('scan-cleanup durability', () => {
 
     itPosix('records a child that has exited but is not reaped yet under its start time', async () => {
         const namespacePath = await createTemporaryDirectory();
-        // sh prints the pid of a child that exits at once and becomes sleep,
-        // which never reaps it: the child stays a zombie, as a native tool
-        // does between its exit and Node's wait, with no command line or exe.
+        // Stop the shell before killing its child so SIGCHLD cannot make it
+        // reap the child. An immediate exit can be reaped before exec sleep.
+        // Resuming the shell in finally lets wait reap the zombie and exit.
         const parent = spawn('sh', [
             '-c',
-            'true & echo $!; exec sleep 30',
-        ], {stdio: [
-            'ignore',
-            'pipe',
-            'ignore',
-        ]});
+            'sleep 30 & child=$!; echo "$child"; kill -STOP $$; wait "$child"',
+        ], {
+            detached: true,
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+        const parentClosed = once(parent, 'close', {signal: AbortSignal.timeout(4_000)});
+        let pid: number | undefined;
         try {
-            const [pidText] = await once(parent.stdout, 'data') as [Buffer];
-            const pid = Number(pidText.toString().trim());
+            const [pidText] = await once(parent.stdout, 'data', {signal: AbortSignal.timeout(1_000)}) as [Buffer];
+            const childPid = Number(pidText.toString().trim());
+            expect(Number.isSafeInteger(childPid) && childPid > 0).toBe(true);
+            pid = childPid;
+            await vi.waitFor(() => {
+                expect(execFileSync('ps', [
+                    '-o',
+                    'stat=',
+                    '-p',
+                    String(parent.pid),
+                ], {encoding: 'utf8'}).trim(), 'fixture parent must stop before its child exits').toMatch(/^T/u);
+            }, {timeout: 1_000});
+            process.kill(pid, 'SIGKILL');
             await vi.waitFor(() => {
                 expect(execFileSync('ps', [
                     '-o',
                     'stat=',
                     '-p',
                     String(pid),
-                ], {encoding: 'utf8'}).trim()).toMatch(/^Z/u);
-            }, {timeout: 5_000});
+                ], {encoding: 'utf8'}).trim(), 'fixture child must remain an unreaped zombie').toMatch(/^Z/u);
+            }, {timeout: 1_000});
 
             const registration = await registerManagedProcess(namespacePath, {
                 pid,
@@ -581,7 +597,14 @@ describe('scan-cleanup durability', () => {
                 processStartTime: expect.stringMatching(/\S/u),
             });
         } finally {
-            parent.kill();
+            if (pid !== undefined) {
+                // Also release a still-running child if a fixture assertion failed.
+                try { process.kill(pid, 'SIGKILL'); } catch { /* Already reaped. */ }
+                parent.kill('SIGCONT');
+            } else {
+                process.kill(-parent.pid!, 'SIGKILL');
+            }
+            await parentClosed;
         }
     });
 
