@@ -132,12 +132,13 @@ When the user enables MCP:
 1. Renderer calls `getPlatformAPI().agent.setMcpIntegrationEnabled(true)`.
 2. Preload invokes `agent:setMcpIntegrationEnabled`.
 3. Main process calls `setAgentMcpIntegrationEnabled(true, parentWindow)`.
-4. The app finds Codex by checking:
+4. The app finds Codex by checking, in order, its own install locations and the sources its environment names:
    - `CODEX_CLI_PATH`
+   - the app's managed install under its user data directory
    - `/Applications/Codex.app/Contents/Resources/codex` on macOS
-   - each `PATH` entry
-   - common user/system binary locations
-   - `command -v codex` in the login shell on non-Windows hosts
+   - each `PATH` entry, where Homebrew and npm global installs normally appear
+   - `$HOME/.local/bin/codex`
+   - `command -v codex` in the login shell named by `SHELL`, on non-Windows hosts. It covers GUI launches, which do not inherit the shell `PATH`; Homebrew needs its `shellenv` in the login profile, such as `~/.zprofile`
 5. If Codex is missing, a native dialog offers to open `https://developers.openai.com/codex/app`.
 6. If Codex exists, EVB Viewer asks permission before mutating global Codex settings.
 7. The local MCP server starts.
