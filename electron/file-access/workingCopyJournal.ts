@@ -146,25 +146,20 @@ async function truncateWorkingCopy(workingCopyPath: string, length: number) {
     }
 }
 
+// A working copy that is still the backup's inode was never replaced, so it holds the backup's bytes
+// plus any in-place append; only a replaced working copy needs the backup copied back.
 async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
     const appendedLength = journal.previousLength;
-    if (appendedLength !== undefined) {
-        const [
-            workingCopyStat,
-            backupStat,
-        ] = await Promise.all([
-            stat(journal.workingCopyPath),
-            stat(journal.backupPath),
-        ]).catch(() => []);
-        if (
-            workingCopyStat !== undefined
-            && backupStat !== undefined
-            && workingCopyStat.dev === backupStat.dev
-            && workingCopyStat.ino === backupStat.ino
-        ) {
-            await truncateWorkingCopy(journal.workingCopyPath, appendedLength);
-            return;
-        }
+    const [
+        workingCopyStat,
+        backupStat,
+    ] = await Promise.all([
+        stat(journal.workingCopyPath),
+        stat(journal.backupPath),
+    ]).catch(() => []);
+    if (workingCopyStat?.dev === backupStat?.dev && workingCopyStat?.ino === backupStat?.ino && workingCopyStat !== undefined) {
+        if (appendedLength !== undefined) await truncateWorkingCopy(journal.workingCopyPath, appendedLength);
+        return;
     }
     await copyFileAtomic(journal.backupPath, journal.workingCopyPath);
     if (appendedLength !== undefined) {
