@@ -1723,7 +1723,7 @@ export default {
             'noPages': 'The PDF contains no pages',
             'folderEmpty': 'No supported documents were found in the selected folder',
             'save': 'Failed to save file',
-            'originalSavedOtherKept': 'The PDF changed elsewhere while it was being saved. The file as it was just before this save was kept at {path}. Your changes are still open here; use Save As to keep them.',
+            'originalSavedOtherKept': 'The PDF changed elsewhere while it was being saved. The file as it was just before this save was kept next to it as {path}. Your changes are still open here; use Save As to keep them.',
             'browserStorageTitle': 'Browser storage is unavailable',
             'browserStorageDescription': '“{name}” is open in memory, but it will not reappear after reload.',
         },

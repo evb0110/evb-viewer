@@ -1,9 +1,13 @@
+import { existsSync } from 'fs';
 import {
     basename,
     dirname,
     extname,
     join,
 } from 'path';
+import { range } from 'es-toolkit/math';
+import { isErrnoException } from '@contracts/runtimeGuards';
+import { moveFileToMissingPath } from '@electron/utils/atomicReplace';
 
 const MAX_PATH_COMPONENT_BYTES = 255;
 
@@ -44,4 +48,23 @@ export function buildOutputPathWithSuffix(targetPath: string, suffix: string) {
         MAX_PATH_COMPONENT_BYTES - suffixByteLength,
     );
     return join(outputDirectory, `${boundedStem}${suffixWithExtension}`);
+}
+
+/**
+ * Moves a file beside `targetPath` as `<stem> (<label>)<ext>`, then `<stem> (<label> 2)<ext>` and on, never over an
+ * existing file. Returns the new path, or `sourcePath` when no name is free or the move fails.
+ */
+export async function moveFileToLabelledPathBeside(sourcePath: string, targetPath: string, label: string) {
+    for (const number of range(1, 100)) {
+        const candidatePath = buildOutputPathWithSuffix(targetPath, number === 1 ? ` (${label})` : ` (${label} ${number})`);
+        try {
+            if (!existsSync(candidatePath)) {
+                await moveFileToMissingPath(sourcePath, candidatePath);
+                return candidatePath;
+            }
+        } catch (error) {
+            if (!isErrnoException(error) || error.code !== 'EEXIST') return sourcePath;
+        }
+    }
+    return sourcePath;
 }

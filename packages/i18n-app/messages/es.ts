@@ -1723,7 +1723,7 @@ export default {
             'noPages': 'El PDF no contiene páginas',
             'folderEmpty': 'No se encontraron documentos compatibles en la carpeta seleccionada',
             'save': 'No se pudo guardar el archivo',
-            'originalSavedOtherKept': 'El PDF cambió en otro programa mientras se guardaba. El archivo tal como estaba justo antes de este guardado se conservó en {path}. Sus cambios siguen abiertos aquí; use «Guardar como» para conservarlos.',
+            'originalSavedOtherKept': 'El PDF cambió en otro programa mientras se guardaba. El archivo tal como estaba justo antes de este guardado se conservó junto a él como {path}. Sus cambios siguen abiertos aquí; use «Guardar como» para conservarlos.',
             'browserStorageTitle': 'El almacenamiento del navegador no está disponible',
             'browserStorageDescription': '“{name}” está abierto en memoria, pero no volverá a aparecer tras recargar.',
         },

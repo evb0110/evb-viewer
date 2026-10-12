@@ -1723,7 +1723,7 @@ export default {
             'noPages': 'De PDF bevat geen pagina’s',
             'folderEmpty': 'Er zijn geen ondersteunde documenten gevonden in de geselecteerde map',
             'save': 'Kan bestand niet opslaan',
-            'originalSavedOtherKept': 'De pdf is elders gewijzigd tijdens het opslaan. Het bestand zoals het vlak voor deze opslag was, is bewaard op {path}. Uw wijzigingen zijn hier nog open; gebruik ‘Opslaan als’ om ze te bewaren.',
+            'originalSavedOtherKept': 'De pdf is elders gewijzigd tijdens het opslaan. Het bestand zoals het vlak voor deze opslag was, is ernaast bewaard als {path}. Uw wijzigingen zijn hier nog open; gebruik ‘Opslaan als’ om ze te bewaren.',
             'browserStorageTitle': 'Browseropslag is niet beschikbaar',
             'browserStorageDescription': '‘{name}’ is in het geheugen geopend, maar verschijnt niet opnieuw na herladen.',
         },

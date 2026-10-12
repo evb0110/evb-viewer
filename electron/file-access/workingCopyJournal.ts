@@ -23,6 +23,9 @@ import {
     linkOrCopyFileDurably,
 } from '@electron/file-access/documentFileWriteAtomic';
 import {
+    moveFileToLabelledPathBeside, truncateUtf8PathComponent,
+} from '@electron/utils/boundedPathComponent';
+import {
     originalSchema,
     restoreOriginal,
     type IWorkingCopyJournalOriginal,
@@ -127,11 +130,15 @@ export async function prepareWorkingCopyTransition(
     return journal;
 }
 
-/** Records the original a transition publishes, before and after publication. */
+/**
+ * Records the original a transition publishes, before and after publication. A conflicted save first moves the
+ * displaced original to a visible "<name> (original).pdf" beside the PDF, so the journal never names a missing file.
+ */
 export async function recordWorkingCopyJournalOriginal(
     journal: IWorkingCopyJournal,
     original: IWorkingCopyJournalOriginal,
 ) {
+    if (original.state === 'conflicted') original.backupPath = await moveFileToLabelledPathBeside(original.backupPath, original.path, 'original');
     journal.original = original;
     await writeJournal(journal);
 }
@@ -218,31 +225,16 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
 const UUID_LENGTH = 36;
 const NAME_MAX_BYTES = 255;
 
-/** Keeps the longest prefix of `text` whose UTF-8 form fits in `maxBytes`, never splitting a code point. */
-function truncateToUtf8Bytes(text: string, maxBytes: number) {
-    let result = '';
-    let bytes = 0;
-    for (const character of text) {
-        bytes += Buffer.byteLength(character, 'utf8');
-        if (bytes > maxBytes) {
-            break;
-        }
-        result += character;
-    }
-    return result;
-}
-
 /**
  * An original backup is named for the working copy whose transition made it:
  * the `pdf-work-*` directory key is part of the name, so a sweep can tell its
  * own orphans from a backup another working copy's journal still names. The
- * original basename leads only as far as the name stays within NAME_MAX; a
- * UTF-8 byte bound also bounds the UTF-16 units NTFS counts.
+ * original basename leads only as far as the name stays within NAME_MAX.
  */
 function getOriginalBackupNamePrefix(originalPath: string, workingCopyPath: string) {
     const ownerSegment = `.evb-transition-${basename(dirname(workingCopyPath))}-`;
     const basenameBudget = NAME_MAX_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - UUID_LENGTH - '.bak.tmp'.length;
-    return `${truncateToUtf8Bytes(basename(originalPath), basenameBudget)}${ownerSegment}`;
+    return `${truncateUtf8PathComponent(basename(originalPath), basenameBudget)}${ownerSegment}`;
 }
 
 export function createOriginalTransitionBackupPath(originalPath: string, workingCopyPath: string) {

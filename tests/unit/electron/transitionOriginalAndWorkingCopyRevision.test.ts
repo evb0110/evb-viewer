@@ -410,6 +410,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             originalPath = fixture.originalPath;
             await writeFile(originalPath, original);
             await fs.utimes(originalPath, 1700000000, 1700000000);
+            const earlierKeptPath = originalPath.replace(/\.pdf$/u, ' (original).pdf');
+            if (mutation === 'in-place') await writeFile(earlierKeptPath, 'earlier-kept');
             const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
             await refreshWorkingCopyOriginalFileExpectation(fixture.workingCopyPath, 7);
             const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
@@ -433,8 +435,11 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             expect(result).toMatchObject({keptFilePath: expect.any(String)});
             expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('accepted-unsaved-work');
             expect(await readFile(originalPath, 'utf8')).toBe('new-committed-pdf');
-            const retained = (await readdir(tempRoot)).filter(name => name.includes('.evb-transition-') && name.endsWith('.bak'));
+            const keptName = basename(originalPath).replace(/\.pdf$/u, mutation === 'in-place' ? ' (original 2).pdf' : ' (original).pdf');
+            const retained = (await readdir(tempRoot)).filter(name => name === keptName);
             expect(retained).toHaveLength(1);
+            expect((await readdir(tempRoot)).some(name => name.includes('.evb-transition-'))).toBe(false);
+            if (mutation === 'in-place') expect(await readFile(earlierKeptPath, 'utf8')).toBe('earlier-kept');
             expect((await readFile(join(tempRoot, retained[0]!))).equals(external)).toBe(true);
             const {recoverWorkingCopyTransition} = await import('@electron/file-access/workingCopyJournal');
             await recoverWorkingCopyTransition(fixture.workingCopyPath);

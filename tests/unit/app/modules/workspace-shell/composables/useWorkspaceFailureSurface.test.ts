@@ -263,7 +263,7 @@ describe('useWorkspaceFailureSurface', () => {
         'structured',
         'native',
     ] as const)('identifies a retained revision without misnaming it after a late %s conflict', channel => {
-        const keptFilePath = '/documents/report.pdf.evb-transition-123.bak';
+        const keptFilePath = '/documents/report (original).pdf';
         const message = `The original changed elsewhere. A version was kept at ${keptFilePath}.`;
         const result = channel === 'structured'
             ? v.parse(documentSaveResult, {
@@ -305,7 +305,7 @@ describe('useWorkspaceFailureSurface', () => {
     });
 
     it.each(LOCALE_CODES)('tells where the earlier file was kept and how to keep the changes in %s', locale => {
-        const keptFilePath = '/documents/report.pdf.evb-transition-123.bak';
+        const keptFilePath = '/documents/report (original).pdf';
         const messages = LOCALE_MESSAGES[locale];
         const text = formatTranslationLeaf(messages.errors.file.originalSavedOtherKept, {path: keptFilePath}, locale);
         expect(text).toContain(keptFilePath);
