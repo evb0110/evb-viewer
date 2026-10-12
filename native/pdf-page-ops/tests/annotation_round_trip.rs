@@ -1707,6 +1707,50 @@ fn auto_print_leaves_form_fields_to_the_printer() {
 }
 
 #[test]
+fn auto_print_draws_free_text_text_on_a_page_without_a_media_box() {
+    let temp = TempPaths::new("auto-print-no-media-box");
+    let printed = temp.root.join("printed.pdf");
+    // Readers take such a page as Letter; its FreeText names a standard font.
+    write_pdf_objects(
+        &temp.pdf,
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /Annots [4 0 R] >>".to_string(),
+            "<< /Type /Annot /Subtype /FreeText /Rect [60 600 400 700] /F 4 /Contents (Margin note) /DA (/Helv 18 Tf 0 0 1 rg) >>".to_string(),
+        ],
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["print-layout", "--input"])
+        .arg(&temp.pdf)
+        .arg("--output")
+        .arg(&printed)
+        .args(["--view-mode", "single", "--orientation", "auto", "--qpdf"])
+        .arg(external_tool::tool_path("QPDF_PATH", "qpdf", "qpdf"))
+        .output()
+        .unwrap();
+    assert_success(output, "print-layout");
+    let document = Document::load(&printed).unwrap();
+    let normal = document
+        .get_dictionary((4, 0))
+        .and_then(|note| note.get(b"AP"))
+        .and_then(Object::as_dict)
+        .and_then(|appearance| appearance.get(b"N"))
+        .and_then(Object::as_reference)
+        .unwrap();
+    let content = &document
+        .get_object(normal)
+        .unwrap()
+        .as_stream()
+        .unwrap()
+        .content;
+    assert!(
+        String::from_utf8_lossy(content).matches("> Tj").count() >= "Margin note".len() - 1,
+        "the note prints its text"
+    );
+}
+
+#[test]
 fn print_underlines_only_the_bottom_edge() {
     let temp = TempPaths::new("print-underline");
     write_single_square_pdf(&temp.pdf, "/BS << /W 4 /S /U >>");

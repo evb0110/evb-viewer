@@ -61,17 +61,17 @@ const EVB_DRAWN_SUBTYPES: [&[u8]; 8] = [
     b"Ink",
 ];
 
-/// The ceiling for one embedded font program FreeText synthesis reads.
-const FONT_PROGRAM_BYTES: usize = 16 * 1024 * 1024;
+/// The ceiling for one embedded font program FreeText synthesis reads; one batch read holds it.
+const FONT_PROGRAM_BYTES: usize = MAX_BATCH_RAW_BYTES;
 
 /// The font dictionaries a FreeText's text may use, in order: its own /DR, its
-/// page's resources and the AcroForm /DR.
+/// page's inherited resources and the AcroForm /DR. A page needs no MediaBox.
 fn free_text_fonts(
     document: &Document,
     annotation: &Dictionary,
     page_id: ObjectId,
 ) -> Result<Vec<Dictionary>> {
-    let page = materialized_page_dictionary(document, page_id)?;
+    let page_resources = resolve_inherited_object(document, page_id, b"Resources")?;
     let acroform = document
         .catalog()?
         .get(b"AcroForm")
@@ -79,7 +79,7 @@ fn free_text_fonts(
         .and_then(|v| document.dereference(v).ok()?.1.as_dict().ok());
     let resources = [
         annotation.get(b"DR").ok(),
-        page.get(b"Resources").ok(),
+        page_resources,
         acroform.and_then(|d| d.get(b"DR").ok()),
     ];
     Ok(resources
@@ -124,18 +124,17 @@ fn font_program_id(document: &Document, font: &Object) -> Option<ObjectId> {
 }
 
 /// The embedded font programs a missing FreeText appearance on the page may
-/// draw with: the only source streams Auto reads from a structural load.
-fn free_text_font_programs(document: &Document, page_id: ObjectId) -> Result<Vec<ObjectId>> {
-    let Ok(annots) = document.get_dictionary(page_id)?.get(b"Annots") else {
-        return Ok(Vec::new());
-    };
+/// draw with: the only source streams Auto reads from a structural load. A
+/// lookup that fails leaves its fonts out, so synthesis uses its fallbacks.
+fn free_text_font_programs(document: &Document, page_id: ObjectId) -> Vec<ObjectId> {
+    let annots = document
+        .get_dictionary(page_id)
+        .and_then(|page| page.get(b"Annots"));
+    let annots = annots.and_then(|annots| document.dereference(annots));
     let mut programs = Vec::new();
-    for item in document
-        .dereference(annots)?
-        .1
-        .as_array()
-        .map_or(&[][..], Vec::as_slice)
-    {
+    for item in annots.map_or(&[][..], |(_, a)| {
+        a.as_array().map_or(&[][..], Vec::as_slice)
+    }) {
         let Ok(annotation) = document.dereference(item).and_then(|(_, v)| v.as_dict()) else {
             continue;
         };
@@ -143,7 +142,7 @@ fn free_text_font_programs(document: &Document, page_id: ObjectId) -> Result<Vec
             && is_printed(document, annotation)
             && annotation_normal_appearance(document, annotation).is_none()
         {
-            for fonts in free_text_fonts(document, annotation, page_id)? {
+            for fonts in free_text_fonts(document, annotation, page_id).unwrap_or_default() {
                 programs.extend(
                     fonts
                         .iter()
@@ -152,7 +151,7 @@ fn free_text_font_programs(document: &Document, page_id: ObjectId) -> Result<Vec
             }
         }
     }
-    Ok(programs)
+    programs
 }
 
 /// Reads the unread font programs that missing FreeText appearances may draw
@@ -164,11 +163,11 @@ fn read_font_programs(
     input_path: &Path,
     qpdf_path: &Path,
     page_ids: &BTreeMap<u32, ObjectId>,
-) -> Result<()> {
+) {
     let document = &incremental.previous_document;
     let mut programs = BTreeMap::new();
     for page_id in page_ids.values() {
-        for id in free_text_font_programs(document, *page_id)? {
+        for id in free_text_font_programs(document, *page_id) {
             let declared = document
                 .get_object(id)
                 .and_then(Object::as_stream)
@@ -183,26 +182,18 @@ fn read_font_programs(
             }
         }
     }
-    let mut runs: Vec<(Vec<ObjectId>, usize)> = Vec::new();
-    for (id, bytes) in programs {
-        match runs.last_mut() {
-            Some((run, total))
-                if *total + bytes <= MAX_BATCH_RAW_BYTES && run.len() < MAX_BATCH_OBJECTS =>
-            {
-                run.push(id);
-                *total += bytes;
-            }
-            _ => runs.push((vec![id], bytes)),
-        }
-    }
-    for (run, _) in runs {
+    let programs: Vec<_> = programs.into_iter().collect();
+    let mut start = 0;
+    while start < programs.len() {
+        let end = batch_end(&programs, start);
+        let run: Vec<ObjectId> = programs[start..end].iter().map(|(id, _)| *id).collect();
         for (id, bytes) in read_qpdf_stream_batch(input_path, qpdf_path, &run).unwrap_or_default() {
             if bytes.len() <= FONT_PROGRAM_BYTES {
-                incremental.set_base_stream_bytes(id, bytes)?;
+                let _ = incremental.set_base_stream_bytes(id, bytes);
             }
         }
+        start = end;
     }
-    Ok(())
 }
 
 /// Gives each printed annotation on the page that lacks a usable normal
@@ -307,7 +298,7 @@ pub(crate) fn write_print_appearances_path(
     let mut changed = Vec::new();
     let page_ids = incremental.previous_document.get_pages();
     if let Some(qpdf_path) = qpdf_path {
-        read_font_programs(&mut incremental, input_path, qpdf_path, &page_ids)?;
+        read_font_programs(&mut incremental, input_path, qpdf_path, &page_ids);
     }
     for page_id in page_ids.into_values() {
         changed.extend(materialize_print_appearances(

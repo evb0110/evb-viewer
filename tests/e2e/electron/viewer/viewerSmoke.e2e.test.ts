@@ -6301,6 +6301,28 @@ describe('Electron E2E - Document Output', () => {
             '--orientation',
             'auto',
         ]);
+        // A page without a MediaBox anywhere, which readers take as Letter.
+        const noMediaBoxPath = join(printDirectory, 'no-media-box.pdf');
+        const noMediaBox = await PDFDocument.create();
+        const noMediaBoxPage = noMediaBox.addPage([
+            612,
+            792,
+        ]);
+        noMediaBoxPage.node.delete(PDFName.of('MediaBox'));
+        noMediaBoxPage.node.set(PDFName.of('Annots'), noMediaBox.context.obj([noMediaBox.context.register(noMediaBox.context.obj({
+            Type: 'Annot',
+            Subtype: 'FreeText',
+            Rect: [
+                60,
+                600,
+                400,
+                700,
+            ],
+            F: 4,
+            Contents: PDFString.of('Margin note'),
+            DA: PDFString.of('/Helv 18 Tf 0 0 1 rg'),
+        }))]));
+        await writeFile(noMediaBoxPath, await noMediaBox.save({useObjectStreams: false}));
         // A filled form that relies on NeedAppearances, beside a FreeText without /AP.
         const formPath = join(printDirectory, 'form.pdf');
         const form = await PDFDocument.create();
@@ -6400,6 +6422,7 @@ describe('Electron E2E - Document Output', () => {
             'devanagari',
             'semitic',
             'portrait',
+            'noMediaBox',
         ] as const) {
             const source = {
                 control: controlPath,
@@ -6408,6 +6431,7 @@ describe('Electron E2E - Document Output', () => {
                 devanagari: devanagariPath,
                 semitic: semiticPath,
                 portrait: semiticPath,
+                noMediaBox: noMediaBoxPath,
             }[name];
             await rm(printedPath, {force: true});
             const session = await printFixture(source, printedPath, name === 'portrait' ? 'portrait' : 'auto');
@@ -6428,6 +6452,10 @@ describe('Electron E2E - Document Output', () => {
                 expect.soft(printed.subarray(0, sourceBytes.length)).toEqual(sourceBytes);
                 const square = (await PDFDocument.load(printed)).getPage(1).node.Annots()?.lookup(0, PDFDict);
                 expect.soft(square?.has(PDFName.of('AP')), 'page 2 Square gains its appearance').toBe(true);
+                continue;
+            }
+            if (name === 'noMediaBox') {
+                expect.soft((await glyphCodes(printedPath)).length, 'the note prints its text').toBeGreaterThanOrEqual(10);
                 continue;
             }
             if (name === 'devanagari') {

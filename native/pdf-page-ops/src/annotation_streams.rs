@@ -31,14 +31,15 @@ pub(crate) fn materialize_annotation_appearance_streams(
         }
         // Keep an unsupported or oversized image foreign without withholding
         // otherwise readable annotations from the same document.
-        if let Ok(size) = materialize_appearance_stream(
-            incremental,
-            input_path,
-            qpdf_path,
-            object_id,
-            remaining.min(stream_limit),
-        ) {
-            remaining = remaining.saturating_sub(size);
+        let limit = remaining.min(stream_limit);
+        if incremental
+            .materialize_base_stream(input_path, qpdf_path, object_id, limit)
+            .is_ok()
+        {
+            let document = incremental.get_prev_documents();
+            if let Ok(stream) = document.get_object(object_id).and_then(Object::as_stream) {
+                remaining = remaining.saturating_sub(stream.content.len());
+            }
         }
     }
 
@@ -82,7 +83,7 @@ pub(crate) fn materialize_annotation_appearance_streams(
 
 /// The next qpdf run's streams: a contiguous span whose costs fit one run's
 /// byte and object budgets. Every listed stream fits a run on its own.
-fn batch_end(streams: &[(ObjectId, usize)], start: usize) -> usize {
+pub(crate) fn batch_end(streams: &[(ObjectId, usize)], start: usize) -> usize {
     let mut end = start;
     let mut batch_bytes = 0;
     while end < streams.len()
@@ -93,22 +94,6 @@ fn batch_end(streams: &[(ObjectId, usize)], start: usize) -> usize {
         end += 1;
     }
     end
-}
-
-fn materialize_appearance_stream(
-    incremental: &mut IncrementalDocument,
-    input_path: &Path,
-    qpdf_path: &Path,
-    object_id: ObjectId,
-    max_bytes: usize,
-) -> Result<usize> {
-    incremental.materialize_base_stream(input_path, qpdf_path, object_id, max_bytes)?;
-    Ok(incremental
-        .get_prev_documents()
-        .get_object(object_id)?
-        .as_stream()?
-        .content
-        .len())
 }
 
 fn managed_stamp_stream_refs(document: &impl PdfObjectSource) -> Result<Vec<(ObjectId, usize)>> {

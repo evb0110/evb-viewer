@@ -833,7 +833,7 @@ pub(crate) fn materialize_page_inherited_object(
     }
 
     if let Some(object) = resolve_inherited_object(document, page_id, key)? {
-        page.set(key.to_vec(), object);
+        page.set(key.to_vec(), object.clone());
         return Ok(());
     }
 
@@ -842,32 +842,4 @@ pub(crate) fn materialize_page_inherited_object(
     }
 
     Ok(())
-}
-
-pub(crate) fn resolve_inherited_object(
-    document: &Document,
-    page_id: ObjectId,
-    key: &[u8],
-) -> Result<Option<Object>> {
-    let mut current_id = Some(page_id);
-    let mut seen = HashSet::new();
-
-    while let Some(object_id) = current_id {
-        if !seen.insert(object_id) {
-            return Err(format!(
-                "Page tree cycle while resolving {}",
-                String::from_utf8_lossy(key)
-            )
-            .into());
-        }
-
-        let dict = document.get_dictionary(object_id)?;
-        if let Ok(object) = dict.get(key) {
-            return Ok(Some(object.clone()));
-        }
-
-        current_id = dict.get(b"Parent").and_then(Object::as_reference).ok();
-    }
-
-    Ok(None)
 }
