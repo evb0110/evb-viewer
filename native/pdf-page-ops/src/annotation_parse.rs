@@ -43,6 +43,10 @@ pub(crate) struct PdfAnnotationParseReply {
     pub(crate) object_number: u64,
     pub(crate) generation_number: u64,
     pub(crate) contents: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) state_model: Option<String>,
     pub(crate) author: Option<String>,
     pub(crate) created_at: Option<i64>,
     pub(crate) modified_at: Option<i64>,
@@ -1155,6 +1159,8 @@ fn parse_replies(
                 generation_number: u64::from(reply_id.1),
                 contents: read_optional_annotation_text(document, dict, b"Contents")?
                     .unwrap_or_default(),
+                state: read_optional_annotation_text(document, dict, b"State")?,
+                state_model: read_optional_annotation_text(document, dict, b"StateModel")?,
                 author: read_optional_annotation_author(document, dict)?,
                 created_at: read_annotation_date(document, dict, b"CreationDate"),
                 modified_at: read_annotation_date(document, dict, b"M"),
@@ -1486,9 +1492,11 @@ mod tests {
     }
 
     fn test_document() -> Document {
-        let mut document = Document::with_version("1.7");
-        let pages_id = document.new_object_id();
-        let page_id = document.new_object_id();
+        let (mut document, page_id) = single_page_writer_document();
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("MediaBox", rect(0.0, 0.0, 200.0, 100.0));
         let mut annots = Vec::new();
 
         let note_id = document.new_object_id();
@@ -1651,29 +1659,10 @@ mod tests {
         );
         annots.extend([Object::Reference(link_id), Object::Reference(widget_id)]);
 
-        document.set_object(
-            page_id,
-            dictionary! {
-                "Type" => "Page",
-                "Parent" => pages_id,
-                "MediaBox" => rect(0.0, 0.0, 200.0, 100.0),
-                "Annots" => Object::Array(annots),
-            },
-        );
-        document.set_object(
-            pages_id,
-            dictionary! {
-                "Type" => "Pages",
-                "Kids" => vec![Object::Reference(page_id)],
-                "Count" => 1,
-                "MediaBox" => rect(0.0, 0.0, 200.0, 100.0),
-            },
-        );
-        let catalog_id = document.add_object(dictionary! {
-            "Type" => "Catalog",
-            "Pages" => pages_id,
-        });
-        document.trailer.set("Root", catalog_id);
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", Object::Array(annots));
         document
     }
 

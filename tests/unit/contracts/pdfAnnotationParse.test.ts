@@ -112,7 +112,9 @@ describe('PDF annotation parse IPC contracts', () => {
             replies: [{
                 objectNumber: 18,
                 generationNumber: 0,
-                contents: 'Reply',
+                contents: '',
+                state: 'Accepted',
+                stateModel: 'Review',
                 author: 'Reader',
                 createdAt: null,
                 modifiedAt: null,

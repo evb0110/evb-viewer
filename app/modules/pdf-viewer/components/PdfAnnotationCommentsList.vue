@@ -181,7 +181,7 @@
                             {{ reply.author?.trim() || t('annotations.unknownAuthor') }}
                         </span>
                         <span class="note-item-reply-text">
-                            <template v-for="(part, index) in highlightTextParts(reply.contents)" :key="index">
+                            <template v-for="(part, index) in highlightTextParts(replyDisplayText(reply))" :key="index">
                                 <span v-if="!part.match">{{ part.text }}</span>
                                 <mark v-else class="note-match">{{ part.text }}</mark>
                             </template>
@@ -359,8 +359,24 @@ const filteredComments = computed(() => {
 // ~11 px at 0.9 and gapped by ~11 px at 1.1 while the stride was hardcoded).
 const { rootFontSizePx } = useRootFontSize();
 const rowMetrics = computed(() => resolveAnnotationCommentRowMetrics(rootFontSizePx.value));
+const replyStatusLabels = computed<Record<string, string>>(() => ({
+    'Review:Accepted': t('annotations.replyStatus.accepted'),
+    'Review:Rejected': t('annotations.replyStatus.rejected'),
+    'Review:Cancelled': t('annotations.replyStatus.cancelled'),
+    'Review:Completed': t('annotations.replyStatus.completed'),
+    'Review:None': t('annotations.replyStatus.none'),
+    'Marked:Marked': t('annotations.replyStatus.marked'),
+    'Marked:Unmarked': t('annotations.replyStatus.unmarked'),
+}));
+function replyDisplayText(reply: NonNullable<IAnnotationCommentSummary['replies']>[number]) {
+    const status = replyStatusLabels.value[`${reply.stateModel ?? ''}:${reply.state ?? ''}`] ?? reply.state;
+    return [
+        status,
+        reply.contents,
+    ].filter(Boolean).join('\n');
+}
 function rowMetricsFor(comment: IAnnotationCommentSummary) {
-    return resolveAnnotationCommentRowMetrics(rootFontSizePx.value, comment.replies ?? []);
+    return resolveAnnotationCommentRowMetrics(rootFontSizePx.value, (comment.replies ?? []).map(reply => ({contents: replyDisplayText(reply)})));
 }
 function noteItemStyle(comment: IAnnotationCommentSummary) {
     const metrics = rowMetricsFor(comment);

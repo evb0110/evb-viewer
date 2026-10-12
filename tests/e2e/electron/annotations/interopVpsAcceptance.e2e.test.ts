@@ -935,7 +935,28 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         firstPage.node.set(PDFName.of('Annots'), pdf.context.obj(annots.filter(ref => ref !== replyRef)));
         secondPage.node.set(PDFName.of('Annots'), pdf.context.obj([replyRef]));
         pdf.context.lookup(replyRef, PDFDict).set(PDFName.of('P'), secondPage.ref);
+        const statusDictionary = pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Text',
+            IRT: pdf.context.lookup(replyRef, PDFDict).get(PDFName.of('IRT'))!,
+            P: firstPage.ref,
+            Rect: [
+                100,
+                100,
+                120,
+                120,
+            ],
+            Contents: PDFString.of(''),
+            T: PDFString.of('Status reviewer'),
+            State: PDFString.of('Accepted'),
+            StateModel: PDFString.of('Review'),
+        });
+        const statusRef = pdf.context.register(statusDictionary);
+        firstPage.node.lookup(PDFName.of('Annots'), PDFArray).push(statusRef);
+
         writeFileSync(fixture, await pdf.save({useObjectStreams: false}));
+        const originalBytes = readFileSync(fixture);
+        const statusObjectBytes = originalBytes.toString('latin1').match(new RegExp(`${statusRef.objectNumber} 0 obj[\\s\\S]*?endobj`))![0];
         const artifactDirectory = resolve('.devkit/artifacts', `reader-replies-${Date.now()}`);
         mkdirSync(artifactDirectory, {recursive: true});
         const expectThreads = async (entityCount: number) => {
@@ -958,7 +979,11 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
                     kind: 'shape',
                 }),
             ]));
-            expect(threads).toHaveLength(2);
+            expect(threads).toHaveLength(3);
+            expect(threads).toContainEqual(expect.objectContaining({
+                text: expect.stringContaining('Accepted'),
+                kind: 'text-markup',
+            }));
             for (const [
                 kind,
                 text,
@@ -971,8 +996,16 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
                         'shape',
                         'Reader reply on square',
                     ],
+                    [
+                        'text-markup',
+                        'Accepted',
+                    ],
                 ] as const) {
-                const selector = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="${kind}"] .note-item-reply-text`;
+                const replyRows = `.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="${kind}"] .note-item-reply`;
+                const index = await page.$$eval(replyRows, (rows, expected) => rows.findIndex(row =>
+                    row.querySelector('.note-item-reply-text')?.textContent?.trim() === expected), text);
+                expect(index).toBeGreaterThanOrEqual(0);
+                const selector = `${replyRows}:nth-child(${index + 1}) .note-item-reply-text`;
                 await revealForPointer(page, selector);
                 const deltaY = await page.$eval(selector, (reply) => {
                     const range = document.createRange();
@@ -995,7 +1028,7 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
                     return bounds.top >= clip.top && bounds.bottom <= clip.bottom
                         && bounds.left >= clip.left && bounds.right <= clip.right;
                 }, {}, selector, text);
-                await page.screenshot({path: join(artifactDirectory, `${entityCount}-${kind}.png`)});
+                await page.screenshot({path: join(artifactDirectory, text === 'Accepted' ? `accepted-${entityCount}.png` : `${entityCount}-${kind}.png`)});
             }
             const imported = await collectAnnotationOwnershipDebugState(page);
             expect(imported.canonicalEntities).toHaveLength(entityCount);
@@ -1019,11 +1052,15 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         await expectThreads(3);
         const saved = await readPdfTextAnnotationRecords(fixture);
         expect(saved.filter(annotation => annotation.contents.startsWith('Reader reply on'))).toHaveLength(2);
-        const reopened = await PDFDocument.load(readFileSync(fixture));
+        const savedBytes = readFileSync(fixture);
+        expect(savedBytes.toString('latin1')).toContain(statusObjectBytes);
+        const reopened = await PDFDocument.load(savedBytes);
+        expect(reopened.context.lookup(statusRef, PDFDict).toString()).toBe(statusDictionary.toString());
         const reply = reopened.getPage(1).node.lookup(PDFName.of('Annots'), PDFArray).asArray();
         expect(reply.map(ref => ref.toString())).toEqual([replyRef.toString()]);
         expect(reopened.context.lookup(reply[0]!, PDFDict).lookup(PDFName.of('Contents'), PDFString).decodeText())
             .toBe('Reader reply on highlight');
+        writeFileSync(join(artifactDirectory, 'input.pdf'), originalBytes);
         copyFileSync(fixture, join(artifactDirectory, 'saved.pdf'));
         console.log(`READER_REPLY_EVIDENCE ${artifactDirectory}`);
     }, ACCEPTANCE_TIMEOUT_MS);

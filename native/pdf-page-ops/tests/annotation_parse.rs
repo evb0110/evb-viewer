@@ -194,6 +194,19 @@ fn parse_annotations_cli_attaches_reader_replies_to_supported_parents() {
     // PyMuPDF 1.28.2 wrote a highlight and square, each with a /Text /IRT child.
     let input = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/electron/reader-highlight-replies.pdf");
+    let fixture = input;
+    let input = temporary_path("reader-replies", "pdf");
+    let mut document = Document::load(fixture).unwrap();
+    for object in document.objects.values_mut() {
+        if let Ok(dict) = object.as_dict_mut() {
+            if dict.has(b"IRT") {
+                dict.set("State", Object::string_literal("Accepted"));
+                dict.set("StateModel", Object::string_literal("Review"));
+            }
+        }
+    }
+    document.save(&input).unwrap();
+    let original = fs::read(&input).unwrap();
     let output = temporary_path("reader-replies", "jsonl");
     let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
         .args([
@@ -233,7 +246,11 @@ fn parse_annotations_cli_attaches_reader_replies_to_supported_parents() {
         assert_eq!(parent["replies"].as_array().map(Vec::len), Some(1));
         assert_eq!(parent["replies"][0]["contents"], contents);
         assert_eq!(parent["replies"][0]["author"], author);
+        assert_eq!(parent["replies"][0]["state"], "Accepted");
+        assert_eq!(parent["replies"][0]["stateModel"], "Review");
     }
+    assert_eq!(fs::read(&input).unwrap(), original);
+    fs::remove_file(input).unwrap();
 }
 
 #[test]

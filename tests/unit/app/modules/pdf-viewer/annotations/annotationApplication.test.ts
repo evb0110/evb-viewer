@@ -67,6 +67,8 @@ describe('AnnotationApplication', () => {
             objectNumber: 18,
             generationNumber: 0,
             contents: 'Reader reply',
+            state: 'Accepted',
+            stateModel: 'Review',
             author: 'Reply author',
             createdAt: 10,
             modifiedAt: 11,

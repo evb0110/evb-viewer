@@ -70,6 +70,8 @@ const noteReplySchema = v.strictObject({
     objectNumber: nonNegativeInteger('annotation parse replies.objectNumber'),
     generationNumber: nonNegativeInteger('annotation parse replies.generationNumber'),
     contents: nonEmptyString('annotation parse replies.contents', true),
+    state: v.optional(v.nullable(nonEmptyString('annotation parse replies.state', true))),
+    stateModel: v.optional(v.nullable(nonEmptyString('annotation parse replies.stateModel', true))),
     author: nullableString('annotation parse replies.author'),
     createdAt: nullableTimestamp('annotation parse replies.createdAt'),
     modifiedAt: nullableTimestamp('annotation parse replies.modifiedAt'),
