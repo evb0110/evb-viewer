@@ -253,6 +253,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7)).resolves.toBeNull();
     });
 
+    // No-link edits here precede displacement. Path recreation before install
+    // remains the residual window documented in behavior-contract.md, T3.
     it.each([
         'in-place',
         'replacement',

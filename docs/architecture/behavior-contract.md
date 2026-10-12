@@ -171,6 +171,14 @@ unsaved changes asks first, and a crash or forced quit leaves recoverable work.
 **T3. Output is complete and usable.** A saved or exported file opens in this
 viewer and in a stock reader, with all pages and the saved annotations.
 
+On ext4, NTFS or APFS paths where hard links are unsupported, save and recovery
+use rename after displacement or a missing-path check. Another program can
+recreate that pathname before installation or restoration, and Node's rename
+can overwrite that new revision. The person keeps EVB's complete saved or
+working revision; displaced external bytes are restored or retained on a
+baseline mismatch, but the recreated revision can be lost. Closing this window
+requires an OS-level no-replace rename that Node does not expose.
+
 **T4. A split shows one document in two views.** Applies to a PDF split from
 its tab with Split Right or Split Down; New Pane and a separately opened copy
 of the same file are independent documents. The new view opens at the source
