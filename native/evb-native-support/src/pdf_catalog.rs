@@ -87,17 +87,8 @@ impl BookmarkDestinationKind {
         }
     }
 
-    pub fn pdf_name(self) -> &'static [u8] {
-        match self {
-            Self::XYZ => b"XYZ",
-            Self::Fit => b"Fit",
-            Self::FitH => b"FitH",
-            Self::FitV => b"FitV",
-            Self::FitR => b"FitR",
-            Self::FitB => b"FitB",
-            Self::FitBH => b"FitBH",
-            Self::FitBV => b"FitBV",
-        }
+    pub fn pdf_name(self) -> Vec<u8> {
+        serde_json::json!(self).as_str().unwrap_or_default().into()
     }
 }
 
@@ -225,6 +216,9 @@ pub struct BookmarkEntry {
     /// Written only when the entry has no destination of its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_action: Option<BookmarkActionValue>,
+    /// The name's source form, kept when Save would write the name differently.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_named_dest: Option<BookmarkActionValue>,
     #[serde(default)]
     pub bold: bool,
     #[serde(default)]
@@ -339,6 +333,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
         let mut named_dest = None;
         let mut original_destination = None;
         let mut original_action = None;
+        let mut original_named_dest = None;
         let mut bold = false;
         let mut italic = false;
         let mut color = None;
@@ -351,6 +346,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
                 "namedDest" => named_dest = map.next_value()?,
                 "originalDestination" => original_destination = map.next_value()?,
                 "originalAction" => original_action = map.next_value()?,
+                "originalNamedDest" => original_named_dest = map.next_value()?,
                 "bold" => bold = map.next_value()?,
                 "italic" => italic = map.next_value()?,
                 "color" => color = map.next_value()?,
@@ -370,6 +366,7 @@ impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
             named_dest,
             original_destination,
             original_action,
+            original_named_dest,
             bold,
             italic,
             color,
@@ -385,6 +382,7 @@ const BOOKMARK_FIELDS: &[&str] = &[
     "namedDest",
     "originalDestination",
     "originalAction",
+    "originalNamedDest",
     "bold",
     "italic",
     "color",
@@ -517,6 +515,7 @@ pub fn normalize_bookmark_entries(
                 named_dest,
                 original_destination: item.original_destination.clone(),
                 original_action: item.original_action.clone(),
+                original_named_dest: item.original_named_dest.clone(),
                 bold: item.bold,
                 italic: item.italic,
                 color: normalize_bookmark_color(item.color.as_deref()),
@@ -524,13 +523,6 @@ pub fn normalize_bookmark_entries(
             }
         })
         .collect()
-}
-
-pub fn resolve_bookmark_destination_top(page_height: f64, page_y_ratio: Option<f64>) -> f64 {
-    let Some(page_y_ratio) = page_y_ratio else {
-        return page_height;
-    };
-    page_height - page_y_ratio.clamp(0.0, 1.0) * page_height.max(0.0)
 }
 
 fn parse_hex_digit(value: u8) -> Option<u8> {
@@ -740,6 +732,7 @@ mod tests {
                 named_dest: Some("  ".to_string()),
                 original_destination: None,
                 original_action: None,
+                original_named_dest: None,
                 bold: true,
                 italic: false,
                 color: Some("#abc".to_string()),

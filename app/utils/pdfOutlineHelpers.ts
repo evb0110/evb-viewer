@@ -301,18 +301,18 @@ export function buildOutlineFromBookmarkEntries(
         depth: number;
     }> = [];
     let skippedOverDepth = false;
-
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-        const entry = entries[index];
-        if (entry) {
+    // Pushed last first, so that the stack pops entries in reading order.
+    const pushEntries = (items: readonly IPdfBookmarkEntry[], target: IBookmarkItem[], parentId: string | null, depth: number) => {
+        for (const entry of [...items].reverse()) {
             stack.push({
                 entry,
-                target: root,
-                parentId: null,
-                depth: 1,
+                target,
+                parentId,
+                depth,
             });
         }
-    }
+    };
+    pushEntries(entries, root, null, 1);
 
     while (stack.length > 0) {
         const frame = stack.pop();
@@ -345,6 +345,7 @@ export function buildOutlineFromBookmarkEntries(
                 ? {pageYRatio: clamp(frame.entry.pageYRatio, 0, 1)}
                 : {}),
             ...(frame.entry.originalAction ? {originalAction: frame.entry.originalAction} : {}),
+            ...(frame.entry.originalNamedDest === undefined ? {} : {originalNamedDest: frame.entry.originalNamedDest}),
             bold: frame.entry.bold === true,
             italic: frame.entry.italic === true,
             color: normalizeBookmarkColor(frame.entry.color),
@@ -358,18 +359,7 @@ export function buildOutlineFromBookmarkEntries(
             skippedOverDepth = true;
             continue;
         }
-
-        for (let index = frame.entry.items.length - 1; index >= 0; index -= 1) {
-            const entry = frame.entry.items[index];
-            if (entry) {
-                stack.push({
-                    entry,
-                    target: children,
-                    parentId: id,
-                    depth: frame.depth + 1,
-                });
-            }
-        }
+        pushEntries(frame.entry.items, children, id, frame.depth + 1);
     }
 
     if (skippedOverDepth) {

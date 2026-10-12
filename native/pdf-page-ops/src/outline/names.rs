@@ -1,3 +1,4 @@
+use super::actions::{bookmark_action_value, bookmark_name_object};
 use super::*;
 
 /// Looks a name up in the legacy `/Dests` dictionary, then in the `/Names
@@ -86,6 +87,39 @@ fn collect_named_destination_tree<'a>(
     for kid in kids {
         collect_named_destination_tree(document, kid, depth + 1, state, entries);
     }
+}
+
+/// Reads a destination name with its source form. The form is kept only when
+/// the writer would encode the name differently, as for a PDFDocEncoding string
+/// or an ASCII name in UTF-16, so that an untouched name is written back with
+/// the bytes its name tree key has. A form over the action size ceiling is not
+/// kept, and its name is written as an edited one.
+pub(super) fn read_named_dest(
+    document: &impl PdfObjectSource,
+    destination: &Object,
+) -> Option<(String, Option<BookmarkActionValue>)> {
+    let source = document.resolved(destination).ok()?;
+    let name = pdf_name_or_string(source)?;
+    let original = Some(source)
+        .filter(|source| **source != named_dest_object(&name, None))
+        .and_then(|source| {
+            bookmark_action_value(document, source, 0, &mut { MAX_BOOKMARK_ACTION_SIZE }).ok()
+        });
+    Some((name, original))
+}
+
+/// Writes a destination name. An untouched name keeps its source form. An
+/// edited or new one is written as readers match it by its bytes: an ASCII
+/// name with its literal bytes, and any other as the UTF-16 text string
+/// producers write for it.
+pub(super) fn named_dest_object(name: &str, original: Option<&BookmarkActionValue>) -> Object {
+    original
+        .and_then(|original| bookmark_name_object(original).ok())
+        .filter(|object| pdf_name_or_string(object).as_deref() == Some(name))
+        .unwrap_or_else(|| match name.is_ascii() {
+            true => Object::String(name.as_bytes().to_vec(), StringFormat::Literal),
+            false => Object::String(encode_pdf_text_string(name), StringFormat::Hexadecimal),
+        })
 }
 
 pub(super) fn pdf_name_or_string(object: &Object) -> Option<String> {

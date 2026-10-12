@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+    PDFArray,
     PDFDict,
     PDFDocument,
     PDFHexString,
@@ -10,7 +11,7 @@ import {
     PDFRef,
     PDFString,
 } from 'pdf-lib';
-import type { PDFArray } from 'pdf-lib';
+
 import {
     beforeEach,
     describe,
@@ -827,6 +828,59 @@ describe('browser page-ops WASM fast path', () => {
             'Named',
         ]);
         expect(saved[1]).toEqual(source[1]);
+    });
+
+    it.each([
+        [
+            'a PDFDocEncoding name',
+            'caf\u00e9',
+            PDFHexString.of('636166E9'),
+        ],
+        [
+            'an ASCII name stored as UTF-16',
+            'chapter',
+            PDFHexString.fromText('chapter'),
+        ],
+    ])('keeps the name tree bytes of an untouched named destination in %s when another bookmark is renamed', async (_case, name, key) => {
+        const data = await createOutlinePdf((pdfDocument, pages) => {
+            pdfDocument.catalog.set(PDFName.of('Names'), pdfDocument.context.obj({Dests: {Names: [
+                key,
+                [
+                    pages[2],
+                    PDFName.of('FitH'),
+                    null,
+                ],
+            ]}}));
+            return [
+                {
+                    Title: PDFString.of('Chapter'),
+                    Dest: [
+                        pages[1],
+                        PDFName.of('Fit'),
+                    ],
+                },
+                {
+                    Title: PDFString.of('Named'),
+                    Dest: key,
+                },
+            ];
+        });
+
+        const saved = await renameFirstBookmarkAndSave(data);
+
+        const savedDocument = await PDFDocument.load(saved);
+        const treeKey = savedDocument.catalog.lookup(PDFName.of('Names'), PDFDict).lookup(PDFName.of('Dests'), PDFDict)
+            .lookup(PDFName.of('Names'), PDFArray).get(0).toString();
+        expect(treeKey).toBe(key.toString());
+        expect((await readOutlineTargets(saved))[1]!.dest).toBe(treeKey);
+        const reread = await (await loadWasmRunner()).run('readCatalog', {data: saved});
+        if (reread === null || 'status' in reread) {
+            throw new Error('Expected a successful browser page-ops catalog read');
+        }
+        expect(reread.bookmarks?.[1]).toMatchObject({
+            namedDest: name,
+            pageIndex: 2,
+        });
     });
 
     it('review-b6yr keeps an untouched GoToR with an indirect file specification when another bookmark is renamed', async () => {

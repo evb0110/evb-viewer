@@ -8,9 +8,9 @@ use lopdf::dictionary;
 
 mod actions;
 mod names;
-pub(crate) use actions::bookmark_action_object;
 use actions::kept_bookmark_action;
-use names::{find_named_destination, pdf_name_or_string};
+pub(crate) use actions::{bookmark_action_object, bookmark_name_object};
+use names::{find_named_destination, named_dest_object, pdf_name_or_string, read_named_dest};
 
 type BookmarkPageTarget = (ObjectId, Option<f64>, Option<BookmarkOriginalDestination>);
 
@@ -19,7 +19,7 @@ struct RawPdfCombineBookmarkEntry {
     page_id: Option<ObjectId>,
     page_y_ratio: Option<f64>,
     original_destination: Option<BookmarkOriginalDestination>,
-    named_dest: Option<String>,
+    named_dest: Option<(String, Option<BookmarkActionValue>)>,
     original_action: Option<BookmarkActionValue>,
     items: Vec<RawPdfCombineBookmarkEntry>,
     bold: bool,
@@ -98,8 +98,7 @@ fn read_outline_items<'a>(
             original_destination: page_target.and_then(|(_, _, destination)| destination),
             named_dest: destination
                 .as_ref()
-                .and_then(|value| document.resolved(value).ok())
-                .and_then(pdf_name_or_string),
+                .and_then(|value| read_named_dest(document, value)),
             items: read_outline_items(
                 document,
                 catalog,
@@ -260,7 +259,7 @@ fn finalize_bookmark(
     let page_index = bookmark
         .page_id
         .and_then(|page_id| page_indices.get(&page_id).copied());
-    let named_dest = bookmark.named_dest.filter(|_| keep_names);
+    let (named_dest, original_named_dest) = bookmark.named_dest.filter(|_| keep_names).unzip();
     BookmarkEntry {
         title: bookmark.title,
         page_index,
@@ -273,6 +272,7 @@ fn finalize_bookmark(
             }),
         page_y_ratio: bookmark.page_y_ratio,
         named_dest,
+        original_named_dest: original_named_dest.flatten(),
         original_action: bookmark.original_action,
         bold: bookmark.bold,
         italic: bookmark.italic,
@@ -337,13 +337,9 @@ fn source_bookmark_destination(
     item: &BookmarkEntry,
 ) -> Result<Option<Object>> {
     use evb_native_support::pdf_catalog::BookmarkSourceTarget;
-    // Readers match a name by its bytes: an ASCII name keeps its literal bytes,
-    // and any other is the UTF-16 text string producers write for it.
     if let Some(name) = item.named_dest.as_deref() {
-        return Ok(Some(match name.is_ascii() {
-            true => Object::String(name.as_bytes().to_vec(), StringFormat::Literal),
-            false => Object::String(encode_pdf_text_string(name), StringFormat::Hexadecimal),
-        }));
+        let original = item.original_named_dest.as_ref();
+        return Ok(Some(named_dest_object(name, original)));
     }
     let Some(original) = &item.original_destination else {
         return Ok(None);
@@ -358,7 +354,7 @@ fn source_bookmark_destination(
     };
     let mut destination = vec![
         Object::Reference(page_id),
-        Object::Name(original.kind.pdf_name().to_vec()),
+        Object::Name(original.kind.pdf_name()),
     ];
     destination.extend(
         original

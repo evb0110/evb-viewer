@@ -22,7 +22,7 @@ pub(super) fn kept_bookmark_action(
         .ok()
 }
 
-fn bookmark_action_value<'a>(
+pub(super) fn bookmark_action_value<'a>(
     document: &'a impl PdfObjectSource,
     object: &'a Object,
     depth: usize,
@@ -86,44 +86,69 @@ fn bookmark_action_value<'a>(
 }
 
 pub(crate) fn bookmark_action_object(value: &BookmarkActionValue) -> Result<Object> {
-    use BookmarkActionTag::*;
     if value.size() > MAX_BOOKMARK_ACTION_SIZE
-        || !matches!(value, BookmarkActionValue::Tagged(Dict(_)))
+        || !matches!(
+            value,
+            BookmarkActionValue::Tagged(BookmarkActionTag::Dict(_))
+        )
     {
         return Err(domain_error(
             NativeErrorCode::InvalidRequest,
             "Bookmark action must be a dictionary within the size ceiling",
         ));
     }
-    fn object(value: &BookmarkActionValue) -> Result<Object> {
-        Ok(match value {
-            BookmarkActionValue::Null => Object::Null,
-            BookmarkActionValue::Boolean(value) => Object::Boolean(*value),
-            BookmarkActionValue::Integer(value) => Object::Integer(*value),
-            BookmarkActionValue::Array(items) => {
-                Object::Array(items.iter().map(object).collect::<Result<_>>()?)
-            }
-            BookmarkActionValue::Tagged(Real(value)) if (*value as f32).is_finite() => {
-                Object::Real(*value as f32)
-            }
-            BookmarkActionValue::Tagged(Real(_)) => {
-                return Err("Bookmark action number is not finite".into())
-            }
-            BookmarkActionValue::Tagged(Name(name)) => Object::Name(name.as_bytes().to_vec()),
-            BookmarkActionValue::Tagged(Literal(bytes)) => {
-                Object::String(bytes.clone(), StringFormat::Literal)
-            }
-            BookmarkActionValue::Tagged(Hex(bytes)) => {
-                Object::String(bytes.clone(), StringFormat::Hexadecimal)
-            }
-            BookmarkActionValue::Tagged(Dict(entries)) => {
-                let mut dictionary = Dictionary::new();
-                for (key, value) in entries {
-                    dictionary.set(key.as_bytes().to_vec(), object(value)?);
-                }
-                Object::Dictionary(dictionary)
-            }
-        })
+    bookmark_value_object(value)
+}
+
+/// The source form of a destination name: a name or a string within the
+/// action size ceiling.
+pub(crate) fn bookmark_name_object(value: &BookmarkActionValue) -> Result<Object> {
+    use BookmarkActionTag::*;
+    if value.size() > MAX_BOOKMARK_ACTION_SIZE
+        || !matches!(
+            value,
+            BookmarkActionValue::Tagged(Name(_) | Literal(_) | Hex(_))
+        )
+    {
+        return Err(domain_error(
+            NativeErrorCode::InvalidRequest,
+            "Bookmark name must be a name or string within the size ceiling",
+        ));
     }
-    object(value)
+    bookmark_value_object(value)
+}
+
+fn bookmark_value_object(value: &BookmarkActionValue) -> Result<Object> {
+    use BookmarkActionTag::*;
+    Ok(match value {
+        BookmarkActionValue::Null => Object::Null,
+        BookmarkActionValue::Boolean(value) => Object::Boolean(*value),
+        BookmarkActionValue::Integer(value) => Object::Integer(*value),
+        BookmarkActionValue::Array(items) => Object::Array(
+            items
+                .iter()
+                .map(bookmark_value_object)
+                .collect::<Result<_>>()?,
+        ),
+        BookmarkActionValue::Tagged(Real(value)) if (*value as f32).is_finite() => {
+            Object::Real(*value as f32)
+        }
+        BookmarkActionValue::Tagged(Real(_)) => {
+            return Err("Bookmark action number is not finite".into())
+        }
+        BookmarkActionValue::Tagged(Name(name)) => Object::Name(name.as_bytes().to_vec()),
+        BookmarkActionValue::Tagged(Literal(bytes)) => {
+            Object::String(bytes.clone(), StringFormat::Literal)
+        }
+        BookmarkActionValue::Tagged(Hex(bytes)) => {
+            Object::String(bytes.clone(), StringFormat::Hexadecimal)
+        }
+        BookmarkActionValue::Tagged(Dict(entries)) => {
+            let mut dictionary = Dictionary::new();
+            for (key, value) in entries {
+                dictionary.set(key.as_bytes().to_vec(), bookmark_value_object(value)?);
+            }
+            Object::Dictionary(dictionary)
+        }
+    })
 }

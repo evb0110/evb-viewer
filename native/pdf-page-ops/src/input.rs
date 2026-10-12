@@ -233,6 +233,9 @@ pub(crate) fn validate_bookmark_items(items: &[BookmarkEntry], depth: usize) -> 
         if let Some(action) = &item.original_action {
             bookmark_action_object(action)?;
         }
+        if let Some(name) = &item.original_named_dest {
+            bookmark_name_object(name)?;
+        }
         validate_bookmark_items(&item.items, depth + 1)?;
     }
     Ok(())

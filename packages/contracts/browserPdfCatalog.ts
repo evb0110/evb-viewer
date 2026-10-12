@@ -1,7 +1,7 @@
 import {
-    decodeBookmarkAction,
-    decodeBookmarkOriginalDestination,
+    decodeBookmarkSourceIntent,
     type IPdfBookmarkAction,
+    type TPdfBookmarkActionValue,
     type TPdfBookmarkOriginalDestination,
 } from '@contracts/pdfBookmarkEntry';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -13,6 +13,7 @@ export interface IBrowserPdfCatalogBookmark {
     originalDestination?: TPdfBookmarkOriginalDestination;
     originalAction?: IPdfBookmarkAction;
     namedDest: string | null;
+    originalNamedDest?: TPdfBookmarkActionValue;
     bold: boolean;
     italic: boolean;
     color: string | null;
@@ -92,11 +93,9 @@ function decodeBookmark(
     ) {
         return null;
     }
-    let originalDestination: TPdfBookmarkOriginalDestination | undefined;
-    let originalAction: IPdfBookmarkAction | undefined;
+    let sourceIntent: ReturnType<typeof decodeBookmarkSourceIntent>;
     try {
-        if (value.originalDestination !== undefined) originalDestination = decodeBookmarkOriginalDestination(value.originalDestination);
-        if (value.originalAction !== undefined) originalAction = decodeBookmarkAction(value.originalAction);
+        sourceIntent = decodeBookmarkSourceIntent(value);
     } catch { return null; }
     state.count += 1;
     const items: IBrowserPdfCatalogBookmark[] = [];
@@ -111,8 +110,7 @@ function decodeBookmark(
         title: value.title,
         pageIndex: value.pageIndex,
         ...(value.pageYRatio === undefined ? {} : {pageYRatio: value.pageYRatio}),
-        ...(originalDestination === undefined ? {} : {originalDestination}),
-        ...(originalAction === undefined ? {} : {originalAction}),
+        ...sourceIntent,
         namedDest: value.namedDest,
         bold: value.bold,
         italic: value.italic,

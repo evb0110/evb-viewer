@@ -21,16 +21,7 @@ export const PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA = v.strictObject({
 
 /** The source destination survives passive resolution and unrelated edits. */
 export const PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA = v.pipe(v.strictObject({
-    kind: v.picklist([
-        'XYZ',
-        'Fit',
-        'FitH',
-        'FitV',
-        'FitR',
-        'FitB',
-        'FitBH',
-        'FitBV',
-    ]),
+    kind: v.picklist(Object.keys(destinationCoordinateCounts) as Array<keyof typeof destinationCoordinateCounts>),
     sourceTarget: v.union([
         sourcePageIndexSchema,
         PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
@@ -41,10 +32,6 @@ export const PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA = v.pipe(v.strictObject({
         v.array(v.nullable(v.pipe(v.number(), v.finite(), v.check(value => Number.isFinite(Math.fround(value))))))),
 }), v.check(value => value.coordinates.length === destinationCoordinateCounts[value.kind], 'bookmark destination coordinate count must match its kind'));
 export type TPdfBookmarkOriginalDestination = v.InferOutput<typeof PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA>;
-
-export function decodeBookmarkOriginalDestination(value: unknown) {
-    return v.parse(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA, value);
-}
 
 /**
  * An outline item's own action other than GoTo (GoToR, Launch, URI, ...), as
@@ -122,9 +109,12 @@ export const PDF_BOOKMARK_ACTION_SCHEMA = v.pipe(
     BOOKMARK_ACTION_DICT_SCHEMA,
 );
 
-export function decodeBookmarkAction(value: unknown) {
-    return v.parse(PDF_BOOKMARK_ACTION_SCHEMA, value);
-}
+const BOOKMARK_SOURCE_INTENT_SCHEMA = v.object({
+    originalDestination: v.exactOptional(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA),
+    originalAction: v.exactOptional(PDF_BOOKMARK_ACTION_SCHEMA),
+    originalNamedDest: v.exactOptional(v.pipe(v.unknown(), v.check(isWithinBookmarkActionCeilings, 'bookmark name exceeds its size ceiling'), BOOKMARK_ACTION_VALUE_SCHEMA)),
+});
+export const decodeBookmarkSourceIntent = (value: Record<string, unknown>) => v.parse(BOOKMARK_SOURCE_INTENT_SCHEMA, value);
 
 export interface IPdfBookmarkEntry {
     readonly title: string;
@@ -134,6 +124,8 @@ export interface IPdfBookmarkEntry {
     /** Written only when the entry has no destination of its own. */
     readonly originalAction?: IPdfBookmarkAction;
     readonly namedDest: string | null;
+    /** The name's source form, kept only when Save would write the name differently. */
+    readonly originalNamedDest?: TPdfBookmarkActionValue;
     readonly bold: boolean;
     readonly italic: boolean;
     readonly color: string | null;
@@ -144,8 +136,7 @@ export const PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA: v.GenericSchema<unknown, IPdfBo
     title: v.string(),
     pageIndex: v.nullable(v.pipe(v.number(), v.check(value => parsePageIndex(value) !== null), v.transform(value => parsePageIndex(value)!))),
     pageYRatio: v.exactOptional(v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)))),
-    originalDestination: v.exactOptional(PDF_BOOKMARK_ORIGINAL_DESTINATION_SCHEMA),
-    originalAction: v.exactOptional(PDF_BOOKMARK_ACTION_SCHEMA),
+    ...BOOKMARK_SOURCE_INTENT_SCHEMA.entries,
     namedDest: v.nullable(v.string()),
     bold: v.boolean(),
     italic: v.boolean(),

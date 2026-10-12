@@ -60,6 +60,7 @@ fn incremental_rotation_normalizes_inherited_values_and_keeps_other_metadata() {
                 named_dest: None,
                     original_destination: None,
                     original_action: None,
+                    original_named_dest: None,
                 bold: false,
                 italic: false,
                 color: None,

@@ -1,6 +1,5 @@
 import {
-    decodeBookmarkAction,
-    decodeBookmarkOriginalDestination,
+    decodeBookmarkSourceIntent,
     PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA,
     PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
 } from '@contracts/pdfBookmarkEntry';
@@ -273,8 +272,7 @@ function decodeBookmarkEntries(
             title: raw.title,
             pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             ...(pageYRatio === undefined ? {} : {pageYRatio}),
-            ...(raw.originalDestination === undefined ? {} : {originalDestination: decodeBookmarkOriginalDestination(raw.originalDestination)}),
-            ...(raw.originalAction === undefined ? {} : {originalAction: decodeBookmarkAction(raw.originalAction)}),
+            ...decodeBookmarkSourceIntent(raw),
             namedDest: raw.namedDest,
             bold: raw.bold,
             italic: raw.italic,

@@ -38,6 +38,7 @@ fn appends_page_labels_and_bookmarks_as_incremental_revision() {
                     named_dest: None,
                     original_destination: None,
                     original_action: None,
+                    original_named_dest: None,
                     bold: true,
                     italic: false,
                     color: Some("#336699".to_string()),
@@ -309,6 +310,7 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
         named_dest: None,
                     original_destination: None,
                     original_action: None,
+                    original_named_dest: None,
         bold: false,
         italic: false,
         color: None,
@@ -349,6 +351,7 @@ fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
             named_dest: None,
                     original_destination: None,
                     original_action: None,
+                    original_named_dest: None,
             bold: false,
             italic: false,
             color: None,
@@ -445,6 +448,7 @@ fn appends_metadata_removal_as_incremental_revision() {
                 named_dest: None,
                     original_destination: None,
                     original_action: None,
+                    original_named_dest: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -779,6 +783,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
                 named_dest: None,
                     original_destination: None,
                     original_action: None,
+                    original_named_dest: None,
                 bold: false,
                 italic: false,
                 color: None,
@@ -791,6 +796,7 @@ fn applies_labels_and_bookmarks_to_sparse_million_page_tree() {
                 named_dest: None,
                     original_destination: None,
                     original_action: None,
+                    original_named_dest: None,
                 bold: true,
                 italic: true,
                 color: Some("#336699".to_string()),
@@ -1718,6 +1724,47 @@ fn saved_unicode_named_destination_keeps_its_bytes() {
         let targets = outline_targets(&saved);
         assert_eq!(targets[0].1, Some(key), "append {append}");
         assert_eq!(targets[1].1, Some(Object::String(encode_pdf_text_string("na\u{ef}ve"), StringFormat::Hexadecimal)));
+    }
+}
+
+#[test]
+fn saved_untouched_names_keep_their_name_tree_bytes() {
+    // A PDFDocEncoding name and an ASCII name in UTF-16 decode to text the
+    // writer would encode differently; readers match the key by its bytes.
+    let cases = [
+        ("caf\u{e9}", Object::String(b"caf\xe9".to_vec(), StringFormat::Literal)),
+        ("chapter", Object::String(encode_pdf_text_string("chapter"), StringFormat::Hexadecimal)),
+    ];
+    for ((name, key), append) in cases.into_iter().flat_map(|case| [(case.clone(), false), (case, true)]) {
+        let (mut document, page_id) = create_test_document();
+        let outlines_id = document.new_object_id();
+        let chapter = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Chapter"), "Parent" => outlines_id,
+            "Dest" => vec![page_id.into(), Object::Name(b"Fit".to_vec())],
+        });
+        let named = document.add_object(dictionary! {
+            "Title" => Object::string_literal("Named"), "Parent" => outlines_id, "Prev" => chapter, "Dest" => key.clone(),
+        });
+        document.get_dictionary_mut(chapter).unwrap().set("Next", named);
+        document.set_object(outlines_id, dictionary! {"Type" => "Outlines", "First" => chapter, "Last" => named, "Count" => 2});
+        let catalog = document.get_dictionary_mut(document.root_id().unwrap()).unwrap();
+        catalog.set("Outlines", outlines_id);
+        catalog.set("Names", dictionary! {"Dests" => dictionary! {
+            "Names" => vec![key.clone(), vec![page_id.into(), Object::Name(b"FitH".to_vec()), Object::Null].into()],
+        }});
+        let mut items = serde_json::to_value(read_pdf_outline(&document, true).unwrap()).unwrap();
+        assert_eq!(items[1]["namedDest"], name);
+        items[0]["title"] = "Chapter renamed".into();
+        let mut edited = items[1].clone();
+        edited["title"] = "Edited".into();
+        edited["namedDest"] = "edited".into();
+        items.as_array_mut().unwrap().push(edited);
+        let saved = save_outline_entries(&mut document, items, append);
+        let targets = outline_targets(&saved);
+        assert_eq!(targets[1].1, Some(key), "{name} append {append}");
+        assert_eq!(targets[2].1, Some(Object::string_literal("edited")), "{name} append {append}");
+        let reread = read_pdf_outline(&saved, true).unwrap();
+        assert_eq!((reread[1].named_dest.as_deref(), reread[1].page_index), (Some(name), Some(0)));
     }
 }
 
