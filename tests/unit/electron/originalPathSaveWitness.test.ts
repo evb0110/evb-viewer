@@ -728,6 +728,12 @@ describe('captureOpenSourceWitness', () => {
         const wholeSecond = Math.floor(Number((await stat(originalPath, {bigint: true})).mtimeNs) / 1e9);
         await utimes(originalPath, wholeSecond, wholeSecond);
         const witness = await captureOpenSourceWitness(originalPath);
+        // NTFS can report a change in the same ctime tick as the capture; edit only once the folder's clock moved past it.
+        const capturedCtimeNs = (await stat(originalPath, {bigint: true})).ctimeNs;
+        const scratchPath = join(tempDir, 'ctime-scratch');
+        do {
+            await writeFile(scratchPath, 'tick');
+        } while ((await stat(scratchPath, {bigint: true})).ctimeNs <= capturedCtimeNs);
 
         // Offset 262144 lies outside the head, middle and tail samples.
         const handle = await open(originalPath, 'r+');
