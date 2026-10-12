@@ -36,7 +36,7 @@ export interface IOriginalPathSaveWitness {
     getOriginalFileExpectation: () => IWorkingCopyOriginalFileExpectation;
     getSnapshotForJournal: () => IOriginalPathSaveJournalSnapshot;
     rebaseOnUnchangedContent: (proof?: Parameters<typeof rebaseUnchangedSnapshot>[2], signal?: AbortSignal) => Promise<void>;
-    rebaseAfterPublish: (intendedFingerprint: string, keptFilePath?: string) => Promise<void>;
+    rebaseAfterPublish: (intendedFingerprint: string) => Promise<void>;
 }
 
 function hasCompleteStoredIdentity(expected: IWorkingCopyOriginalFileExpectation) {
@@ -122,11 +122,11 @@ class OriginalPathSaveWitness implements IOriginalPathSaveWitness {
         }
     }
 
-    async rebaseAfterPublish(intendedFingerprint: string, keptFilePath?: string) {
+    async rebaseAfterPublish(intendedFingerprint: string) {
         try {
             const snapshot = await captureAdmittedPathSnapshot(this.originalPath);
             if (snapshot.contentFingerprint !== intendedFingerprint) {
-                throw new OriginalPathSaveConflictError(keptFilePath);
+                throw new OriginalPathSaveConflictError();
             }
             this.snapshot = snapshot;
         } catch (error) {
