@@ -1963,6 +1963,29 @@ fn print_freetext_partial_fonts_preserve_joining_and_pointed_words() {
 }
 
 #[test]
+fn print_freetext_syriac_punctuation_keeps_the_joining_word() {
+    print_freetext_punctuation_matches_harfbuzz("syriac");
+}
+
+#[test]
+fn print_freetext_hebrew_punctuation_keeps_cantillation_with_its_base() {
+    print_freetext_punctuation_matches_harfbuzz("hebrew");
+}
+
+fn print_freetext_punctuation_matches_harfbuzz(script: &str) {
+    let temp = TempPaths::new("print-punctuation-fonts");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/electron/interop/print-semitic");
+    let printed = temp.root.join("printed.pdf");
+    print_annotation_pdf(&fixture.join(format!("{script}-punctuation.pdf")), &printed);
+    assert!(
+        poppler_pixels(&printed)
+            == poppler_pixels(&fixture.join(format!("{script}-punctuation-reference.pdf"))),
+        "punctuation must preserve HarfBuzz joining and base/mark positions: {script}"
+    );
+}
+
+#[test]
 fn print_freetext_collapsed_text_keeps_background_and_border_colors() {
     let temp = TempPaths::new("print-collapsed-freetext-colors");
     let printed = temp.root.join("printed.pdf");

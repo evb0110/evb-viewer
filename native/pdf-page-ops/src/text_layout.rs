@@ -29,8 +29,8 @@ fn script_runs(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
     let mut ranges = Vec::new();
     let mut start = range.start;
     let mut script = Script::Common;
-    for (offset, character) in text[range.clone()].char_indices() {
-        let next = character.script();
+    for (offset, cluster) in text[range.clone()].grapheme_indices(true) {
+        let next = cluster.chars().next().unwrap().script();
         if matches!(next, Script::Common | Script::Inherited) {
             continue;
         }
@@ -97,41 +97,40 @@ fn shape_line(
             scripts.reverse();
         }
         for script in scripts {
-            // Select one font for the whole word, including joining controls
-            // and marks. Partial document fonts must not split shaping context.
+            // Resolve complete joining words and grapheme clusters before fonts.
+            // Adjacent punctuation or digits cannot break a base/mark or word run.
+            let joining = |g: &str| {
+                g.starts_with(|c: char| c.is_alphabetic() || "\u{00ad}\u{200c}\u{200d}".contains(c))
+            };
+            let clusters: Vec<_> = text[script].graphemes(true).collect();
             let mut font_runs: Vec<(usize, String)> = Vec::new();
-            for sequence in text[script].split_inclusive(char::is_whitespace) {
+            for word in clusters.chunk_by(|a, b| joining(a) && joining(b)) {
+                let sequence = word.concat();
+                let covers = |face: &FontRef<'_>, c| {
+                    let c = if c == '\t' { ' ' } else { c };
+                    invisible(c) || face.charmap().map(c).is_some()
+                };
+                let index = font_runs
+                    .last()
+                    .map(|(i, _)| *i)
+                    .filter(|i| {
+                        sequence.trim().is_empty()
+                            && sequence.chars().all(|c| covers(&fonts[*i].1, c))
+                    })
+                    .or_else(|| {
+                        fonts
+                            .iter()
+                            .position(|(_, face)| sequence.chars().all(|c| covers(face, c)))
+                    })
+                    .unwrap_or(replacement_font);
                 let sequence: String = sequence
                     .chars()
-                    .map(|c| {
-                        if fonts
-                            .iter()
-                            .any(|(_, face)| invisible(c) || face.charmap().map(c).is_some())
-                        {
-                            c
-                        } else {
-                            '�'
-                        }
-                    })
+                    .map(|c| if covers(&fonts[index].1, c) { c } else { '�' })
                     .collect();
-                let supported = fonts.iter().position(|(_, face)| {
-                    sequence
-                        .chars()
-                        .all(|c| invisible(c) || face.charmap().map(c).is_some())
-                });
-                for character in sequence.chars() {
-                    let index = supported.or_else(|| {
-                        fonts.iter().position(|(_, face)| {
-                            invisible(character) || face.charmap().map(character).is_some()
-                        })
-                    });
-                    let (index, character) =
-                        index.map_or((replacement_font, '�'), |i| (i, character));
-                    if let Some((_, run)) = font_runs.last_mut().filter(|(i, _)| *i == index) {
-                        run.push(character);
-                    } else {
-                        font_runs.push((index, character.to_string()));
-                    }
+                if let Some((_, run)) = font_runs.last_mut().filter(|(i, _)| *i == index) {
+                    run.push_str(&sequence);
+                } else {
+                    font_runs.push((index, sequence));
                 }
             }
             if rtl {
