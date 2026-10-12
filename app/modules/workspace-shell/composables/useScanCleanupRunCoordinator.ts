@@ -11,7 +11,7 @@ import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
     findDocumentTabId,
-    saveScanCleanupOutputAs,
+    createScanCleanupOutputSaveAs,
 } from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
 import {
     getDocumentOpenCapability,
@@ -96,7 +96,7 @@ export async function openScanCleanupGeneratedPdf(
     // Both listeners are detached on every exit, including a synchronous throw
     // from the open call: the signal outlives this open, so anything left
     // attached to it accumulates for the rest of the handoff.
-    const abandonOpen: { handler: (() => void) | null } = { handler: null };
+    let abandonOpenHandler: (() => void) | null = null;
     try {
         const open = documentOpen.openDocumentDirectBatch([documentRef], requestId);
         // Main-process cancellation is optional and a copy already in flight
@@ -105,9 +105,8 @@ export async function openScanCleanupGeneratedPdf(
         // rejection and to release a working copy that arrives with no tab left
         // to claim it.
         const abandoned = new Promise<typeof ABANDONED_OPEN>((resolve) => {
-            const handler = () => resolve(ABANDONED_OPEN);
-            abandonOpen.handler = handler;
-            signal.addEventListener('abort', handler, {once: true});
+            abandonOpenHandler = () => resolve(ABANDONED_OPEN);
+            signal.addEventListener('abort', abandonOpenHandler, {once: true});
         });
         const settled = await Promise.race([
             open.then(result => ({result}), (error: unknown) => ({error})),
@@ -129,14 +128,14 @@ export async function openScanCleanupGeneratedPdf(
             : false;
     } finally {
         signal.removeEventListener('abort', cancelOpen);
-        if (abandonOpen.handler) {
-            signal.removeEventListener('abort', abandonOpen.handler);
+        if (abandonOpenHandler) {
+            signal.removeEventListener('abort', abandonOpenHandler);
         }
     }
 }
 
 export const useScanCleanupRunCoordinator = (
-    activeWorkspace: ComputedRef<IWorkspaceExpose | null>,
+    _activeWorkspace: ComputedRef<IWorkspaceExpose | null>,
     handleOpenInNewTab: (
         target: TDocumentRef | TOpenFileResult,
         paneId?: string,
@@ -169,7 +168,7 @@ export const useScanCleanupRunCoordinator = (
                 ? openScanCleanupGeneratedPdf(documentRef, signal, handleOpenInNewTab)
                 : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {activate: false})) && persistCheckpointNow().then(() => true, () => false);
         },
-        saveCompletedOutputAs: outputPath => saveScanCleanupOutputAs(outputPath, activeWorkspace, documentSessionsByTabId, activateTab, toast, t),
+        createCompletedOutputSaveAs: outputPath => createScanCleanupOutputSaveAs(outputPath, documentSessionsByTabId, activateTab, toast, t),
         openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(documentRef, documentSessionsByTabId.value, activateTab),
         t,
         toast,

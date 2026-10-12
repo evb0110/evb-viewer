@@ -216,7 +216,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(async () => undefined),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         });
@@ -271,7 +271,7 @@ describe('scan cleanup run coordinator', () => {
         currentRunState.value = coordinator.scanCleanupRun;
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         });
@@ -335,7 +335,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(async () => undefined),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         });
@@ -442,7 +442,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: toastAdd},
         });
@@ -483,7 +483,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(async () => true),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         });
@@ -637,7 +637,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const dependencies = {
             openGeneratedPdf: vi.fn(async () => true),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: toastAdd},
         };
@@ -735,7 +735,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             openScanCleanupForDocument: vi.fn(),
             t: translate,
             toast: {add: toastAdd},
@@ -782,7 +782,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             openScanCleanupForDocument: vi.fn(),
             t: translate,
             toast: {add: toastAdd},
@@ -816,7 +816,7 @@ describe('scan cleanup run coordinator', () => {
         const toastAdd = vi.fn();
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(async () => true),
-            saveCompletedOutputAs: vi.fn(async () => true),
+            createCompletedOutputSaveAs: vi.fn(() => async () => true),
             t: translate,
             toast: {add: toastAdd},
         });
@@ -875,13 +875,13 @@ describe('scan cleanup run coordinator', () => {
             onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => true);
-        const saveCompletedOutputAs = vi.fn(async () => true);
+        let savedOutput: string | null = null;
         const openScanCleanupForDocument = vi.fn(async () => true);
         const toastAdd = vi.fn();
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs,
+            createCompletedOutputSaveAs: outputPath => async () => { savedOutput = outputPath; return true; },
             openScanCleanupForDocument,
             t: translate,
             toast: {add: toastAdd},
@@ -932,10 +932,19 @@ describe('scan cleanup run coordinator', () => {
             });
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'success'})));
             const completeToast = toastAdd.mock.calls.at(-1)?.[0];
-            expect(saveCompletedOutputAs).not.toHaveBeenCalled();
-            completeToast.actions[0].onClick();
-            expect(saveCompletedOutputAs).toHaveBeenCalledOnce();
-            expect(saveCompletedOutputAs).toHaveBeenCalledWith('/managed/book — cleaned.pdf');
+            expect(savedOutput).toBeNull();
+            const replacementCleanup = coordinator.installScanCleanupRunCoordinator({
+                openGeneratedPdf,
+                createCompletedOutputSaveAs: () => async () => { savedOutput = '/replacement.pdf'; return true; },
+                t: translate,
+                toast: {add: toastAdd},
+            });
+            try {
+                completeToast.actions[0].onClick();
+                expect(savedOutput).toBe('/managed/book — cleaned.pdf');
+            } finally {
+                replacementCleanup();
+            }
 
             await coordinator.startScanCleanup({
                 ...ownerContext,
@@ -998,7 +1007,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: toastAdd},
         });
@@ -1079,7 +1088,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const dispose = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: firstOpen,
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: firstToast},
         });
@@ -1116,7 +1125,7 @@ describe('scan cleanup run coordinator', () => {
             expect(coordinator.scanCleanupRun.activeJobId).toBe('job-disposed');
             reinstall = coordinator.installScanCleanupRunCoordinator({
                 openGeneratedPdf: secondOpen,
-                saveCompletedOutputAs: vi.fn(),
+                createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
                 t: translate,
                 toast: {add: secondToast},
             });
@@ -1360,7 +1369,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(async () => true),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: toastAdd},
         });
@@ -1405,7 +1414,7 @@ describe('scan cleanup run coordinator', () => {
         const toastAdd = vi.fn();
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(async () => true),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: toastAdd},
         });
@@ -1443,7 +1452,7 @@ describe('scan cleanup run coordinator', () => {
         const toastAdd = vi.fn();
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(async () => true),
-            saveCompletedOutputAs: vi.fn(async () => undefined),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: toastAdd},
         });
@@ -1496,7 +1505,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: toastAdd},
         });
@@ -1578,7 +1587,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: toastAdd},
         });
@@ -1667,7 +1676,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         });
@@ -1718,7 +1727,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf,
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         });
@@ -1779,7 +1788,7 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const dependencies = {
             openGeneratedPdf: vi.fn(async () => true),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         };
@@ -1838,13 +1847,13 @@ describe('scan cleanup run coordinator', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const firstCleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         });
         const secondCleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: vi.fn(),
-            saveCompletedOutputAs: vi.fn(),
+            createCompletedOutputSaveAs: vi.fn(() => async () => undefined),
             t: translate,
             toast: {add: vi.fn()},
         });

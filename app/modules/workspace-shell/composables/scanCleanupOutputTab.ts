@@ -1,6 +1,8 @@
 import type {ComputedRef} from 'vue';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    getDocumentWorkspace,
+    type IWorkspaceDocumentController,
+} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { IFailureToastTarget } from '@app/composables/useFailureToast';
 import type { TTranslateFn } from '@i18n-app';
 
@@ -20,28 +22,46 @@ export function findDocumentTabId(
 }
 
 /**
- * The completion toast's Save As saves the cleanup output it was raised for,
- * not whichever document is active when it is clicked. The output's tab is made
- * active first, because the workspace Save As acts on the active document.
- * When the output has no open tab, nothing is saved and the user is told so.
+ * Capture once after opening the output. Only that instance in this window
+ * may be saved, even when its former path belongs to another document now.
  */
-export async function saveScanCleanupOutputAs(
+export function createScanCleanupOutputSaveAs(
     outputPath: string,
-    activeWorkspace: ComputedRef<IWorkspaceExpose | null>,
     documentSessionsByTabId: ComputedRef<Readonly<Record<string, IWorkspaceDocumentController>>>,
     activateTab: (tabId: string) => void,
     toast: IFailureToastTarget,
     t: TTranslateFn,
-): Promise<boolean> {
-    const tabId = findDocumentTabId(outputPath, documentSessionsByTabId.value);
-    if (tabId === null) {
+): () => Promise<boolean> {
+    const outputTabId = findDocumentTabId(outputPath, documentSessionsByTabId.value);
+    const instanceId = outputTabId
+        ? documentSessionsByTabId.value[outputTabId]?.snapshot.value.identity.documentInstanceId
+        : null;
+    const findOutput = () => instanceId ? Object.entries(documentSessionsByTabId.value).find(([
+        , session,
+    ]) => (
+        session.snapshot.value.identity.documentInstanceId === instanceId
+    )) : undefined;
+    const warnClosed = () => {
         toast.add({
             color: 'warning',
             title: t('scanCleanup.outputClosedBeforeSaveAs'),
         });
-        return false;
-    }
-    activateTab(tabId);
-    await nextTick();
-    return activeWorkspace.value?.handleSaveAs() ?? false;
+    };
+    return async () => {
+        const output = findOutput();
+        if (!output) {
+            warnClosed();
+            return false;
+        }
+        activateTab(output[0]);
+        await nextTick();
+        // Activation can open or close a document. Resolve again before the
+        // owner supplies a mounted view for this document-wide command.
+        const current = findOutput();
+        if (!current) {
+            warnClosed();
+            return false;
+        }
+        return getDocumentWorkspace(current[1])?.handleSaveAs() ?? false;
+    };
 }

@@ -270,7 +270,7 @@ export interface IScanCleanupCoordinatorDependencies {
      * reader is in.
      */
     openGeneratedPdf: (path: string, signal: AbortSignal, foreground: boolean) => Promise<boolean>;
-    saveCompletedOutputAs: (outputPath: string) => Promise<unknown>;
+    createCompletedOutputSaveAs: (outputPath: string) => () => Promise<unknown>;
     openScanCleanupForDocument?: (documentRef: string) => Promise<boolean> | boolean;
     t: TTranslateFn;
     toast: IScanCleanupToast;
@@ -679,13 +679,10 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 });
                 return;
             }
+            const saveAs = terminalDependencies.createCompletedOutputSaveAs(state.outputPdfPath);
             const completedOutputPath = parseDocumentRef(state.outputPdfPath);
             if (completedOutputPath !== null) {
-                const capability = getScanCleanupCapability();
-                const acknowledgeCompletedOutputs = capability?.acknowledgeCompletedOutputs;
-                if (acknowledgeCompletedOutputs) {
-                    await acknowledgeCompletedOutputs([completedOutputPath]).catch(() => undefined);
-                }
+                await getScanCleanupCapability()?.acknowledgeCompletedOutputs?.([completedOutputPath]).catch(() => undefined);
             }
             const t = terminalDependencies.t;
             const notices = [t('scanCleanup.summary', {
@@ -715,7 +712,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                     label: terminalDependencies.t('scanCleanup.saveAs'),
                     color: 'neutral' as const,
                     variant: 'outline' as const,
-                    onClick: () => { void dependencies?.saveCompletedOutputAs(state.outputPdfPath); },
+                    onClick: () => { void saveAs(); },
                 }],
             });
             return;

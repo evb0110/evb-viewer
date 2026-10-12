@@ -438,6 +438,74 @@ describe('scan cleanup completion Save As', () => {
         document.querySelectorAll<HTMLButtonElement>('button'),
     ).filter(button => button.textContent?.trim() === 'Save as…' && button.checkVisibility()).at(-1), null, {description: 'toast Save As'});
 
+    it('refuses a reopened file at the completed output path', async () => {
+        const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-reopened-save-as-'));
+        const savedPath = join(scratch, 'must-not-save-replacement.pdf');
+        const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-reopened-source.pdf', 6, 0);
+        const session = await startCleanupSession(savedPath, sourcePath);
+        try {
+            const outputPath = (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath;
+            if (typeof outputPath !== 'string') throw new Error('The cleaned output path is missing');
+            await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+            await clickFoundAsUser(session.page, () => Array.from(
+                document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+            ).find(button => button.textContent?.trim() === 'Discard changes'), null,
+            {description: 'discard the completed output'});
+            await expect.poll(async () => (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath,
+                {timeout: 10_000}).not.toBe(outputPath);
+            await openPdfInApp(session.page, outputPath, 30_000);
+            await waitForPdfLoaded(session.page, 30_000);
+            await clickToastSaveAs(session.page);
+            await expect.poll(async () => ({
+                warned: await session.page.evaluate(() => document.body.innerText.includes(
+                    'The cleaned PDF is no longer open in this window. Use Save As from the window that shows it.',
+                )),
+                saved: existsSync(savedPath),
+            }), {timeout: 10_000}).toEqual({
+                warned: true,
+                saved: false,
+            });
+        } finally {
+            await session.stop();
+            await rm(scratch, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 600_000);
+
+    it('warns when Save As replaced the completed output identity', async () => {
+        const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-renamed-save-as-'));
+        const savedPath = join(scratch, 'renamed-output.pdf');
+        const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-renamed-source.pdf', 6, 0);
+        const session = await startCleanupSession(savedPath, sourcePath);
+        try {
+            // The toolbar saves the output under a new path while the completion
+            // notice is still available. Its captured instance is now gone.
+            await clickAsUser(session.page, '#editor-global-toolbar-host .save-split-trigger');
+            await clickFoundAsUser(session.page, () => Array.from(
+                document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+            ).find(item => item.textContent?.includes('Save As') && item.checkVisibility()), null,
+            {description: 'toolbar Save As'});
+            await expect.poll(() => existsSync(savedPath), {timeout: 60_000}).toBe(true);
+            await expect.poll(async () => (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath,
+                {timeout: 30_000}).toBe(savedPath);
+            const firstSaveMtime = statSync(savedPath).mtimeMs;
+            await activateWorkspaceTab(session, 0);
+            await clickToastSaveAs(session.page);
+            await waitForFunctionInPage(session.page, () => document.body.innerText.includes(
+                'The cleaned PDF is no longer open in this window. Use Save As from the window that shows it.',
+            ), {timeout: 10_000});
+            expect(statSync(savedPath).mtimeMs).toBe(firstSaveMtime);
+        } finally {
+            await session.stop();
+            await rm(scratch, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 600_000);
+
     it('saves the cleaned output, not the tab that is active when the toast is clicked', async () => {
         const scratch = await mkdtemp(join(tmpdir(), 'scan-cleanup-save-as-'));
         const savedPath = join(scratch, 'saved-from-toast.pdf');
