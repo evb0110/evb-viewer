@@ -103,7 +103,7 @@ export class BrowserDocumentRecordStore {
         cleanupEvictedRecentRefs: (refs) => cleanupBrowserEvictedRecentRefs(
             refs,
             async (ref) => {
-                await this.cleanupDetachedPersistedRecord(ref);
+                await this.cleanupDetachedDocument(ref);
             },
         ),
     });
@@ -442,10 +442,6 @@ export class BrowserDocumentRecordStore {
     }
 
     public async cleanupDetachedDocument(ref: string) {
-        return this.cleanupDetachedPersistedRecord(ref);
-    }
-
-    private async cleanupDetachedPersistedRecord(ref: string) {
         return this.runRefMutation(ref, () => this.cleanupDetachedPersistedRecordUnlocked(ref));
     }
 

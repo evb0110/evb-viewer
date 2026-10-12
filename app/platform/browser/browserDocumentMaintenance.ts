@@ -291,10 +291,6 @@ export async function cleanupBrowserEvictedRecentRefs(
     cleanupRef: (ref: string) => Promise<void>,
 ) {
     const uniqueRefs = uniq(refs.filter(ref => ref.length > 0));
-    if (uniqueRefs.length === 0) {
-        return;
-    }
-
     await Promise.allSettled(
         uniqueRefs.map(async (ref) => {
             await cleanupRef(ref);

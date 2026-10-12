@@ -409,4 +409,40 @@ describe('browser document live lease acceptance in Chromium', () => {
             await browser.close();
         }
     }, 120_000);
+    it('collects a transferred creator reservation after the target final close while the source stays alive', async () => {
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext();
+        try {
+            const source = await context.newPage();
+            const target = await context.newPage();
+            await installEntryAtWindow(source, 1);
+            await installEntryAtWindow(target, 2);
+            await callEntry(target, '__evbPrepareDirtyTransferReceiver');
+            const transfer = await callEntry<{
+                success: boolean;
+                transferId: string
+            }>(source, '__evbTransferDirtyTab');
+            expect(transfer.success).toBe(true);
+            const adopted = await callEntry<{
+                phase: string;
+                afterAck: number[]
+            }>(target, '__evbWaitForDirtyTransferCommit');
+            expect(adopted.phase).toBe('committed');
+            expect(adopted.afterAck).toEqual([
+                90,
+                91,
+                92,
+                93,
+            ]);
+            await expect(callEntry(target, '__evbCloseTransferredDocument', transfer.transferId)).resolves.toEqual({
+                records: 0,
+                chunks: 0,
+            });
+            expect(source.isClosed()).toBe(false);
+        } finally {
+            await context.close();
+            await browser.close();
+        }
+    }, 120_000);
+
 });

@@ -1,6 +1,4 @@
-import {
-    parseDocumentRef, type TDocumentRef,
-} from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import type {
@@ -230,7 +228,7 @@ export async function savePdfAsFromWorkingCopy(
     let externalWriteCommitted: boolean | null = false;
     let savedSourceRef: TDocumentRef | null;
     try {
-        const savedSourceRefResult = await browserDocumentStore.runDocumentMutationWithSource(
+        savedSourceRef = await browserDocumentStore.runDocumentMutationWithSource(
             workingCopyPath,
             previousSourceRef,
             revisionOptions?.expectedDocumentRevisionToken,
@@ -311,7 +309,6 @@ export async function savePdfAsFromWorkingCopy(
                 return sourceRef;
             },
         );
-        savedSourceRef = parseDocumentRef(savedSourceRefResult);
     } catch (error) {
         if (error instanceof BrowserFileWriteOutcomeError) {
             externalWriteCommitted = error.externalWriteCommitted;

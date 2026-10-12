@@ -169,32 +169,33 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         toPdfBlob,
     });
 
-    function closeFile() {
+    async function closeFile() {
         openEpoch.invalidate();
         loadEpoch.invalidate();
-        const pathToCleanup = workingCopyPath.value;
+        const pathsToCleanup = [...new Set([
+            workingCopyPath.value,
+            openedWorkingCopyPath.value,
+        ].flatMap(path => path ? [path] : []))];
 
         // M4.3: Clear OCR cache for the current file before closing
-        if (pathToCleanup) {
-            clearOcrCache(pathToCleanup);
-        }
+        pathsToCleanup.forEach(path => clearOcrCache(path));
 
         resetForClose();
         clearPdfConformanceProfile();
         incrementSessionVersion();
         clearHistory();
-        if (pathToCleanup) {
-            getDocumentWorkingCopyCapability().cleanupFile(pathToCleanup).catch((cleanupError: unknown) => {
+        await Promise.all(pathsToCleanup.map(path =>
+            getDocumentWorkingCopyCapability().cleanupFile(path).catch((cleanupError: unknown) => {
                 BrowserLogger.warn(
                     'pdf-file',
                     'Failed to cleanup closed working copy',
                     {
-                        path: pathToCleanup,
+                        path,
                         error: cleanupError,
                     },
                 );
-            });
-        }
+            }),
+        ));
     }
 
     function markDirty() {

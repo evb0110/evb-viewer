@@ -456,14 +456,6 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         }
     }
 
-    async function cleanupFailedRestorePayload(tabId: string, payload: TSplitPayload) {
-        await cleanupSplitPayloadSnapshot(payload, {
-            logSection: 'tabs',
-            context: 'restore-workspace-payload',
-            metadata: { tabId },
-        });
-    }
-
     async function restoreWorkspacePayload(
         tabId: string,
         payload: TSplitPayload | null,
@@ -484,7 +476,11 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             return restored;
         } finally {
             if (!restored && !restoreOptions.retainPayloadOnFailure) {
-                await cleanupFailedRestorePayload(tabId, payload);
+                await cleanupSplitPayloadSnapshot(payload, {
+                    logSection: 'tabs',
+                    context: 'restore-workspace-payload',
+                    metadata: {tabId},
+                });
             }
             options.workspaceRestoreTracker.finish(tabId);
         }
@@ -494,23 +490,22 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         // The departing view's place is remembered while it and its source still exist.
         const session = getDocumentSession(tabId);
         await rememberReadingView(session, tabId);
+        if (session && tabHoldsDocument(tabId) && session.views.value.size <= 1) {
+            options.workspaceRestoreTracker.start(tabId);
+            try {
+                if (!await session.close({persist: false})) return false;
+            } catch (error) {
+                BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
+                    tabId,
+                    error,
+                }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
+                return false;
+            } finally {
+                options.workspaceRestoreTracker.finish(tabId);
+            }
+        }
         await options.handoffActiveTabBeforeClose(paneId, tabId);
-        if (!session || !tabHoldsDocument(tabId) || session.views.value.size > 1) {
-            return true;
-        }
-
-        options.workspaceRestoreTracker.start(tabId);
-        try {
-            return await session.close({persist: false});
-        } catch (error) {
-            BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
-                tabId,
-                error,
-            }, {code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED'});
-            return false;
-        } finally {
-            options.workspaceRestoreTracker.finish(tabId);
-        }
+        return true;
     }
 
     async function finalizeTransferredSourceTab(paneId: string, tabId: string): Promise<TSourceTransferOutcome> {

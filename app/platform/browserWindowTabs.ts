@@ -46,9 +46,6 @@ const DISCOVERY_SETTLE_DELAY_MS = 60;
 const FALLBACK_WINDOW_TITLE = 'EVB Viewer';
 const CLOSE_CURRENT_WINDOW_TIMEOUT_MS = 150;
 const TRANSFER_MESSAGE_SCHEMA_VERSION = 1;
-function transferAuthorityId(transferId: string) {
-    return `transfer:${transferId}`;
-}
 
 function buildTransferAuthorityRecord(
     transfer: IWindowTabIncomingTransfer,
@@ -68,7 +65,7 @@ function buildTransferAuthorityRecord(
     }
     const expired = Date.now() >= deadlineAt;
     return {
-        id: transferAuthorityId(transfer.transferId),
+        id: `transfer:${transfer.transferId}`,
         transferId: transfer.transferId,
         nonce,
         sourceWindowId: transfer.sourceWindowId,
@@ -757,7 +754,6 @@ async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessa
     }
 
     if (!message.ack.success) {
-        void abortBrowserTransferAuthority(message.ack.transferId, pending.nonce);
         finishTransfer(message.ack.transferId, {
             success: false,
             error: message.ack.error ?? 'Target rejected browser transfer.',
@@ -771,6 +767,9 @@ async function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessa
         pending.targetWindowId,
     );
     if (authority?.state === 'committed') {
+        // The durable decision protects bytes while the receiver adopts its reader.
+        authority.backingRefs.forEach(({ref}) => documentDependencyReaders.delete(ref));
+        await publishBrowserDocumentLiveLeases();
         finishTransfer(message.ack.transferId, {success: true});
     }
 }
@@ -990,7 +989,7 @@ async function holdRecoveryOwnerLock() {
     }
 }
 // Recovery records and their live document leases share this platform owner.
-const documentDependencyReaders = new Map<TDocumentRef | (() => TDocumentRef[]), () => TDocumentRef[]>();
+const documentDependencyReaders = new Map<string | (() => TDocumentRef[]), () => TDocumentRef[]>();
 let recoveryLiveLease = Promise.resolve<Awaited<ReturnType<typeof browserDocumentStore.heartbeatLiveLease>> | null>(null);
 
 export function registerBrowserDocumentDependencyReader(read: () => TDocumentRef[]) {

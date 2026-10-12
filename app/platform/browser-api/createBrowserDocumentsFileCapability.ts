@@ -682,11 +682,10 @@ export function createBrowserDocumentsFileCapability(
                 return;
             }
 
-            const refs = [...new Set([
+            for (const ref of new Set([
                 path,
                 entry.sourceRef ?? path,
-            ])];
-            for (const ref of refs) {
+            ])) {
                 await browserDocumentStore.cleanupDetachedDocument(ref);
                 await clearSearchCaches(ref);
             }

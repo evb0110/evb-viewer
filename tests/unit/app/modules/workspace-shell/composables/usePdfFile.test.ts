@@ -343,7 +343,7 @@ describe('usePdfFile façade', () => {
         file.isDirty.value = true;
         file.error.value = 'old error';
 
-        file.closeFile();
+        await file.closeFile();
 
         expect(mocks.cleanup).toHaveBeenCalledWith('/tmp/owned.pdf');
         expect(file).toMatchObject({
@@ -371,7 +371,7 @@ describe('usePdfFile façade', () => {
         mocks.write.mockImplementationOnce(() => write.promise);
 
         const undo = file.undo();
-        file.closeFile();
+        await file.closeFile();
         write.resolve(undefined);
 
         await expect(undo).resolves.toBe(false);
@@ -391,7 +391,7 @@ describe('usePdfFile façade', () => {
         await vi.waitFor(() => {
             expect(mocks.cloneWorkingCopy).toHaveBeenCalledOnce();
         });
-        file.closeFile();
+        await file.closeFile();
         staging.resolve('/tmp/staged-baseline.pdf');
 
         await expect(baseline).resolves.toBe(false);

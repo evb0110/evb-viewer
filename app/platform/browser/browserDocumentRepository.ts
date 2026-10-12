@@ -523,15 +523,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
     private async cloneStoredDocumentUnlocked(
         sourceRef: string,
-        options: {
-            ref?: TDocumentRef;
-            fileName?: string;
-            kind?: IBrowserDocumentEntry['kind'];
-            retention?: IBrowserDocumentEntry['retention'];
-            sourceRef?: string;
-            saveKind?: IBrowserDocumentEntry['saveKind'];
-            saveHandle?: FileSystemFileHandle | null;
-        },
+        options: NonNullable<Parameters<BrowserDocumentStore['cloneStoredDocument']>[1]>,
     ) {
         const sourceEntry = await this.requireEntry(sourceRef);
         const nextName = options.fileName ?? sourceEntry.fileName;

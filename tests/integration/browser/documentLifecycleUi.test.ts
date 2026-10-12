@@ -4238,12 +4238,13 @@ describe('optional search-cache mutation completion proof', () => {
 it.each([
     'clean-open',
     'two-window-move',
+    'two-window-move-source-stays-open',
     'clear-recent',
 ])('keeps the saved copy source and both notes after Clear Recent Files and Save (mode=%s)', async (mode) => {
     const browser = await chromium.launch({headless:true});
     const observations:unknown[]=[];
     let activePage: Page | null = null;
-    const evidenceDir=resolve(process.cwd(),`.devkit/bw03-r1/ui-${process.env.BW03_REV ?? 'green'}-${mode}`);mkdirSync(evidenceDir,{recursive:true});
+    const evidenceDir=resolve(process.cwd(),`.devkit/bw03-r2/ui-${process.env.BW03_REV ?? 'green'}-${mode}`);mkdirSync(evidenceDir,{recursive:true});
     try {
         const context=await browser.newContext({
             viewport:{
@@ -4253,6 +4254,7 @@ it.each([
             acceptDownloads:true,
         });
         let page=await context.newPage();
+        const creator = page;
         activePage = page;
         observations.push({problems: collectConsoleProblems(page)});
         await page.addInitScript(()=>{Reflect.set(window,'__allowRendererFileOpenForAutomation',()=>true);Reflect.set(window,'showSaveFilePicker',undefined);window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode','input');});
@@ -4322,7 +4324,7 @@ it.each([
             await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
         }
-        if (mode === 'two-window-move') {
+        if (mode.startsWith('two-window-move')) {
             const target = await context.newPage();
             await target.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
@@ -4340,7 +4342,16 @@ it.each([
                 return api.transferActiveTabToWindow?.(2);
             })).toMatchObject({success: true});
             await target.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
-            await page.close();
+            if (mode === 'two-window-move-source-stays-open') {
+                // The test bridge transfers the payload. Complete the departing
+                // tab's close through trusted UI while keeping its context alive.
+                await page.locator('.tab.is-active .tab-close').click();
+                await page.getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                }).first().waitFor();
+            }
+            if (mode === 'two-window-move') await page.close();
             page = target;
             activePage = target;
             observations.push({targetProblems: collectConsoleProblems(target)});
@@ -4390,6 +4401,35 @@ it.each([
         ]));
         await page.screenshot({path:resolve(evidenceDir,'after-save.png')});
         if (mode === 'clear-recent') expect(observations).toEqual(expect.arrayContaining([expect.objectContaining({sourceAfter: true})]));
+        if (mode === 'two-window-move-source-stays-open') {
+            expect(creator.isClosed()).toBe(false);
+            // Keep the creator context alive through the receiver's final close.
+            observations.push({beforeClose: await readBrowserPayloadCounts(page)});
+            await page.locator('.tab.is-active .tab-close').click();
+            await page.getByRole('button', {
+                name: 'Clear Recent Files',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Clear History',
+                exact: true,
+            }).click();
+            // Terminal transfer protection lasts 60 seconds. Observe collection
+            // after it expires and a normal lifecycle event publishes the graph.
+            await new Promise(resolveWait => setTimeout(resolveWait, 61_000));
+            await page.getByRole('button', {
+                name: 'New Tab',
+                exact: true,
+            }).click();
+            expect(creator.isClosed()).toBe(false);
+            observations.push({afterFinalClose: await readBrowserPayloadCounts(page)});
+            await expect.poll(() => readBrowserPayloadCounts(page), {timeout: 15_000}).toEqual({
+                records: 0,
+                chunks: 0,
+                recovery: 0,
+            });
+        }
+
     } finally {
         if (activePage && !activePage.isClosed()) {
             observations.push({toasts: await activePage.locator('.app-toast-failure').allTextContents()});
@@ -4399,4 +4439,35 @@ it.each([
         writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));
         await browser.close();
     }
-},120000);
+},240000);
+
+async function readBrowserPayloadCounts(page: Page) {
+    return page.evaluate(async () => {
+        const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+            const request = indexedDB.open('evb-viewer-browser-documents');
+            request.onsuccess = () => resolveDb(request.result);
+            request.onerror = () => rejectDb(request.error);
+        });
+        const count = (name: string) => new Promise<number>((resolveCount, rejectCount) => {
+            const request = db.transaction(name).objectStore(name).count();
+            request.onsuccess = () => resolveCount(request.result);
+            request.onerror = () => rejectCount(request.error);
+        });
+        try {
+            const [
+                records,
+                chunks,
+                recovery,
+            ] = await Promise.all([
+                count('documents'),
+                count('document-chunks'),
+                count('workspace-recovery'),
+            ]);
+            return {
+                records: records!,
+                chunks: chunks!,
+                recovery: recovery!,
+            };
+        } finally { db.close(); }
+    });
+}

@@ -9,7 +9,10 @@ import {
 import {requireDocumentRef} from '@contracts/documentRef';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {IBrowserTransferAuthorityRecord} from '@app/platform/browser/browserDocumentIdb';
-import {FakeLockManager} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {
+    FakeLockManager, FakeIndexedDbFactory, MemoryStorage,
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import type * as TDocumentIdb from '@app/platform/browser/browserDocumentIdb';
 
 const recoveryMocks = vi.hoisted(() => ({
     clearBrowserWorkspaceRecovery: vi.fn(),
@@ -31,7 +34,10 @@ type TAuthorityMutation = (
 ) => unknown;
 
 vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => recoveryMocks);
-vi.mock('@app/platform/browser/browserDocumentIdb', () => transferAuthorityMocks);
+vi.mock('@app/platform/browser/browserDocumentIdb', async importOriginal => ({
+    ...await importOriginal<typeof TDocumentIdb>(),
+    ...transferAuthorityMocks,
+}));
 
 const WINDOW_TABS_CHANNEL = 'evb-viewer:browserWindowTabs';
 
@@ -180,6 +186,86 @@ describe('browserWindowTabsCapability', () => {
         MockBroadcastChannel.reset();
         vi.useRealTimers();
         vi.unstubAllGlobals();
+    });
+
+    it('collects the creator copy after durable handoff and the receiver final close', async () => {
+        vi.useRealTimers();
+        vi.stubGlobal('indexedDB', new FakeIndexedDbFactory());
+        const storage = new MemoryStorage();
+        vi.stubGlobal('localStorage', storage);
+        Object.assign(window, {localStorage: storage});
+        let authority: IBrowserTransferAuthorityRecord | null = null;
+        transferAuthorityMocks.mutateBrowserTransferAuthority.mockImplementation(async (_id: string, mutate: TAuthorityMutation) => {
+            authority = mutate(authority, {put: value => { authority = value as IBrowserTransferAuthorityRecord; }}) as IBrowserTransferAuthorityRecord;
+            return authority;
+        });
+        const owner = await import('@app/platform/browserWindowTabs');
+        const {browserDocumentStore: store} = await import('@app/platform/browser/browserDocumentRepository');
+        const {createBrowserWorkingCopyFromBytes} = await import('@app/platform/browser-api/browserWorkingCopyService');
+        const source = await store.createStoredDocument('handoff.pdf', Uint8Array.of(10, 11, 12), {
+            mimeType: 'application/pdf',
+            kind: 'source',
+        });
+        const successor = await createBrowserWorkingCopyFromBytes({
+            fileName: 'handoff-copy.pdf',
+            data: Uint8Array.of(23, 24, 25),
+            sourceRef: source,
+        });
+        const receiver = await store.createLiveLease('window:receiver', [
+            {ref: successor},
+            {ref: source},
+        ]);
+        const channel = new MockBroadcastChannel(WINDOW_TABS_CHANNEL);
+        channel.addEventListener('message', event => {
+            if (typeof event.data !== 'object' || event.data === null || Reflect.get(event.data, 'type') !== 'transfer') return;
+            const committed = requireBrowserTransferAuthority(authority);
+            channel.postMessage({
+                type: 'ack',
+                windowId: 200,
+                ack: {
+                    transferId: committed.transferId,
+                    schemaVersion: 1,
+                    nonce: committed.nonce,
+                    instanceNonce: 'receiver',
+                    success: true,
+                },
+            });
+        });
+        owner.browserWindowTabsCapability.notifyRendererReady();
+        channel.postMessage({
+            type: 'announce',
+            windowId: 200,
+            instanceNonce: 'receiver',
+            label: 'Receiver',
+            ready: true,
+        });
+        await expect(owner.browserWindowTabsCapability.transfer({
+            target: {
+                kind: 'window',
+                windowId: 200,
+            },
+            tab: {
+                fileName: 'handoff.pdf',
+                originalPath: source,
+                isDirty: true,
+                isDjvu: false,
+            },
+            payload: {
+                kind: 'pdfSnapshot',
+                fileName: 'handoff.pdf',
+                originalPath: source,
+                snapshotPath: successor,
+                isDirty: true,
+            },
+        })).resolves.toMatchObject({success: true});
+        store.unload(successor);
+        await expect(store.read(successor)).resolves.toEqual(Uint8Array.of(23, 24, 25));
+        await store.releaseLiveLease(receiver.ownerId, receiver.generation);
+        await store.clearRecentFiles();
+        await owner.publishBrowserDocumentLiveLeases();
+        store.unload(successor);
+        await expect(store.read(successor)).rejects.toThrow('Browser document not found');
+        await expect(store.exists(source)).resolves.toBe(false);
     });
 
     it('lists live target windows that answer discovery', async () => {
