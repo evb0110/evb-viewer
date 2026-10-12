@@ -2,6 +2,8 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
+    vi,
 } from 'vitest';
 import {reactive} from 'vue';
 import type {IScanCleanupPageOverride} from '@contracts/scan-cleanup/electronApiScanCleanup';
@@ -181,6 +183,15 @@ describe('scan cleanup preferences', () => {
     });
 
     it('keeps migration and reset writes within the document-entry bound', () => {
+        // Both writes stamp Date.now(); a fast machine gave them the same
+        // millisecond. Fix the clock and move it once between the writes.
+        vi.useFakeTimers({
+            toFake: ['Date'],
+            now: 1_000,
+        });
+        onTestFinished(() => {
+            vi.useRealTimers();
+        });
         const storage = memoryStorage();
         const currentDocument = 'document-0';
         const entries = Object.fromEntries(Array.from({length: 55}, (_, index) => [
@@ -220,6 +231,7 @@ describe('scan cleanup preferences', () => {
         expect(migrated[currentDocument]).toEqual(expect.objectContaining({documentRevision: 'revision-0'}));
         expect(migrated[currentDocument]?.updatedAt).toBeGreaterThan(54);
 
+        vi.advanceTimersByTime(1);
         resetScanCleanupDocumentOverrides(currentDocument, storage);
         const reset = JSON.parse(storage.get('evb.scanCleanup.documentOverrides.v1') ?? '{}') as Record<string, {
             documentRevision?: string;
