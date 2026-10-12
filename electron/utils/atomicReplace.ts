@@ -356,18 +356,29 @@ export async function cleanupStaleAtomicReplaceBackups(
     return result;
 }
 
+/** Moves a complete file into an absent path; no-link volumes use rename. */
+export async function moveFileToMissingPath(sourcePath: string, destinationPath: string) {
+    try {
+        await link(sourcePath, destinationPath);
+    } catch (error) {
+        if (!isErrnoException(error) || ![
+            'EXDEV',
+            'ENOTSUP',
+            'EOPNOTSUPP',
+            'EPERM',
+            'EMLINK',
+        ].includes(String(error.code))) throw error;
+        await rename(sourcePath, destinationPath);
+        return;
+    }
+    await unlink(sourcePath);
+}
+
 export async function atomicReplace(
     srcTemp: string,
     dst: string,
     options: {
-        /**
-         * Whether the replacement has to survive a crash. A within-run cache
-         * publishes into a scratch directory that is discarded when the process
-         * exits, so it takes the same replace semantics — a reader of the
-         * destination keeps reading a complete file, and Windows never fails
-         * the rename against an open handle — without paying for two fsyncs it
-         * has nothing to recover.
-         */
+        /** Within-run caches can skip durability fsyncs. */
         durable?: boolean;
         assertDestinationCurrent?: () => Promise<void>;
         /** Save-owned path that retains the exact revision displaced at publication. */
@@ -391,37 +402,25 @@ export async function atomicReplace(
         markActiveWorkingCopyMutationCommitStarted();
     }
 
-    if (options.destinationBackupPath !== undefined
-        && (await stat(options.destinationBackupPath)).nlink > 1) {
+    await options.assertDestinationCurrent?.();
+    if (shouldDeferMutationCommitStarted) markActiveWorkingCopyMutationCommitStarted();
+    if (options.destinationBackupPath !== undefined) {
         const backupPath = options.destinationBackupPath;
         assertNoSymlinkPathSegments(backupPath);
-        await options.assertDestinationCurrent?.();
-        if (shouldDeferMutationCommitStarted) markActiveWorkingCopyMutationCommitStarted();
-        // Only a linked backup proves this volume supports exclusive publication.
         await unlink(backupPath);
         await rename(dst, backupPath);
         await fsyncPath(backupPath);
-        await link(srcTemp, dst);
-        await unlink(srcTemp);
+        await moveFileToMissingPath(srcTemp, dst);
         await fsyncParentDirectory(dst);
         return;
     }
 
     if (process.platform !== 'win32') {
-        await options.assertDestinationCurrent?.();
-        if (shouldDeferMutationCommitStarted) {
-            markActiveWorkingCopyMutationCommitStarted();
-        }
         await rename(srcTemp, dst);
         if (durable) {
             await fsyncParentDirectory(dst);
         }
         return;
-    }
-
-    await options.assertDestinationCurrent?.();
-    if (shouldDeferMutationCommitStarted) {
-        markActiveWorkingCopyMutationCommitStarted();
     }
 
     // Node's Windows rename uses the same-name replacement primitive. Keep

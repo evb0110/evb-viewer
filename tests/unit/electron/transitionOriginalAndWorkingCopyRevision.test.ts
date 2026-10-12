@@ -257,18 +257,27 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         'in-place',
         'replacement',
         'long-name',
+        'no-links-in-place',
+        'no-links-replacement',
+        'no-links-ebusy-replacement',
     ])('retains the bytes displaced by a last-instant %s edit', async mutation => {
         const fs = await import('node:fs/promises');
         let originalPath = '';
         let edited = false;
+        let busy = false;
         const original = Buffer.alloc(2 * 1024 * 1024, 65);
         const external = Buffer.from(original);
         external.write('EXTERNAL-EDIT', 262144);
         const renameWithEdit: typeof fs.rename = async (source, destination) => {
+            if (process.platform === 'win32' && mutation === 'no-links-ebusy-replacement' && !busy && String(destination) === originalPath
+                && await fs.stat(originalPath).catch(() => null)) {
+                busy = true;
+                throw Object.assign(new Error('Injected EBUSY'), {code: 'EBUSY'});
+            }
             if (!edited && (String(destination) === originalPath
-                || String(source) === originalPath && String(destination).includes('.evb-transition-'))) {
+                || String(source) === originalPath && (String(destination).includes('.evb-transition-') || String(destination).includes('.bak-')))) {
                 edited = true;
-                if (mutation === 'in-place') {
+                if (mutation.endsWith('in-place')) {
                     const handle = await fs.open(originalPath, 'r+');
                     await handle.write('EXTERNAL-EDIT', 262144);
                     await handle.close();
@@ -284,6 +293,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         vi.doMock('fs/promises', () => ({
             ...fs,
             rename: renameWithEdit,
+            link: async (...args: Parameters<typeof fs.link>) => {
+                if (mutation.startsWith('no-links')) throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'});
+                return fs.link(...args);
+            },
         }));
         try {
             const fixture = await prepare('old-original', 'accepted-unsaved-work', mutation === 'long-name' ? `${'a'.repeat(220)}.pdf` : 'original.pdf');
