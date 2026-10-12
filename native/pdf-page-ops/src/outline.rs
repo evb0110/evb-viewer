@@ -6,6 +6,12 @@ use evb_native_support::pdf_catalog::{
 };
 use lopdf::dictionary;
 
+mod actions;
+mod names;
+pub(crate) use actions::bookmark_action_object;
+use actions::bookmark_action_value;
+use names::{find_named_destination, pdf_name_or_string};
+
 type BookmarkPageTarget = (ObjectId, Option<f64>, Option<BookmarkOriginalDestination>);
 
 struct RawPdfCombineBookmarkEntry {
@@ -120,94 +126,6 @@ fn read_outline_items<'a>(
     Ok(output)
 }
 
-/// Reads a reference-free action within the size and nesting ceilings. Any
-/// other action is not kept, so its entry saves without one, as all did before.
-fn bookmark_action_value(
-    object: &Object,
-    depth: usize,
-    budget: &mut usize,
-) -> Option<BookmarkActionValue> {
-    use BookmarkActionTag::*;
-    let own_bytes = match object {
-        Object::Name(bytes) | Object::String(bytes, _) => bytes.len(),
-        Object::Dictionary(dictionary) => dictionary.iter().map(|(key, _)| key.len()).sum(),
-        _ => 0,
-    };
-    *budget = budget.checked_sub(1 + own_bytes).filter(|_| depth <= 16)?;
-    let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).ok();
-    Some(match object {
-        Object::Null => BookmarkActionValue::Null,
-        Object::Boolean(value) => BookmarkActionValue::Boolean(*value),
-        Object::Integer(value) => BookmarkActionValue::Integer(*value),
-        Object::Real(value) => BookmarkActionValue::Tagged(Real(f64::from(*value))),
-        Object::Name(name) => BookmarkActionValue::Tagged(Name(text(name)?)),
-        Object::String(bytes, StringFormat::Literal) => {
-            BookmarkActionValue::Tagged(Literal(bytes.clone()))
-        }
-        Object::String(bytes, StringFormat::Hexadecimal) => {
-            BookmarkActionValue::Tagged(Hex(bytes.clone()))
-        }
-        Object::Array(items) => BookmarkActionValue::Array(
-            items
-                .iter()
-                .map(|item| bookmark_action_value(item, depth + 1, budget))
-                .collect::<Option<_>>()?,
-        ),
-        Object::Dictionary(dictionary) => BookmarkActionValue::Tagged(Dict(
-            dictionary
-                .iter()
-                .map(|(key, value)| {
-                    Some((text(key)?, bookmark_action_value(value, depth + 1, budget)?))
-                })
-                .collect::<Option<_>>()?,
-        )),
-        Object::Reference(_) | Object::Stream(_) => return None,
-    })
-}
-
-pub(crate) fn bookmark_action_object(value: &BookmarkActionValue) -> Result<Object> {
-    use BookmarkActionTag::*;
-    if value.size() > MAX_BOOKMARK_ACTION_SIZE
-        || !matches!(value, BookmarkActionValue::Tagged(Dict(_)))
-    {
-        return Err(domain_error(
-            NativeErrorCode::InvalidRequest,
-            "Bookmark action must be a dictionary within the size ceiling",
-        ));
-    }
-    fn object(value: &BookmarkActionValue) -> Result<Object> {
-        Ok(match value {
-            BookmarkActionValue::Null => Object::Null,
-            BookmarkActionValue::Boolean(value) => Object::Boolean(*value),
-            BookmarkActionValue::Integer(value) => Object::Integer(*value),
-            BookmarkActionValue::Array(items) => {
-                Object::Array(items.iter().map(object).collect::<Result<_>>()?)
-            }
-            BookmarkActionValue::Tagged(Real(value)) if (*value as f32).is_finite() => {
-                Object::Real(*value as f32)
-            }
-            BookmarkActionValue::Tagged(Real(_)) => {
-                return Err("Bookmark action number is not finite".into())
-            }
-            BookmarkActionValue::Tagged(Name(name)) => Object::Name(name.as_bytes().to_vec()),
-            BookmarkActionValue::Tagged(Literal(bytes)) => {
-                Object::String(bytes.clone(), StringFormat::Literal)
-            }
-            BookmarkActionValue::Tagged(Hex(bytes)) => {
-                Object::String(bytes.clone(), StringFormat::Hexadecimal)
-            }
-            BookmarkActionValue::Tagged(Dict(entries)) => {
-                let mut dictionary = Dictionary::new();
-                for (key, value) in entries {
-                    dictionary.set(key.as_bytes().to_vec(), object(value)?);
-                }
-                Object::Dictionary(dictionary)
-            }
-        })
-    }
-    object(value)
-}
-
 fn destination_page_target<'a>(
     document: &'a impl PdfObjectSource,
     catalog: &'a Dictionary,
@@ -293,94 +211,6 @@ fn destination_page_y_ratio(
     Ok(ratio
         .filter(|value| value.is_finite())
         .map(|value| value.clamp(0.0, 1.0)))
-}
-
-/// Looks a name up in the legacy `/Dests` dictionary, then in the `/Names
-/// /Dests` tree. The tree is walked once per catalog read, on the first named
-/// destination, so each further bookmark costs one map lookup.
-fn find_named_destination<'a>(
-    document: &'a impl PdfObjectSource,
-    catalog: &'a Dictionary,
-    named_destinations: &mut Option<HashMap<String, &'a Object>>,
-    name: &str,
-) -> Result<Option<Object>> {
-    if let Ok(dests_object) = catalog.get(b"Dests") {
-        let dests = resolve_catalog_dictionary(document, dests_object, "Dests")?;
-        if let Ok(destination) = dests.get(name.as_bytes()) {
-            return Ok(Some(destination.clone()));
-        }
-    }
-
-    let named_destinations = match named_destinations {
-        Some(named_destinations) => named_destinations,
-        None => named_destinations.insert(read_named_destination_tree(document, catalog)?),
-    };
-    Ok(named_destinations.get(name).copied().cloned())
-}
-
-fn read_named_destination_tree<'a>(
-    document: &'a impl PdfObjectSource,
-    catalog: &'a Dictionary,
-) -> Result<HashMap<String, &'a Object>> {
-    let mut entries = HashMap::new();
-    let names_object = match catalog.get(b"Names") {
-        Ok(names_object) => names_object,
-        Err(_) => return Ok(entries),
-    };
-    let names = resolve_catalog_dictionary(document, names_object, "Names")?;
-    let dests_object = match names.get(b"Dests") {
-        Ok(dests_object) => dests_object,
-        Err(_) => return Ok(entries),
-    };
-    let mut state = CatalogWalkState::new();
-    collect_named_destination_tree(document, dests_object, 0, &mut state, &mut entries);
-    Ok(entries)
-}
-
-/// Collects the tree in depth-first order, keeping the first value of a
-/// repeated name. A malformed node ends only its own subtree, and the shared
-/// walk state bounds the whole tree by depth, node count and cycles.
-fn collect_named_destination_tree<'a>(
-    document: &'a impl PdfObjectSource,
-    node_object: &'a Object,
-    depth: usize,
-    state: &mut CatalogWalkState,
-    entries: &mut HashMap<String, &'a Object>,
-) {
-    if depth >= CATALOG_WALK_DEPTH_LIMIT || !state.enter(node_object) {
-        return;
-    }
-    let Ok(node) = resolve_catalog_dictionary(document, node_object, "destination name tree")
-    else {
-        return;
-    };
-    if let Ok(entries_object) = node.get(b"Names") {
-        let Some(pairs) = document
-            .resolved(entries_object)
-            .ok()
-            .and_then(|value| value.as_array().ok())
-        else {
-            return;
-        };
-        for pair in pairs.chunks_exact(2) {
-            if let Some(name) = pdf_name_or_string(&pair[0]) {
-                entries.entry(name).or_insert(&pair[1]);
-            }
-        }
-    }
-    let Ok(kids_object) = node.get(b"Kids") else {
-        return;
-    };
-    let Some(kids) = document
-        .resolved(kids_object)
-        .ok()
-        .and_then(|value| value.as_array().ok())
-    else {
-        return;
-    };
-    for kid in kids {
-        collect_named_destination_tree(document, kid, depth + 1, state, entries);
-    }
 }
 
 fn collect_catalog_page_indices(
@@ -489,17 +319,6 @@ fn pdf_color_to_hex(value: &Object) -> Option<String> {
     ))
 }
 
-fn pdf_name_or_string(object: &Object) -> Option<String> {
-    pdf_string_to_text(object).or_else(|| {
-        object
-            .as_name()
-            .ok()
-            .map(|value| String::from_utf8_lossy(value).into_owned())
-    })
-}
-
-// A /Page dictionary can survive deletion while no longer belonging to the
-// page tree. Resolve all pending identities in one bounded source-tree walk.
 fn validate_bookmark_source_references(
     document: &impl PdfObjectSource,
     items: &[BookmarkEntry],
