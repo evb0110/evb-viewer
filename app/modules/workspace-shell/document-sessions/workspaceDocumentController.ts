@@ -28,6 +28,7 @@ import { requireSessionId } from '@contracts/shared';
 import { requireTabId } from '@contracts/windowTabs';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 import type {
     IWorkspaceDocumentIdentity,
@@ -554,22 +555,17 @@ export function createWorkspaceDocumentController(options: {
         }, true);
     }
 
-    async function runClose(request: {persist: boolean}) {
-        const workspace = getDocumentWorkspace({views});
-        if (!workspace) {
+    function runClose(request: {persist: boolean}) {
+        const onCloseCommit = async () => {
+            await rememberReadingView(controller);
             supersedeActiveTransaction();
             resetToEmpty();
-            return true;
-        }
-        return workspace.handleCloseFileFromUi({
+        };
+        return getDocumentWorkspace({views})?.handleCloseFileFromUi({
             ...request,
-            onCloseCommit: () => {
-                supersedeActiveTransaction();
-                // Persistence has committed the close. Start can paint when
-                // the file clears its source, before derived viewer teardown.
-                resetToEmpty();
-            },
-        });
+            onCloseCommit,
+        })
+            ?? onCloseCommit().then(() => true);
     }
 
     function close(request: {persist: boolean}) {
@@ -672,7 +668,7 @@ export function createWorkspaceDocumentController(options: {
         assign(options.assignment);
     }
 
-    return {
+    const controller: IWorkspaceDocumentController = {
         snapshot,
         views,
         operationLease,
@@ -696,4 +692,5 @@ export function createWorkspaceDocumentController(options: {
         createCommandTarget,
         validateCommandTarget,
     };
+    return controller;
 }

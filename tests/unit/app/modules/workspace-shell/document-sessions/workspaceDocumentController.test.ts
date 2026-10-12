@@ -29,11 +29,11 @@ describe('workspace document controller views', () => {
         });
         const cleanup = Promise.withResolvers<boolean>();
         controller.attachWorkspace('tab-1', createWorkspaceExposeFixture({handleCloseFileFromUi: async (options) => {
-            options?.onCloseCommit?.();
+            await options?.onCloseCommit?.();
             return cleanup.promise;
         }}));
         const closing = controller.close({persist: false});
-        expect(controller.snapshot.value.phase).toBe('empty');
+        await vi.waitFor(() => expect(controller.snapshot.value.phase).toBe('empty'));
         expect(snapshotOccupiesTab(controller.snapshot.value)).toBe(false);
         cleanup.resolve(true);
         await expect(closing).resolves.toBe(true);

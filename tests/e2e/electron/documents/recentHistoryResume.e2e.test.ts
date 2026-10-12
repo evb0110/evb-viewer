@@ -7,12 +7,23 @@ import {
     onTestFinished,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
+    createMultiPageTextFixturePdf,
+    readPdfPageSnapshots,
+} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    clickAsUser,
+    clickFoundAsUser,
+} from '@tests/e2e/electron/helpers/userInput';
+import {
+    getToolbarCurrentPage,
+    goToPageViaToolbar,
+    openDocumentSidebarTab,
     openPdfInApp,
     setTabMemoryPolicyForE2E,
     waitForPdfLoaded,
     waitForViewerInteractive,
+    waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 
 type THistoryMutation = 'clear' | 'remove';
@@ -213,6 +224,48 @@ async function runResumeAfterHistoryMutation(mutation: THistoryMutation) {
 }
 
 describe('recent history and retained PDF tabs', () => {
+    it('preserves the reading page after Save changes and close', async () => {
+        const session = sessionFixture.getSession();
+        const path = await createMultiPageTextFixturePdf(`recent-dirty-save-close-${Date.now()}.pdf`, 40);
+        onTestFinished(() => rmSync(path, {force: true}));
+        await openPdfInApp(session.page, path);
+        await waitForPdfLoaded(session.page);
+        await waitForViewerInteractive(session.page);
+        await openDocumentSidebarTab(session.page, 'Pages');
+        await clickAsUser(session.page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+        await clickFoundAsUser(session.page, () => Array.from(
+            document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find(item => item.textContent?.toLowerCase().includes('rotate counterclockwise') && item.checkVisibility()),
+        null, {description: 'rotate page 1 counterclockwise'});
+        await session.page.waitForSelector('.tab.is-active.is-dirty', {visible: true});
+        await waitForPdfLoaded(session.page);
+        await goToPageViaToolbar(session.page, 27);
+        await waitForToolbarCurrentPage(session.page, 27);
+        await waitForViewerInteractive(session.page);
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await clickFoundAsUser(session.page, () => Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
+        ).find(button => button.textContent?.trim() === 'Save changes'),
+        null, {description: 'save changes and close'});
+        await session.page.waitForSelector('.recent-row--data .recent-open', {visible: true});
+        expect((await readPdfPageSnapshots(path))[0]?.rotation).toBe(270);
+        await clickAsUser(session.page, '.recent-row--data .recent-open');
+        await waitForPdfLoaded(session.page);
+        await waitForViewerInteractive(session.page);
+        const observation = {
+            currentPage: await getToolbarCurrentPage(session.page),
+            renderedPage27: await session.page.$eval('.workspace-host[data-workspace-active="true"]', host => (
+                Array.from(host.querySelectorAll('.page_container--rendered')).some(page => (
+                    page.getAttribute('data-page') === '27' && page.textContent?.includes('27/40')
+                ))
+            )),
+        };
+        expect(observation).toEqual({
+            currentPage: 27,
+            renderedPage27: true,
+        });
+    }, 180_000);
+
     it('keeps an Aggressive cold tab resumable after Clear History', async () => {
         const result = await runResumeAfterHistoryMutation('clear');
         expect(result.rendered, JSON.stringify(result)).toBe(true);

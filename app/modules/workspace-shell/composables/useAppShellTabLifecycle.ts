@@ -446,10 +446,9 @@ export const useAppShellTabLifecycle = (
         if (shouldPersistBeforeClose === null) {
             return;
         }
-        // Remember this view before closing it. Keep its workspace mounted
-        // through the close commit so its existing file owner cleans up;
-        // a save remembers the place against the bytes it wrote.
-        if (!shouldPersistBeforeClose) {
+        // A document close remembers once at its commit; a lone view leaves
+        // its document open and remembers only the view being removed.
+        if (!closesDocument) {
             await rememberReadingView(getDocumentSession(tabId), tabId);
         }
 

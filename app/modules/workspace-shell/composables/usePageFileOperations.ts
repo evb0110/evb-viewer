@@ -5,7 +5,7 @@ import type {
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { ICloseFileFromUiOptions } from '@app/types/workspaceExpose';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IRecentFile } from '@contracts/shared';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
@@ -545,7 +545,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         return didCompletePageFileOpen(await handleOpenFileDirectBatchWithPersistDetailed(paths));
     }
 
-    async function handleCloseFileFromUi(options: ICloseFileFromUiOptions = {}) {
+    async function handleCloseFileFromUi(options: NonNullable<Parameters<IWorkspaceExpose['handleCloseFileFromUi']>[0]> = {}) {
         const shouldPersist = options.persist ?? false;
         const settled = await waitUntilAllIdle('close');
         if (!settled || hasBusyOperation()) {
@@ -569,7 +569,7 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
             }
         }
 
-        options.onCloseCommit?.();
+        await options.onCloseCommit?.();
         await closeFile();
         closeAllDropdowns();
         return true;
