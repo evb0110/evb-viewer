@@ -7,7 +7,6 @@ pub(super) fn missing_free_text_appearance(
     document: &mut Document,
     annotation: &Dictionary,
     page_id: ObjectId,
-    font_ref: &mut Option<ObjectId>,
 ) -> Result<ObjectId> {
     use lopdf::content::Content;
     let rect =
@@ -180,29 +179,14 @@ pub(super) fn missing_free_text_appearance(
                 .collect();
             let padding = crate::text_box_font::PADDING_X * size;
             let width = (geometry.width - 2.0 * padding).max(0.0);
-            let lines = crate::text_box_font::layout_with_fonts(&text, width, size, &programs);
-            let mut fonts = Dictionary::new();
-            for index in lines
-                .iter()
-                .flat_map(|l| &l.glyphs)
-                .map(|g| g.font)
-                .collect::<std::collections::BTreeSet<_>>()
-            {
-                let reference = if programs[index] == crate::text_box_font::FONT {
-                    *font_ref.get_or_insert_with(|| {
-                        crate::text_box_font::existing_font(document)
-                            .unwrap_or_else(|| crate::text_box_font::embed_font(document))
-                    })
-                } else {
-                    crate::text_box_font::embed_font_program(
-                        document,
-                        programs[index],
-                        &format!("PrintFont{index}"),
-                        false,
-                    )
-                };
-                fonts.set(format!("PrintFont{index}"), reference);
-            }
+            let lines = crate::text_box_font::layout_with_fonts(
+                &text,
+                width,
+                size,
+                &programs,
+                Some(unicode_bidi::Level::ltr()),
+            );
+            let fonts = crate::text_box_font::embed_fonts(document, &lines, &programs)?;
             content.push_str(&format!(
                 "q {} cm 0 0 {} {} re W n BT {} {color_operator}\n",
                 format_operands(&geometry.matrix),
@@ -226,7 +210,7 @@ pub(super) fn missing_free_text_appearance(
                 ));
                 for glyph in &line.glyphs {
                     content.push_str(&format!(
-                        "/PrintFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
+                        "/TextFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
                         glyph.font,
                         size,
                         left + glyph.x,

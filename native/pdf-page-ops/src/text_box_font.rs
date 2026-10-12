@@ -9,7 +9,6 @@ use skrifa::{
 use unicode_normalization::UnicodeNormalization;
 
 pub(crate) const FONT: &[u8] = include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf");
-pub(crate) const FONT_VERSION: &str = "DejaVuSans-2.37-7da195a74c55bef9-v1";
 pub(crate) const LINE_HEIGHT: f64 = 1.35;
 pub(crate) const PADDING_X: f64 = 0.3;
 pub(crate) const PADDING_Y: f64 = 0.15;
@@ -50,15 +49,6 @@ pub(crate) fn baseline_from_top(font_size: f64) -> f64 {
 #[path = "text_layout.rs"]
 mod text_layout;
 pub(crate) use text_layout::{layout, layout_simple, layout_with_fonts};
-
-fn trusted_font() -> &'static (Document, ObjectId) {
-    static TRUSTED: std::sync::OnceLock<(Document, ObjectId)> = std::sync::OnceLock::new();
-    TRUSTED.get_or_init(|| {
-        let mut document = Document::new();
-        let id = embed_font(&mut document);
-        (document, id)
-    })
-}
 
 fn font_objects_match(
     actual_document: &impl PdfObjectSource,
@@ -156,68 +146,38 @@ fn font_objects_match(
     }
 }
 
-pub(crate) fn font_candidates(document: &Document) -> impl Iterator<Item = ObjectId> + '_ {
-    document
-        .objects
-        .iter()
-        .filter_map(|(id, object)| {
-            object
-                .as_dict()
-                .ok()
-                .and_then(|dict| dict.get(b"EVBTextFontVersion").ok())
-                .and_then(pdf_string_to_text)
-                .filter(|version| version == FONT_VERSION)
-                .map(|_| *id)
-        })
-        .take(4)
-}
-
-pub(crate) fn candidate_streams(document: &Document) -> Vec<ObjectId> {
-    let mut streams = Vec::new();
-    for id in font_candidates(document) {
-        let Ok(font) = document.get_dictionary(id) else {
-            continue;
-        };
-        let collect = || -> Result<[ObjectId; 2]> {
-            let cmap = font.get(b"ToUnicode")?.as_reference()?;
-            let descendant = document
-                .resolved(
-                    font.get(b"DescendantFonts")?
-                        .as_array()?
-                        .first()
-                        .ok_or("Missing font descendant")?,
-                )?
-                .as_dict()?;
-            let descriptor = document
-                .resolved(descendant.get(b"FontDescriptor")?)?
-                .as_dict()?;
-            Ok([cmap, descriptor.get(b"FontFile2")?.as_reference()?])
-        };
-        if let Ok(resources) = collect() {
-            streams.extend(resources);
-        }
-    }
-    streams.sort_unstable();
-    streams.dedup();
-    streams
-}
-
-pub(crate) fn existing_font(document: &Document) -> Option<ObjectId> {
-    let (expected, id) = trusted_font();
-    font_candidates(document).find(|candidate| {
-        font_objects_match(
-            document,
-            &Object::Reference(*candidate),
-            expected,
-            &Object::Reference(*id),
-            0,
-        )
-    })
-}
-
 #[path = "text_font_program.rs"]
 mod text_font_program;
-pub(crate) use text_font_program::{embed_font, embed_font_program, simple_font_advances, FONTS};
+pub(crate) use text_font_program::{simple_font_advances, FONTS};
+
+pub(crate) fn embed_fonts(
+    document: &mut Document,
+    lines: &[text_layout::Line],
+    programs: &[&[u8]],
+) -> Result<Dictionary> {
+    use sha2::{Digest, Sha256};
+    let mut fonts = Dictionary::new();
+    let mut glyphs = BTreeMap::<usize, std::collections::BTreeSet<u16>>::new();
+    for glyph in lines.iter().flat_map(|line| &line.glyphs) {
+        glyphs.entry(glyph.font).or_default().insert(glyph.id);
+    }
+    for (index, glyphs) in glyphs {
+        let mut digest = Sha256::new();
+        digest.update(programs[index]);
+        for glyph in &glyphs {
+            digest.update(glyph.to_be_bytes());
+        }
+        let tag: String = digest.finalize()[..6]
+            .iter()
+            .map(|byte| char::from(b'A' + byte % 26))
+            .collect();
+        let name = format!("{tag}+TextFont{index}");
+        let reference =
+            text_font_program::embed_font_program(document, programs[index], &name, &glyphs)?;
+        fonts.set(format!("TextFont{index}"), reference);
+    }
+    Ok(fonts)
+}
 
 pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
     let mut result = if bom {
@@ -234,22 +194,25 @@ pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
 pub(crate) fn validate_appearance_font(
     document: &impl PdfObjectSource,
     annotation: &Dictionary,
+    editor: &TextBoxMutation,
+    page_rotation: i64,
 ) -> Result<()> {
+    crate::postconditions::validate_appearance(document, annotation)?;
     let appearance = document.resolved(annotation.get(b"AP")?)?.as_dict()?;
     let normal = document.resolved(appearance.get(b"N")?)?.as_stream()?;
     let resources = document
         .resolved(normal.dict.get(b"Resources")?)?
         .as_dict()?;
-    let fonts = document.resolved(resources.get(b"Font")?)?.as_dict()?;
-    let font = document.resolved(fonts.get(b"Helv")?)?.as_dict()?;
-    let (expected, id) = trusted_font();
-    if !font_objects_match(
-        document,
-        &Object::Dictionary(font.clone()),
-        expected,
-        &Object::Reference(*id),
-        0,
-    ) {
+    let mut expected = Document::new();
+    let id = crate::annotations::build_text_box_appearance(
+        &mut expected,
+        editor,
+        parse_rect(annotation.get(b"Rect")?)?,
+        page_rotation,
+    )?;
+    let reference = expected.get_object(id)?.as_stream()?;
+    let fonts = reference.dict.get(b"Resources")?.as_dict()?.get(b"Font")?;
+    if !font_objects_match(document, resources.get(b"Font")?, &expected, fonts, 0) {
         return Err("Text box appearance does not use the verified portable font graph".into());
     }
     Ok(())
@@ -635,86 +598,30 @@ mod tests {
     }
 
     #[test]
-    fn portable_font_preserves_shaping_and_embedding_contract() {
-        use sha2::{Digest, Sha256};
-        // Captured with rustybuzz 0.20.1 and ttf-parser 0.25.1 before migration.
-        // Match glyph placement and the complete width/CMap tables exactly so
-        // dependency updates cannot silently change existing PDF appearances.
-        let samples = [
-            ("AV office ffi", 500.0),
-            ("Привет мир", 500.0),
-            ("Cafe\u{301} naïve Ελληνικά", 500.0),
-            ("שָׁלוֹם", 500.0),
-            ("العَرَبِيَّة سلام", 500.0),
-            ("Latin שלום العربية 123", 500.0),
-            ("a\tb\t c", 500.0),
-            ("Cafe\u{301}  Привет мир\nשלום abc 123\nالعربية", 60.0),
-        ];
-        let layouts: Vec<_> = samples.into_iter().map(|(text, width)| {
-            let lines: Vec<_> = layout(text, width, 16.0).into_iter().map(|line| {
-                let glyphs: Vec<_> = line.glyphs.into_iter().map(|glyph| {
-                    serde_json::json!([glyph.id, glyph.x, glyph.y])
-                }).collect();
-                serde_json::json!({"text": line.text, "width": line.width, "rtl": line.rtl, "glyphs": glyphs})
-            }).collect();
-            serde_json::json!({"input": text, "width": width, "lines": lines})
-        }).collect();
-        let mut document = Document::new();
-        let id = embed_font(&mut document);
-        let font = document.get_dictionary(id).unwrap();
-        let cmap = document
-            .get_object(font.get(b"ToUnicode").unwrap().as_reference().unwrap())
-            .unwrap()
-            .as_stream()
-            .unwrap()
-            .decompressed_content()
-            .unwrap();
-        let descendant = document
-            .get_dictionary(
-                font.get(b"DescendantFonts").unwrap().as_array().unwrap()[0]
-                    .as_reference()
-                    .unwrap(),
-            )
-            .unwrap();
-        let widths: Vec<_> = descendant.get(b"W").unwrap().as_array().unwrap()[1]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|value| value.as_float().unwrap())
-            .collect();
-        let descriptor = document
-            .get_dictionary(
-                descendant
-                    .get(b"FontDescriptor")
-                    .unwrap()
-                    .as_reference()
-                    .unwrap(),
-            )
-            .unwrap();
-        let bounds: Vec<_> = descriptor
-            .get(b"FontBBox")
-            .unwrap()
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|value| value.as_float().unwrap())
-            .collect();
-        let contract = serde_json::json!({
-            "baseline16": baseline_from_top(16.0),
-            "bounds": bounds,
-            "ascent": descriptor.get(b"Ascent").unwrap().as_float().unwrap(),
-            "descent": descriptor.get(b"Descent").unwrap().as_float().unwrap(),
-            "capHeight": descriptor.get(b"CapHeight").unwrap().as_float().unwrap(),
-            "widthsSha256": Sha256::digest(serde_json::to_vec(&widths).unwrap()).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
-            "cmapSha256": Sha256::digest(cmap).iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
-            "layouts": layouts,
-        });
+    fn portable_font_preserves_covered_script_shaping_contract() {
         let expected: serde_json::Value = serde_json::from_str(include_str!(
             "../tests/fixtures/portable-text-font-contract.json"
         ))
         .unwrap();
-        for (key, value) in contract.as_object().unwrap() {
-            assert_eq!(value, &expected[key], "font contract field {key}");
+        assert_eq!(
+            baseline_from_top(16.0),
+            expected["baseline16"].as_f64().unwrap()
+        );
+        for sample in expected["layouts"].as_array().unwrap() {
+            let text = sample["input"].as_str().unwrap();
+            // Hebrew now uses its complete Noto program, checked against the
+            // independent HarfBuzz page references in annotation_round_trip.
+            if text.chars().any(|c| matches!(c, '\u{0590}'..='\u{05ff}')) {
+                continue;
+            }
+            let lines: Vec<_> = layout(text, sample["width"].as_f64().unwrap(), 16.0)
+                .into_iter().map(|line| {
+                    let glyphs: Vec<_> = line.glyphs.into_iter().map(|glyph| {
+                        serde_json::json!([glyph.id, glyph.x, glyph.y])
+                    }).collect();
+                    serde_json::json!({"text": line.text, "width": line.width, "rtl": line.rtl, "glyphs": glyphs})
+                }).collect();
+            assert_eq!(serde_json::json!(lines), sample["lines"], "{text}");
         }
     }
 
@@ -725,6 +632,9 @@ mod tests {
             "Cafe\u{301} naïve Ελληνικά",
             "שָׁלוֹם",
             "العَرَبِيَّة",
+            "ܫܠܵܡܵܐ",
+            "בְּרֵאשִׁ֖ית",
+            "بَسْمِ لَا بــِسْمِ",
             "Latin שלום العربية 123",
         ] {
             validate_text(text).unwrap();
@@ -780,27 +690,6 @@ mod tests {
     }
 
     #[test]
-    fn reembeds_after_an_external_editor_replaces_the_font_mapping() {
-        let mut document = Document::new();
-        let id = embed_font(&mut document);
-        assert_eq!(existing_font(&document), Some(id));
-        let descendant = document
-            .get_dictionary(id)
-            .unwrap()
-            .get(b"DescendantFonts")
-            .unwrap()
-            .as_array()
-            .unwrap()[0]
-            .as_reference()
-            .unwrap();
-        document
-            .get_dictionary_mut(descendant)
-            .unwrap()
-            .set("CIDToGIDMap", "ExternalMapping");
-        assert_eq!(existing_font(&document), None);
-    }
-
-    #[test]
     fn rejects_missing_glyphs_and_controls_before_writing() {
         assert!(validate_text("中文")
             .unwrap_err()
@@ -809,14 +698,45 @@ mod tests {
         assert!(validate_text("a\0b").is_err());
         validate_text("a\r\nb\t\u{200f}שלום\nܫܠܵܡܵܐ\nבְּרֵאשִׁ֖ית\nبَسْمِ لَا بــِسْمِ").unwrap();
     }
+    #[test]
+    fn admits_the_bundled_semitic_characters() {
+        let rejected: Vec<_> = ["ܫܠܵܡܵܐ", "בְּרֵאשִׁ֖ית", "بَسْمِ لَا بــِسْمِ"]
+            .into_iter()
+            .filter_map(|text| {
+                validate_text(text)
+                    .err()
+                    .map(|error| format!("{text}: {error}"))
+            })
+            .collect();
+        assert!(rejected.is_empty(), "{}", rejected.join("\n"));
+    }
 
     #[test]
-    fn font_is_reused_by_object_identity_across_revisions() {
-        let mut document = Document::new();
-        let id = embed_font(&mut document);
-        assert_eq!(existing_font(&document), Some(id));
-        let incremental = IncrementalDocument::from_document(document, 0, None);
-        assert_eq!(existing_font(incremental.get_prev_documents()), Some(id));
-        assert!(existing_font(&incremental.new_document).is_none());
+    fn contract_coverage_equals_the_bundled_programs() {
+        let contract: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../packages/contracts/annotationFontCoverage.json"
+        ))
+        .unwrap();
+        let expected: std::collections::BTreeSet<_> = contract["ranges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|range| range[0].as_u64().unwrap() as u32..=range[1].as_u64().unwrap() as u32)
+            .collect();
+        let actual: std::collections::BTreeSet<_> = FONTS
+            .into_iter()
+            .flat_map(|program| {
+                FontRef::from_index(program, 0)
+                    .unwrap()
+                    .charmap()
+                    .mappings()
+                    .map(|(codepoint, _)| codepoint)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(
+            actual, expected,
+            "regenerate coverage from the shipped font programs"
+        );
     }
 }

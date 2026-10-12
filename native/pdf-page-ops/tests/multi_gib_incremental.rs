@@ -962,7 +962,7 @@ fn qpdf_structural_loader_resolves_repeated_native_mutations() {
 }
 
 #[test]
-fn text_box_saves_through_the_structural_loader_share_one_embedded_font() {
+fn text_box_saves_through_the_structural_loader_embed_glyph_subsets() {
     let pdf = temp_path("structural-text-box-font", "pdf");
     let mutations = temp_path("structural-text-box-font-mutations", "json");
     let _cleanup = TempFiles(vec![pdf.clone(), mutations.clone()]);
@@ -984,13 +984,9 @@ fn text_box_saves_through_the_structural_loader_share_one_embedded_font() {
         );
     }
 
-    // The second save must read the first save's font streams to reuse them.
-    assert_eq!(
-        qpdf_objects_json(&pdf)
-            .matches("\"/EVBTextFontVersion\"")
-            .count(),
-        1
-    );
+    // Each edited glyph set owns its subset; structural saves need no full
+    // font from the prior revision, and both annotations remain readable.
+    assert!(qpdf_contains_pdf_text(&pdf, "text box 0"));
     assert!(qpdf_contains_pdf_text(&pdf, "text box 1"));
     assert_qpdf_check(&pdf);
 }
@@ -1755,7 +1751,10 @@ fn auto_print_draws_each_free_text_with_its_embedded_font_after_one_font_read() 
     let structural = drawing(18 * 1024 * 1024);
     for (fonts, glyphs) in &eager {
         assert!(!glyphs.is_empty());
-        assert_eq!(fonts, &["PrintFont0"], "{eager:?}");
+        assert!(
+            matches!(&fonts[..], [font] if font.ends_with("+TextFont0")),
+            "{eager:?}"
+        );
     }
     assert_eq!(structural, eager);
     // Every program arrives in one qpdf read of the source.

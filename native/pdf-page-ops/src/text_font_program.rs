@@ -15,27 +15,26 @@ fn compressed_stream(document: &mut Document, dictionary: Dictionary, bytes: Vec
     document.add_object(stream)
 }
 
-pub(crate) fn embed_font(document: &mut Document) -> ObjectId {
-    embed_font_program(document, FONT, "DejaVuSans", true)
-}
-
-pub(crate) fn embed_font_program(
+pub(super) fn embed_font_program(
     document: &mut Document,
     program: &[u8],
     name: &str,
-    editor: bool,
-) -> ObjectId {
-    let font = FontRef::from_index(program, 0).expect("resolved font program");
+    glyphs: &std::collections::BTreeSet<u16>,
+) -> Result<ObjectId> {
+    let font = FontRef::from_index(program, 0)?;
     let metrics = font.metrics(Size::unscaled(), LocationRef::default());
     let glyph_metrics = font.glyph_metrics(Size::unscaled(), LocationRef::default());
     let units = f64::from(metrics.units_per_em);
     let metric = |value: f32| number_object(f64::from(value) * 1000.0 / units);
+    let remapper =
+        subsetter::GlyphRemapper::new_from_glyphs(&glyphs.iter().copied().collect::<Vec<_>>());
+    let subset = subsetter::subset(program, 0, &remapper)?;
     let program = compressed_stream(
         document,
-        lopdf::dictionary! { "Length1" => program.len() as i64 },
-        program.to_vec(),
+        lopdf::dictionary! { "Length1" => subset.len() as i64 },
+        subset,
     );
-    let bounds = metrics.bounds.expect("the bundled font has global bounds");
+    let bounds = metrics.bounds.ok_or("Font has no global bounds")?;
     let descriptor = document.add_object(lopdf::dictionary! {
         "Type" => "FontDescriptor", "FontName" => name, "Flags" => 32,
         "FontBBox" => vec![metric(bounds.x_min), metric(bounds.y_min), metric(bounds.x_max), metric(bounds.y_max)],
@@ -43,6 +42,11 @@ pub(crate) fn embed_font_program(
         "CapHeight" => metric(metrics.cap_height.unwrap_or(metrics.ascent)), "StemV" => 80,
         "FontFile2" => program,
     });
+    // Content keeps the original glyph IDs, so both shaping evidence and the
+    // ToUnicode CIDs stay independent of the subset's compact glyph numbering.
+    let mapping = (0..=*glyphs.last().unwrap_or(&0))
+        .flat_map(|id| remapper.get(id).unwrap_or(0).to_be_bytes())
+        .collect();
     let widths: Vec<Object> = (0..metrics.glyph_count)
         .map(|id| {
             number_object(
@@ -55,20 +59,18 @@ pub(crate) fn embed_font_program(
             )
         })
         .collect();
+    let mapping = compressed_stream(document, Dictionary::new(), mapping);
     let descendant = document.add_object(lopdf::dictionary! {
         "Type" => "Font", "Subtype" => "CIDFontType2", "BaseFont" => name,
         "CIDSystemInfo" => lopdf::dictionary! { "Registry" => Object::string_literal("Adobe"), "Ordering" => Object::string_literal("Identity"), "Supplement" => 0 },
-        "FontDescriptor" => descriptor, "CIDToGIDMap" => "Identity",
+        "FontDescriptor" => descriptor, "CIDToGIDMap" => mapping,
         "W" => vec![Object::Integer(0), Object::Array(widths)],
     });
-    // The bundled font's format-4 cmap maps U+0000 to glyph 0. Preserve the
-    // previous writer's entry so existing embedded font graphs remain reusable;
-    // skrifa intentionally omits .notdef from its public mapping iterator.
-    let mut mapping = BTreeMap::<u16, String>::from([(0, "\0".to_string())]);
+    let mut mapping = BTreeMap::<u16, String>::new();
     for (codepoint, glyph) in font.charmap().mappings() {
         if let Some(character) = char::from_u32(codepoint) {
-            // Presentation forms and standard ligatures extract as
-            // their logical Unicode sequence even without ActualText.
+            // Presentation forms and ligatures extract as their logical
+            // sequence even in readers that do not consume ActualText.
             let text = if matches!(codepoint, 0xfb00..=0xfdff | 0xfe70..=0xfeff) {
                 character.to_string().nfkc().collect()
             } else {
@@ -77,7 +79,7 @@ pub(crate) fn embed_font_program(
             mapping.entry(glyph.to_u32() as u16).or_insert(text);
         }
     }
-    let mut cmap = String::from("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /EVBDejaVuSans def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
+    let mut cmap = String::from("/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /EVBAnnotationSans def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
     let entries: Vec<_> = mapping.into_iter().collect();
     for chunk in entries.chunks(100) {
         cmap.push_str(&format!("{} beginbfchar\n", chunk.len()));
@@ -88,15 +90,11 @@ pub(crate) fn embed_font_program(
     }
     cmap.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend");
     let to_unicode = compressed_stream(document, Dictionary::new(), cmap.into_bytes());
-    let mut dictionary = lopdf::dictionary! {
+    Ok(document.add_object(lopdf::dictionary! {
         "Type" => "Font", "Subtype" => "Type0", "BaseFont" => name,
         "Encoding" => "Identity-H", "DescendantFonts" => vec![Object::Reference(descendant)],
         "ToUnicode" => to_unicode,
-    };
-    if editor {
-        dictionary.set("EVBTextFontVersion", Object::string_literal(FONT_VERSION));
-    }
-    document.add_object(dictionary)
+    }))
 }
 
 /// Retain a simple source font only when its painted advances can be measured.

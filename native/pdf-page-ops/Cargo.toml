@@ -28,3 +28,4 @@ unicode-script = "0.5.8"
 unicode-normalization = "0.1.25"
 png = "0.18"
 base64 = "0.23.1"
+subsetter = { version = "0.2.6", default-features = false }

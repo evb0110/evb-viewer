@@ -2920,17 +2920,16 @@ fn reports_an_unreadable_append_payload_as_an_invalid_request() {
 }
 
 #[test]
-fn unicode_text_boxes_append_reopen_and_share_one_embedded_font() {
+fn unicode_text_boxes_append_reopen_with_verified_font_subsets() {
     let (mut document, page_id) = create_test_document();
     let pdf_path = temp_pdf_path("unicode-text-box-font-reuse");
     let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
     let mut original = Vec::new();
     document.save_to(&mut original).unwrap();
     write(&pdf_path, &original).unwrap();
-    for (index, text) in ["Cafe\u{301} Привет שָׁלוֹם", "العَرَبِيَّة Latin 123\nשלום"].iter().enumerate() {
+    for (index, text) in ["Cafe\u{301} Привет שָׁלוֹם", "العَرَبِيَّة Latin 123\nשלום", "ܫܠܵܡܵܐ", "בְּרֵאשִׁ֖ית", "بَسْمِ لَا بــِسْمِ"].iter().enumerate() {
         let before = fs::read(&pdf_path).unwrap();
-        append_native_mutations(&pdf_path, &pdf_path, &NativeMutationsFile {
-            text_boxes: vec![TextBoxMutation {
+        let editor = TextBoxMutation {
                 page_index: 0,
                 stable_key: format!("unicode-{index}"),
                 annotation_id: None,
@@ -2942,20 +2941,36 @@ fn unicode_text_boxes_append_reopen_and_share_one_embedded_font() {
                 author: None,
                 created_at: None,
                 modified_at: None,
-            }],
-            ..NativeMutationsFile::default()
-        }, "D:20260908000000Z").unwrap();
+        };
+        let mutations = NativeMutationsFile { text_boxes: vec![editor], ..NativeMutationsFile::default() };
+        append_native_mutations(&pdf_path, &pdf_path, &mutations, "D:20260908000000Z").unwrap();
+        let editor = &mutations.text_boxes[0];
         let saved_bytes = fs::read(&pdf_path).unwrap();
         assert_eq!(&saved_bytes[..before.len()], before.as_slice());
         let saved = Document::load(&pdf_path).unwrap();
-        let font_count = saved.objects.values().filter(|object| object.as_dict().ok()
-            .is_some_and(|dict| dict.has(b"EVBTextFontVersion"))).count();
-        assert_eq!(font_count, 1, "a subsequent save must reuse the existing embedded font");
         let annots = get_page_annots(&saved, page_id).unwrap();
         assert_eq!(annots.len(), index + 1);
         let annotation = saved.get_dictionary(annots[index].as_reference().unwrap()).unwrap();
         assert_eq!(annotation.get(b"Contents").ok().and_then(pdf_string_to_text).as_deref(), Some(*text));
-        crate::text_box_font::validate_appearance_font(&saved, annotation).unwrap();
+        crate::text_box_font::validate_appearance_font(&saved, annotation, editor, 0).unwrap();
+        let appearance = saved.resolved(annotation.get(b"AP").unwrap()).unwrap().as_dict().unwrap();
+        let normal = saved.resolved(appearance.get(b"N").unwrap()).unwrap().as_stream().unwrap();
+        let resources = saved.resolved(normal.dict.get(b"Resources").unwrap()).unwrap().as_dict().unwrap();
+        let fonts = saved.resolved(resources.get(b"Font").unwrap()).unwrap().as_dict().unwrap();
+        for (name, font) in fonts.iter() {
+            let index = std::str::from_utf8(name).unwrap().trim_start_matches("TextFont").parse::<usize>().unwrap();
+            let font = saved.resolved(font).unwrap().as_dict().unwrap();
+            let descendant = saved.resolved(&font.get(b"DescendantFonts").unwrap().as_array().unwrap()[0]).unwrap().as_dict().unwrap();
+            let descriptor = saved.resolved(descendant.get(b"FontDescriptor").unwrap()).unwrap().as_dict().unwrap();
+            let program = saved.resolved(descriptor.get(b"FontFile2").unwrap()).unwrap().as_stream().unwrap().decompressed_content().unwrap();
+            assert!(program.len() < crate::text_box_font::FONTS[index].len(), "only used glyph outlines are embedded");
+            assert!(!saved.resolved(descendant.get(b"CIDToGIDMap").unwrap()).unwrap().as_stream().unwrap().decompressed_content().unwrap().is_empty());
+            let descendant_id = font.get(b"DescendantFonts").unwrap().as_array().unwrap()[0].as_reference().unwrap();
+            let mut tampered = saved.clone();
+            tampered.get_dictionary_mut(descendant_id).unwrap().set("CIDToGIDMap", "Identity");
+            assert!(crate::text_box_font::validate_appearance_font(&tampered, annotation, editor, 0)
+                .unwrap_err().to_string().contains("verified portable font graph"));
+        }
     }
 }
 

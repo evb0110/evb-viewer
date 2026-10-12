@@ -665,9 +665,7 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
     )
 }
 
-/// Reads the base streams a save reuses that a structural load left unread:
-/// stamp sources, and the embedded text-box font when the save writes text
-/// boxes. Other saves never look at those bytes.
+/// Reads reused stamp streams that a structural load left unread.
 fn materialize_reused_base_streams(
     incremental: &mut IncrementalDocument,
     input_path: &Path,
@@ -680,9 +678,6 @@ fn materialize_reused_base_streams(
         qpdf_path,
         &mutations.placed_image_geometry_updates,
     )?;
-    if let Some(qpdf_path) = qpdf_path.filter(|_| !mutations.text_boxes.is_empty()) {
-        incremental.materialize_text_box_font_streams(input_path, qpdf_path);
-    }
     Ok(())
 }
 

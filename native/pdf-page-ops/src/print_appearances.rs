@@ -206,7 +206,6 @@ fn read_font_programs(
 pub(crate) fn materialize_print_appearances(
     document: &mut Document,
     page_id: ObjectId,
-    text_font: &mut Option<ObjectId>,
     every_subtype: bool,
 ) -> Result<Vec<ObjectId>> {
     let Ok(annots) = document.get_dictionary(page_id)?.get(b"Annots").cloned() else {
@@ -235,7 +234,7 @@ pub(crate) fn materialize_print_appearances(
         let free_text =
             annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText");
         let Some(appearance) = free_text
-            .then(|| missing_free_text_appearance(document, &annotation, page_id, text_font).ok())
+            .then(|| missing_free_text_appearance(document, &annotation, page_id).ok())
             .flatten()
             .or_else(|| synthesized_appearance(document, &mut annotation))
         else {
@@ -294,7 +293,6 @@ pub(crate) fn write_print_appearances_path(
         "Encrypted PDFs cannot be laid out for printing",
     )?;
     let base_max_id = incremental.previous_document.max_id;
-    let mut text_font = None;
     let mut changed = Vec::new();
     let page_ids = incremental.previous_document.get_pages();
     if let Some(qpdf_path) = qpdf_path {
@@ -304,7 +302,6 @@ pub(crate) fn write_print_appearances_path(
         changed.extend(materialize_print_appearances(
             &mut incremental.previous_document,
             page_id,
-            &mut text_font,
             false,
         )?);
     }

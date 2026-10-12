@@ -798,61 +798,107 @@ describe('Electron E2E - annotation controls', () => {
         });
 
         async function paintedTextMatchesBundledProgram(label: string) {
-            // Independent font family: the reference does not inherit the app's
-            // font fallback. Both surfaces use Chromium's actual text painting.
-            await page.evaluate(async (file: string) => {
-                const font = new FontFace('Semtext Reference', `url("/fonts/annotation/${file}")`);
-                document.fonts.add(await font.load());
-                await document.fonts.ready;
-                await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
-            }, fontFile);
             const box = await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-text-box');
             expect(box).not.toBeNull();
             const actual = Buffer.from(await box!.screenshot());
             writeFileSync(join(evidence, `${label}-box.png`), actual);
             await page.screenshot({path: join(evidence, `${label}-page.png`)});
-            const visibility = await box!.evaluate(element => {
-                const reference = element.cloneNode(true) as HTMLElement;
-                reference.id = 'semtext-font-reference';
-                reference.style.fontFamily = 'Semtext Reference';
-                element.parentElement!.append(reference);
-                const previous = (element as HTMLElement).style.visibility;
-                (element as HTMLElement).style.visibility = 'hidden';
-                return previous;
+            const client = await page.createCDPSession();
+            await client.send('DOM.enable');
+            await client.send('CSS.enable');
+            const tree = await client.send('DOM.getDocument');
+            const node = await client.send('DOM.querySelector', {
+                nodeId: tree.root.nodeId,
+                selector: '.editor-pane.is-active .pdf-annotation-editor-text-box',
             });
-            try {
-                const reference = await page.$('#semtext-font-reference');
-                const expected = Buffer.from(await reference!.screenshot());
-                writeFileSync(join(evidence, `${label}-reference.png`), expected);
-                const decoded = await Promise.all([
-                    actual,
-                    expected,
-                ].map(async png => {
-                    const image = await loadImage(png);
-                    const canvas = createCanvas(image.width, image.height);
-                    const context = canvas.getContext('2d');
-                    context.drawImage(image, 0, 0);
+            const platform = await client.send('CSS.getPlatformFontsForNode', {nodeId: node.nodeId});
+            await client.detach();
+            const paintedFonts = platform.fonts.filter(font => font.glyphCount > 0);
+            expect.soft(paintedFonts.length).toBeGreaterThan(0);
+            expect.soft(paintedFonts.every(font => font.isCustomFont && font.postScriptName === fontFile.replace('.ttf', '')),
+                `${script} actually paints every glyph with its shipped program`).toBe(true);
+
+            // A separate family chooses the complete reference program. Its
+            // DejaVu strut matches the shared paragraph metrics on screen.
+            await page.evaluate(async (file: string, content: string) => {
+                const base = new FontFace('Semtext Reference', 'url("/fonts/annotation/DejaVuSans.ttf")');
+                document.fonts.add(await base.load());
+                const unicodeRange = Array.from(new Set(Array.from(content, character => (
+                    `U+${character.codePointAt(0)!.toString(16)}`
+                )))).join(',');
+                const font = new FontFace('Semtext Reference', `url("/fonts/annotation/${file}")`, {unicodeRange});
+                document.fonts.add(await font.load());
+                await document.fonts.ready;
+                await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+            }, fontFile, text);
+
+            // Compare both families in one Chromium canvas so viewport LCD
+            // compositing cannot change the oracle's antialiasing. Font identity
+            // above and the captured box pixels establish the real screen paint.
+            const comparison = await box!.evaluate((element, content) => {
+                const style = getComputedStyle(element);
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 128;
+                const context = canvas.getContext('2d')!;
+                context.direction = style.direction === 'rtl' ? 'rtl' : 'ltr';
+                context.textAlign = 'right';
+                context.textBaseline = 'alphabetic';
+                context.fillStyle = style.color;
+                function paint(family: string) {
+                    context.clearRect(0, 0, canvas.width, canvas.height);
+                    context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${family}`;
+                    context.fillText(content, 488, 80);
                     return {
-                        width: image.width,
-                        height: image.height,
-                        pixels: context.getImageData(0, 0, image.width, image.height).data,
+                        png: canvas.toDataURL(),
+                        pixels: context.getImageData(0, 0, canvas.width, canvas.height).data,
                     };
-                }));
-                expect.soft(decoded[0]!.width).toBe(decoded[1]!.width);
-                expect.soft(decoded[0]!.height).toBe(decoded[1]!.height);
-                const matches = Buffer.from(decoded[0]!.pixels).equals(Buffer.from(decoded[1]!.pixels));
-                writeFileSync(join(evidence, `${label}-pixels.json`), JSON.stringify({
-                    script,
-                    text,
-                    matches,
-                }));
-                expect.soft(matches, `${script} painted glyphs and marks match the complete bundled font`).toBe(true);
-            } finally {
-                await page.$eval('#semtext-font-reference', element => element.remove());
-                await box!.evaluate((element, previous) => {
-                    (element as HTMLElement).style.visibility = previous;
-                }, visibility);
+                }
+                const actual = paint(style.fontFamily);
+                const reference = paint('Semtext Reference');
+                return {
+                    matches: actual.pixels.every((value, index) => value === reference.pixels[index]),
+                    actual: actual.png,
+                    reference: reference.png,
+                };
+            }, text);
+            const image = await loadImage(actual);
+            const canvas = createCanvas(image.width, image.height);
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            const pixels = context.getImageData(0, 0, image.width, image.height).data;
+            let ink = 0;
+            for (let y = 2; y < image.height - 2; y += 1) {
+                for (let x = 2; x < image.width - 2; x += 1) {
+                    const offset = (y * image.width + x) * 4;
+                    if (Math.max(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) < 150) ink += 1;
+                }
             }
+            expect.soft(ink, 'The actual text box paints text pixels').toBeGreaterThan(0);
+            for (const [
+                name,
+                png,
+            ] of [
+                    [
+                        'canvas',
+                        comparison.actual,
+                    ],
+                    [
+                        'reference',
+                        comparison.reference,
+                    ],
+                ]) {
+                writeFileSync(join(evidence, `${label}-${name}.png`), Buffer.from(png!.split(',')[1]!, 'base64'));
+            }
+            writeFileSync(join(evidence, `${label}-pixels.json`), JSON.stringify({
+                script,
+                text,
+                ink,
+                fonts: paintedFonts,
+                matches: comparison.matches,
+            }));
+            expect.soft(comparison.matches, `${script} glyphs and marks match the independent bundled-font pixels`).toBe(true);
+
         }
 
         await paintedTextMatchesBundledProgram('before-save');

@@ -114,7 +114,7 @@ fn shape_line(
                     .last()
                     .map(|(i, _)| *i)
                     .filter(|i| {
-                        sequence.trim().is_empty()
+                        (sequence.trim().is_empty() || (show_hyphen && sequence == "-"))
                             && sequence.chars().all(|c| covers(&fonts[*i].1, c))
                     })
                     .or_else(|| {
@@ -184,13 +184,7 @@ fn shape_line(
 }
 
 pub(crate) fn layout(text: &str, width: f64, font_size: f64) -> Vec<Line> {
-    let face = face();
-    static DATA: std::sync::OnceLock<ShaperData> = std::sync::OnceLock::new();
-    let shaper = DATA
-        .get_or_init(|| ShaperData::new(&face))
-        .shaper(&face)
-        .build();
-    layout_shaped(text, width, font_size, &[(shaper, face)], None)
+    layout_with_fonts(text, width, font_size, &FONTS, None)
 }
 
 pub(crate) fn layout_with_fonts(
@@ -198,6 +192,7 @@ pub(crate) fn layout_with_fonts(
     width: f64,
     font_size: f64,
     programs: &[&[u8]],
+    paragraph_level: Option<Level>,
 ) -> Vec<Line> {
     let faces: Vec<_> = programs
         .iter()
@@ -209,23 +204,13 @@ pub(crate) fn layout_with_fonts(
         .zip(&data)
         .map(|(face, data)| (data.shaper(face).build(), face.clone()))
         .collect();
-    // AP-less FreeText uses the viewer's left-to-right canvas paragraph while
-    // retaining RTL glyph runs. Editor layout above keeps its auto direction.
-    layout_shaped(text, width, font_size, &shapers, Some(Level::ltr()))
-}
-
-fn layout_shaped(
-    text: &str,
-    width: f64,
-    font_size: f64,
-    shapers: &[(Shaper<'_>, FontRef<'_>)],
-    paragraph_level: Option<Level>,
-) -> Vec<Line> {
     wrap(
         text,
         width,
         paragraph_level,
-        |text, bidi, paragraph, range| shape_line(shapers, text, bidi, paragraph, range, font_size),
+        |text, bidi, paragraph, range| {
+            shape_line(&shapers, text, bidi, paragraph, range, font_size)
+        },
     )
 }
 

@@ -2227,6 +2227,53 @@ fn print_freetext_cantillation_matches_independent_harfbuzz_marks() {
 }
 
 #[test]
+fn authored_semitic_text_boxes_save_harfbuzz_appearances() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/semtext");
+    for (script, text) in [
+        ("arabic", "بَسْمِ لَا بــِسْمِ"),
+        ("syriac", "ܫܠܵܡܵܐ"),
+        ("hebrew", "בְּרֵאשִׁ֖ית"),
+    ] {
+        let temp = TempPaths::new("authored-semitic-fonts");
+        fs::copy(fixture.join("blank.pdf"), &temp.pdf).unwrap();
+        write_mutations(
+            &temp,
+            &json!({"textBoxes": [{
+                "pageIndex": 0, "stableKey": script, "text": text,
+                "rect": [70, 200, 540, 760], "rotation": 0, "fontSize": 32,
+                "color": [17, 24, 39],
+            }]}),
+        );
+        run_save(&temp);
+        let saved = Document::load(&temp.pdf).unwrap();
+        let page = saved.get_dictionary(saved.get_pages()[&1]).unwrap();
+        let annotation = saved
+            .get_dictionary(
+                page.get(b"Annots").unwrap().as_array().unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert!(
+            annotation.has(b"AP"),
+            "saved {script} FreeText has an appearance"
+        );
+        assert!(
+            poppler_pixels(&temp.pdf)
+                == poppler_pixels(&fixture.join(format!("{script}-reference.pdf"))),
+            "saved {script} glyphs and mark positions match independent HarfBuzz content"
+        );
+        // Its appearance is complete, so Auto prints the saved file as it is.
+        let printed = temp.root.join("printed.pdf");
+        print_annotation_pdf(&temp.pdf, &printed);
+        assert!(
+            !printed.exists(),
+            "printing keeps the authored {script} appearance"
+        );
+    }
+}
+
+#[test]
 fn print_freetext_missing_fonts_use_pdf_rotation_without_editor_metadata() {
     let temp = TempPaths::new("print-text-pdf-rotation");
     let printed = temp.root.join("printed.pdf");

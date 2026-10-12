@@ -472,6 +472,7 @@ pub(crate) fn validate_text_box_document_postconditions(
             .checked_add(1)
             .ok_or("Invalid FreeText editor page index")?;
         let page_id = page_resolver.page_id(document, page_number)?;
+        let page_rotation = resolve_page_rotation(document, page_id)?;
         let page_view = resolve_page_view(document, page_id)?;
         let expected_rect = validate_text_box_rect(editor, page_view)?;
         let expected_name = text_box_name(editor);
@@ -538,7 +539,7 @@ pub(crate) fn validate_text_box_document_postconditions(
             dict,
             actual_rect,
             i64::from(editor.rotation),
-            resolve_page_rotation(document, page_id)?,
+            page_rotation,
         )?;
         validate_rect_approximately(
             source_rect,
@@ -550,8 +551,7 @@ pub(crate) fn validate_text_box_document_postconditions(
             },
             "FreeText canonical Rect",
         )?;
-        let rotation = dict.get(b"Rotate")?.as_i64()?;
-        if rotation != i64::from(editor.rotation) {
+        if dict.get(b"Rotate")?.as_i64()? != i64::from(editor.rotation) {
             return Err("FreeText editor rotation did not match the requested rotation".into());
         }
         let default_appearance = dict
@@ -561,8 +561,7 @@ pub(crate) fn validate_text_box_document_postconditions(
             .ok_or("FreeText editor is missing DA")?;
         let expected_color = editor.color.map(|component| f64::from(component) / 255.0);
         validate_text_box_default_appearance(default_appearance, editor.font_size, expected_color)?;
-        validate_appearance(document, dict)?;
-        crate::text_box_font::validate_appearance_font(document, dict)?;
+        crate::text_box_font::validate_appearance_font(document, dict, editor, page_rotation)?;
     }
     Ok(())
 }

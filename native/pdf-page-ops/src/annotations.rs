@@ -1,4 +1,5 @@
 use super::*;
+use lopdf::dictionary;
 
 /// PDF's standard sticky-note icon is a 20 point square. The mutation
 /// protocol still carries the marker's normalized anchor, so the writer
@@ -733,8 +734,6 @@ pub(crate) fn upsert_text_boxes_with_counter(
     if editors.is_empty() {
         return Ok(());
     }
-    let font_ref = crate::text_box_font::existing_font(document)
-        .unwrap_or_else(|| crate::text_box_font::embed_font(document));
     let page_resolver = PageTreeResolver::new(document)?;
     let mut annotation_indexes = HashMap::new();
     for editor in editors {
@@ -753,8 +752,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
         let rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let name = text_box_name(editor);
-        let appearance_ref =
-            build_text_box_appearance(document, editor, rect, font_ref, page_rotation)?;
+        let appearance_ref = build_text_box_appearance(document, editor, rect, page_rotation)?;
         let existing_annotation_ref = resolve_text_box_target(document, page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
             annotation_indexes
@@ -818,9 +816,6 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
     if editors.is_empty() {
         return Ok(());
     }
-    let font_ref = crate::text_box_font::existing_font(&incremental.new_document)
-        .or_else(|| crate::text_box_font::existing_font(incremental.get_prev_documents()))
-        .unwrap_or_else(|| crate::text_box_font::embed_font(&mut incremental.new_document));
     let page_resolver = PageTreeResolver::new(incremental.get_prev_documents())?;
     let mut annotation_indexes = HashMap::new();
     for editor in editors {
@@ -839,13 +834,8 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
         let rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let name = text_box_name(editor);
-        let appearance_ref = build_text_box_appearance(
-            &mut incremental.new_document,
-            editor,
-            rect,
-            font_ref,
-            page_rotation,
-        )?;
+        let appearance_ref =
+            build_text_box_appearance(&mut incremental.new_document, editor, rect, page_rotation)?;
         let existing_annotation_ref =
             resolve_text_box_target(&AppendedRevision::new(incremental), page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
@@ -1064,7 +1054,6 @@ pub(crate) fn build_text_box_appearance(
     document: &mut Document,
     editor: &TextBoxMutation,
     rect: PdfRect,
-    font_ref: ObjectId,
     page_rotation: i64,
 ) -> Result<ObjectId> {
     use crate::text_box_font::{self, LINE_HEIGHT, PADDING_X};
@@ -1077,77 +1066,49 @@ pub(crate) fn build_text_box_appearance(
     let geometry = text_box_font::geometry(source, i64::from(editor.rotation), page_rotation)?;
     let width = geometry.width;
     let height = geometry.height;
-    let matrix = geometry.matrix;
-    let first_point = [
-        0.0,
-        height - text_box_font::baseline_from_top(editor.font_size),
-    ];
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     let mut content = format!(
-        "q\n{} {} {} {} {} {} cm\n0 0 {} {} re W n\nBT\n{} {} {} rg\n0 Tc /Helv {} Tf\n",
-        number_to_content(matrix[0]),
-        number_to_content(matrix[1]),
-        number_to_content(matrix[2]),
-        number_to_content(matrix[3]),
-        number_to_content(matrix[4]),
-        number_to_content(matrix[5]),
+        "q\n{} cm\n0 0 {} {} re W n\nBT\n{} rg\n0 Tc\n",
+        format_operands(&geometry.matrix),
         number_to_content(width),
         number_to_content(height),
-        number_to_content(color[0]),
-        number_to_content(color[1]),
-        number_to_content(color[2]),
-        number_to_content(editor.font_size),
+        format_operands(&color),
     );
     let content_width = (width - 2.0 * PADDING_X * editor.font_size).max(0.0);
-    for (index, line) in text_box_font::layout(&editor.text, content_width, editor.font_size)
-        .iter()
-        .enumerate()
-    {
-        let left = first_point[0]
-            + PADDING_X * editor.font_size
+    let lines = text_box_font::layout(&editor.text, content_width, editor.font_size);
+    let fonts = text_box_font::embed_fonts(document, &lines, &text_box_font::FONTS)?;
+    for (index, line) in lines.iter().enumerate() {
+        let left = PADDING_X * editor.font_size
             + if line.rtl {
                 (content_width - line.width).max(0.0)
             } else {
                 0.0
             };
-        let baseline = first_point[1] - index as f64 * LINE_HEIGHT * editor.font_size;
+        let baseline = height
+            - text_box_font::baseline_from_top(editor.font_size)
+            - index as f64 * LINE_HEIGHT * editor.font_size;
         content.push_str(&format!(
             "/Span << /ActualText <{}> >> BDC\n",
             text_box_font::unicode_hex(&line.text, true)
         ));
         for glyph in &line.glyphs {
             content.push_str(&format!(
-                "1 0 0 1 {} {} Tm <{:04X}> Tj\n",
+                "/TextFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
+                glyph.font,
+                number_to_content(editor.font_size),
                 number_to_content(left + glyph.x),
                 number_to_content(baseline + glyph.y),
-                glyph.id
+                glyph.id,
             ));
         }
         content.push_str("EMC\n");
     }
     content.push_str("ET\nQ");
-    let mut fonts = Dictionary::new();
-    fonts.set("Helv", Object::Reference(font_ref));
-    let mut resources = Dictionary::new();
-    resources.set("Font", Object::Dictionary(fonts));
-    let mut stream_dict = Dictionary::new();
-    stream_dict.set("Type", Object::Name(b"XObject".to_vec()));
-    stream_dict.set("Subtype", Object::Name(b"Form".to_vec()));
-    stream_dict.set("FormType", Object::Integer(1));
-    stream_dict.set("BBox", rect_object(rect));
-    stream_dict.set("Resources", Object::Dictionary(resources));
-    stream_dict.set(
-        "Matrix",
-        Object::Array(vec![
-            Object::Integer(1),
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(1),
-            number_object(-rect.x1),
-            number_object(-rect.y1),
-        ]),
-    );
-    Ok(document.add_object(Stream::new(stream_dict, content.into_bytes())))
+    Ok(document.add_object(Stream::new(lopdf::dictionary! {
+        "Type" => "XObject", "Subtype" => "Form", "FormType" => 1,
+        "BBox" => rect_object(rect), "Resources" => lopdf::dictionary! {"Font" => fonts},
+        "Matrix" => vec![number_object(1.0), number_object(0.0), number_object(0.0), number_object(1.0), number_object(-rect.x1), number_object(-rect.y1)],
+    }, content.into_bytes())))
 }
 
 fn existing_text_box_values(
