@@ -99,6 +99,7 @@ export interface ICreateShapeAnnotationResult {
 export interface IDocumentViewerExpose {
     getViewerContainer: () => HTMLElement | null;
     getCurrentPage?: () => number;
+    readonly getEffectiveZoom?: () => number;
     getPendingNavigationTargetPage?: () => number | null;
     waitForViewerLoadSettled?: () => Promise<void>;
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
@@ -132,14 +133,6 @@ export interface IDocumentViewerExpose {
     }) => boolean | Promise<boolean>;
     cancelPageRotationPreview?: (input: {invalidatedPages: readonly number[]}) => boolean | Promise<boolean>;
     requestScrollToCurrentResult?: () => void;
-}
-
-export interface IPdfViewerLoadExpose {
-    waitForViewerLoadSettled?: () => Promise<void>;
-    ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
-    getPageMetricsSnapshot?: () => IPdfPageMetric[];
-    pageMetrics?: readonly IPdfPageMetric[];
-    pageMetricsVersion?: number;
 }
 
 export interface IPdfViewerRegionCaptureExpose {
@@ -273,7 +266,6 @@ export interface IPdfViewerImagePlacementExpose {
 
 export interface IPdfViewerExpose extends
     IDocumentViewerExpose,
-    IPdfViewerLoadExpose,
     IPdfViewerRegionCaptureExpose,
     IPdfViewerCropExpose,
     IPdfViewerSaveExpose,
@@ -282,6 +274,10 @@ export interface IPdfViewerExpose extends
     IPdfViewerAnnotationCommentExpose,
     IPdfViewerShapeExpose,
     IPdfViewerImagePlacementExpose {
+    ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
+    getPageMetricsSnapshot?: () => IPdfPageMetric[];
+    pageMetrics?: readonly IPdfPageMetric[];
+    pageMetricsVersion?: number;
     invalidatePages: (pages: number[]) => void;
     requestScrollToCurrentResult: () => void;
 }

@@ -22,7 +22,7 @@ interface IUseWorkspaceViewerDefaultsOptions {
     continuousScroll: Ref<boolean>;
     fitMode: Ref<TFitMode>;
     zoom: Ref<number>;
-    effectiveZoom: Ref<number>;
+    effectiveZoom: Readonly<Ref<number>>;
     zoomMode: Ref<TZoomMode>;
     pdfSrc: Ref<TPdfSource | null>;
     documentSourceKey?: Ref<unknown>;
@@ -61,7 +61,6 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
     function setCustomZoomFromDisplay(displayZoom: number) {
         const targetDisplayZoom = clampWorkspaceZoomLevel(displayZoom);
         options.zoom.value = targetDisplayZoom;
-        options.effectiveZoom.value = targetDisplayZoom;
         options.zoomMode.value = 'custom';
     }
 
@@ -88,13 +87,12 @@ export const useWorkspaceViewerDefaults = (options: IUseWorkspaceViewerDefaultsO
         setCustomZoomFromDisplay(Number(preset) / 100);
     }
 
-    // A fit mode's scale is the viewer's to measure; until it does, the
-    // neutral scale stands in, so a zoom command does not start from the
-    // scale of the view it replaced.
+    // Defaults and restored views request a fit axis. The renderer computes
+    // the effective scale from its page and viewport, which the toolbar
+    // reads directly even when source activation yields.
     function setFitMode(zoomMode: 'fit-width' | 'fit-height') {
         options.fitMode.value = zoomMode === 'fit-height' ? 'height' : 'width';
         options.zoom.value = 1;
-        options.effectiveZoom.value = 1;
         options.zoomMode.value = zoomMode;
     }
 

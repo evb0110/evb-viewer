@@ -6938,6 +6938,118 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(djvu.label).toEqual(pdf.label);
     }, 150_000);
 
+    it('keeps toolbar zoom equal to painted PDF and DjVu pages through fit and zoom input', async () => {
+        const session = await sessionFixture.restart({clean: true});
+        const page = session.page;
+        if (!djvuFixture.path) throw new Error(djvuFixture.reason);
+        const pdfPath = await createMultiPageTextFixturePdf(`zoom-owner-${Date.now()}.pdf`, 2);
+        const pdf = await PDFDocument.load(await readFile(pdfPath));
+        const pdfSize = pdf.getPage(0).getSize();
+        await openDjvuInApp(page, djvuFixture.path, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForDjvuLoaded(page, DJVU_VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const djvuSize = await page.evaluate(async (path: ReturnType<typeof requireDocumentRef>) => {
+            const info = await (window as IE2EWindow).electronAPI!.djvu.getPageSourceInfo(path, 1);
+            return info.pageSize;
+        }, requireDocumentRef(djvuFixture.path));
+        const isMac = await page.evaluate(() => /Mac/iu.test(navigator.platform));
+        for (const fixture of [
+            {
+                kind: 'djvu',
+                path: djvuFixture.path,
+                width: djvuSize.width * 72 / djvuSize.dpi,
+                height: djvuSize.height * 72 / djvuSize.dpi,
+            },
+            {
+                kind: 'pdf',
+                path: pdfPath,
+                ...pdfSize,
+            },
+        ]) {
+            if (fixture.kind === 'pdf') {
+                await openPdfInApp(page, fixture.path, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+            }
+            const readPaintedZoom = () => page.evaluate((size: {
+                width: number;
+                height: number
+            }) => {
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+                const visual = Array.from(host?.querySelectorAll<HTMLImageElement | HTMLCanvasElement>(
+                    '[data-document-page-number="1"] img[data-testid="document-page-source-image"], .page_container[data-page="1"] .page_canvas canvas',
+                ) ?? []).find(element => element.getBoundingClientRect().width > 0 && element.checkVisibility());
+                const painted = visual instanceof HTMLImageElement
+                    ? visual.complete && visual.naturalWidth > 0
+                    : Boolean(visual && visual.width > 0);
+                const bounds = visual?.getBoundingClientRect();
+                const zoomText = Array.from(document.querySelectorAll<HTMLElement>('.zoom-controls-display'))
+                    .find(element => element.checkVisibility())?.textContent ?? '';
+                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.effectiveZoom;
+                return {
+                    painted,
+                    toolbar,
+                    display: Number.parseInt(zoomText, 10) / 100,
+                    widthZoom: (bounds?.width ?? 0) / size.width,
+                    heightZoom: (bounds?.height ?? 0) / size.height,
+                };
+            }, {
+                width: fixture.width,
+                height: fixture.height,
+            });
+            const check = async (step: string) => {
+                console.info('[zoom-owner-before]', fixture.kind, step, await readPaintedZoom());
+                await expect.poll(async () => {
+                    const sample = await readPaintedZoom();
+                    return sample.painted && typeof sample.toolbar === 'number'
+                        && Math.abs(sample.toolbar - sample.widthZoom) * fixture.width <= 1
+                        && Math.abs(sample.toolbar - sample.heightZoom) * fixture.height <= 1
+                        && Math.abs(sample.display - sample.toolbar) <= 0.0051;
+                }, {
+                    timeout: 10_000,
+                    message: `${fixture.kind}: ${step}`,
+                }).toBe(true);
+                console.info('[zoom-owner]', fixture.kind, step, await readPaintedZoom());
+            };
+            await check('open fit-width');
+            for (const axis of [
+                'Height',
+                'Width',
+            ]) {
+                await clickAsUser(page, '.zoom-controls-display');
+                await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('button.zoom-toggle-btn'))
+                    .find(button => button.textContent?.includes(label) && button.checkVisibility()), `Fit ${axis}`, {description: `Fit ${axis} in the zoom menu`});
+                await page.keyboard.press('Escape');
+                await waitForWorkspaceToolbarSnapshot(page, {zoomMode: axis === 'Height' ? 'fit-height' : 'fit-width'}, {timeoutMs: 10_000});
+                await check(`fit-${axis.toLowerCase()}`);
+            }
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+0'});
+            await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: 1}, {timeoutMs: 10_000});
+            await check('actual size');
+            for (const accelerator of [
+                'CmdOrCtrl+=',
+                'CmdOrCtrl+-',
+            ]) {
+                await activateMenuItemAsUser(page, {accelerator});
+                await waitForWorkspaceToolbarSnapshot(page, {effectiveZoom: accelerator.endsWith('=') ? 1.25 : 1}, {timeoutMs: 10_000});
+                await check(accelerator);
+            }
+            const point = await page.evaluate(() => {
+                const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-document-viewer-chassis-viewport]')!;
+                const bounds = viewport.getBoundingClientRect();
+                return {
+                    x: bounds.left + bounds.width / 2,
+                    y: bounds.top + bounds.height / 2,
+                };
+            });
+            const beforeWheel = (await readPaintedZoom()).toolbar!;
+            await page.mouse.move(point.x, point.y);
+            await page.keyboard.down(isMac ? 'Meta' : 'Control');
+            await page.mouse.wheel({deltaY: 120});
+            await page.keyboard.up(isMac ? 'Meta' : 'Control');
+            await expect.poll(async () => (await readPaintedZoom()).toolbar!, {timeout: 10_000}).toBeLessThan(beforeWheel - 0.005);
+            await check('wheel zoom');
+        }
+    }, 180_000);
+
     it('uses the shared macOS Control-scroll and Command-zoom policy for DjVu', async () => {
         let session = sessionFixture.getSession();
         if (!djvuFixture.path) {

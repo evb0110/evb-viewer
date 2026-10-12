@@ -486,7 +486,6 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
             onAnnotationToolCancel: annotationToolState.handleAnnotationToolCancel,
             onCurrentPageUpdate: handleCurrentPage,
             onDocumentUpdate: (value) => { pdfDocument.value = value as typeof pdfDocument.value; },
-            onEffectiveZoomUpdate: (value) => { view.effectiveZoom.value = value; },
             onInitialVisualPending: options.onInitialVisualPending,
             onInitialVisualReady: options.onInitialVisualReady,
             onLoadError: handleLoadError,

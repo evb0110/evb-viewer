@@ -36,7 +36,6 @@
                 @update:overflow-menu-open="handleDropdownOpen('overflow', $event)"
                 @update:app-menu-open="handleDropdownOpen('appMenu', $event)"
                 @update:zoom="observeReaderCommand(); zoom = $event"
-                @update:effective-zoom="effectiveZoom = $event"
                 @update:zoom-mode="observeReaderCommand(); zoomMode = $event"
                 @update:fit-mode="observeReaderCommand(); fitMode = $event"
                 @update:view-mode="observeReaderCommand(); viewMode = $event"
@@ -287,7 +286,6 @@ const {
     appMenuOpen,
     closeAllDropdowns,
     zoom,
-    effectiveZoom,
     zoomMode,
     fitMode,
     viewMode,

@@ -183,7 +183,6 @@ export type TDocumentPageSourceRuntimeProps = Required<Pick<
 };
 export interface IDocumentPageSourceFeaturePackEmit {
     (event: 'update:zoomState', value: TPdfZoomState): void;
-    (event: 'update:effectiveZoom', value: number): void;
     (event: 'update:currentPage', value: number): void;
     (event: 'update:totalPages', value: number): void;
     (event: 'update:sourceCapabilities', value: IDocumentSourceCapabilities): void;

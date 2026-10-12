@@ -1414,10 +1414,6 @@ export const useDocumentPageSourceRuntime = (options: {
         }
     });
     transitions.start();
-    watch(effectiveZoom, (value) => {
-        emit('update:effectiveZoom', value);
-        if (!props.value.isResizing) scheduleRender.schedule();
-    });
     function retainOnlyPageStates(pages: readonly number[]) {
         if (props.value.isResizing || layoutLifecycle.isResizeTransitionActive.value) {
             return;
@@ -1484,6 +1480,7 @@ export const useDocumentPageSourceRuntime = (options: {
         surfaceStyle,
         viewerExpose: {
             getViewerContainer: () => viewerContainer.value,
+            getEffectiveZoom: () => effectiveZoom.value,
             getCurrentPage: () => props.value.currentPage,
             waitForViewerLoadSettled: () => loadSettled,
             scrollToPage,

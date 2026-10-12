@@ -622,7 +622,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationToolCancel: () => void;
     onCurrentPageUpdate: (value: number) => void;
     onDocumentUpdate: (value: unknown) => void;
-    onEffectiveZoomUpdate: (value: number) => void;
 
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
@@ -718,7 +717,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
     const nativeViewerListeners = {
         'update:zoomState': options.onZoomStateUpdate,
-        'update:effectiveZoom': options.onEffectiveZoomUpdate,
         'update:currentPage': options.onCurrentPageUpdate,
         'update:totalPages': options.onTotalPagesUpdate,
         'update:document': options.onDocumentUpdate,

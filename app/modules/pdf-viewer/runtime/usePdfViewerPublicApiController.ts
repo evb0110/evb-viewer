@@ -120,20 +120,22 @@ export const usePdfViewerPublicApiController = (
             : normalizedPage;
     }
 
-    async function renderAnnotationPage(pageNumber: TPageNumber) {
-        if (!Number.isFinite(pageNumber)) {
+    async function ensurePublicAnnotationTargetPageReady(pageNumber: TPageNumber) {
+        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return false;
         }
-        const normalizedPageNumber = normalizePublicPageNumber(pageNumber);
-        if (documentSession.numPages.value > 0 && normalizedPageNumber > documentSession.numPages.value) {
+        options.cancelPendingSearchScroll();
+        viewportSession.singlePageScroll.scrollToPage(pageNumber);
+        await nextTick();
+        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return false;
         }
         await options.waitForViewerLoadSettled();
-        await documentSession.ensurePageMetricsInRange(normalizedPageNumber, normalizedPageNumber);
+        await documentSession.ensurePageMetricsInRange(pageNumber, pageNumber);
         await options.renderVisiblePages(
             {
-                start: normalizedPageNumber,
-                end: normalizedPageNumber,
+                start: pageNumber,
+                end: pageNumber,
             },
             {
                 preserveRenderedPages: true,
@@ -142,21 +144,12 @@ export const usePdfViewerPublicApiController = (
         );
         await nextTick();
         const container = options.viewerContainer.value;
-        return Boolean(container && getPageContainerByNumber(container, normalizedPageNumber));
-    }
-
-    async function ensurePublicAnnotationTargetPageReady(pageNumber: TPageNumber) {
-        if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
-            return false;
-        }
-        options.cancelPendingSearchScroll();
-        viewportSession.singlePageScroll.scrollToPage(pageNumber);
-        await nextTick();
-        return renderAnnotationPage(pageNumber);
+        return Boolean(container && getPageContainerByNumber(container, pageNumber));
     }
 
     return {
         getViewerContainer: () => options.viewerContainer.value,
+        getEffectiveZoom: () => viewportSession.scale.effectiveScale.value,
         getCurrentPage: () => currentPage.value,
         getPendingNavigationTargetPage: () => viewportSession.singlePageScroll.navigationAnchorPage.value,
         getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,

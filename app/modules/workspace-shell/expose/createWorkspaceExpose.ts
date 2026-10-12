@@ -143,12 +143,6 @@ export function createWorkspaceExpose(
             isOpening ? 0 : currentPage,
         );
         const zoom = view.zoom.value;
-        // A custom zoom is the user's requested display value. The viewer can
-        // report a nearby effective scale while its late layout work settles,
-        // but that must not make the toolbar visibly jump to a different zoom.
-        const effectiveZoom = view.zoomMode.value === 'custom'
-            ? zoom
-            : view.effectiveZoom.value;
         return {
             hasPdf: file.hasPdf.value,
             initialVisualReady: owners.initialVisualReady.value,
@@ -179,7 +173,7 @@ export function createWorkspaceExpose(
             isCropSelecting: viewContext.crop.isCropSelecting.value,
             isPlacingPageNote: viewContext.annotationTool.value === 'note',
             zoom,
-            effectiveZoom,
+            effectiveZoom: view.effectiveZoom.value,
             zoomMode: view.zoomMode.value,
             fitMode: view.fitMode.value,
             viewMode: view.viewMode.value,

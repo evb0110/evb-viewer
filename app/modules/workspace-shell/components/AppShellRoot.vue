@@ -47,7 +47,6 @@
                 @update:overflow-menu-open="shellToolbarOverflowMenuOpen = $event"
                 @update:app-menu-open="shellToolbarAppMenuOpen = $event"
                 @update:zoom="shellToolbarZoom = $event"
-                @update:effective-zoom="shellToolbarEffectiveZoom = $event"
                 @update:zoom-mode="shellToolbarZoomMode = $event"
                 @update:fit-mode="shellToolbarFitMode = $event"
                 @update:view-mode="shellToolbarViewMode = $event"
@@ -544,7 +543,6 @@ onUnmounted(() => {
 
 const {
     shellToolbarAppMenuOpen,
-    shellToolbarEffectiveZoom,
     shellToolbarFitMode,
     shellToolbarHasPdf,
     isActiveTabOpening,

@@ -51,7 +51,6 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
                 : mode === 'facing' ? 'handleViewModeFacing' : 'handleViewModeFacingFirstSingle');
         },
         shellToolbarAppMenuOpen,
-        shellToolbarEffectiveZoom: createSnapshotFieldModel('effectiveZoom'),
         shellToolbarFitMode: createSnapshotFieldModel('fitMode'),
         shellToolbarHasPdf,
         isActiveTabOpening,

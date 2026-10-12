@@ -95,7 +95,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
     });
 
     const zoom = ref(initialState?.zoom ?? 1);
-    const effectiveZoom = ref(initialState?.effectiveZoom ?? 1);
+    const effectiveZoom = computed(() => documentViewerRef.value?.getEffectiveZoom?.() ?? 1);
     const rememberedFitAxis = ref<TFitMode>(initialState?.zoomMode === 'fit-height'
         ? 'height'
         : initialState?.zoomMode === 'fit-width' ? 'width' : initialState?.fitMode ?? 'width');
