@@ -272,9 +272,10 @@ describe('Move Tab to New Window view state', () => {
         await clickAsUser(source, '.tab-new');
         await clickAsUser(source, '.tab-list [role="tab"]:first-child');
 
-        // Recent remembers B's own zoom. A's later view restoration must not
-        // overwrite it when B replaces the incoming document in the same tab.
+        // B is closed before it replaces A. With restoration off it starts
+        // at its default zoom; A's transfer must not overwrite that view.
         await openPdfInApp(target, replacementPath);
+        const replacementDefaultView = await readView(target);
         await clickAsUser(target, '#editor-global-toolbar-host .zoom-controls-display');
         await clickAsUser(target, '.zoom-chip-custom-input', {count: 3});
         await target.keyboard.type('80');
@@ -357,7 +358,7 @@ describe('Move Tab to New Window view state', () => {
             targetTabs: await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())),
         };
         console.log('SUPERSEDED_TRANSFER', JSON.stringify(outcome));
-        expect(outcome.replacement.zoomText).toBe('80%');
+        expect(outcome.replacement.zoomText).toBe(replacementDefaultView.zoomText);
         expect(outcome.sourceTabs).toContain('superseded-slow.pdf');
         expect(outcome.targetTabs).toContain('replacement.pdf');
     }, 180_000);
@@ -492,6 +493,13 @@ describe('Move Tab to New Window view state', () => {
 
     it('keeps the moved view over the place Recent remembers for its document', async () => {
         const session = sessions.getSession();
+        await openSettingsView(session.page, 'en');
+        await session.page.waitForSelector('#settings-remember-document-view', {visible: true});
+        await clickAsUser(session.page, '#settings-remember-document-view');
+        await waitForFunctionInPage(session.page, async () => (
+            (await (window as IE2EWindow).electronAPI?.settings.get())?.rememberDocumentView === true
+        ), {timeout: 15_000});
+        await clickAsUser(session.page, '.editor-pane.is-active .start-rail nav[aria-label="Start"] button');
         const appTempDirectory = electronAppTempDirPath(session.name);
         mkdirSync(appTempDirectory, {recursive: true});
         outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'tab-view-transfer-recent-')));
