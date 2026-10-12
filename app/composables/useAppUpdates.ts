@@ -145,12 +145,22 @@ async function ensureInitialized() {
     if (!updates) {
         return false;
     }
-    const statusEvents = {receivedPushedStatus: false};
+    const hydrateStatus = async () => {
+        const currentState = await updates.getState();
+        if (!initialized.value || currentState.requestedHere === true) {
+            applyStatus(currentState.phase === 'downloaded'
+                ? {
+                    ...currentState,
+                    origin: 'auto',
+                } : currentState, null, currentState.requestedHere === true);
+        }
+    };
     const unsubscribe = updates.onStatus((nextStatus) => {
-        statusEvents.receivedPushedStatus = true;
         initialized.value = true;
         applyStatus(nextStatus, null, nextStatus.origin === 'manual' && nextStatus.requestedHere === true);
-
+        if (nextStatus.reason === 'install-failed' && nextStatus.requestedHere === false) {
+            void hydrateStatus().catch(error => BrowserLogger.warn('updates', 'Failed to claim startup update failure', error));
+        }
     });
     if (statusUnsubscribe && statusUnsubscribe !== unsubscribe) {
         statusUnsubscribe();
@@ -159,21 +169,13 @@ async function ensureInitialized() {
 
     initializationPromise = (async () => {
         try {
-            const currentState = await updates.getState();
-            if (!statusEvents.receivedPushedStatus || currentState.requestedHere === true) {
-                applyStatus(currentState.phase === 'downloaded'
-                    ? {
-                        ...currentState,
-                        origin: 'auto',
-                    } : currentState, null, currentState.requestedHere === true);
-            }
+            await hydrateStatus();
             initialized.value = true;
             return true;
         } catch (error) {
             const message = toErrorMessage(error);
             const failure = captureUpdateFailure(error, 'load', 'Failed to load update status');
-            if (statusEvents.receivedPushedStatus) {
-                initialized.value = true;
+            if (initialized.value) {
                 return true;
             }
 
@@ -186,12 +188,8 @@ async function ensureInitialized() {
                 message,
             }, failure);
 
-            if (statusUnsubscribe === unsubscribe) {
-                statusUnsubscribe();
-                statusUnsubscribe = null;
-            } else {
-                unsubscribe();
-            }
+            unsubscribe();
+            if (statusUnsubscribe === unsubscribe) statusUnsubscribe = null;
             initialized.value = false;
             return false;
         } finally {

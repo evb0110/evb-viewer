@@ -1619,7 +1619,7 @@ describe('updates robustness', () => {
             false,
         ]);
     });
-    it('delivers startup status everywhere with one presenting window',async()=>{
+    it('keeps startup presentation pending until a subscribed window claims it',async()=>{
         mocks.recordPendingUpdateStartup.mockResolvedValue({
             installationApplied:false,
             installRequestedAt:Date.now(),
@@ -1630,6 +1630,15 @@ describe('updates robustness', () => {
         const updates=await loadUpdatesModule();const events=fanout(updates);await vi.advanceTimersByTimeAsync(0);
         const report=events.find(e=>e[0]!.reason==='install-failed')!;
         expect(report.map(s=>s.requestedHere)).toEqual([
+            false,
+            false,
+            false,
+        ]);
+        expect([
+            1,
+            2,
+            3,
+        ].map(senderId => updates.getUpdateStatus({senderId}).requestedHere === true)).toEqual([
             true,
             false,
             false,
@@ -1660,7 +1669,7 @@ describe('updates robustness', () => {
             check:events.at(-1)!.map(s=>s.requestedHere),
         }).toEqual({
             report:[
-                true,
+                false,
                 false,
                 false,
             ],
@@ -1683,10 +1692,14 @@ describe('updates robustness', () => {
         const listeners = new Map<number, (status: IAppUpdateStatus) => void>();
         const result: Array<ReturnType<typeof useAppUpdates>> = [];
         owner.initializeUpdates(statusFor => {
-            for (const [
-                id,
-                listener,
-            ] of listeners) listener(owner.projectUpdateStatusForWindow(statusFor, id));
+            for (const id of [
+                1,
+                2,
+                3,
+            ]) {
+                const projected = owner.projectUpdateStatusForWindow(statusFor, id);
+                listeners.get(id)?.(projected);
+            }
         });
         for (const id of ids) {
             vi.resetModules();
@@ -2083,6 +2096,73 @@ describe('updates robustness', () => {
         await install!();
         mocks.autoUpdater.emit('error', new Error('native installer failed after cleanup'));
         expect(events.flat().filter(event => event.phase === 'error')).toEqual([]);
+    });
+
+    it('closing review: a registered window without a subscription cannot consume the startup failure', async () => {
+        const marker = Promise.withResolvers<IMockPendingUpdateStartup | null>();
+        mocks.recordPendingUpdateStartup.mockImplementation(() => marker.promise);
+        const owner = await loadUpdatesModule();
+        const sent: IAppUpdateStatus[] = [];
+        // The production dispatcher enumerates registered BrowserWindows, even
+        // before AppShell's mounted hook subscribes (or during a renderer reload).
+        owner.initializeUpdates(snapshot => {
+            sent.push(owner.projectUpdateStatusForWindow(snapshot, 1));
+        });
+        marker.resolve({
+            installationApplied:false,
+            installRequestedAt:Date.now(),
+            pendingVersion:'1.1.0',
+            startupAttempts:1,
+            version:1,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        const [late] = await renderers(owner,[1]);
+        console.log('CLOSING_REGISTERED_NOT_SUBSCRIBED',JSON.stringify({
+            sent,
+            last:late!.status.value,
+            dialog:{...late!.dialog.value},
+        }));
+        expect(late!.dialog.value).toMatchObject({
+            open:true,
+            phase:'error',
+            reason:'install-failed',
+        });
+        late!.closeDialog();
+        const later = await renderers(owner, [
+            1,
+            2,
+            3,
+        ]);
+        expect(later.map(window => window.dialog.value.open)).toEqual([
+            false,
+            false,
+            false,
+        ]);
+    });
+
+    it('lets a subscribed window claim startup failure while an earlier registered window is mounting', async () => {
+        const marker = Promise.withResolvers<IMockPendingUpdateStartup | null>();
+        mocks.recordPendingUpdateStartup.mockImplementation(() => marker.promise);
+        const owner = await loadUpdatesModule();
+        const ui = await renderers(owner, [
+            2,
+            3,
+        ]);
+        marker.resolve({
+            installationApplied: false,
+            installRequestedAt: Date.now(),
+            pendingVersion: '1.1.0',
+            startupAttempts: 1,
+            version: 1,
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ui.map(window => window.dialog.value.open)).toEqual([
+            true,
+            false,
+        ]);
+        ui[0]!.closeDialog();
+        const [late] = await renderers(owner, [1]);
+        expect(late!.dialog.value.open).toBe(false);
     });
 
 });

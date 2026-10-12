@@ -133,9 +133,7 @@ function clearProgressBroadcastTimer() {
 }
 
 export function projectUpdateStatusForWindow(snapshot: IAppUpdateStatus, senderId: number): IAppUpdateStatus {
-    const requestedHere = snapshot === pendingStartupFailure
-        || statusRequesters === null || statusRequesters.has(senderId);
-    if (snapshot === pendingStartupFailure) pendingStartupFailure = null;
+    const requestedHere = statusRequesters === null || statusRequesters.has(senderId);
     return {
         ...snapshot,
         ...(snapshot.phase === 'downloading' && !requestedHere ? {
@@ -170,9 +168,6 @@ function updateStatus(next: Partial<IAppUpdateStatus>, requesters = operationReq
         reason: next.reason ?? (next.message === undefined ? status.reason : undefined),
     };
 
-    if (next === pendingStartupFailure) {
-        pendingStartupFailure = status;
-    }
     if (status.phase !== 'downloading') {
         clearProgressBroadcastTimer();
         broadcastStatusNow();
