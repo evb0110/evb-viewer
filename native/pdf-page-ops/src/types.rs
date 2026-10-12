@@ -743,7 +743,6 @@ pub(crate) enum Operation {
     ReadCatalog,
     ReadDocumentCatalog,
     PrintLayout {
-        pages_file: Option<PathBuf>,
         view_mode: PrintViewMode,
         orientation: PrintOrientation,
     },

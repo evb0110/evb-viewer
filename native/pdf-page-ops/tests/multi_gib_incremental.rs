@@ -1574,3 +1574,68 @@ fn free_text_with_indirect_default_appearance_stays_editable_after_structural_ap
     free_text(&large, "edited réal");
     assert_qpdf_check(&large);
 }
+
+#[test]
+fn auto_print_appends_a_missing_appearance_to_a_book_above_the_layout_ceiling() {
+    let source = temp_path("auto-print-book", "pdf");
+    let printed = temp_path("auto-print-book-printed", "pdf");
+    let _cleanup = TempFiles(vec![source.clone(), printed.clone()]);
+    write_scanned_annotation_pdf(
+        &source,
+        769 * 1024 * 1024,
+        &[b"<</Type/Annot/Subtype/Square/Rect[20 20 80 60]/C[1 0 0]/BS<</W 2>>/F 4/P 3 0 R>>"],
+        &[5],
+    );
+    let print = |view_mode: &str| {
+        Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["print-layout", "--input"])
+            .arg(&source)
+            .arg("--output")
+            .arg(&printed)
+            .args(["--view-mode", view_mode, "--orientation", "auto", "--qpdf"])
+            .arg(qpdf_path())
+            .output()
+            .unwrap()
+    };
+
+    // Sheet composition keeps its eager-load ceiling.
+    let refused = print("facing");
+    assert!(!refused.status.success());
+    let envelope: Value = serde_json::from_slice(&refused.stderr).unwrap();
+    assert_eq!(envelope["code"], "too-large");
+    assert!(!printed.exists());
+
+    let output = print("single");
+    assert!(
+        output.status.success(),
+        "Auto print failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let source_len = fs::metadata(&source).unwrap().len();
+    assert!(fs::metadata(&printed).unwrap().len() > source_len);
+    assert_eq!(
+        sha256_prefix(&printed, source_len),
+        sha256_prefix(&source, source_len)
+    );
+    assert_qpdf_check(&printed);
+    assert_qpdf_page_count(&printed, "1");
+    let objects: Value = serde_json::from_str(&qpdf_objects_json(&printed)).unwrap();
+    let objects = &objects["objects"];
+    let numbers = |value: &Value| {
+        value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|number| number.as_f64().unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        numbers(&objects["3 0 R"]["/MediaBox"]),
+        [0.0, 0.0, 200.0, 100.0]
+    );
+    let appearance = objects["5 0 R"]["/AP"]["/N"].as_str().unwrap();
+    assert_eq!(
+        numbers(&objects[appearance]["/BBox"]),
+        [20.0, 20.0, 80.0, 60.0]
+    );
+}

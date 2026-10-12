@@ -4,11 +4,11 @@ use super::*;
 mod print_annotations;
 use evb_native_support::output::AtomicOutput;
 use lopdf::{DecompressError, Error as LopdfError};
-use print_annotations::flatten_printable_annotations;
+use print_annotations::*;
 
-/// Print layout places each selected page, with its printable annotation
-/// appearances flattened, on an A4 sheet as a Form XObject: one page per sheet
-/// in single view, or a spread of two in the facing modes.
+/// Print layout places each selected page, with its printable annotations
+/// flattened, on an A4 sheet: one page per sheet in single view, or a spread of
+/// two in the facing modes. Auto single pages from a path keep their own sheets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PrintViewMode {
     Single,
@@ -84,13 +84,16 @@ impl PlacedPage {
 pub(crate) fn write_print_layout_path(
     input_path: &Path,
     output_path: &Path,
-    pages: Option<&[u32]>,
     view_mode: PrintViewMode,
     orientation: PrintOrientation,
+    qpdf_path: Option<&Path>,
 ) -> Result<()> {
+    if (view_mode, orientation) == (PrintViewMode::Single, PrintOrientation::Auto) {
+        return write_print_appearances_path(input_path, output_path, qpdf_path);
+    }
     let mut document = load_print_layout_pdf_path(input_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    build_print_layout(&mut document, pages, view_mode, orientation)?;
+    build_print_layout(&mut document, None, view_mode, orientation)?;
     let mut output = AtomicOutput::create(output_path)?;
     document.save_to(output.file_mut()?)?;
     output.publish_if_unchanged()?;
@@ -110,8 +113,10 @@ pub(crate) fn build_print_layout(
         return Err("PDF print layout produced no pages".into());
     }
     let mut placed = Vec::with_capacity(page_numbers.len());
+    let mut text_font = None;
     for &page_number in &page_numbers {
         let page_id = resolve_page_id(&page_ids, page_number)?;
+        materialize_print_appearances(document, page_id, &mut text_font, true)?;
         placed.push(embed_page_as_form(document, page_id, page_number)?);
     }
 
@@ -402,14 +407,7 @@ fn embed_page_as_form(
     let mut content = b"q\n".to_vec();
     append_decoded_page_content(document, &page, page_number, &mut content)?;
     content.extend_from_slice(b"Q\n");
-    flatten_printable_annotations(
-        document,
-        &page,
-        page_id,
-        page_number,
-        &mut resources,
-        &mut content,
-    )?;
+    flatten_printable_annotations(document, &page, &mut resources, &mut content)?;
     let mut form = Stream::new(
         Dictionary::from_iter([
             ("Type", Object::Name(b"XObject".to_vec())),

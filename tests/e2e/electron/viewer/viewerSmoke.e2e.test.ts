@@ -6128,7 +6128,7 @@ describe('Electron E2E - Document Output', () => {
         }
     }, 180_000);
 
-    it('prints Auto Semitic annotations and preserves appearance-bearing PDF bytes', async () => {
+    it('prints Auto annotations on their own pages and preserves appearance-bearing PDF bytes', async () => {
         const fixtureDirectory = resolve(process.cwd(), 'tests/fixtures/electron/interop/print-semitic');
         const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `auto-print-${Date.now()}`);
         await mkdir(printDirectory, {recursive: true});
@@ -6145,6 +6145,149 @@ describe('Electron E2E - Document Output', () => {
                 control.context.lookup(reference, PDFDict).has(PDFName.of('AP')))));
         }
         await writeFile(controlPath, await control.save());
+        const semiticPath = join(fixtureDirectory, 'semitic.pdf');
+        // Odd sizes and turns where only page 2's Square lacks an appearance.
+        const mixedPath = join(printDirectory, 'mixed.pdf');
+        const mixed = await PDFDocument.create();
+        for (const [
+            index,
+            size,
+        ] of ([
+                [
+                    306,
+                    396,
+                ],
+                [
+                    1000,
+                    250,
+                ],
+                [
+                    500,
+                    700,
+                ],
+                [
+                    612,
+                    792,
+                ],
+            ] as const).entries()) {
+            const page = mixed.addPage([...size]);
+            page.node.set(PDFName.of('Rotate'), mixed.context.obj(index * 90));
+            page.drawRectangle({
+                x: 20,
+                y: 30,
+                width: 180,
+                height: 60,
+                color: rgb(0.3, 0.6, 0.7),
+            });
+            const appearance = mixed.context.register(mixed.context.flateStream('q 1 0 0 RG 2 w 1 1 118 58 re S Q', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    120,
+                    60,
+                ],
+            }));
+            page.node.set(PDFName.of('Annots'), mixed.context.obj([mixed.context.register(mixed.context.obj({
+                Type: 'Annot',
+                Subtype: 'Square',
+                Rect: [
+                    30,
+                    120,
+                    150,
+                    180,
+                ],
+                F: 4,
+                C: [
+                    1,
+                    0,
+                    0,
+                ],
+                BS: {W: 2},
+                ...(index === 1 ? {} : {AP: {N: appearance}}),
+            }))]));
+        }
+        await writeFile(mixedPath, await mixed.save({useObjectStreams: false}));
+        // A filled form that relies on NeedAppearances, beside a FreeText without /AP.
+        const formPath = join(printDirectory, 'form.pdf');
+        const form = await PDFDocument.create();
+        const formPage = form.addPage([
+            612,
+            792,
+        ]);
+        const fieldRect = [
+            72,
+            600,
+            300,
+            630,
+        ];
+        const noteRect = [
+            72,
+            400,
+            300,
+            460,
+        ];
+        const field = form.context.register(form.context.obj({
+            Type: 'Annot',
+            Subtype: 'Widget',
+            FT: 'Tx',
+            T: PDFString.of('name'),
+            V: PDFString.of('Field value'),
+            DA: PDFString.of('/Helv 12 Tf 0 g'),
+            Rect: fieldRect,
+            F: 4,
+            P: formPage.ref,
+        }));
+        const note = form.context.register(form.context.obj({
+            Type: 'Annot',
+            Subtype: 'FreeText',
+            Contents: PDFString.of('Printed note'),
+            DA: PDFString.of('/Helv 14 Tf 0 0 1 rg'),
+            Rect: noteRect,
+            F: 4,
+            P: formPage.ref,
+        }));
+        formPage.node.set(PDFName.of('Annots'), form.context.obj([
+            field,
+            note,
+        ]));
+        const helvetica = form.context.register(form.context.obj({
+            Type: 'Font',
+            Subtype: 'Type1',
+            BaseFont: 'Helvetica',
+        }));
+        form.catalog.set(PDFName.of('AcroForm'), form.context.obj({
+            Fields: [field],
+            NeedAppearances: true,
+            DR: {Font: {Helv: helvetica}},
+            DA: PDFString.of('/Helv 0 Tf 0 g'),
+        }));
+        await writeFile(formPath, await form.save({
+            useObjectStreams: false,
+            updateFieldAppearances: false,
+        }));
+        // Rows of a 72 dpi render inside a PDF rectangle.
+        const renderedRegion = async (png: string, rect: number[]) => {
+            const [
+                left = 0,
+                bottom = 0,
+                right = 0,
+                top = 0,
+            ] = rect;
+            const image = decodePng(await readFile(png));
+            const values: number[] = [];
+            for (let y = image.height - top; y < image.height - bottom; y += 1) {
+                values.push(...image.data.subarray((y * image.width + left) * image.channels, (y * image.width + right) * image.channels));
+            }
+            return values;
+        };
+        const geometry = async (bytes: Buffer) => (await PDFDocument.load(bytes)).getPages()
+            .map(page => [
+                page.getWidth(),
+                page.getHeight(),
+                page.getRotation().angle,
+            ]);
         const evidenceDirectory = process.env.EVB_PRINTAUTO_EVIDENCE_DIR;
         const glyphCodes = async (path: string) => {
             const pdf = await PDFDocument.load(await readFile(path));
@@ -6160,10 +6303,18 @@ describe('Electron E2E - Document Output', () => {
         // The byte control runs first so a missing Semitic print still records it.
         for (const name of [
             'control',
+            'mixed',
+            'form',
             'semitic',
             'portrait',
         ] as const) {
-            const source = name === 'control' ? controlPath : join(fixtureDirectory, 'semitic.pdf');
+            const source = {
+                control: controlPath,
+                mixed: mixedPath,
+                form: formPath,
+                semitic: semiticPath,
+                portrait: semiticPath,
+            }[name];
             await rm(printedPath, {force: true});
             const session = await printFixture(source, printedPath, name === 'portrait' ? 'portrait' : 'auto');
             if (evidenceDirectory) {
@@ -6174,6 +6325,31 @@ describe('Electron E2E - Document Output', () => {
             if (name === 'control') {
                 expect.soft(await readFile(printedPath)).toEqual(await readFile(source));
                 console.info('[Auto print] appearance control byte comparison complete');
+                continue;
+            }
+            if (name === 'mixed') {
+                const sourceBytes = await readFile(source);
+                const printed = await readFile(printedPath);
+                expect.soft(await geometry(printed), 'Auto keeps every page size and turn').toEqual(await geometry(sourceBytes));
+                expect.soft(printed.subarray(0, sourceBytes.length)).toEqual(sourceBytes);
+                const square = (await PDFDocument.load(printed)).getPage(1).node.Annots()?.lookup(0, PDFDict);
+                expect.soft(square?.has(PDFName.of('AP')), 'page 2 Square gains its appearance').toBe(true);
+                continue;
+            }
+            if (name === 'form') {
+                const sourceBytes = await readFile(source);
+                const printed = await readFile(printedPath);
+                expect.soft(printed.subarray(0, sourceBytes.length)).toEqual(sourceBytes);
+                const annotations = (await PDFDocument.load(printed)).getPage(0).node.Annots();
+                expect.soft(annotations?.lookup(0, PDFDict).has(PDFName.of('AP')), 'the field keeps printing from its value').toBe(false);
+                expect.soft(annotations?.lookup(1, PDFDict).has(PDFName.of('AP')), 'the FreeText gains its appearance').toBe(true);
+                // Base handed the source itself to the printer.
+                await rasterizePrint(printedPath, join(printDirectory, 'form-printed'));
+                await rasterizePrint(source, join(printDirectory, 'form-base'));
+                expect.soft(await renderedRegion(join(printDirectory, 'form-printed-1.png'), fieldRect), 'the field value prints as on base')
+                    .toEqual(await renderedRegion(join(printDirectory, 'form-base-1.png'), fieldRect));
+                const noteRegion = await renderedRegion(join(printDirectory, 'form-printed-1.png'), noteRect);
+                expect.soft(noteRegion.some(value => value < 128), 'the FreeText prints').toBe(true);
                 continue;
             }
             const codes = await glyphCodes(printedPath);

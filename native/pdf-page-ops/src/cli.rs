@@ -199,7 +199,6 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         "read-catalog" => Operation::ReadCatalog,
         "read-document-catalog" => Operation::ReadDocumentCatalog,
         "print-layout" => Operation::PrintLayout {
-            pages_file,
             view_mode: view_mode.ok_or("Missing --view-mode value")?,
             orientation: orientation.ok_or("Missing --orientation value")?,
         },

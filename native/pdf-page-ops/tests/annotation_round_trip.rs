@@ -1477,12 +1477,18 @@ fn write_single_square_pdf(path: &Path, border: &str) {
 }
 
 fn write_single_annotation_pdf(path: &Path, annotation: &str) {
-    let objects = [
-        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << >> /Annots [4 0 R] >>".to_string(),
-        format!("<< /Type /Annot {annotation} /F 4 >>"),
-    ];
+    write_pdf_objects(
+        path,
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << >> /Annots [4 0 R] >>".to_string(),
+            format!("<< /Type /Annot {annotation} /F 4 >>"),
+        ],
+    );
+}
+
+fn write_pdf_objects(path: &Path, objects: &[String]) {
     let mut bytes = b"%PDF-1.7\n".to_vec();
     let mut offsets = Vec::new();
     for (index, object) in objects.iter().enumerate() {
@@ -1580,6 +1586,124 @@ fn print_annotation_pdf(source: &Path, printed: &Path) {
         .output()
         .unwrap();
     assert_success(output, "print-layout");
+}
+
+#[test]
+fn auto_print_keeps_every_page_and_appends_only_the_missing_appearance() {
+    let temp = TempPaths::new("auto-print-mixed-geometry");
+    let printed = temp.root.join("printed.pdf");
+    let pages = [
+        ("306 396", 0),
+        ("1000 250", 90),
+        ("500 700", 180),
+        ("612 792", 270),
+    ];
+    let drawing = "q 1 0 0 RG 2 w 1 1 118 58 re S Q";
+    // Page n, its Square and that Square's stored appearance are objects
+    // 3n, 3n + 1 and 3n + 2; `missing` leaves one Square without /AP.
+    let write = |missing: Option<usize>| {
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R 6 0 R 9 0 R 12 0 R] /Count 4 >>".to_string(),
+        ];
+        for (index, (size, rotation)) in pages.iter().enumerate() {
+            let page = 3 * (index + 1);
+            let appearance = if missing == Some(index) {
+                String::new()
+            } else {
+                format!("/AP << /N {} 0 R >>", page + 2)
+            };
+            objects.extend([
+                format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {size}] /Rotate {rotation} /Resources << >> /Annots [{} 0 R] >>", page + 1),
+                format!("<< /Type /Annot /Subtype /Square /Rect [30 120 150 180] /C [1 0 0] /BS << /W 2 >> /F 4 {appearance} >>"),
+                format!("<< /Type /XObject /Subtype /Form /BBox [0 0 120 60] /Length {} >>\nstream\n{drawing}\nendstream", drawing.len()),
+            ]);
+        }
+        write_pdf_objects(&temp.pdf, &objects);
+    };
+    let geometry = |document: &Document| {
+        document
+            .get_pages()
+            .values()
+            .map(|id| {
+                let page = document.get_dictionary(*id).unwrap();
+                (
+                    page.get(b"MediaBox").unwrap().clone(),
+                    page.get(b"Rotate").unwrap().clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    write(Some(1));
+    print_annotation_pdf(&temp.pdf, &printed);
+    let source = fs::read(&temp.pdf).unwrap();
+    let output = fs::read(&printed).unwrap();
+    assert!(
+        output.starts_with(&source),
+        "Auto print appends to the source bytes"
+    );
+    let (before, after) = (
+        Document::load_mem(&source).unwrap(),
+        Document::load_mem(&output).unwrap(),
+    );
+    assert_eq!(geometry(&after), geometry(&before));
+    for square in [4, 10, 13] {
+        assert_eq!(
+            after.get_dictionary((square, 0)).unwrap(),
+            before.get_dictionary((square, 0)).unwrap()
+        );
+    }
+    let normal = after
+        .get_dictionary((7, 0))
+        .and_then(|square| square.get(b"AP"))
+        .and_then(Object::as_dict)
+        .and_then(|appearance| appearance.get(b"N"))
+        .and_then(Object::as_reference)
+        .unwrap();
+    let stream = after.get_object(normal).unwrap().as_stream().unwrap();
+    assert!(!stream.content.is_empty());
+
+    // With every appearance stored, the source prints as it is.
+    fs::remove_file(&printed).unwrap();
+    write(None);
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert!(!printed.exists());
+}
+
+#[test]
+fn auto_print_leaves_form_fields_to_the_printer() {
+    let temp = TempPaths::new("auto-print-form-field");
+    let printed = temp.root.join("printed.pdf");
+    write_pdf_objects(
+        &temp.pdf,
+        &[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /NeedAppearances true /DR << /Font << /Helv 6 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Annots [4 0 R 5 0 R] >>".to_string(),
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (Field value) /DA (/Helv 12 Tf 0 g) /Rect [72 600 300 630] /F 4 /P 3 0 R >>".to_string(),
+            "<< /Type /Annot /Subtype /FreeText /Rect [72 400 300 460] /Contents (Printed note) /DA (/Helv 14 Tf 0 0 1 rg) /F 4 /P 3 0 R >>".to_string(),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        ],
+    );
+
+    print_annotation_pdf(&temp.pdf, &printed);
+    let source = fs::read(&temp.pdf).unwrap();
+    let output = fs::read(&printed).unwrap();
+    assert!(
+        output.starts_with(&source),
+        "Auto print appends to the source bytes"
+    );
+    let (before, after) = (
+        Document::load_mem(&source).unwrap(),
+        Document::load_mem(&output).unwrap(),
+    );
+    // The field keeps its value-only dictionary, so the printer draws it as on base.
+    assert_eq!(
+        after.get_dictionary((4, 0)).unwrap(),
+        before.get_dictionary((4, 0)).unwrap()
+    );
+    assert!(after.get_dictionary((5, 0)).unwrap().has(b"AP"));
 }
 
 #[test]

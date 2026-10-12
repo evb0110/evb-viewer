@@ -2,37 +2,31 @@
 
 use super::*;
 
-fn normal_appearance(document: &mut Document, annotation: &Dictionary) -> Option<ObjectId> {
-    let stream = annotation_normal_appearance(document, annotation)?.clone();
-    Some(document.add_object(stream))
+#[path = "print_appearances.rs"]
+mod appearances;
+use appearances::annotation_normal_appearance;
+pub(super) use appearances::{materialize_print_appearances, write_print_appearances_path};
+
+/// Printable, visible and not a popup: the annotations print draws.
+fn is_printed(document: &Document, annotation: &Dictionary) -> bool {
+    annotation_print_flags(document, annotation)
+        & (ANNOTATION_FLAG_PRINT | ANNOTATION_FLAG_INVISIBLE | ANNOTATION_FLAG_HIDDEN)
+        == ANNOTATION_FLAG_PRINT
+        && annotation.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Popup")
 }
 
-#[path = "print_free_text.rs"]
-mod free_text;
-use free_text::missing_free_text_appearance;
-
-fn annotation_graphics_state(
-    document: &Document,
-    annotation: &Dictionary,
-    page_number: u32,
-) -> Result<Option<Dictionary>> {
+/// The annotation's /CA and /BM as a graphics state; an invalid one is ignored.
+fn annotation_graphics_state(document: &Document, annotation: &Dictionary) -> Option<Dictionary> {
     let mut state = Dictionary::new();
     if let Ok(opacity) = annotation.get(b"CA") {
-        let value = document.dereference(opacity)?.1;
-        let opacity = object_to_f64(value)
+        let opacity = object_to_f64(document.dereference(opacity).ok()?.1)
             .ok()
-            .filter(|value| (0.0..=1.0).contains(value));
-        let Some(opacity) = opacity else {
-            return Err(format!(
-                "Printable annotation on page {page_number} has an invalid opacity"
-            )
-            .into());
-        };
+            .filter(|value| (0.0..=1.0).contains(value))?;
         state.set("ca", number_object(opacity));
         state.set("CA", number_object(opacity));
     }
     if let Ok(blend_mode) = annotation.get(b"BM") {
-        let value = document.dereference(blend_mode)?.1.clone();
+        let value = document.dereference(blend_mode).ok()?.1.clone();
         let valid = match &value {
             Object::Name(_) => true,
             Object::Array(items) => {
@@ -46,18 +40,15 @@ fn annotation_graphics_state(
             _ => false,
         };
         if !valid {
-            return Err(format!(
-                "Printable annotation on page {page_number} has an invalid blend mode"
-            )
-            .into());
+            return None;
         }
         state.set("BM", value);
     }
     if state.is_empty() {
-        return Ok(None);
+        return None;
     }
     state.set("Type", Object::Name(b"ExtGState".to_vec()));
-    Ok(Some(state))
+    Some(state)
 }
 
 fn resource_category(
@@ -70,12 +61,11 @@ fn resource_category(
 
 /// Draws the normal appearance of every printable, visible annotation into
 /// the page content, fitted to its /Rect as PDF 32000-1 section 12.5.5
-/// describes. Popups and empty appearances draw nothing.
+/// describes. `materialize_print_appearances` has given each one it can draw
+/// an appearance; popups and empty appearances draw nothing.
 pub(super) fn flatten_printable_annotations(
     document: &mut Document,
     page: &Dictionary,
-    page_id: ObjectId,
-    page_number: u32,
     resources: &mut Dictionary,
     content: &mut Vec<u8>,
 ) -> Result<()> {
@@ -88,7 +78,6 @@ pub(super) fn flatten_printable_annotations(
     };
     let mut xobjects = resource_category(document, resources, b"XObject")?;
     let mut graphics_states = resource_category(document, resources, b"ExtGState")?;
-    let mut text_font = None;
     let mut drew = false;
     for item in &annotations {
         let Ok(annotation) = document
@@ -97,36 +86,13 @@ pub(super) fn flatten_printable_annotations(
         else {
             continue;
         };
-        let mut annotation = annotation.clone();
-        let flags = annotation_print_flags(document, &annotation);
-        let printable = flags & ANNOTATION_FLAG_PRINT != 0
-            && flags & (ANNOTATION_FLAG_INVISIBLE | ANNOTATION_FLAG_HIDDEN) == 0;
-        let is_popup = annotation
-            .get(b"Subtype")
-            .and_then(Object::as_name)
-            .is_ok_and(|subtype| subtype == b"Popup");
-        if !printable || is_popup {
-            continue;
-        }
-        let appearance = normal_appearance(document, &annotation)
-            .or_else(|| {
-                if annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"FreeText") {
-                    missing_free_text_appearance(document, &annotation, page_id, &mut text_font)
-                        .ok()
-                } else {
-                    None
-                }
-            })
-            .or_else(|| synthesized_appearance(document, &mut annotation));
-        // An annotation with no drawable geometry cannot be placed. It does
-        // not invalidate the page's content or another annotation's print.
-        let Some(appearance_id) = appearance else {
+        let annotation = annotation.clone();
+        let Some(appearance) = annotation_normal_appearance(document, &annotation)
+            .filter(|stream| !stream.content.is_empty() && is_printed(document, &annotation))
+            .cloned()
+        else {
             continue;
         };
-        let appearance = document.get_object(appearance_id)?.as_stream()?;
-        if appearance.content.is_empty() {
-            continue;
-        }
         let Some(bbox) = appearance
             .dict
             .get(b"BBox")
@@ -189,16 +155,15 @@ pub(super) fn flatten_printable_annotations(
         let scale_y = rect_height / height;
 
         let appearance_name = unused_resource_name(&xobjects, "PrintAnnot");
-        xobjects.set(appearance_name.clone(), Object::Reference(appearance_id));
-        let graphics_state =
-            match annotation_graphics_state(document, &annotation, page_number).unwrap_or(None) {
-                Some(state) => {
-                    let name = unused_resource_name(&graphics_states, "PrintAnnot");
-                    graphics_states.set(name.clone(), document.add_object(state));
-                    format!("/{name} gs ")
-                }
-                None => String::new(),
-            };
+        xobjects.set(appearance_name.clone(), document.add_object(appearance));
+        let graphics_state = match annotation_graphics_state(document, &annotation) {
+            Some(state) => {
+                let name = unused_resource_name(&graphics_states, "PrintAnnot");
+                graphics_states.set(name.clone(), document.add_object(state));
+                format!("/{name} gs ")
+            }
+            None => String::new(),
+        };
         content.extend(
             format!(
                 "q {graphics_state}{} re W n {} cm /{appearance_name} Do Q\n",
