@@ -402,7 +402,6 @@ export async function atomicReplace(
     if (options.destinationBackupPath !== undefined) {
         const backupPath = options.destinationBackupPath;
         assertNoSymlinkPathSegments(backupPath);
-        await unlink(backupPath);
         await rename(dst, backupPath);
         await fsyncPath(backupPath);
         await moveFileToMissingPath(srcTemp, dst);

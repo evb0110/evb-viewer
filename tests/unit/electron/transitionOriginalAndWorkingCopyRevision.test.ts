@@ -156,8 +156,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             reason: 'save-sync',
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(stagedPath, originalPath, {
-                ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                ...(destinationBackupPath ? {destinationBackupPath} : {}),
+                assertDestinationCurrent,
+                destinationBackupPath,
             }),
             afterWorkingCopySync: async (admitted) => {
                 const writer = spawnSync(process.execPath, [
@@ -206,12 +206,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
 
             await expect(transitionOriginalAndWorkingCopyRevision({
+                captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
                 workingCopyPath,
                 originalPath,
                 reason: 'native-mutation',
                 senderId: 7,
                 publishedSourcePath: stagedPath,
-                publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                }),
                 afterWorkingCopySync: async () => {
                     expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
                 },
@@ -367,8 +371,11 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 reason: 'save-sync',
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, originalPath, 7),
                 publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, originalPath, {
-                    ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                    ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                    ...({
+                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                        ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                    }),
+                    destinationBackupPath,
                 }),
             }).catch((error: unknown) => error);
             expect(edited).toBe(true);
@@ -406,8 +413,11 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7),
                 publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
                     await atomicReplace(fixture.stagedPath, fixture.originalPath, {
-                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                        ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                        ...({
+                            ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                            ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                        }),
+                        destinationBackupPath,
                     });
                     const target = mutation === 'replacement' ? `${fixture.originalPath}.external` : fixture.originalPath;
                     await writeFile(target, 'external-after-publication');
@@ -428,7 +438,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         },
     );
 
-    it('keeps the admitted baseline when the original changes during backup creation', async () => {
+    it('keeps the admitted baseline when the original changes before displacement', async () => {
         const fs = await import('node:fs/promises');
         let originalPath = '';
         let edited = false;
@@ -469,10 +479,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 senderId: 7,
                 reason: 'save-sync',
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, originalPath, 7),
-                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, originalPath, {
-                    ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                    ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
-                }),
+                publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
+                    await editBeforeBackup(originalPath, destinationBackupPath);
+                    return atomicReplace(fixture.stagedPath, originalPath, {
+                        ...({
+                            ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                            ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                        }),
+                        destinationBackupPath,
+                    });
+                },
             })).resolves.toBeNull();
             expect(edited).toBe(true);
             expect((await readFile(originalPath)).subarray(262144, 262157).toString()).toBe('EXTERNAL-EDIT');
@@ -500,8 +516,11 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 reason: 'save-sync',
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7),
                 publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, fixture.originalPath, {
-                    ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                    ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                    ...({
+                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
+                        ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
+                    }),
+                    destinationBackupPath,
                 }),
             })).resolves.toMatchObject({contentRevision: 2});
             expect(await readFile(fixture.originalPath, 'utf8')).toBe('new-committed-pdf');
@@ -561,6 +580,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const fixture = await prepare('old-original', 'accepted-unsaved-work');
         const bytes = Buffer.alloc(4 * 1024 * 1024, 65);
         await writeFile(fixture.originalPath, bytes);
+        await writeFile(fixture.stagedPath, Buffer.alloc(bytes.length, 67));
         const {refreshWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
         await refreshWorkingCopyOriginalFileExpectation(fixture.workingCopyPath, 7);
         const {captureOriginalPathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
@@ -573,7 +593,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         let bytesAfterAbort = 0;
         const read = vi.spyOn(chunks, 'readFileChunk').mockImplementation(async (...args) => {
             const length = await realRead(...args);
-            if (proof && args[0] === fixture.originalPath && args[1].length === 1024 * 1024) {
+            if (proof && args[0] === fixture.stagedPath && args[1].length === 1024 * 1024) {
                 if (controller.signal.aborted) bytesAfterAbort += length;
                 else controller.abort(new DOMException('Save cancelled', 'AbortError'));
             }
@@ -587,8 +607,11 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 signal: controller.signal,
                 reason: 'save-sync',
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7, controller.signal),
-                publishOriginal: assertDestinationCurrent => atomicReplace(fixture.stagedPath, fixture.originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                onPhase: phase => { if (phase === 'transition-backup-original') proof = true; },
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, fixture.originalPath, {
+                    ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                    destinationBackupPath,
+                }),
+                onPhase: phase => { if (phase === 'transition-admit-original') proof = true; },
             })).rejects.toMatchObject({name: 'AbortError'});
             expect(controller.signal.aborted).toBe(true);
             expect(bytesAfterAbort).toBe(0);
@@ -611,12 +634,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
         await expect(transitionOriginalAndWorkingCopyRevision({
+            captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             workingCopyPath,
             originalPath,
             reason: 'native-mutation',
             senderId: 7,
             publishedSourcePath: stagedPath,
-            publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                assertDestinationCurrent: assertDestinationCurrent,
+                destinationBackupPath,
+            }),
             afterWorkingCopySync: async () => {
                 throw new Error('post-sync failure');
             },
@@ -660,15 +687,18 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         let namesDuringPublish: string[] = [];
 
         await expect(transitionOriginalAndWorkingCopyRevision({
+            captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             workingCopyPath,
             originalPath,
             reason: 'native-mutation',
             senderId: 7,
             publishedSourcePath: stagedPath,
-            publishOriginal: async () => {
-                // The transition backup exists here: it is the only entry naming the transition.
+            publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
+                await publishImmutableFileAtomic(stagedPath, originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                });
                 namesDuringPublish = await readdir(dirname(originalPath));
-                await publishImmutableFileAtomic(stagedPath, originalPath);
             },
         })).resolves.toMatchObject({contentRevision: 2});
 
@@ -699,12 +729,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
             const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
             await expect(transitionOriginalAndWorkingCopyRevision({
+                captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, prepared.originalPath, 7),
                 workingCopyPath,
                 originalPath: prepared.originalPath,
                 reason: 'native-mutation',
                 senderId: 7,
                 publishedSourcePath: prepared.stagedPath,
-                publishOriginal: () => publishImmutableFileAtomic(prepared.stagedPath, prepared.originalPath),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(prepared.stagedPath, prepared.originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                }),
                 afterWorkingCopySync: async () => {
                     failWorkingRollback = true;
                     throw new Error('post-sync failure');
@@ -752,11 +786,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishedSourcePath: stagedPath,
-            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                stagedPath,
-                originalPath,
-                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-            ),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                destinationBackupPath,
+            }),
             afterWorkingCopySync: async () => {
                 await writeFile(originalPath, 'external-original');
                 throw new Error('post-sync failure');
@@ -784,11 +817,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishedSourcePath: stagedPath,
-            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                stagedPath,
-                originalPath,
-                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-            ),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                destinationBackupPath,
+            }),
             afterWorkingCopySync: async () => {
                 throw new Error('post-sync failure');
             },
@@ -807,13 +839,17 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
         await expect(transitionOriginalAndWorkingCopyRevision({
+            captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             workingCopyPath,
             originalPath,
             reason: 'native-mutation',
             senderId: 7,
             publishedSourcePath: stagedPath,
-            publishOriginal: async () => {
-                await rename(stagedPath, originalPath);
+            publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
+                await (await import('@electron/utils/atomicReplace')).atomicReplace(stagedPath, originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                });
                 throw new Error('publication failed');
             },
         })).rejects.toThrow('publication failed');
@@ -836,18 +872,22 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         // that window (the renderer reads right after a rotation) must not
         // take the backup for an orphan.
         await expect(transitionOriginalAndWorkingCopyRevision({
+            captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             workingCopyPath,
             originalPath,
             reason: 'native-mutation',
             senderId: 7,
             onPhase: phase => {
-                if (phase === 'transition-backup-original') {
+                if (phase === 'transition-journal-prepared') {
                     revisionRead = ensureWorkingCopyRevision(workingCopyPath, 7);
                 }
             },
             publishedSourcePath: stagedPath,
-            publishOriginal: async () => {
-                await rename(stagedPath, originalPath);
+            publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
+                await (await import('@electron/utils/atomicReplace')).atomicReplace(stagedPath, originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                });
                 throw new Error('publication failed');
             },
         })).rejects.toThrow('publication failed');
@@ -870,13 +910,17 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         // A read here once took the live journal for a crash's and rolled the
         // published save back while the save still reported success.
         await expect(transitionOriginalAndWorkingCopyRevision({
+            captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             workingCopyPath,
             originalPath,
             reason: 'native-mutation',
             senderId: 7,
             publishedSourcePath: stagedPath,
-            publishOriginal: async () => {
-                await publishImmutableFileAtomic(stagedPath, originalPath);
+            publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
+                await publishImmutableFileAtomic(stagedPath, originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                });
                 await ensureWorkingCopyRevision(workingCopyPath, 7);
             },
         })).resolves.toMatchObject({contentRevision: 2});
@@ -1015,7 +1059,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 signal: controller.signal,
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
                 publishedSourcePath: stagedPath,
-                publishOriginal: () => rename(stagedPath, originalPath),
+                publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => (await import('@electron/utils/atomicReplace')).atomicReplace(stagedPath, originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                }),
             })).rejects.toThrow('save cancelled');
 
             await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
@@ -1055,12 +1102,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
             await expect(transitionOriginalAndWorkingCopyRevision({
+                captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
                 workingCopyPath,
                 originalPath,
                 reason: 'native-mutation',
                 senderId: 7,
                 publishedSourcePath: stagedPath,
-                publishOriginal: () => publishImmutableFileAtomic(stagedPath, originalPath),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                }),
                 afterWorkingCopySync: async () => {
                     expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
                 },
@@ -1099,12 +1150,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
             await expect(transitionOriginalAndWorkingCopyRevision({
+                captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, prepared.originalPath, 7),
                 workingCopyPath,
                 originalPath: prepared.originalPath,
                 reason: 'native-mutation',
                 senderId: 7,
                 publishedSourcePath: prepared.stagedPath,
-                publishOriginal: () => publishImmutableFileAtomic(prepared.stagedPath, prepared.originalPath),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(prepared.stagedPath, prepared.originalPath, {
+                    assertDestinationCurrent: assertDestinationCurrent,
+                    destinationBackupPath,
+                }),
             })).resolves.toMatchObject({contentRevision: 2});
 
             await expect(readFile(prepared.originalPath, 'utf8')).resolves.toBe('new-committed-pdf');
@@ -1140,11 +1195,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishedSourcePath: stagedPath,
-            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                stagedPath,
-                originalPath,
-                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-            ),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                destinationBackupPath,
+            }),
             afterWorkingCopySync: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
@@ -1175,11 +1229,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishedSourcePath: secondStagedPath,
-            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                secondStagedPath,
-                originalPath,
-                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-            ),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(secondStagedPath, originalPath, {
+                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                destinationBackupPath,
+            }),
         })).resolves.toMatchObject({contentRevision: 3});
 
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('second-committed-pdf');
@@ -1213,11 +1266,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishedSourcePath: stagedPath,
-            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                stagedPath,
-                originalPath,
-                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-            ),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                destinationBackupPath,
+            }),
             afterWorkingCopySync: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
@@ -1241,11 +1293,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishedSourcePath: secondStagedPath,
-            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                secondStagedPath,
-                originalPath,
-                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-            ),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(secondStagedPath, originalPath, {
+                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                destinationBackupPath,
+            }),
         })).resolves.toMatchObject({contentRevision: 3});
 
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('second-committed-pdf');
@@ -1270,11 +1321,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishedSourcePath: stagedPath,
-            publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                stagedPath,
-                originalPath,
-                {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-            ),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                destinationBackupPath,
+            }),
             afterWorkingCopySync: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
@@ -1317,11 +1367,10 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 senderId: 7,
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
                 publishedSourcePath: stagedPath,
-                publishOriginal: assertDestinationCurrent => publishImmutableFileAtomic(
-                    stagedPath,
-                    originalPath,
-                    {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})},
-                ),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
+                    ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                    destinationBackupPath,
+                }),
                 afterWorkingCopySync: async () => {
                     expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
                 },
@@ -1420,10 +1469,13 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             publishedSourcePath: stagedPath,
-            publishOriginal: async assertDestinationCurrent => {
+            publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
                 publicationPaused.resolve();
                 await releasePublication.promise;
-                await atomicReplace(stagedPath, originalPath, {...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})});
+                await atomicReplace(stagedPath, originalPath, {
+                    ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
+                    destinationBackupPath,
+                });
             },
         });
 
