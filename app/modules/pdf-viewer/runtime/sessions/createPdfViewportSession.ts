@@ -998,27 +998,20 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     // any size change is observed. A position committed after the gesture began,
     // such as a navigation that lands while the sidebar slides, is newer than
     // that point and ends it.
-    let resizeGesture: {
-        anchor: NonNullable<ReturnType<typeof singlePageScroll.captureRelayoutAnchor>>;
-        committed: IPdfSemanticAnchor | null;
-    } | null = null;
-    const readCommitted = () => singlePageScroll.viewportAuthority.committedAnchor.value;
-    function readResizeGestureAnchor() {
-        const anchor = resizeGesture?.anchor ?? null;
-        const isCurrent = readCommitted() === anchor || readCommitted() === resizeGesture?.committed;
-        return isCurrent ? anchor : null;
-    }
-    watch(options.isResizing, (resizing) => {
-        const anchor = resizing ? singlePageScroll.captureRelayoutAnchor() : readResizeGestureAnchor();
-        resizeGesture = resizing && anchor
-            ? {
-                anchor,
-                committed: readCommitted(),
-            }
-            : null;
-        if (!resizing && anchor) {
-            singlePageScroll.relayout(fitToViewport, anchor);
+    watch([
+        options.isActive,
+        options.isResizing,
+    ], ([
+        active,
+        resizing,
+    ], [wasActive]) => {
+        if (!active) {
+            viewportAuthority.suspend();
+            return;
         }
+        singlePageScroll.relayout(fitToViewport, wasActive && resizing
+            ? singlePageScroll.captureRelayoutAnchor()
+            : toRaw(viewportAuthority.committedAnchor.value));
     }, {flush: 'sync'});
     let observedViewportSize: {
         width: number;
@@ -1045,19 +1038,13 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         // a resize: the committed place is placed again in the viewport left.
         const scrollbarOnly = previous.width === container.clientWidth
             && Math.abs(previous.height - container.clientHeight) === container.offsetWidth - container.clientWidth;
-        singlePageScroll.relayout(fitToViewport, readResizeGestureAnchor() ?? (scrollbarOnly
-            ? toRaw(readCommitted())
+        singlePageScroll.relayout(fitToViewport, options.isResizing.value || scrollbarOnly
+            || previous.width === 0 || previous.height === 0
+            ? toRaw(viewportAuthority.committedAnchor.value)
             : singlePageScroll.captureRelayoutAnchor({
                 x: previous.width / 2,
                 y: previous.height / 2,
-            }, previous)));
-    });
-    watch(options.isActive, (active) => {
-        if (!active) {
-            singlePageScroll.viewportAuthority.suspend();
-            return;
-        }
-        singlePageScroll.relayout(fitToViewport, singlePageScroll.viewportAuthority.committedAnchor.value);
+            }, previous));
     });
     let activeDocumentPlacement: IPdfViewportReloadPlacement | null = null;
     async function applyReadyDocumentTransition(transition: IPdfDocumentTransition) {

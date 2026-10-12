@@ -1063,6 +1063,40 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('keeps the committed page and offset through a resize gesture begun while inactive', async () => {
+        const isResizing = ref(false);
+        const fixture = createViewportFixture({
+            isResizing,
+            zoomMode: 'custom',
+        });
+        try {
+            await nextTick();
+            fixture.container.scrollTop = 28_000;
+            fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
+            await nextTick();
+            const page = fixture.viewport.currentPage.value;
+            const top = fixture.container.scrollTop;
+            expect(page).toBeGreaterThan(1);
+            fixture.isActive.value = false;
+            await nextTick();
+            fixture.container.scrollTop = 0;
+            defineDimension(fixture.container, 'clientWidth', 0);
+            defineDimension(fixture.container, 'clientHeight', 0);
+            isResizing.value = true;
+            await nextTick();
+            defineDimension(fixture.container, 'clientWidth', 800);
+            defineDimension(fixture.container, 'clientHeight', 800);
+            fixture.isActive.value = true;
+            await nextTick();
+            isResizing.value = false;
+            await nextTick();
+            expect(fixture.viewport.currentPage.value).toBe(page);
+            expect(fixture.container.scrollTop).toBeCloseTo(top, 0);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('keeps an inactive pane user scroll authoritative after relocation is fenced', async () => {
         const fixture = createViewportFixture({
             bufferPages: 0,
