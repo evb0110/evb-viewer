@@ -16,7 +16,11 @@ import {
     getBrowserDocumentFileName,
     isBrowserDocumentRef,
 } from '@app/platform/browserDocumentStore';
-import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
+import {
+    syncBrowserWindowTitle,
+    retireBrowserDocumentWorkingCopy,
+    reserveBrowserDocumentWorkingCopy,
+} from '@app/platform/browserWindowTabs';
 import {
     OPEN_IMAGE_ACCEPT,
     OPEN_INPUT_ACCEPT,
@@ -59,10 +63,7 @@ import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserP
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
-import {
-    commitBrowserStoreStagedArtifact,
-    createBrowserStoreStagedArtifact,
-} from '@app/platform/browser/browserStagedArtifact';
+import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import {isBrowserStoreStagedArtifact} from '@contracts/stagedArtifacts';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
@@ -356,17 +357,16 @@ export function createBrowserDocumentsFileCapability(
                 path,
                 options.expectedDocumentRevisionToken,
             );
-            const stagedPath = await browserDocumentStore.createStoredDocument(
-                `${getBrowserDocumentFileName(path)}.staged-native-save.pdf`,
-                wasmResult.data,
-                {
+            const stagedName = `${getBrowserDocumentFileName(path)}.staged-native-save.pdf`;
+            const stagedPath = await reserveBrowserDocumentWorkingCopy(stagedName);
+            try {
+                await browserDocumentStore.createStoredDocument(stagedName, wasmResult.data, {
+                    ref: stagedPath,
                     mimeType: 'application/pdf',
                     saveKind: 'pdf',
                     kind: 'output',
                     retention: 'transient',
-                },
-            );
-            try {
+                });
                 const stagedOutput = await createBrowserStoreStagedArtifact(
                     browserDocumentStore,
                     stagedPath,
@@ -400,6 +400,7 @@ export function createBrowserDocumentsFileCapability(
                     stagedOutput,
                 } satisfies IPdfNativeSaveResult;
             } catch (error) {
+                await retireBrowserDocumentWorkingCopy(stagedPath);
                 await browserDocumentStore.remove(stagedPath).catch(() => undefined);
                 throw error;
             }
@@ -411,6 +412,7 @@ export function createBrowserDocumentsFileCapability(
             }
             browserNativeMutationLeases.delete(leaseId);
             browserNativeMutationBindings.delete(stagedPath);
+            await retireBrowserDocumentWorkingCopy(stagedPath);
             await browserDocumentStore.remove(stagedPath).catch(() => undefined);
             return true;
         },
@@ -422,19 +424,14 @@ export function createBrowserDocumentsFileCapability(
             if (bytes.byteLength !== stagedOutput.size || await sha256Hex(bytes) !== stagedOutput.sha256) {
                 throw new Error('Browser staged artifact content does not match its receipt');
             }
-            const clonePath = await browserDocumentStore.createStoredDocument(
-                getBrowserDocumentFileName(stagedOutput.path),
-                bytes,
-                {
-                    mimeType: 'application/pdf',
-                    saveKind: 'pdf',
-                    kind: 'working',
-                    retention: 'transient',
-                    ...(originalPath ? {sourceRef: originalPath} : {}),
-                },
-            );
+            const clonePath = await createBrowserWorkingCopyFromBytes({
+                fileName: getBrowserDocumentFileName(stagedOutput.path),
+                data: bytes,
+                ...(originalPath ? {sourceRef: originalPath} : {}),
+            });
             browserNativeMutationLeases.delete(stagedOutput.leaseId);
             browserNativeMutationBindings.delete(stagedOutput.path);
+            await retireBrowserDocumentWorkingCopy(stagedOutput.path);
             await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
             return clonePath;
         },
@@ -448,21 +445,18 @@ export function createBrowserDocumentsFileCapability(
             }
             let committed: boolean;
             try {
-                committed = await commitBrowserStoreStagedArtifact(
-                    browserDocumentStore,
-                    stagedOutput,
-                    path,
-                    options.expectedDocumentRevisionToken,
-                );
+                committed = await saveWorkingBytesToSource(path, browserUseNativeAppMessageProvider, options, stagedOutput);
             } catch (error) {
                 browserNativeMutationBindings.delete(stagedOutput.path);
                 browserNativeMutationLeases.delete(stagedOutput.leaseId);
+                await retireBrowserDocumentWorkingCopy(stagedOutput.path);
                 await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
                 throw error;
             }
             if (!committed) {
                 browserNativeMutationBindings.delete(stagedOutput.path);
                 browserNativeMutationLeases.delete(stagedOutput.leaseId);
+                await retireBrowserDocumentWorkingCopy(stagedOutput.path);
                 await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
                 return {
                     applied: false,
@@ -472,6 +466,8 @@ export function createBrowserDocumentsFileCapability(
             const identityBindings = browserNativeMutationBindings.get(stagedOutput.path);
             browserNativeMutationBindings.delete(stagedOutput.path);
             browserNativeMutationLeases.delete(stagedOutput.leaseId);
+            await retireBrowserDocumentWorkingCopy(stagedOutput.path);
+            await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
             await clearSearchCaches(path);
             return {
                 applied: true,
@@ -644,43 +640,29 @@ export function createBrowserDocumentsFileCapability(
                             ? sourceEntry.sourceRef
                             : sourceEntry.ref
                     );
-            if (sourceEntry.kind !== 'working') {
-                const workingPath = await browserDocumentStore.cloneAsWorkingCopy(
-                    sourceEntry.ref,
-                    sourceEntry.fileName,
-                );
-                try {
-                    const decryption = await decryptBrowserWorkingCopy(workingPath, password);
-                    assertBrowserWorkingCopyDecrypted(decryption);
-                    browserDocumentStore.unload(sourcePath);
-                    return workingPath;
-                } catch (error) {
-                    await browserDocumentStore.remove(workingPath).catch(() => undefined);
-                    throw error;
-                }
-            }
-
-            const workingPath = await browserDocumentStore.cloneStoredDocument(
-                sourceEntry.ref,
-                {
-                    fileName: sourceEntry.fileName,
-                    kind: 'working',
-                    retention: 'transient',
-                    ...(sourceRef && isBrowserDocumentRef(sourceRef)
-                        ? { sourceRef }
-                        : {}),
-                    saveKind: 'pdf',
-                    saveHandle: null,
-                },
-            );
+            const workingPath = await reserveBrowserDocumentWorkingCopy(sourceEntry.fileName, sourceRef ? parseDocumentRef(sourceRef) ?? undefined : undefined);
             try {
-                const decryption = await decryptBrowserWorkingCopy(workingPath, password);
-                assertBrowserWorkingCopyDecrypted(decryption);
+                if (sourceEntry.kind !== 'working') {
+                    await browserDocumentStore.cloneAsWorkingCopy(sourceEntry.ref, sourceEntry.fileName, workingPath);
+                } else {
+                    await browserDocumentStore.cloneStoredDocument(sourceEntry.ref, {
+                        ref: workingPath,
+                        fileName: sourceEntry.fileName,
+                        kind: 'working',
+                        retention: 'transient',
+                        ...(sourceRef ? {sourceRef} : {}),
+                        saveKind: 'pdf',
+                        saveHandle: null,
+                    });
+                }
+                assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password));
+                browserDocumentStore.unload(sourcePath);
+                return workingPath;
             } catch (error) {
+                await retireBrowserDocumentWorkingCopy(workingPath);
                 await browserDocumentStore.remove(workingPath).catch(() => undefined);
                 throw error;
             }
-            return workingPath;
         },
         async saveFileStructured(path, revisionOptions) {
             const result = await saveWorkingBytesToSourceStructured(
@@ -694,24 +676,20 @@ export function createBrowserDocumentsFileCapability(
             return result;
         },
         async cleanupFile(path) {
+            await retireBrowserDocumentWorkingCopy(path);
             const entry = await browserDocumentStore.ensureEntry(path);
             if (!entry) {
                 return;
             }
 
-            const sourceRef = entry.sourceRef ?? path;
-            if (sourceRef !== path) {
-                await browserDocumentStore.cleanupDetachedDocument(path);
-                await browserDocumentStore.cleanupDetachedDocument(sourceRef);
-                await Promise.all([
-                    clearSearchCaches(path),
-                    clearSearchCaches(sourceRef),
-                ]);
-                return;
+            const refs = [...new Set([
+                path,
+                entry.sourceRef ?? path,
+            ])];
+            for (const ref of refs) {
+                await browserDocumentStore.cleanupDetachedDocument(ref);
+                await clearSearchCaches(ref);
             }
-
-            await browserDocumentStore.cleanupDetachedDocument(path);
-            await clearSearchCaches(path);
         },
         setWindowTitle(title) {
             if (typeof document !== 'undefined') {

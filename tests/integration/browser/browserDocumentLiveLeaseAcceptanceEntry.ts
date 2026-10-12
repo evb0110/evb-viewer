@@ -19,7 +19,11 @@ import {
 } from '@app/platform/browser/browserDocumentLeaseStore';
 import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
 import {writeRecentFilesToStorage} from '@app/platform/browser/browserRecentFilesStore';
-import {browserWindowTabsCapability} from '@app/platform/browserWindowTabs';
+import {
+    browserWindowTabsCapability, publishBrowserDocumentLiveLeases,
+} from '@app/platform/browserWindowTabs';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const OWNER_ID = 'window:482-live-lease';
 const INLINE_BYTES = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8);
@@ -461,3 +465,37 @@ Reflect.set(globalThis, '__evbReadDirtyTransferObservation', readDirtyTransferOb
 Reflect.set(globalThis, '__evbWaitForDirtyTransferCommit', waitForDirtyTransferCommit);
 
 Reflect.set(globalThis, '__evbCleanupDetachedLiveLeaseDocument', (ref: string) => browserDocumentStore.cleanupDetachedDocument(ref));
+
+async function cleanOpenDocument() {
+    const source = await browserDocumentStore.createStoredDocument('clean-open.pdf', GENERATED_BYTES, {
+        kind: 'source',
+        retention: 'durable',
+        mimeType: 'application/pdf',
+    });
+    const working = await browserDocumentStore.cloneAsWorkingCopy(source);
+    const recovery = browserWindowTabsCapability.browserRecovery!;
+    const saved = await recovery.save('window:clean-source', 0, {
+        version: 1,
+        capturedAt: requireEpochMs(Date.now()),
+        activePaneId: null,
+        activeTabId: null,
+        layout: null,
+        panes: [],
+        tabs: [],
+    }, [], [
+        source,
+        working,
+    ]);
+    await recovery.clear('window:clean-source', saved.generation);
+    return {
+        source,
+        working,
+        bytes: Array.from(await browserDocumentStore.read(working)),
+    };
+}
+Reflect.set(globalThis, '__evbCleanOpenDocument', cleanOpenDocument);
+Reflect.set(globalThis, '__evbPublishOpenDocument', (refs: string) => publishBrowserDocumentLiveLeases(
+    'window:clean-target', (JSON.parse(refs) as string[]).map(ref => requireDocumentRef(ref)),
+).then(() => true));
+Reflect.set(globalThis, '__evbCloseCleanSource', () => publishBrowserDocumentLiveLeases('window:clean-source', []).then(() => true));
+Reflect.set(globalThis, '__evbCloseCleanTarget', () => publishBrowserDocumentLiveLeases('window:clean-target', []).then(() => true));

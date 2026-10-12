@@ -1,3 +1,8 @@
+import {tryOnScopeDispose} from '@vueuse/core';
+import {
+    publishBrowserDocumentLiveLeases,
+    registerBrowserDocumentDependencyReader,
+} from '@app/platform/browserWindowTabs';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -74,6 +79,7 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         fileHistoryMutationVersion,
         fileHistorySessionVersion,
         getHistoryDebugState,
+        readDocumentDependencies,
         incrementSessionVersion,
         markCurrentHistoryEntryClean,
         pushHistorySnapshot,
@@ -95,6 +101,26 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         readPdfStateFromPath: (...args) => getDocumentOpenFlow().readPdfStateFromPath(...args),
         toPdfBlob: (...args) => getDocumentOpenFlow().toPdfBlob(...args),
     });
+    if (!isElectron.value) {
+        const readDependencies = () => [
+            workingCopyPath.value,
+            originalPath.value,
+            ...readDocumentDependencies(),
+        ].flatMap(ref => ref ? [ref] : []);
+        const unregister = registerBrowserDocumentDependencyReader(readDependencies);
+        const stop = watch(readDependencies, () => {
+            void publishBrowserDocumentLiveLeases().catch(error => {
+                BrowserLogger.warn('pdf-file', 'Failed to publish document dependencies', error);
+            });
+        }, {
+            immediate: true,
+            flush: 'sync',
+        });
+        tryOnScopeDispose(() => {
+            stop();
+            unregister();
+        });
+    }
     const documentOpenFlow = createDocumentOpenFlow(sessionState, {
         cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,

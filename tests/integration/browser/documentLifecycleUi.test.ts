@@ -20,7 +20,7 @@ import {
 import {chromium} from 'playwright';
 import type {loadBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import type {
-    BrowserContext, Page,
+    BrowserContext, Page, Download,
 } from 'playwright';
 import {
     afterAll,
@@ -4235,10 +4235,15 @@ describe('optional search-cache mutation completion proof', () => {
 
 });
 
-it('keeps the saved copy source and both notes after Clear Recent Files and Save', async () => {
+it.each([
+    'clean-open',
+    'two-window-move',
+    'clear-recent',
+])('keeps the saved copy source and both notes after Clear Recent Files and Save (mode=%s)', async (mode) => {
     const browser = await chromium.launch({headless:true});
     const observations:unknown[]=[];
-    const evidenceDir=resolve(process.cwd(),'.devkit/au60r6/ui');mkdirSync(evidenceDir,{recursive:true});
+    let activePage: Page | null = null;
+    const evidenceDir=resolve(process.cwd(),`.devkit/bw03-r1/ui-${process.env.BW03_REV ?? 'green'}-${mode}`);mkdirSync(evidenceDir,{recursive:true});
     try {
         const context=await browser.newContext({
             viewport:{
@@ -4247,7 +4252,9 @@ it('keeps the saved copy source and both notes after Clear Recent Files and Save
             },
             acceptDownloads:true,
         });
-        const page=await context.newPage();
+        let page=await context.newPage();
+        activePage = page;
+        observations.push({problems: collectConsoleProblems(page)});
         await page.addInitScript(()=>{Reflect.set(window,'__allowRendererFileOpenForAutomation',()=>true);Reflect.set(window,'showSaveFilePicker',undefined);window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode','input');});
         await page.goto(origin,{waitUntil:'domcontentloaded'});await waitForOpenFileReady(page);keepFileChooserInterceptionEnabled(page);
         const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{
@@ -4264,56 +4271,111 @@ it('keeps the saved copy source and both notes after Clear Recent Files and Save
             x:160,
             y:180,
         });
+        const recoveryCount = () => page.evaluate(async () => {
+            const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                const request = indexedDB.open('evb-viewer-browser-documents');
+                request.onsuccess = () => resolveDb(request.result);
+                request.onerror = () => rejectDb(request.error);
+            });
+            try {
+                return await new Promise<number>((resolveCount, rejectCount) => {
+                    const request = db.transaction('workspace-recovery').objectStore('workspace-recovery').count();
+                    request.onsuccess = () => resolveCount(request.result);
+                    request.onerror = () => rejectCount(request.error);
+                });
+            } finally { db.close(); }
+        });
+        await expect.poll(recoveryCount, {timeout: 30_000}).toBe(1);
         const firstDownload=page.waitForEvent('download');
         await page.getByRole('button',{
             name:'Save options',
             exact:true,
         }).click();await page.getByRole('menuitem',{name:/^Save As/u}).click();await (await firstDownload).saveAs(resolve(evidenceDir,'first.pdf'));
         await page.evaluate(async()=>{const api=Reflect.get(window,'__evbTestApi') as IBrowserLifecycleTestApi;await api.waitForActiveDocumentOpenSettled?.();});
+        await expect.poll(recoveryCount, {timeout: 30_000}).toBe(0);
         observations.push({firstSavedTexts:Array.from(noteTexts(await PDFDocument.load(readFileSync(resolve(evidenceDir,'first.pdf')))))});
-        const openingWorkingRef = await page.evaluate(() => {
+        const sourceRef = await page.evaluate(() => {
             const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-            return api.readActiveWorkspaceStateValues?.<{workingCopyPath: string}>(['workingCopyPath']).workingCopyPath;
+            return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
         });
-        const sourceRef = await page.evaluate<string>(`(async()=>{const {browserDocumentStore}=await import('/_nuxt/platform/browser/browserDocumentRepository.ts');return browserDocumentStore.getSourceRef(${JSON.stringify(openingWorkingRef)});})()`);
-        const tabId=await page.locator('.tab.is-active[data-tab-id]').first().getAttribute('data-tab-id');
-        await page.getByRole('button',{
-            name:'New Tab',
-            exact:true,
-        }).click();
-        await page.getByRole('button',{
-            name:'Clear Recent Files',
-            exact:true,
-        }).click();await page.getByRole('button',{
-            name:'Clear History',
-            exact:true,
-        }).click();
-        await expect.poll(()=>page.getByRole('button',{
-            name:'Remove from Recent',
-            exact:true,
-        }).count()).toBe(0);
-        observations.push({
-            sourceRef,
-            sourceAfter:await page.evaluate(`(async()=>{const {loadRecord}=await import('/_nuxt/platform/browser/browserDocumentIdb.ts');return !!await loadRecord(${JSON.stringify(sourceRef)});})()`),
-        });
-        await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
-        await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
+        if (mode === 'clear-recent') {
+            const tabId=await page.locator('.tab.is-active[data-tab-id]').first().getAttribute('data-tab-id');
+            await page.getByRole('button',{
+                name:'New Tab',
+                exact:true,
+            }).click();
+            await page.getByRole('button',{
+                name:'Clear Recent Files',
+                exact:true,
+            }).click();await page.getByRole('button',{
+                name:'Clear History',
+                exact:true,
+            }).click();
+            await expect.poll(()=>page.getByRole('button',{
+                name:'Remove from Recent',
+                exact:true,
+            }).count()).toBe(0);
+            observations.push({
+                sourceRef,
+                sourceAfter:await page.evaluate(`(async()=>{const {loadRecord}=await import('/_nuxt/platform/browser/browserDocumentIdb.ts');return !!await loadRecord(${JSON.stringify(sourceRef)});})()`),
+            });
+            await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
+        }
+        if (mode === 'two-window-move') {
+            const target = await context.newPage();
+            await target.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await target.goto(`${origin}?evbWindowId=2`, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(target);
+            await expect.poll(() => page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return (await api.listTargetWindows?.())?.some(info => info.windowId === 2);
+            }), {timeout: 30_000}).toBe(true);
+            expect(await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.transferActiveTabToWindow?.(2);
+            })).toMatchObject({success: true});
+            await target.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await page.close();
+            page = target;
+            activePage = target;
+            observations.push({targetProblems: collectConsoleProblems(target)});
+        }
         await addNote(page,'review second saved note',{
             x:260,
             y:280,
         });
+        const downloads: Download[] = [];
+        page.on('download', download => downloads.push(download));
         await page.getByRole('button', {
             name: 'Save',
             exact: true,
         }).click();
-        await expect.poll(() => page.evaluate(() => {
-            const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-            return api.getActiveToolbarSnapshot?.()?.canSave;
-        })).toBe(false);
         const workingRef = await page.evaluate(() => {
             const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
             return api.readActiveWorkspaceStateValues?.<{workingCopyPath: string}>(['workingCopyPath']).workingCopyPath;
         });
+        const savedSource = await page.evaluate(() => {
+            const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+            return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
+        });
+        await expect.poll(async () => Array.from(noteTexts(await PDFDocument.load(Uint8Array.from(
+            await readPersistedDocumentBytes(page, savedSource!),
+        )))), {timeout: 15_000}).toEqual(expect.arrayContaining([
+            'review first saved note',
+            'review second saved note',
+        ]));
+        await expect.poll(() => downloads.length, {timeout: 15_000}).toBe(1);
+        const downloadedPath = resolve(evidenceDir, 'second-download.pdf');
+        await downloads[0]!.saveAs(downloadedPath);
+        expect(Array.from(noteTexts(await PDFDocument.load(readFileSync(downloadedPath))))).toEqual(expect.arrayContaining([
+            'review first saved note',
+            'review second saved note',
+        ]));
         const savedBytes = await readPersistedDocumentBytes(page, workingRef!);
         const secondPath = resolve(evidenceDir, 'second.pdf');
         writeFileSync(secondPath, Buffer.from(savedBytes));
@@ -4327,6 +4389,14 @@ it('keeps the saved copy source and both notes after Clear Recent Files and Save
             'review second saved note',
         ]));
         await page.screenshot({path:resolve(evidenceDir,'after-save.png')});
-        expect(observations).toEqual(expect.arrayContaining([expect.objectContaining({sourceAfter: true})]));
-    } finally {writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));await browser.close();}
+        if (mode === 'clear-recent') expect(observations).toEqual(expect.arrayContaining([expect.objectContaining({sourceAfter: true})]));
+    } finally {
+        if (activePage && !activePage.isClosed()) {
+            observations.push({toasts: await activePage.locator('.app-toast-failure').allTextContents()});
+            await activePage.screenshot({path: resolve(evidenceDir, 'final.png')});
+        }
+        writeFileSync(resolve(evidenceDir, 'nuxt.log'), serverOutput);
+        writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));
+        await browser.close();
+    }
 },120000);

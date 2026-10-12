@@ -65,6 +65,10 @@ const recovery = {
         generation,
     }),
 };
+vi.mock('@app/platform/browserWindowTabs', () => ({
+    registerBrowserDocumentDependencyReader: () => () => {},
+    publishBrowserDocumentLiveLeases: async () => null,
+}));
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({recovery: {
     async createSnapshot(fileName: string, bytes: Uint8Array) {
         stores.documents.push(fileName);

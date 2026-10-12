@@ -254,12 +254,10 @@ export async function sweepBrowserDocumentMaintenance(
                 if (pendingGeneration === chunkKey.generation) continue;
                 const record = transactionRecordsByRef.get(chunkKey.ref)
                     ?? recordsByRef.get(chunkKey.ref);
-                const shouldDelete = !record
-                    || finalRefs.has(chunkKey.ref)
-                    || record.storageMode !== 'chunked'
-                    || chunkKey.generation !== (record.chunkGeneration ?? undefined)
-                    || chunkKey.index >= (record.chunkCount ?? 0);
-                if (shouldDelete && !isRecentlyCreatedChunkGeneration(chunkKey.generation)) {
+                if ((!record || finalRefs.has(chunkKey.ref) || record.storageMode !== 'chunked'
+                    || chunkKey.generation !== (record.chunkGeneration ?? undefined) || chunkKey.index >= (record.chunkCount ?? 0))
+                    && ((finalRefs.has(chunkKey.ref) && chunkKey.generation === record?.chunkGeneration)
+                        || !isRecentlyCreatedChunkGeneration(chunkKey.generation))) {
                     chunksStore.delete(createChunkKey(
                         chunkKey.ref,
                         chunkKey.index,

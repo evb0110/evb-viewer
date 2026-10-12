@@ -283,14 +283,53 @@ describe('browser document live lease acceptance in Chromium', () => {
                 false,
                 false,
             ]);
-            // The chunks outlive the records here on purpose: what still holds
-            // them is the staged-generation grace window, a separate timer that
-            // the confirmed-release case above skips by advancing the clock.
+            // Committed bytes leave with their retired records. The unfinished
+            // generation still has the existing staged-generation grace window.
             expect(afterOwnerDied.chunkKeyCounts).toEqual([
-                1,
-                2,
+                0,
+                0,
                 1,
             ]);
+        } finally {
+            await context.close();
+            await browser.close();
+        }
+    });
+
+    it('keeps a clean open copy through recovery clearing and a two-window handoff', async () => {
+        const browser = await chromium.launch({headless: true});
+        const context = await browser.newContext();
+        const source = await context.newPage();
+        const target = await context.newPage();
+        try {
+            await Promise.all([
+                installEntry(source),
+                installEntry(target),
+            ]);
+            const document = await callEntry<{
+                source: string;
+                working: string;
+                bytes: number[]
+            }>(source, '__evbCleanOpenDocument');
+            expect(document.bytes).toEqual([
+                41,
+                42,
+                43,
+                44,
+            ]);
+            await callEntry(target, '__evbPublishOpenDocument', JSON.stringify([
+                document.source,
+                document.working,
+            ]));
+            await callEntry(source, '__evbCloseCleanSource');
+            expect(await callEntry(target, '__evbReopenLiveLeaseAcceptance', document.working)).toEqual({bytes: [
+                41,
+                42,
+                43,
+                44,
+            ]});
+            await callEntry(target, '__evbCloseCleanTarget');
+            await expect(callEntry(target, '__evbReopenLiveLeaseAcceptance', document.working)).rejects.toThrow('Browser document not found');
         } finally {
             await context.close();
             await browser.close();

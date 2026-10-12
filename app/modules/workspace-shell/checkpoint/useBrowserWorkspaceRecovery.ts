@@ -1,3 +1,7 @@
+import {
+    publishBrowserDocumentLiveLeases,
+    registerBrowserDocumentDependencyReader,
+} from '@app/platform/browserWindowTabs';
 import type { Ref } from 'vue';
 import { useEventListener } from '@vueuse/core';
 import type {
@@ -46,6 +50,15 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         snapshot.value.identity.originalPath,
         snapshot.value.identity.workingCopyPath,
     ].flatMap(ref => ref ? [ref] : []));
+    const unregisterDependencies = registerBrowserDocumentDependencyReader(liveDocumentRefs);
+    const stopDependencies = watch(liveDocumentRefs, () => {
+        void publishBrowserDocumentLiveLeases(recovery.getOwnerId()).catch(error => {
+            BrowserLogger.warn('workspace-recovery', 'Failed to publish open document dependencies', error);
+        });
+    }, {
+        immediate: true,
+        flush: 'sync',
+    });
     let fenced = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
@@ -126,18 +139,15 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
 
     async function cleanupSnapshots(refs: Iterable<TDocumentRef>, retainedRefs = new Set<TDocumentRef>()) {
         liveDocumentRefs().forEach(ref => retainedRefs.add(ref));
-        await Promise.allSettled(Array.from(refs, async (ref) => {
-            if (!retainedRefs.has(ref)) {
-                await snapshots.cleanupSnapshot(ref);
-            }
-        }));
+        await Promise.allSettled([...refs].filter(ref => !retainedRefs.has(ref))
+            .map(ref => snapshots.cleanupSnapshot(ref)));
     }
 
     function dirtyTabIds() {
-        return new Set(Object.entries(options.documentSessionsByTabId.value).flatMap(([
-            tabId,
-            session,
-        ]) => session.snapshot.value.dirty ? [tabId] : []));
+        return new Set(Object.entries(options.documentSessionsByTabId.value)
+            .filter(([
+                , session,
+            ]) => session.snapshot.value.dirty).map(([tabId]) => tabId));
     }
 
     function markMutation(tabIds: Iterable<string>) {
@@ -195,16 +205,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             return revision > (attemptedTabMutationRevisions.get(tabId) ?? -1)
                 || now >= retryNotBefore;
         });
-    }
-
-    function hasUnpersistedWork() {
-        if (checkpointRevision > persistedCheckpointRevision) {
-            return true;
-        }
-        return Array.from(dirtyTabIds()).some(tabId => (
-            (tabMutationRevisions.get(tabId) ?? 0)
-            > (persistedTabMutationRevisions.get(tabId) ?? -1)
-        ));
     }
 
     async function persistCurrentRecovery(
@@ -415,8 +415,8 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                 return [{
                     ...tab,
                     // Clean documents reopen from their durable source;
-                    // their ordinary transient working copies are not
-                    // part of the recovery lease.
+                    // their ordinary transient working copies are absent from
+                    // this checkpoint, but remain protected by the live owner.
                     workingCopyRef: null,
                 }];
             });
@@ -489,13 +489,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     }
 
     function drain() {
-        if (disposed || fenced || !options.enabled.value) {
-            return;
-        }
-        if (!hasPendingWork()) {
-            return;
-        }
-        if (inFlight) {
+        if (disposed || fenced || !options.enabled.value || inFlight || !hasPendingWork()) {
             return;
         }
         const capturedCheckpointRevision = checkpointRevision;
@@ -508,7 +502,8 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             })
             .finally(() => {
                 inFlight = null;
-                if (!disposed && options.enabled.value && hasUnpersistedWork()) {
+                // Scheduling includes pending work deferred until the retry deadline.
+                if (!disposed && options.enabled.value && hasPendingWork(retryNotBefore)) {
                     schedule(retryNotBefore > Date.now()
                         ? retryNotBefore - Date.now()
                         : 0);
@@ -567,6 +562,8 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     onBeforeUnmount(() => {
         disposed = true;
         stop();
+        stopDependencies();
+        unregisterDependencies();
         stopHeartbeat();
         if (timer) clearTimeout(timer);
     });

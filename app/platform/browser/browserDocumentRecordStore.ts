@@ -9,7 +9,10 @@ import {
     toPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentRecords';
 import { buildBrowserDocumentFullReadError } from '@app/platform/browser/browserDocumentStoragePolicy';
-import type { IBrowserDocumentEntry } from '@app/platform/browser/browserDocumentTypes';
+import type {
+    IBrowserDocumentEntry,
+    IBrowserDocumentLeaseDependency,
+} from '@app/platform/browser/browserDocumentTypes';
 import {
     deleteRecord,
     loadRecordAvailability,
@@ -31,6 +34,8 @@ import {
     createBrowserDocumentRevisionInfo,
     getBrowserDocumentEntryContentRevision,
 } from '@app/platform/browser/browserDocumentRevision';
+import {saveBrowserDocumentLiveLease} from '@app/platform/browser/browserDocumentLeaseStore';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import { BrowserDocumentMutationQueue } from '@app/platform/browser/browserDocumentMutationQueue';
 import { BrowserRecentFilesStore } from '@app/platform/browser/browserRecentFilesStore';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
@@ -62,24 +67,10 @@ async function readFileHandleBytes(
     offset?: number,
     length?: number,
 ) {
-    await assertFileHandleReadPermission(handle);
-    const file = await handle.getFile();
-    if (typeof offset === 'number' && typeof length === 'number') {
-        const start = Math.max(0, offset);
-        const end = Math.max(start, start + Math.max(0, length));
-        return {
-            size: file.size,
-            lastModified: file.lastModified,
-            file,
-            bytes: new Uint8Array(await file.slice(start, end).arrayBuffer()),
-        };
-    }
-
+    const {file} = await readFileHandleMetadata(handle);
     return {
-        size: file.size,
-        lastModified: file.lastModified,
         file,
-        bytes: new Uint8Array(await file.arrayBuffer()),
+        bytes: await readFileSnapshotBytes(file, offset, length),
     };
 }
 
@@ -117,7 +108,25 @@ export class BrowserDocumentRecordStore {
         ),
     });
     private maintenancePromise: Promise<void> | null = null;
-    private maintenanceComplete = false;
+
+    public async createLiveLease(ownerId: string, protectedDependencies: IBrowserDocumentLeaseDependency[] = []) { return this.saveLiveLease(ownerId, 0, 'active', protectedDependencies); }
+    public async heartbeatLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return this.saveLiveLease(ownerId, generation, 'active', protectedDependencies); }
+    public async suspendLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return this.saveLiveLease(ownerId, generation, 'suspended', protectedDependencies); }
+    public async resumeLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return this.saveLiveLease(ownerId, generation, 'active', protectedDependencies); }
+    public async releaseLiveLease(ownerId: string, generation: number) { return this.saveLiveLease(ownerId, generation, 'dead', []); }
+
+    private async saveLiveLease(...args: Parameters<typeof saveBrowserDocumentLiveLease>) {
+        const lease = await saveBrowserDocumentLiveLease(...args);
+        // Publication is committed even if storage maintenance cannot complete.
+        try {
+            await this.maintenancePromise?.catch(() => undefined);
+            this.maintenancePromise = null;
+            await this.ensureMaintenance();
+        } catch (error) {
+            BrowserLogger.warn('browser-document-maintenance', 'Collection after lease publication failed', error);
+        }
+        return lease;
+    }
 
     /** Adopt committed storage layout while retaining the existing small in-memory bytes. */
     protected async persistEntry(entry: IBrowserDocumentEntry, data = entry.data) {
@@ -302,13 +311,10 @@ export class BrowserDocumentRecordStore {
         size: number;
         modifiedAt: number
     }> {
-        const {
-            size,
-            modifiedAt,
-        } = await this.getContentSnapshot(ref);
+        const snapshot = await this.getContentSnapshot(ref);
         return {
-            size,
-            modifiedAt,
+            size: snapshot.size,
+            modifiedAt: snapshot.modifiedAt,
         };
     }
     public async getContentSignature(ref: string): Promise<string> {
@@ -485,18 +491,10 @@ export class BrowserDocumentRecordStore {
     }
 
     protected async ensureMaintenance() {
-        if (this.maintenanceComplete) {
-            return;
-        }
-
-        this.maintenancePromise ??= sweepBrowserDocumentMaintenance(this.entries)
-            .then(() => {
-                this.maintenanceComplete = true;
-            })
-            .finally(() => {
-                this.maintenancePromise = null;
-            });
-
+        this.maintenancePromise ??= sweepBrowserDocumentMaintenance(this.entries).catch(error => {
+            this.maintenancePromise = null;
+            throw error;
+        });
         await this.maintenancePromise;
     }
 

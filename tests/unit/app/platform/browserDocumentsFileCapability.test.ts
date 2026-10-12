@@ -1,3 +1,4 @@
+import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import {createHash} from 'node:crypto';
 import {createBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
 import {
@@ -146,6 +147,15 @@ function createLoadedPdfTask() {
         destroy,
     };
 }
+
+vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
+    ...await importOriginal<typeof TBrowserWindowTabs>(),
+    reserveBrowserDocumentWorkingCopy: async (fileName: string) => {
+        const {createBrowserDocumentRef} = await import('@app/platform/browser/browserDocumentRefs');
+        return createBrowserDocumentRef(fileName);
+    },
+    retireBrowserDocumentWorkingCopy: async () => {},
+}));
 
 vi.mock('@app/platform/browser-api/browserPdfCombineWorkerClient', () => ({
     BrowserPdfCombineWorkerUnavailableError: class BrowserPdfCombineWorkerUnavailableError extends Error {},
@@ -338,6 +348,58 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         utifMock.toRGBA8.mockReturnValue(new Uint8Array());
         pdfjsModule.getDocument.mockReset();
         pdfjsModule.getDocument.mockReturnValue(createLoadedPdfTask());
+    });
+
+    it.each([
+        'commit',
+        'cancel',
+        'denied',
+    ])('preserves native Save bytes through %s', async (outcome) => {
+        const original = Uint8Array.of(37, 80, 68, 70, 1);
+        const edited = Uint8Array.of(37, 80, 68, 70, 2, 3);
+        let physical = original.slice();
+        const handle = createFileSystemFileHandle({
+            name: 'native.pdf',
+            getFile: async () => new File([physical], 'native.pdf', {type: 'application/pdf'}),
+            createWritable: async () => {
+                if (outcome === 'denied') throw new DOMException('Write denied', 'NotAllowedError');
+                return createFileSystemWritableFileStream({write: async chunk => {
+                    physical = new Uint8Array(requireArrayBufferChunk(chunk));
+                }});
+            },
+        });
+        const {
+            capability, browserDocumentStore: store,
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => {
+            if (outcome === 'cancel') throw new DOMException('Canceled', 'AbortError');
+            return handle;
+        }}});
+        const source = await store.createStoredDocument('native.pdf', original, PDF_SOURCE_OPTIONS);
+        const working = await store.cloneAsWorkingCopy(source);
+        const revision = await store.getDocumentRevision(working);
+        const stage = await store.createStoredDocument('native-staged.pdf', edited, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'output',
+        });
+        const receipt = await createBrowserStoreStagedArtifact(store, stage, {
+            leaseId: 'native-staged-lease',
+            sha256: createHash('sha256').update(edited).digest('hex'),
+            validations: {
+                qpdfCheck: false,
+                tailCheck: true,
+                semanticCheck: true,
+                fsynced: true,
+                semanticScopeSha256: 'a'.repeat(64),
+            },
+        });
+        const commit = capability.commitStagedPdfNativeMutations!(working, receipt, {expectedDocumentRevisionToken: revision.token});
+        if (outcome === 'denied') await expect(commit).rejects.toThrow('Write denied');
+        else expect((await commit).applied).toBe(outcome === 'commit');
+        const expected = outcome === 'commit' ? edited : original;
+        expect(physical).toEqual(expected);
+        await expect(store.read(working)).resolves.toEqual(expected);
+        await expect(store.read(source)).resolves.toEqual(expected);
+        if (outcome !== 'commit') expect((await store.getDocumentRevision(working)).token).toBe(revision.token);
     });
 
     it('returns typed unsupported results for desktop-only folder actions', async () => {

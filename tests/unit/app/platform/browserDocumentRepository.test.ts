@@ -493,6 +493,56 @@ describe('BrowserDocumentStore source registration', () => {
         expect(handle.requestPermission).toHaveBeenCalledExactlyOnceWith({mode: 'read'});
     });
 
+    it('collects retired working bytes after 30 lease replacements in one session', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const makeWorking = () => store.createStoredDocument('retired.pdf', Uint8Array.of(1, 2, 3), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            saveKind: 'pdf',
+            storageMode: 'chunked',
+        });
+        let current = await makeWorking();
+        let lease = await store.createLiveLease('window:bounded', [{ref: current}]);
+        const retired: string[] = [];
+        for (let index = 0; index < 30; index += 1) {
+            const next = await makeWorking();
+            await expect(store.cleanupDetachedDocument(current)).resolves.toBe(false);
+            retired.push(current);
+            lease = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: next}]);
+            current = next;
+        }
+        const database = indexedDbFactory.getDatabase(DB_NAME)!;
+        for (const ref of retired) {
+            expect(database.getStoreRecords('documents').has(ref)).toBe(false);
+            expect(Array.from(database.getStoreRecords('document-chunks').keys()).some(key => String(key).startsWith(ref))).toBe(false);
+        }
+        await expect(store.read(current)).resolves.toEqual(Uint8Array.of(1, 2, 3));
+        await store.releaseLiveLease(lease.ownerId, lease.generation);
+        await expect(store.exists(current)).resolves.toBe(false);
+    });
+
+    it('keeps a retired working source while the successor lease protects its proxy', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const working = await store.createStoredDocument('proxy-base.pdf', Uint8Array.of(1, 2, 3), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            saveKind: 'pdf',
+        });
+        const proxy = await store.cloneAsWorkingCopy(working);
+        const lease = await store.createLiveLease('window:proxy', [
+            {ref: working},
+            {ref: proxy},
+        ]);
+        const successor = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: proxy}]);
+        store.unload(working);
+        await expect(store.read(proxy)).resolves.toEqual(Uint8Array.of(1, 2, 3));
+        await store.releaseLiveLease(successor.ownerId, successor.generation);
+        await expect(store.exists(working)).resolves.toBe(false);
+        await expect(store.exists(proxy)).resolves.toBe(false);
+    });
+
     it('fences live lease lifecycle transitions through the repository owner', async () => {
         const store = new BrowserDocumentStore();
         const ref = await store.createStoredDocument(

@@ -34,19 +34,6 @@ export class BrowserExternalSaveSyncRequiredError extends Error {
     }
 }
 
-function buildBrowserLargeJobError(
-    label: string,
-    maxBytes: number,
-    hint?: string,
-) {
-    return buildBrowserByteLimitError(
-        label,
-        maxBytes,
-        'inputs',
-        hint,
-    );
-}
-
 export async function assertBrowserPathWithinFullReadBudget(
     path: string,
     label: string,
@@ -54,7 +41,7 @@ export async function assertBrowserPathWithinFullReadBudget(
 ) {
     const { size } = await browserDocumentStore.stat(path);
     if (size > BROWSER_MAX_FULL_READ_BYTES) {
-        throw buildBrowserLargeJobError(label, BROWSER_MAX_FULL_READ_BYTES, hint);
+        throw buildBrowserByteLimitError(label, BROWSER_MAX_FULL_READ_BYTES, 'inputs', hint);
     }
 }
 
@@ -62,6 +49,7 @@ export async function saveWorkingBytesToSource(
     workingCopyPath: TDocumentRef,
     getBrowserLargeSaveHandleHint: () => string,
     revisionOptions?: IDocumentMutationRevisionOptions,
+    stagedOutput?: ITypedStagedArtifact,
 ) {
     const sourceRef = await browserDocumentStore.getSourceRef(workingCopyPath);
     const saveTarget = await browserDocumentStore.getSaveTarget(sourceRef);
@@ -92,11 +80,14 @@ export async function saveWorkingBytesToSource(
             sourceRef,
             revisionOptions?.expectedDocumentRevisionToken,
             async (mutation) => {
+                const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
+                if (staged?.artifact.path === workingCopyPath) throw new Error('Browser staged commit requires a different target ref');
                 if (pickedTarget.handle) {
                     await mutation.assertPhysicalSourceBaseCurrent();
-                    await writeDocumentRefToHandle(pickedTarget.handle, workingCopyPath);
+                    if (staged) await writeBytesToHandleInSaveLock(pickedTarget.handle, staged.bytes);
+                    else await writeDocumentRefToHandle(pickedTarget.handle, workingCopyPath);
                     externalWriteCommitted = true;
-                    const { size } = await browserDocumentStore.stat(workingCopyPath);
+                    const size = staged?.bytes.byteLength ?? (await browserDocumentStore.stat(workingCopyPath)).size;
                     await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {
                         fileSize: size,
                         saveHandle: pickedTarget.handle,
@@ -114,7 +105,7 @@ export async function saveWorkingBytesToSource(
                         'Saving documents',
                         getBrowserLargeSaveHandleHint(),
                     );
-                    const bytes = await browserDocumentStore.read(workingCopyPath);
+                    const bytes = staged?.bytes ?? await browserDocumentStore.read(workingCopyPath);
                     const saveResult = await saveBytesToPickerOrDownload(bytes, {
                         suggestedName: ensurePdfExtension(pickedTarget.fileName),
                         mimeType: 'application/pdf',
@@ -141,6 +132,7 @@ export async function saveWorkingBytesToSource(
                 // record points at. Skipping it on the picker branch left the
                 // working copy describing the file it no longer saves to, so the
                 // next ordinary Save reported our own write as an external edit.
+                if (staged) await mutation.write(staged.bytes);
                 await mutation.acknowledgePhysicalSourceCommit();
                 await browserDocumentStore.touchRecentFile(sourceRef);
                 return true;

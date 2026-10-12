@@ -22,7 +22,6 @@ import {
     resolveStoredDocumentStorageMode,
 } from '@app/platform/browser/browserDocumentStoragePolicy';
 import type {
-    IBrowserDocumentLeaseDependency,
     IBrowserDocumentEntry,
     IBrowserPersistedDocumentRecord,
     ICreateStoredDocumentOptions,
@@ -50,7 +49,6 @@ import {
     BrowserDocumentRecordStore,
 } from '@app/platform/browser/browserDocumentRecordStore';
 import {BrowserDocumentFileHandleRefs} from '@app/platform/browser/browserDocumentFileHandleRefs';
-import {saveBrowserDocumentLiveLease} from '@app/platform/browser/browserDocumentLeaseStore';
 import {runSerializedRecentFilesStorageMutation} from '@app/platform/browser/browserRecentFilesStore';
 import {
     captureBrowserDocumentEntryStorageState,
@@ -165,12 +163,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         this.fileHandleRefs.forget(ref);
     }
 
-    public async createLiveLease(ownerId: string, protectedDependencies: IBrowserDocumentLeaseDependency[] = []) { return saveBrowserDocumentLiveLease(ownerId, 0, 'active', protectedDependencies); }
-    public async heartbeatLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return saveBrowserDocumentLiveLease(ownerId, generation, 'active', protectedDependencies); }
-    public async suspendLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return saveBrowserDocumentLiveLease(ownerId, generation, 'suspended', protectedDependencies); }
-    public async resumeLiveLease(ownerId: string, generation: number, protectedDependencies: IBrowserDocumentLeaseDependency[]) { return saveBrowserDocumentLiveLease(ownerId, generation, 'active', protectedDependencies); }
-    public async releaseLiveLease(ownerId: string, generation: number) { return saveBrowserDocumentLiveLease(ownerId, generation, 'dead', []); }
-
     /**
      * Attaches a freshly built entry and persists it, rolling the attachment and
      * any staged chunk generation back when persistence fails. `stageChunkBytes`
@@ -219,7 +211,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     private async createStoredEntry(
         fileName: string,
         data: Uint8Array | ArrayBuffer,
-        options: ICreateStoredDocumentOptions,
+        options: ICreateStoredDocumentOptions & {ref?: TDocumentRef | undefined},
     ) {
         const sourceBytes = toUint8Array(data);
         const storageMode = resolveStoredDocumentStorageMode(sourceBytes.byteLength, options.storageMode);
@@ -230,7 +222,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 ? createBrowserStoredBytesWitness(sourceBytes)
                 : undefined);
         const entry = createBrowserDocumentEntry({
-            ref: createBrowserDocumentRef(fileName),
+            ref: options.ref ?? createBrowserDocumentRef(fileName),
             fileName,
             mimeType: options.mimeType,
             kind,
@@ -398,7 +390,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     public async createStoredDocument(
         fileName: string,
         data: Uint8Array | ArrayBuffer,
-        options: ICreateStoredDocumentOptions,
+        options: ICreateStoredDocumentOptions & {ref?: TDocumentRef | undefined},
     ): Promise<TDocumentRef> {
         await this.ensureMaintenance();
         const create = () => this.createStoredEntry(fileName, data, options);
@@ -456,7 +448,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         return createBrowserFileContentWitness(metadata.file);
     }
 
-    public async cloneAsWorkingCopy(sourceRef: string, fileName?: string) {
+    public async cloneAsWorkingCopy(sourceRef: string, fileName?: string, ref?: TDocumentRef) {
         const sourceEntry = await this.requireEntry(sourceRef);
         const nextName = fileName ?? sourceEntry.fileName;
         try {
@@ -464,6 +456,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 const currentSourceEntry = await this.requireEntry(sourceRef);
                 const sourceBaseWitness = await this.resolveSourceBaseWitness(currentSourceEntry, {allowHandleRead: true});
                 return this.createStoredEntry(nextName, new Uint8Array(), {
+                    ref,
                     mimeType: currentSourceEntry.mimeType,
                     kind: 'working',
                     sourceRef,
@@ -478,10 +471,10 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 throw error;
             }
 
-            const ref = createBrowserDocumentRef(nextName);
+            const workingRef = ref ?? createBrowserDocumentRef(nextName);
             const sourceBaseWitness = await this.resolveSourceBaseWitness(currentSourceEntry, {allowHandleRead: false});
             this.attachEntry({
-                ref,
+                ref: workingRef,
                 fileName: nextName,
                 mimeType: currentSourceEntry.mimeType,
                 kind: 'working',
@@ -502,13 +495,14 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
                 chunkCount: 0,
                 chunkSize: BROWSER_DOCUMENT_CHUNK_SIZE,
             });
-            return ref;
+            return workingRef;
         }
     }
 
     public async cloneStoredDocument(
         sourceRef: string,
         options: {
+            ref?: TDocumentRef;
             fileName?: string;
             kind?: IBrowserDocumentEntry['kind'];
             retention?: IBrowserDocumentEntry['retention'];
@@ -530,6 +524,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     private async cloneStoredDocumentUnlocked(
         sourceRef: string,
         options: {
+            ref?: TDocumentRef;
             fileName?: string;
             kind?: IBrowserDocumentEntry['kind'];
             retention?: IBrowserDocumentEntry['retention'];
@@ -547,7 +542,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         const nextSourceRef = options.sourceRef;
 
         if (sourceEntry.storageMode === 'chunked') {
-            const ref = createBrowserDocumentRef(nextName);
+            const ref = options.ref ?? createBrowserDocumentRef(nextName);
             const entry: IBrowserDocumentEntry = {
                 ref,
                 fileName: nextName,
@@ -579,6 +574,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
         const bytes = await this.readEntryBytes(sourceEntry);
         return this.createStoredEntry(nextName, bytes, {
+            ref: options.ref,
             mimeType: sourceEntry.mimeType,
             kind: nextKind,
             retention: nextRetention,

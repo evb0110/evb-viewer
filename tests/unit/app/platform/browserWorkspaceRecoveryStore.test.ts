@@ -28,6 +28,7 @@ import {
     browserWindowTabsCapability,
     publishBrowserDocumentLiveLeases,
 } from '@app/platform/browserWindowTabs';
+import {browserDocumentStore} from '@app/platform/browser/browserDocumentRepository';
 import * as liveLeases from '@app/platform/browser/browserDocumentLeaseStore';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -104,26 +105,46 @@ describe('browserWorkspaceRecoveryStore', () => {
 
         const database = recoveryDbFactory.getDatabase(DB_NAME);
         if (!database) throw new Error('Recovery database is unavailable');
-        const release = vi.spyOn(liveLeases, 'releaseBrowserDocumentLiveLease')
-            .mockRejectedValueOnce(new Error('Lease release failed'));
-        try {
-            await expect(recovery.clear('window:1', 1)).resolves.toEqual({
-                saved: true,
-                generation: 0,
-            });
-            expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({status: 'active'});
-            await expect(recovery.clear('window:1', 0)).resolves.toEqual({
-                saved: true,
-                generation: 0,
-            });
-        } finally {
-            release.mockRestore();
-        }
+        await expect(recovery.clear('window:1', 1)).resolves.toEqual({
+            saved: true,
+            generation: 0,
+        });
         await expect(loadBrowserWorkspaceRecovery('window:1')).resolves.toBeNull();
+        expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({
+            status: 'active',
+            protectedDependencies: [{ref: 'browser://documents/source.pdf'}],
+        });
+        await publishBrowserDocumentLiveLeases('window:1', []);
         expect(database.getStoreRecords(BROWSER_LIVE_LEASES_STORE).get('owner:window:1')).toMatchObject({
             status: 'dead',
             protectedDependencies: [],
         });
+    });
+
+    it('keeps a clean open document readable until its final close', async () => {
+        const recovery = browserWindowTabsCapability.browserRecovery!;
+        const source = await browserDocumentStore.createStoredDocument('open.pdf', new Uint8Array([
+            10,
+            11,
+            12,
+        ]), {
+            mimeType: 'application/pdf',
+            kind: 'source',
+            retention: 'durable',
+        });
+        const working = await browserDocumentStore.cloneAsWorkingCopy(source);
+        const saved = await recovery.save('window:clean-open', 0, checkpoint, [], [
+            source,
+            working,
+        ]);
+        await recovery.clear('window:clean-open', saved.generation);
+        await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([
+            10,
+            11,
+            12,
+        ]));
+        await publishBrowserDocumentLiveLeases('window:clean-open', []);
+        await expect(browserDocumentStore.read(working)).rejects.toThrow('Browser document not found');
     });
 
     it('isolates concurrent window owners and rejects stale owner generations', async () => {

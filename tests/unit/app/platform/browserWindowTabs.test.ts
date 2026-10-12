@@ -12,6 +12,7 @@ import type {IBrowserTransferAuthorityRecord} from '@app/platform/browser/browse
 import {FakeLockManager} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 const recoveryMocks = vi.hoisted(() => ({
+    clearBrowserWorkspaceRecovery: vi.fn(),
     claimBrowserWorkspaceRecoveryOwner: vi.fn(),
     loadBrowserWorkspaceRecoveries: vi.fn(),
     loadBrowserWorkspaceRecovery: vi.fn(),
