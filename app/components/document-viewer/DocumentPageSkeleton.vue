@@ -3,7 +3,12 @@
     per line: a fast scroll mounts a dozen pages per frame, and a component and
     an animation for each of their hundreds of lines made every such frame a
     long task. -->
-    <div class="document-page-skeleton" :style="paddingStyle" aria-hidden="true">
+    <div
+        class="document-page-skeleton"
+        :class="{'is-deferred': isDeferred}"
+        :style="paddingStyle"
+        aria-hidden="true"
+    >
         <div class="inner flex flex-col">
             <div class="header flex flex-col gap-2">
                 <div class="title-line"></div>
@@ -54,6 +59,14 @@ interface IPadding {
 interface IProps {
     padding?: IPadding | null;
     contentHeight: number | null;
+    /**
+     * Stay transparent for a moment after mounting, so a page that paints
+     * quickly never flashes the placeholder. Only the mount can start the
+     * delay and turning it off ends it for good: a skeleton on screen must
+     * never vanish and fade back in, and one that a second navigation
+     * claims must show at once.
+     */
+    deferred?: boolean;
 }
 
 const defaultPadding: IPadding = {
@@ -76,7 +89,15 @@ function resolvePadding(padding: IPadding | null | undefined) {
 const {
     padding = undefined,
     contentHeight,
+    deferred = false,
 } = defineProps<IProps>();
+
+const isDeferred = ref(deferred);
+watch(() => deferred, (value) => {
+    if (!value) {
+        isDeferred.value = false;
+    }
+});
 
 const resolvedPadding = computed<IPadding>(() => resolvePadding(padding));
 
@@ -125,6 +146,10 @@ const repeatParagraphs = computed(() => {
     pointer-events: none;
     background: inherit;
     border-radius: inherit;
+}
+
+.is-deferred {
+    animation: document-page-skeleton-reveal var(--app-document-page-skeleton-reveal-duration) ease-out var(--app-document-page-skeleton-reveal-delay) both;
 }
 
 .inner {
@@ -213,6 +238,16 @@ const repeatParagraphs = computed(() => {
     height: var(--app-document-page-skeleton-line-height);
 }
 
+@keyframes document-page-skeleton-reveal {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
 @keyframes document-page-skeleton-pulse {
     0%,
     100% {
@@ -231,6 +266,11 @@ const repeatParagraphs = computed(() => {
 @media (prefers-reduced-motion: reduce) {
     .inner {
         animation: none;
+    }
+
+    /* Keep the delay that spares a quick page the flash; drop the fade. */
+    .is-deferred {
+        animation-timing-function: step-start;
     }
 }
 </style>

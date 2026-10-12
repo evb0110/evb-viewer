@@ -49,6 +49,7 @@ import type {
     IDocumentPageSourceFeaturePackProps,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 import { useDocumentPageSourceRuntime } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
+import { injectDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 
 defineOptions({inheritAttrs: false});
 const {
@@ -80,10 +81,19 @@ const runtime = reactive(useDocumentPageSourceRuntime({
         zoomMode: getZoomMode(zoomState),
     }),
 }));
+const viewerRuntime = injectDocumentViewerRuntime();
+function shouldDeferSkeleton(pageNumber: number) {
+    const visual = viewerRuntime?.openSurface.viewportSession.value.visual;
+    return visual?.kind === 'page'
+        && visual.pageNumber === pageNumber
+        && visual.presentation === 'skeleton'
+        && visual.deferSkeleton === true;
+}
 function getPageVisualProps(pageNumber: number, hostOwnsSkeleton = false) {
     return {
         contentHeight: runtime.pageLayouts[pageNumber - 1]?.height ?? 760,
         currentSearchResultIndex,
+        deferSkeleton: shouldDeferSkeleton(pageNumber),
         documentLoadGeneration: runtime.loadGeneration,
         errorMessage: runtime.getVisualError(pageNumber),
         errorPresentation: runtime.getVisualFailurePresentation(pageNumber),

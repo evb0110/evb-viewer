@@ -1358,6 +1358,17 @@ async function readWindowLayoutObservation(session: IElectronE2ESession, anchor:
     });
 }
 
+interface ISkeletonFlashProbe {
+    frames: Array<{
+        elapsedMs: number;
+        rendered: boolean;
+        skeletonVisible: boolean;
+    }>;
+    startedAt: number | null;
+}
+
+interface ISkeletonFlashProbeWindow extends Window {__skeletonFlashProbe?: ISkeletonFlashProbe;}
+
 describe('Electron E2E - Viewer Smoke', () => {
     const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-viewer-smoke-${Date.now()}`});
 
@@ -3095,6 +3106,67 @@ describe('Electron E2E - Viewer Smoke', () => {
             const pageRect = pageTwo.getBoundingClientRect();
             return Math.min(pageRect.bottom, viewerRect.bottom) - Math.max(pageRect.top, viewerRect.top) > 100;
         }, { timeout: 5_000 });
+    });
+
+    it('jumps to a distant page without flashing its skeleton', async () => {
+        const {page} = sessionFixture.getSession();
+        const fixturePath = await createMultiPageTextFixturePdf(`skeleton-flash-${Date.now()}.pdf`, 80);
+        const targetPage = 60;
+        await openPdfInApp(page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewportQuiet(page);
+
+        // Every frame from the Enter that commits the jump: is the target's
+        // skeleton on screen? A page that paints quickly should go from the
+        // old page to its own content without the placeholder in between.
+        await page.evaluate((target: number) => {
+            const probe: ISkeletonFlashProbe = {
+                frames: [],
+                startedAt: null,
+            };
+            (window as ISkeletonFlashProbeWindow).__skeletonFlashProbe = probe;
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && probe.startedAt === null) {
+                    probe.startedAt = performance.now();
+                }
+            }, {capture: true});
+            const sample = () => {
+                if (probe.startedAt !== null) {
+                    const container = document.querySelector<HTMLElement>(
+                        `.editor-pane.is-active #pdf-viewer .page_container[data-page="${target}"]`,
+                    );
+                    const skeleton = container?.querySelector<HTMLElement>('.document-page-skeleton') ?? null;
+                    const style = skeleton ? window.getComputedStyle(skeleton) : null;
+                    probe.frames.push({
+                        elapsedMs: Math.round(performance.now() - probe.startedAt),
+                        rendered: container?.classList.contains('page_container--rendered') === true,
+                        skeletonVisible: Boolean(
+                            style
+                            && style.display !== 'none'
+                            && style.visibility !== 'hidden'
+                            && Number.parseFloat(style.opacity) > 0.01,
+                        ),
+                    });
+                }
+                // Sample until the target paints; the wait below bounds a page
+                // that never does.
+                const done = probe.frames.at(-1)?.rendered === true
+                    || probe.startedAt !== null && performance.now() - probe.startedAt > 10_000;
+                if (!done) {
+                    requestAnimationFrame(sample);
+                }
+            };
+            requestAnimationFrame(sample);
+        }, targetPage);
+
+        await goToPageViaToolbar(page, targetPage);
+        await waitForFunctionInPage(page, () => (
+            ((window as ISkeletonFlashProbeWindow).__skeletonFlashProbe?.frames ?? []).some(frame => frame.rendered)
+        ), {timeout: 10_000});
+        const frames = await page.evaluate(() => (window as ISkeletonFlashProbeWindow).__skeletonFlashProbe?.frames ?? []);
+
+        const earlySkeletonFrames = frames.filter(frame => frame.skeletonVisible && frame.elapsedMs < 150);
+        expect(earlySkeletonFrames, JSON.stringify(frames.slice(0, 40))).toEqual([]);
     });
 
     // R1, R3 in its weak form, L1 and L4 across a resize of the real window.
@@ -4846,6 +4918,74 @@ describe('Electron E2E - Viewer Smoke', () => {
         expect(await session.page.$eval(targetToggleSelector, element => element.getAttribute('aria-pressed'))).toBe('true');
         expect((await getWorkspaceToolbarSnapshot(session.page))?.currentPage).toBe(64);
     }, 90_000);
+
+    it('shapes the thumbnail slots of a book of two-page spreads like its spreads', async () => {
+        // Every slot was an A4 portrait slot, so each landscape spread sat in
+        // a tall card with blank bands above and below it.
+        const session = sessionFixture.getSession();
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 1_000,
+            width: 1_300,
+        });
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        for (let number = 1; number <= 6; number += 1) {
+            const page = pdf.addPage([
+                793,
+                566,
+            ]);
+            page.drawRectangle({
+                x: 0,
+                y: 0,
+                width: 793,
+                height: 566,
+                color: rgb(0.85, 0.85, 0.85),
+            });
+            page.drawText(`Spread ${number}`, {
+                x: 60,
+                y: 480,
+                font,
+                size: 32,
+            });
+        }
+        const fixturePath = createFixturePath(`viewer-landscape-spreads-${Date.now()}.pdf`);
+        await writeFile(fixturePath, await pdf.save());
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Pages');
+        // The slot takes the document's shape once its pages are measured;
+        // on the portrait slot this wait runs out.
+        await waitForFunctionInPage(session.page, () => {
+            const frame = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-thumbnail-page="1"] [data-document-thumbnail-frame]',
+            );
+            if (!frame?.querySelector('canvas')) return false;
+            const rect = frame.getBoundingClientRect();
+            return Math.abs(rect.width / rect.height - 793 / 566) < 0.1;
+        }, {timeout: 15_000});
+        const slot = await session.page.evaluate(() => {
+            const frame = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-thumbnail-page="1"] [data-document-thumbnail-frame]',
+            )!;
+            const canvas = frame.querySelector('canvas')!.getBoundingClientRect();
+            const style = getComputedStyle(frame);
+            const frameRect = frame.getBoundingClientRect();
+            return {
+                frameWidth: frameRect.width - parseFloat(style.borderLeftWidth) - parseFloat(style.paddingLeft)
+                    - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight),
+                frameHeight: frameRect.height - parseFloat(style.borderTopWidth) - parseFloat(style.paddingTop)
+                    - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom),
+                pageWidth: canvas.width,
+                pageHeight: canvas.height,
+            };
+        });
+        // The spread fills its slot both ways: no blank band above or below.
+        expect(slot.frameWidth / slot.frameHeight, JSON.stringify(slot)).toBeCloseTo(793 / 566, 1);
+        expect(Math.abs(slot.pageWidth - slot.frameWidth), JSON.stringify(slot)).toBeLessThanOrEqual(2);
+        expect(Math.abs(slot.pageHeight - slot.frameHeight), JSON.stringify(slot)).toBeLessThanOrEqual(2);
+    });
 
     it('fits explicitly navigated mixed-size pages without thumbnail overlap', async () => {
         const session = sessionFixture.getSession();
@@ -7201,9 +7341,12 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
         expect(thumbnailProbe.renderedCount, thumbnailDetail).toBeGreaterThan(0);
         expect(thumbnailProbe.placeholderPagesSeen, thumbnailDetail).toBeGreaterThan(0);
         expect(thumbnailProbe.matchedAspects.length, thumbnailDetail).toBeGreaterThanOrEqual(3);
+        // Every slot shares the document's one shape, and a placeholder has
+        // the shape its rendered page takes, so a raster never moves the rail.
+        const slotRatio = thumbnailProbe.matchedAspects[0]!.renderedRatio;
         expect(thumbnailProbe.matchedAspects.every(sample => (
             Math.abs(sample.placeholderRatio - sample.renderedRatio) <= 0.03
-            && Math.abs(sample.renderedRatio - 210 / 297) <= 0.03
+            && Math.abs(sample.renderedRatio - slotRatio) <= 0.03
         )), thumbnailDetail).toBe(true);
 
         const errorSurface = await session.page.evaluate(() => ({

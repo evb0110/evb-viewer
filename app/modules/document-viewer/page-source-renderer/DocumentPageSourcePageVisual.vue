@@ -11,6 +11,7 @@
         aria-hidden="true"
     >
         <DocumentPageSkeleton
+            :deferred="deferSkeleton"
             :content-height="contentHeight"
         />
     </div>
@@ -59,6 +60,7 @@ import type { TDocumentPageSourceVisual } from '@app/modules/document-viewer/pag
 const {
     contentHeight,
     currentSearchResultIndex,
+    deferSkeleton = false,
     documentLoadGeneration,
     errorMessage,
     errorPresentation = null,
@@ -72,6 +74,7 @@ const {
 } = defineProps<{
     contentHeight: number;
     currentSearchResultIndex: number;
+    deferSkeleton?: boolean;
     documentLoadGeneration: number;
     errorMessage: string;
     errorPresentation?: FailurePresentation | null;

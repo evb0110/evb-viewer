@@ -39,6 +39,8 @@ export type TDocumentViewportVisualOwner =
         readonly pageNumber: number;
         readonly presentation: 'skeleton' | 'canvas' | 'error';
         readonly error: string | null;
+        /** The skeleton waits briefly before it shows; see navigationRequested. */
+        readonly deferSkeleton?: true;
     }
     | {
         readonly kind: 'failed';
@@ -466,12 +468,17 @@ function navigationRequested(
         return reject(state);
     }
     const pageNumber = event.pageNumber === null ? state.requestedPage : clampPage(event.pageNumber, state.pageCount);
+    // Leaving a painted page, the skeleton waits a moment so a page that
+    // renders quickly replaces the old one without a placeholder flash. A
+    // command that lands mid-transition shows it at once, so rapid Next clicks
+    // keep the skeleton instead of flashing bare pages.
     const visual: TDocumentViewportVisualOwner = {
         kind: 'page',
         generation: state.generation,
         pageNumber,
         presentation: 'skeleton',
         error: null,
+        ...(state.lifecycle === 'ready' ? {deferSkeleton: true} : {}),
     };
     const next: IDocumentViewportSessionState = {
         ...state,
@@ -655,6 +662,7 @@ export function reduceDocumentViewportSession(
                     pageNumber,
                     presentation: 'skeleton',
                     error: null,
+                    ...(state.visual.kind === 'page' && state.visual.deferSkeleton ? {deferSkeleton: true} : {}),
                 },
             });
         }
