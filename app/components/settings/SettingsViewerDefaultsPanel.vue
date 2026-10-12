@@ -41,6 +41,14 @@
             />
         </UFormField>
 
+        <USwitch
+            id="settings-remember-document-view"
+            :model-value="settings.rememberDocumentView"
+            :label="t('settings.rememberDocumentView')"
+            size="sm"
+            @update:model-value="emit('update:remember-document-view', $event)"
+        />
+
         <UFormField
             :label="t('settings.defaultAnnotationColor')"
             :ui="settingsFormFieldUi"
@@ -119,6 +127,7 @@ const emit = defineEmits<{
     'update:zoom-preset': [value: string | { value: string }];
     'update:view-mode': [value: string | { value: string }];
     'update:scroll-mode': [value: boolean | { value: boolean }];
+    'update:remember-document-view': [value: boolean];
     'update:tab-memory-policy': [value: string | { value: string }];
     'update:annotation-color': [value: string];
     'update:optimize-pdf-on-save-as': [value: boolean];

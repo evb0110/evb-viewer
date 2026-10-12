@@ -1602,6 +1602,7 @@ export default {
         'uiScaleComfortable': 'Удобный',
         'uiScaleLarge': 'Крупный',
         'viewerDefaults': 'Параметры просмотра по умолчанию',
+        'rememberDocumentView': 'Открывать документы с того места, где я остановился',
         'defaultZoom': 'Масштаб по умолчанию',
         'defaultViewMode': 'Режим просмотра по умолчанию',
         'defaultScrollMode': 'Режим прокрутки по умолчанию',

@@ -209,6 +209,7 @@ export interface ISettingsData {
     defaultZoomPreset: TDefaultZoomPreset;
     defaultViewMode: TPdfViewMode;
     defaultContinuousScroll: boolean;
+    rememberDocumentView: boolean;
     defaultAnnotationColor: string;
     uiScale: TUiScalePreference;
     tabMemoryPolicy: TTabMemoryPolicy;

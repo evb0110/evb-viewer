@@ -73,6 +73,15 @@ describe('browserSettingsPersistence performanceMode', () => {
         expect(parseBrowserSettingsPayload(serialized).performanceMode).toBe('high');
     });
 
+    it('round-trips the reopen preference through existing settings persistence', () => {
+        const serialized = serializeBrowserSettingsPayload({
+            ...DEFAULT_SETTINGS,
+            rememberDocumentView: true,
+        });
+        expect(parseBrowserSettingsPayload(serialized).rememberDocumentView).toBe(true);
+        expect(parseBrowserSettingsPayload({version: 2}).rememberDocumentView).toBe(false);
+    });
+
     it('keeps client diagnostics out of the legacy settings cookie', () => {
         const serialized = serializeBrowserSettingsPayload({
             ...DEFAULT_SETTINGS,

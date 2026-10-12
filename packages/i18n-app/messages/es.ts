@@ -1562,6 +1562,7 @@ export default {
         'uiScaleComfortable': 'Cómodo',
         'uiScaleLarge': 'Grande',
         'viewerDefaults': 'Valores predeterminados del visor',
+        'rememberDocumentView': 'Reabrir los documentos donde los dejé',
         'defaultZoom': 'Zoom predeterminado',
         'defaultViewMode': 'Modo de vista predeterminado',
         'defaultScrollMode': 'Modo de desplazamiento predeterminado',

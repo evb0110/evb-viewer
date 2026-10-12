@@ -21,6 +21,7 @@ describe('settings platform feature schemas', () => {
     });
 
     it('round-trips valid patches and complete settings results', () => {
+        expect(codecs[channels.save]!.decodeArgs([{rememberDocumentView: true}])).toEqual([{rememberDocumentView: true}]);
         expect(codecs[channels.save]!.decodeArgs([{theme: 'dark'}])).toEqual([{theme: 'dark'}]);
         expect(codecs[channels.save]!.decodeResult(undefined)).toBeUndefined();
         expect(codecs[channels.get]!.decodeResult(DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS);
@@ -37,6 +38,8 @@ describe('settings platform feature schemas', () => {
     it('rejects malformed and normalized-away settings fields', () => {
         expect(() => codecs[channels.save]!.decodeArgs([]))
             .toThrow('expected 1 arguments, received 0');
+        expect(() => codecs[channels.save]!.decodeArgs([{rememberDocumentView: 'true'}]))
+            .toThrow('invalid settings field: rememberDocumentView');
         expect(() => codecs[channels.save]!.decodeArgs([{theme: 'sepia'}]))
             .toThrow('invalid settings field: theme');
         expect(() => codecs[channels.save]!.decodeArgs([{unknown: true}]))

@@ -1573,6 +1573,7 @@ export default {
         'uiScaleComfortable': 'Confortável',
         'uiScaleLarge': 'Grande',
         'viewerDefaults': 'Padrões do Visualizador',
+        'rememberDocumentView': 'Reabrir os documentos de onde parei',
         'defaultZoom': 'Zoom Padrão',
         'defaultViewMode': 'Modo de Visualização Padrão',
         'defaultScrollMode': 'Modo de Rolagem Padrão',

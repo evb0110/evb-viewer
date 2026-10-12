@@ -62,10 +62,16 @@ page point can be captured, clamp to the nearest document boundary. A fit
 mode re-fits and keeps the same page and center-relative point where the geometry
 permits.
 
-**R4. Reopening restores the place.** When restoration is enabled and the
-document identity is unchanged, reopening a document or restoring a workspace
-returns to the same page, zoom mode and view mode. An explicit reset is not a
-restore.
+**R4. The reader chooses whether closed documents remember their place.**
+“Reopen documents where I left off” is off by default. Opening a document that
+is no longer open starts at page 1 with the configured default zoom and view
+mode, through every opening entry point. When the reader enables the setting,
+an unchanged document reopens at its remembered page, zoom mode and view mode.
+Reading state is recorded on close in either setting, so enabling it also works
+for documents closed earlier. Restoring an open workspace after a relaunch or
+crash, moving a tab between windows, and reopening the same tab's document after
+a save always keep their place, regardless of this setting. Those documents were
+never closed. An explicit reset is not a restore.
 
 ## Layout
 

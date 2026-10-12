@@ -50,6 +50,7 @@
                 @update:zoom-preset="applyZoomPreset"
                 @update:view-mode="applyViewMode"
                 @update:scroll-mode="applyScrollMode"
+                @update:remember-document-view="updateSettingSafely('rememberDocumentView', $event)"
                 @update:tab-memory-policy="applyTabMemoryPolicy"
                 @update:annotation-color="updateSettingSafely('defaultAnnotationColor', $event)"
                 @update:optimize-pdf-on-save-as="updateSettingSafely('optimizePdfOnSaveAs', $event)"
@@ -600,11 +601,7 @@ function applyViewMode(mode: string | { value: string }) {
 }
 
 function applyScrollMode(mode: boolean | { value: boolean }) {
-    if (!isLoaded.value) {
-        return;
-    }
-    const value = typeof mode === 'boolean' ? mode : mode.value;
-    updateSetting('defaultContinuousScroll', value);
+    updateSettingSafely('defaultContinuousScroll', typeof mode === 'boolean' ? mode : mode.value);
 }
 
 function applyTabMemoryPolicy(policy: string | { value: string }) {

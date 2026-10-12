@@ -1562,6 +1562,7 @@ export default {
         'uiScaleComfortable': 'Comfortable',
         'uiScaleLarge': 'Large',
         'viewerDefaults': 'Viewer Defaults',
+        'rememberDocumentView': 'Reopen documents where I left off',
         'defaultZoom': 'Default Zoom',
         'defaultViewMode': 'Default View Mode',
         'defaultScrollMode': 'Default Scroll Mode',
