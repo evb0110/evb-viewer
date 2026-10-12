@@ -1,5 +1,5 @@
 import {
-    PDFDocument, PDFName, PDFString, PDFHexString, PDFArray, PDFDict, PDFNumber, PDFNull, degrees,
+    PDFDocument, PDFName, PDFString, PDFHexString, PDFArray, PDFDict, PDFNumber, PDFNull, degrees, type PDFPage,
 } from 'pdf-lib';
 import {
     copyFile, mkdtemp, readFile, realpath, writeFile,
@@ -186,109 +186,72 @@ describe('Electron E2E - bookmark destination round trip', () => {
 
     it('keeps untouched remote, launch, URI and named targets when another bookmark is renamed', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`source-intent-${Date.now()}.pdf`, []);
-        const pdf = await PDFDocument.load(await readFile(fixture));
-        const pages = pdf.getPages();
-        const outlinesRef = pdf.context.nextRef();
-        const definitions = [
-            {
-                Title: PDFString.of('Chapter'),
-                Dest: [
-                    pages[1]!.ref,
-                    PDFName.of('XYZ'),
-                    null,
-                    600,
-                    null,
-                ],
-            },
-            {
-                Title: PDFString.of('Named'),
-                Dest: PDFString.of('chapter-three'),
-            },
-            {
-                Title: PDFString.of('Remote'),
-                A: {
-                    S: PDFName.of('GoToR'),
-                    F: PDFString.of('other.pdf'),
-                    D: PDFString.of('remote-chapter'),
-                    NewWindow: true,
+        await writeOutlineFixture(fixture, (pdf, pages) => {
+            const definitions = [
+                {
+                    Title: PDFString.of('Chapter'),
+                    Dest: [
+                        pages[1]!.ref,
+                        PDFName.of('XYZ'),
+                        null,
+                        600,
+                        null,
+                    ],
                 },
-            },
-            {
-                Title: PDFString.of('Launch'),
-                A: {
-                    S: PDFName.of('Launch'),
-                    F: PDFString.of('tool.exe'),
-                    Win: {
-                        F: PDFString.of('tool.exe'),
-                        P: PDFString.of('-x 1.5'),
+                {
+                    Title: PDFString.of('Named'),
+                    Dest: PDFString.of('chapter-three'),
+                },
+                {
+                    Title: PDFString.of('Remote'),
+                    A: {
+                        S: PDFName.of('GoToR'),
+                        F: PDFString.of('other.pdf'),
+                        D: PDFString.of('remote-chapter'),
+                        NewWindow: true,
                     },
                 },
-            },
-            {
-                Title: PDFString.of('Site'),
-                A: pdf.context.register(pdf.context.obj({
-                    S: PDFName.of('URI'),
-                    URI: PDFHexString.fromText('https://example.org/a?b=1'),
-                })),
-            },
-        ];
-        const refs = definitions.map(() => pdf.context.nextRef());
-        definitions.forEach((definition, index) => pdf.context.assign(refs[index]!, pdf.context.obj({
-            ...definition,
-            Parent: outlinesRef,
-            ...(index > 0 ? {Prev: refs[index - 1]} : {}),
-            ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
-        })));
-        pdf.context.assign(outlinesRef, pdf.context.obj({
-            Type: PDFName.of('Outlines'),
-            First: refs[0],
-            Last: refs.at(-1),
-            Count: refs.length,
-        }));
-        pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
-        // A local name equal to the remote destination must not capture it.
-        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({
-            'chapter-three': [
-                pages[2]!.ref,
-                PDFName.of('FitH'),
-                null,
-            ],
-            'remote-chapter': [
-                pages[3]!.ref,
-                PDFName.of('Fit'),
-            ],
-        }));
-        await writeFile(fixture, await pdf.save());
-        const readTargets = async () => {
-            const document = await PDFDocument.load(await readFile(fixture));
-            let node: PDFDict | undefined = document.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
-            const targets = [];
-            while (node) {
-                targets.push({
-                    title: node.lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText(),
-                    action: node.lookup(PDFName.of('A'))?.toString() ?? null,
-                    dest: node.lookup(PDFName.of('Dest'))?.toString() ?? null,
-                });
-                node = node.lookupMaybe(PDFName.of('Next'), PDFDict);
-            }
-            return targets;
-        };
-        const source = await readTargets();
+                {
+                    Title: PDFString.of('Launch'),
+                    A: {
+                        S: PDFName.of('Launch'),
+                        F: PDFString.of('tool.exe'),
+                        Win: {
+                            F: PDFString.of('tool.exe'),
+                            P: PDFString.of('-x 1.5'),
+                        },
+                    },
+                },
+                {
+                    Title: PDFString.of('Site'),
+                    A: pdf.context.register(pdf.context.obj({
+                        S: PDFName.of('URI'),
+                        URI: PDFHexString.fromText('https://example.org/a?b=1'),
+                    })),
+                },
+            ];
+            // A local name equal to the remote destination must not capture it.
+            pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({
+                'chapter-three': [
+                    pages[2]!.ref,
+                    PDFName.of('FitH'),
+                    null,
+                ],
+                'remote-chapter': [
+                    pages[3]!.ref,
+                    PDFName.of('Fit'),
+                ],
+            }));
+            return definitions;
+        });
+        const source = await readOutlineTargets(fixture);
         const {page} = sessions.getSession();
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         await openDocumentSidebarTab(page, 'Bookmarks');
-        await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
-        await clickAsUser(page, await findBookmarkRow(page, 'Chapter'), {button: 'right'});
-        await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
-        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
-        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
-        await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+A'});
-        await page.keyboard.type('Chapter renamed');
-        await page.keyboard.press('Enter');
-        await findBookmarkRow(page, 'Chapter renamed');
+        await renameBookmarkAsUser(page, 'Chapter', 'Chapter renamed');
         await saveViaVisibleToolbar(page, 90_000, fixture);
-        const saved = await readTargets();
+        const saved = await readOutlineTargets(fixture);
         const evidence = await mkdtemp(join(tmpdir(), 'evb-source-intent-'));
         await copyFile(fixture, join(evidence, 'saved.pdf'));
         console.info('SOURCE_INTENT_SAVE ' + JSON.stringify({
@@ -643,4 +606,66 @@ async function readOriginalDestinationSamples(path: string) {
         if (index < 7) entry = entry.lookup(PDFName.of('Next'), PDFDict);
     }
     return samples;
+}
+
+/**
+ * Gives the fixture an outline built from `describe`, linked in order. The
+ * callback may also add catalog entries the outline refers to.
+ */
+async function writeOutlineFixture(
+    fixture: string,
+    describe: (pdf: PDFDocument, pages: PDFPage[]) => Array<Record<string, unknown>>,
+) {
+    const pdf = await PDFDocument.load(await readFile(fixture));
+    const definitions = describe(pdf, pdf.getPages());
+    const outlinesRef = pdf.context.nextRef();
+    const refs = definitions.map(() => pdf.context.nextRef());
+    definitions.forEach((definition, index) => pdf.context.assign(refs[index]!, pdf.context.obj({
+        ...definition,
+        Parent: outlinesRef,
+        ...(index > 0 ? {Prev: refs[index - 1]} : {}),
+        ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
+    })));
+    pdf.context.assign(outlinesRef, pdf.context.obj({
+        Type: PDFName.of('Outlines'),
+        First: refs[0],
+        Last: refs.at(-1),
+        Count: refs.length,
+    }));
+    pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
+    await writeFile(fixture, await pdf.save());
+}
+
+/** Each top-level outline item's title and its saved /A and /Dest, as written. */
+async function readOutlineTargets(fixture: string) {
+    const document = await PDFDocument.load(await readFile(fixture));
+    let node: PDFDict | undefined = document.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+    const targets = [];
+    while (node) {
+        targets.push({
+            title: node.lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText(),
+            action: node.lookup(PDFName.of('A'))?.toString() ?? null,
+            dest: node.lookup(PDFName.of('Dest'))?.toString() ?? null,
+        });
+        node = node.lookupMaybe(PDFName.of('Next'), PDFDict);
+    }
+    return targets;
+}
+
+async function renameBookmarkAsUser(page: Page, title: string, nextTitle: string) {
+    await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
+    await clickAsUser(page, await findBookmarkRow(page, title), {button: 'right'});
+    await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
+    await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+    await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+    await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+A'});
+    // The menu command runs after the accelerator returns; typing before the
+    // selection lands would keep the old title's first character.
+    await waitForFunctionInPage(page, () => {
+        const input = document.activeElement;
+        return input instanceof HTMLInputElement && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    });
+    await page.keyboard.type(nextTitle);
+    await page.keyboard.press('Enter');
+    await findBookmarkRow(page, nextTitle);
 }
