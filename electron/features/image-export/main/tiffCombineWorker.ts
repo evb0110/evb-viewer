@@ -12,6 +12,7 @@ interface ITiffCombineWorkerData {
     deleteSourcePages?: unknown;
     pagePaths?: unknown;
     outputPath?: unknown;
+    tempPath?: unknown;
 }
 
 type TTiffCombineWorkerResult =
@@ -53,6 +54,7 @@ function getWorkerInput() {
         deleteSourcePages: input.deleteSourcePages === true,
         pagePaths,
         outputPath: input.outputPath,
+        tempPath: typeof input.tempPath === 'string' ? input.tempPath : undefined,
     };
 }
 
@@ -79,6 +81,7 @@ async function run() {
         await combinePagesIntoMultiPageTiffLocal(input.pagePaths, input.outputPath, {
             deleteSourcePages: input.deleteSourcePages,
             ...(input.defaultDpi === undefined ? {} : {defaultDpi: input.defaultDpi}),
+            ...(input.tempPath === undefined ? {} : {tempPath: input.tempPath}),
             signal: abortController.signal,
         });
         parentPort.postMessage({

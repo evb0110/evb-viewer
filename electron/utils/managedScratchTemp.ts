@@ -17,6 +17,12 @@ import {
 } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import { atomicReplace } from '@electron/utils/atomicReplace';
+import {
+    isSameFileIdentity,
+    readFileIdentity,
+    type IFileIdentity,
+} from '@electron/utils/fileIdentity';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import {
     isErrnoException,
@@ -25,9 +31,9 @@ import {
 
 const logger = createLogger('managed-scratch-temp');
 const MANAGED_SCRATCH_MARKER_FILE = '.evb-managed-scratch.json';
-const MANAGED_SCRATCH_STAGES_FILE = '.evb-scratch-stages';
-// The names makeSiblingTempPath gives a publication stage.
-const MANAGED_SCRATCH_STAGE_NAME_PATTERN = /^\.[0-9a-f]{16}\.tmp$/u;
+const MANAGED_SCRATCH_RECORD_FILE = '.evb-scratch-record';
+// The names makeSiblingTempPath gives a temporary file beside a stage or target.
+const MANAGED_SCRATCH_TEMP_NAME_PATTERN = /^\.[0-9a-f]{16}\.tmp$/u;
 const MANAGED_SCRATCH_PREFIXES = [
     'pdfExport-',
     'pdfExport-scope-',
@@ -166,39 +172,226 @@ export async function removeManagedScratchTempDir(
     return true;
 }
 
-/**
- * Records a publication stage beside its target before the stage file exists.
- * A crash leaves the record in the export's scratch, and the next startup sweep
- * removes the stages it names.
- */
-export async function recordManagedScratchStage(scratchPath: string, stagePath: string) {
-    await appendFile(join(scratchPath, MANAGED_SCRATCH_STAGES_FILE), `${stagePath}\n`, 'utf8');
+interface IManagedScratchBackupEntry {
+    kind: 'backup';
+    path: string;
+    target: string;
+    original: IFileIdentity;
 }
 
-// A dead owner's stages are orphans whatever the age of its scratch, so they go
-// now while the scratch keeps its age rule. Only complete lines count, since a
-// crash can cut the last record short, and only stage names are removed. A
-// record stays when a removal fails, so the next start tries those stages again.
-async function removeRecordedManagedScratchStages(scratchPath: string) {
-    const recordPath = join(scratchPath, MANAGED_SCRATCH_STAGES_FILE);
-    const record = await readFile(recordPath, 'utf8').catch(() => null);
-    if (record === null) {
+interface IManagedScratchPublishEntry {
+    kind: 'publish';
+    target: string;
+    published: IFileIdentity;
+}
+
+// One line per record. Each entry is written before the file it names is
+// created or replaced, so a crash leaves it for the next startup sweep. A null
+// scratch path records nothing, which is how an export without a scratch runs.
+type TManagedScratchRecordEntry =
+    | {
+        kind: 'stage' | 'writer';
+        path: string
+    }
+    | IManagedScratchBackupEntry
+    | IManagedScratchPublishEntry
+    | {kind: 'complete'};
+
+async function appendManagedScratchRecord(scratchPath: string | null, entry: TManagedScratchRecordEntry) {
+    if (scratchPath) {
+        await appendFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE), `${JSON.stringify(entry)}\n`, 'utf8');
+    }
+}
+
+export async function recordManagedScratchPath(scratchPath: string | null, kind: 'stage' | 'writer', path: string) {
+    await appendManagedScratchRecord(scratchPath, {
+        kind,
+        path,
+    });
+}
+
+export async function recordManagedScratchBackup(
+    scratchPath: string | null,
+    path: string,
+    target: string,
+    original: IFileIdentity,
+) {
+    await appendManagedScratchRecord(scratchPath, {
+        kind: 'backup',
+        path,
+        target,
+        original,
+    });
+}
+
+export async function recordManagedScratchPublish(scratchPath: string | null, target: string, published: IFileIdentity) {
+    await appendManagedScratchRecord(scratchPath, {
+        kind: 'publish',
+        target,
+        published,
+    });
+}
+
+export async function recordManagedScratchComplete(scratchPath: string | null) {
+    await appendManagedScratchRecord(scratchPath, {kind: 'complete'});
+}
+
+function isFileIdentityRecord(value: unknown): value is IFileIdentity {
+    return isRecord(value)
+        && typeof value.dev === 'number'
+        && typeof value.ino === 'number'
+        && typeof value.size === 'number'
+        && typeof value.mtimeMs === 'number';
+}
+
+function isAbsolutePath(value: unknown): value is string {
+    return typeof value === 'string' && isAbsolute(value);
+}
+
+function isTempPath(value: unknown): value is string {
+    return isAbsolutePath(value) && MANAGED_SCRATCH_TEMP_NAME_PATTERN.test(basename(value));
+}
+
+function parseManagedScratchRecordLine(line: string): TManagedScratchRecordEntry | null {
+    let value: unknown;
+    try {
+        value = JSON.parse(line);
+    } catch {
+        return null;
+    }
+    if (!isRecord(value)) {
+        return null;
+    }
+    if (value.kind === 'stage' || value.kind === 'writer') {
+        return isTempPath(value.path) ? {
+            kind: value.kind,
+            path: value.path,
+        } : null;
+    }
+    if (value.kind === 'backup') {
+        return isTempPath(value.path) && isAbsolutePath(value.target) && isFileIdentityRecord(value.original)
+            ? {
+                kind: 'backup',
+                path: value.path,
+                target: value.target,
+                original: value.original,
+            }
+            : null;
+    }
+    if (value.kind === 'publish') {
+        return isAbsolutePath(value.target) && isFileIdentityRecord(value.published)
+            ? {
+                kind: 'publish',
+                target: value.target,
+                published: value.published,
+            }
+            : null;
+    }
+    return value.kind === 'complete' ? {kind: 'complete'} : null;
+}
+
+export type TPublishedTargetOutcome = 'changed' | 'discarded' | 'gone' | 'removed' | 'restored';
+
+// Settles one target that an export published, or was about to publish. A backup
+// goes back over a target the export replaced, or over a missing target, with the
+// rename the rollback uses. A backup whose target still has its original is only
+// a copy and is discarded. A target the export made new is removed. Anything else
+// was changed by someone else, so nothing is touched. The in-process rollback and
+// the startup recovery both settle through here.
+export async function settlePublishedTarget(
+    target: string,
+    backupPath: string | null,
+    original: IFileIdentity | null,
+    published: IFileIdentity | null,
+): Promise<TPublishedTargetOutcome> {
+    const current = await readFileIdentity(target);
+    // Only a file that still has the identity the export published is the export's.
+    // Null means nothing was published, so an edited target is never overwritten.
+    const owned = isSameFileIdentity(current, published);
+    if (backupPath !== null) {
+        if (current === null || owned) {
+            if ((await readFileIdentity(backupPath)) === null) {
+                throw new Error(`Backup is missing: ${backupPath}`);
+            }
+            await atomicReplace(backupPath, target);
+            return 'restored';
+        }
+        if (isSameFileIdentity(current, original)) {
+            await rm(backupPath, {force: true});
+            return 'discarded';
+        }
+        return 'changed';
+    }
+    if (current === null) {
+        return 'gone';
+    }
+    if (!owned) {
+        return 'changed';
+    }
+    await rm(target, {force: true});
+    return 'removed';
+}
+
+// A dead owner's record is applied whatever the age of its scratch. Only complete
+// lines count, since a crash can cut the last append short. Stages and writer
+// temporaries are removed. A completed export keeps its published files and
+// loses its backups. An unfinished export is rolled back: each replaced target
+// gets its original back, and each new target is removed. A record stays when an
+// action fails, so the next start tries again.
+async function applyManagedScratchRecord(scratchPath: string) {
+    const recordPath = join(scratchPath, MANAGED_SCRATCH_RECORD_FILE);
+    const text = await readFile(recordPath, 'utf8').catch(() => null);
+    if (text === null) {
         return;
     }
-    let removedAll = true;
-    for (const stagePath of record.split('\n').slice(0, -1)) {
-        if (!isAbsolute(stagePath) || !MANAGED_SCRATCH_STAGE_NAME_PATTERN.test(basename(stagePath))) {
-            continue;
-        }
-        try {
-            // rm removes the entry itself, never a symlink's target, and fails on a directory.
-            await rm(stagePath, {force: true});
-        } catch (error) {
-            removedAll = false;
-            logger.warn(`Failed to remove recorded stage "${stagePath}": ${getErrorMessage(error)}`);
+    const entries: TManagedScratchRecordEntry[] = [];
+    for (const line of text.split('\n').slice(0, -1)) {
+        const entry = parseManagedScratchRecordLine(line);
+        if (entry) {
+            entries.push(entry);
         }
     }
-    if (removedAll) {
+    const complete = entries.some(entry => entry.kind === 'complete');
+    const publishes = new Map<string, IManagedScratchPublishEntry>();
+    const backedUp = new Set<string>();
+    for (const entry of entries) {
+        if (entry.kind === 'publish') {
+            publishes.set(entry.target, entry);
+        }
+        if (entry.kind === 'backup') {
+            backedUp.add(entry.target);
+        }
+    }
+    let settled = true;
+    const attempt = async (path: string, action: () => Promise<unknown>) => {
+        try {
+            await action();
+        } catch (error) {
+            settled = false;
+            logger.warn(`Failed to recover "${path}" from its managed scratch record: ${getErrorMessage(error)}`);
+        }
+    };
+    for (const entry of entries) {
+        if (entry.kind === 'stage' || entry.kind === 'writer') {
+            // rm removes the entry itself, never a symlink's target, and fails on a directory.
+            await attempt(entry.path, () => rm(entry.path, {force: true}));
+        } else if (entry.kind === 'backup') {
+            await attempt(entry.path, async () => {
+                if (complete) {
+                    await rm(entry.path, {force: true});
+                    return;
+                }
+                const publish = publishes.get(entry.target);
+                const outcome = await settlePublishedTarget(entry.target, entry.path, entry.original, publish?.published ?? null);
+                if (outcome === 'changed') {
+                    logger.warn(`Kept backup "${entry.path}": "${entry.target}" changed after the export`);
+                }
+            });
+        } else if (entry.kind === 'publish' && !complete && !backedUp.has(entry.target)) {
+            await attempt(entry.target, () => settlePublishedTarget(entry.target, null, null, entry.published));
+        }
+    }
+    if (settled) {
         await rm(recordPath, {force: true});
     }
 }
@@ -261,7 +454,7 @@ export async function sweepStaleManagedScratchTempDirs(
             if (!marker || !entry.startsWith(marker.prefix) || isProcessAlive(marker.pid)) {
                 continue;
             }
-            await removeRecordedManagedScratchStages(scratchPath);
+            await applyManagedScratchRecord(scratchPath);
 
             // Date.now() has integer-millisecond precision, while filesystem
             // timestamps can retain a fractional millisecond. Compare both

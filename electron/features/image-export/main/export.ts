@@ -70,10 +70,18 @@ import {
 } from '@electron/utils/nativeTerminationProof';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
-    recordManagedScratchStage,
+    recordManagedScratchBackup,
+    recordManagedScratchComplete,
+    recordManagedScratchPath,
+    recordManagedScratchPublish,
+    settlePublishedTarget,
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
+import {
+    readFileIdentity,
+    type IFileIdentity,
+} from '@electron/utils/fileIdentity';
 import {
     addStagedImageFileBytes,
     assertImageExportFreeSpace,
@@ -397,7 +405,7 @@ export async function convertRenderedPpmToImage(
     return outputPath;
 }
 
-async function moveFile(sourcePath: string, targetPath: string) {
+async function moveFile(sourcePath: string, targetPath: string, recordDir: string) {
     try {
         await rename(sourcePath, targetPath);
     } catch (error) {
@@ -406,6 +414,7 @@ async function moveFile(sourcePath: string, targetPath: string) {
         }
 
         const tempPath = makeSiblingTempPath(targetPath);
+        await recordManagedScratchPath(recordDir, 'writer', tempPath);
         let replaced = false;
         try {
             await copyFile(sourcePath, tempPath);
@@ -428,23 +437,21 @@ export interface IStagedImageFile {
 interface IStagedFilePublication {
     targetPath: string;
     backupPath: string | null;
-    targetIdentity: {
-        dev: number;
-        ino: number;
-        size: number;
-        mtimeMs: number;
-    } | null;
+    targetIdentity: IFileIdentity | null;
 }
 
 export interface IStagedFilePublicationLedger {
     promotedFiles: IStagedFilePublication[];
     backupPaths: string[];
+    // Where backups and publications are recorded, so a crash can roll them back.
+    scratchPath: string | null;
 }
 
-export function createStagedFilePublicationLedger(): IStagedFilePublicationLedger {
+export function createStagedFilePublicationLedger(scratchPath: string | null = null): IStagedFilePublicationLedger {
     return {
         promotedFiles: [],
         backupPaths: [],
+        scratchPath,
     };
 }
 
@@ -452,46 +459,23 @@ export async function rollbackStagedFilePublications(ledger: IStagedFilePublicat
     const rollbackFailures: Error[] = [];
     const restoredBackups = new Set<string>();
     for (const promotedFile of [...ledger.promotedFiles].reverse()) {
-        const currentTargetIdentity = await stat(promotedFile.targetPath).then(target => ({
-            dev: target.dev,
-            ino: target.ino,
-            size: target.size,
-            mtimeMs: target.mtimeMs,
-        })).catch(() => null);
-        const targetStillOwned = promotedFile.targetIdentity === null
-            ? currentTargetIdentity !== null
-            : currentTargetIdentity !== null
-                && promotedFile.targetIdentity.dev === currentTargetIdentity.dev
-                && promotedFile.targetIdentity.ino === currentTargetIdentity.ino
-                && promotedFile.targetIdentity.size === currentTargetIdentity.size
-                && promotedFile.targetIdentity.mtimeMs === currentTargetIdentity.mtimeMs;
-        if (promotedFile.backupPath) {
-            if (!targetStillOwned) {
-                rollbackFailures.push(new Error(`Refusing to restore ${promotedFile.targetPath} after external modification`));
-                continue;
+        const {
+            targetPath, backupPath,
+        } = promotedFile;
+        try {
+            const outcome = await settlePublishedTarget(targetPath, backupPath, null, promotedFile.targetIdentity);
+            if (outcome === 'restored' && backupPath) {
+                restoredBackups.add(backupPath);
+            } else if (outcome === 'changed') {
+                rollbackFailures.push(new Error(backupPath
+                    ? `Refusing to restore ${targetPath} after external modification`
+                    : `Refusing to remove ${targetPath} after external modification`));
             }
-            try {
-                await atomicReplace(promotedFile.backupPath, promotedFile.targetPath);
-                restoredBackups.add(promotedFile.backupPath);
-            } catch (restoreError) {
-                rollbackFailures.push(new Error(
-                    `Failed to restore ${promotedFile.targetPath} from ${promotedFile.backupPath}`,
-                    {cause: restoreError},
-                ));
-            }
-            continue;
+        } catch (error) {
+            rollbackFailures.push(new Error(backupPath
+                ? `Failed to restore ${targetPath} from ${backupPath}`
+                : `Failed to remove partially promoted ${targetPath}`, {cause: error}));
         }
-
-        if (promotedFile.targetIdentity !== null && currentTargetIdentity === null) {
-            continue;
-        }
-        if (!targetStillOwned) {
-            rollbackFailures.push(new Error(`Refusing to remove ${promotedFile.targetPath} after external modification`));
-            continue;
-        }
-        await rm(promotedFile.targetPath, {force: true}).catch((removeError: unknown) => {
-            rollbackFailures.push(new Error(`Failed to remove partially promoted ${promotedFile.targetPath}`, {cause: removeError}));
-        });
     }
     const retainedBackups = ledger.backupPaths.filter(backupPath => !restoredBackups.has(backupPath));
     if (rollbackFailures.length > 0 || retainedBackups.length > 0) {
@@ -505,6 +489,8 @@ export async function rollbackStagedFilePublications(ledger: IStagedFilePublicat
 }
 
 export async function commitStagedFilePublications(ledger: IStagedFilePublicationLedger) {
+    // Written after the last publication and before any backup is removed.
+    await recordManagedScratchComplete(ledger.scratchPath);
     await Promise.all(ledger.backupPaths.map(backupPath => rm(backupPath, {force: true}).catch(() => undefined)));
     ledger.promotedFiles.length = 0;
     ledger.backupPaths.length = 0;
@@ -515,8 +501,14 @@ export async function promoteStagedFiles(
     signal?: AbortSignal,
     ledger?: IStagedFilePublicationLedger,
 ) {
+    const scratchPath = ledger?.scratchPath ?? null;
     const promotedFiles: IStagedFilePublication[] = [];
     const backupPaths: string[] = [];
+    const batchLedger = {
+        promotedFiles,
+        backupPaths,
+        scratchPath: null,
+    };
     let pendingBackupPath: string | null = null;
     let pendingReplacementAttempted = false;
     try {
@@ -533,18 +525,25 @@ export async function promoteStagedFiles(
         }
         for (const stagedFile of stagedFiles) {
             throwIfAborted(signal);
-            const targetExistsAtPromotion = existsSync(stagedFile.targetPath);
-            const backupPath = targetExistsAtPromotion
-                ? makeSiblingTempPath(stagedFile.targetPath)
-                : null;
+            const original = await readFileIdentity(stagedFile.targetPath);
+            const backupPath = original ? makeSiblingTempPath(stagedFile.targetPath) : null;
             pendingBackupPath = backupPath;
             pendingReplacementAttempted = false;
-            if (backupPath) {
-                await copyFileAtomic(stagedFile.targetPath, backupPath, {durable: true});
+            if (backupPath && original) {
+                const temporaryPath = makeSiblingTempPath(backupPath);
+                await recordManagedScratchBackup(scratchPath, backupPath, stagedFile.targetPath, original);
+                await recordManagedScratchPath(scratchPath, 'writer', temporaryPath);
+                await copyFileAtomic(stagedFile.targetPath, backupPath, {
+                    durable: true,
+                    temporaryPath,
+                });
                 backupPaths.push(backupPath);
             }
             throwIfAborted(signal);
             pendingReplacementAttempted = true;
+            const published = await readFileIdentity(stagedFile.stagedPath);
+            if (!published) throw new Error(`Image export staged output is missing: ${stagedFile.stagedPath}`);
+            await recordManagedScratchPublish(scratchPath, stagedFile.targetPath, published);
             await atomicReplace(stagedFile.stagedPath, stagedFile.targetPath);
             promotedFiles.push({
                 targetPath: stagedFile.targetPath,
@@ -553,13 +552,7 @@ export async function promoteStagedFiles(
             });
             const promotedFile = promotedFiles.at(-1);
             if (!promotedFile) throw new Error('Image export publication record is missing');
-            const targetIdentity = await stat(stagedFile.targetPath);
-            promotedFile.targetIdentity = {
-                dev: targetIdentity.dev,
-                ino: targetIdentity.ino,
-                size: targetIdentity.size,
-                mtimeMs: targetIdentity.mtimeMs,
-            };
+            promotedFile.targetIdentity = await readFileIdentity(stagedFile.targetPath);
             pendingBackupPath = null;
             pendingReplacementAttempted = false;
         }
@@ -571,10 +564,6 @@ export async function promoteStagedFiles(
             const pendingBackupIndex = backupPaths.indexOf(pendingBackupPath);
             if (pendingBackupIndex >= 0) backupPaths.splice(pendingBackupIndex, 1);
         }
-        const batchLedger = {
-            promotedFiles,
-            backupPaths,
-        };
         const rollbackFailures: Error[] = [];
         try {
             await rollbackStagedFilePublications(batchLedger);
@@ -604,10 +593,7 @@ export async function promoteStagedFiles(
         ledger.backupPaths.push(...backupPaths);
         return;
     }
-    await commitStagedFilePublications({
-        promotedFiles,
-        backupPaths,
-    });
+    await commitStagedFilePublications(batchLedger);
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -1110,10 +1096,10 @@ export async function exportPdfPagesAsImages(
                                 throw new Error('Image export target path is missing');
                             }
                             const stagedPath = makeSiblingTempPath(targetPath);
-                            await recordManagedScratchStage(stageDir, stagedPath);
+                            await recordManagedScratchPath(stageDir, 'stage', stagedPath);
 
                             throwIfAborted(options.signal);
-                            await moveFile(source.path, stagedPath);
+                            await moveFile(source.path, stagedPath, stageDir);
                             stagedBytes = await addStagedImageFileBytes(stagedBytes, stagedPath,
                                 'Image export exceeds the 2 GiB staged-output limit for one render window');
                             stagedFiles.push({
@@ -1134,7 +1120,9 @@ export async function exportPdfPagesAsImages(
                     throw new Error('PDF image export did not render every planned page');
                 }
                 await options.beforePublish?.();
-                await promoteStagedFiles(stagedFiles, options.signal);
+                const publication = createStagedFilePublicationLedger(stageDir);
+                await promoteStagedFiles(stagedFiles, options.signal, publication);
+                await commitStagedFilePublications(publication);
             } catch (error) {
                 await Promise.all(stagedFiles.map(stagedFile => rm(stagedFile.stagedPath, { force: true }).catch(() => undefined)));
                 throw error;
@@ -1162,6 +1150,7 @@ function getTiffCombineFallbackDisabledError() {
 async function runLocalTiffCombine(
     pagePaths: string[],
     outputPath: string,
+    tempPath: string,
     signal?: AbortSignal,
     deleteSourcePages = false,
     defaultDpi = DEFAULT_RENDER_DPI,
@@ -1170,6 +1159,7 @@ async function runLocalTiffCombine(
     await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath, {
         deleteSourcePages,
         defaultDpi,
+        tempPath,
         ...(signal ? { signal } : {}),
     }), {
         thresholdMs: 25,
@@ -1184,11 +1174,13 @@ async function runLocalTiffCombine(
 async function combinePagesIntoMultiPageTiff(
     pagePaths: string[],
     outputPath: string,
+    recordDir: string,
     signal?: AbortSignal,
     deleteSourcePages = false,
     defaultDpi = DEFAULT_RENDER_DPI,
 ) {
-    throwIfAborted(signal);
+    const tempPath = makeSiblingTempPath(outputPath);
+    await recordManagedScratchPath(recordDir, 'writer', tempPath);
     const workerPath = resolveTiffCombineWorkerPath();
 
     if (!existsSync(workerPath)) {
@@ -1202,7 +1194,7 @@ async function combinePagesIntoMultiPageTiff(
         }
 
         logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
-        await runLocalTiffCombine(pagePaths, outputPath, signal, deleteSourcePages, defaultDpi);
+        await runLocalTiffCombine(pagePaths, outputPath, tempPath, signal, deleteSourcePages, defaultDpi);
         return;
     }
 
@@ -1214,6 +1206,7 @@ async function combinePagesIntoMultiPageTiff(
                 defaultDpi,
                 pagePaths,
                 outputPath,
+                tempPath,
             },
             invalidPayloadMessage: 'TIFF combine worker returned an invalid payload',
             createStartError: message => new TiffCombineWorkerStartupError(
@@ -1255,7 +1248,7 @@ async function combinePagesIntoMultiPageTiff(
         }
 
         logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
-        await runLocalTiffCombine(pagePaths, outputPath, signal, deleteSourcePages, defaultDpi);
+        await runLocalTiffCombine(pagePaths, outputPath, tempPath, signal, deleteSourcePages, defaultDpi);
     }
 
     throwIfAborted(signal);
@@ -1329,11 +1322,12 @@ export async function exportPdfAsMultiPageTiff(
                         for (const tiffPageGroup of tiffPageGroups) {
                             throwIfAborted(options.signal);
                             const stagedPath = makeSiblingTempPath(targetPath);
-                            await recordManagedScratchStage(tempDir, stagedPath);
+                            await recordManagedScratchPath(tempDir, 'stage', stagedPath);
                             stagedGroupPaths.push(stagedPath);
                             await combinePagesIntoMultiPageTiff(
                                 tiffPageGroup.map(page => page.path),
                                 stagedPath,
+                                tempDir,
                                 options.signal,
                                 true,
                                 renderDpi,
@@ -1365,7 +1359,9 @@ export async function exportPdfAsMultiPageTiff(
                 });
                 throwIfAborted(options.signal);
                 await options.beforePublish?.();
-                await promoteStagedFiles(stagedFiles, options.signal);
+                const publication = createStagedFilePublicationLedger(tempDir);
+                await promoteStagedFiles(stagedFiles, options.signal, publication);
+                await commitStagedFilePublications(publication);
                 for (const outputPath of outputPaths) {
                     if (!existsSync(outputPath)) {
                         throw new Error('Multi-page TIFF export did not produce an output file');

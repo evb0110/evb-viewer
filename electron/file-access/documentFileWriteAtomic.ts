@@ -30,6 +30,10 @@ const RECOVERABLE_IMMUTABLE_LINK_CODES = new Set([
     'EMLINK',
 ]);
 
+function isRecoverableImmutableLinkError(error: unknown) {
+    return isErrnoException(error) && typeof error.code === 'string' && RECOVERABLE_IMMUTABLE_LINK_CODES.has(error.code);
+}
+
 function assertWithinIpcWriteBudget(byteLength: number) {
     if (byteLength > MAX_IPC_WRITE_BYTES) {
         throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
@@ -107,13 +111,15 @@ export async function copyFileAtomic(
         durable?: boolean;
         linkImmutableSource?: boolean;
         onPhase?: (phase: string, durationMs: number) => void;
+        temporaryPath?: string;
     } = {},
 ) {
     assertNoSymlinkPathSegments(resolvedSourcePath);
     assertNoSymlinkPathSegments(resolvedTargetPath);
 
     const directoryPath = dirname(resolvedTargetPath);
-    const temporaryPath = getPublicationTemporaryPath(resolvedTargetPath, options.destinationBackupPath);
+    const temporaryPath = options.temporaryPath
+        ?? getPublicationTemporaryPath(resolvedTargetPath, options.destinationBackupPath);
 
     try {
         const cloneOutcome = await measureCopyPhase(options.onPhase, 'clone', () =>
@@ -126,10 +132,7 @@ export async function copyFileAtomic(
                         linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath));
                     linked = true;
                 } catch (error) {
-                    const code = isErrnoException(error) && typeof error.code === 'string'
-                        ? error.code
-                        : undefined;
-                    if (!RECOVERABLE_IMMUTABLE_LINK_CODES.has(code ?? '')) {
+                    if (!isRecoverableImmutableLinkError(error)) {
                         throw error;
                     }
                 }
@@ -186,10 +189,7 @@ export async function linkOrCopyFileDurably(
         await link(resolvedSourcePath, resolvedTargetPath);
         await fsyncDirectoryBestEffort(dirname(resolvedTargetPath));
     } catch (error) {
-        const code = isErrnoException(error) && typeof error.code === 'string'
-            ? error.code
-            : undefined;
-        if (!RECOVERABLE_IMMUTABLE_LINK_CODES.has(code ?? '')) {
+        if (!isRecoverableImmutableLinkError(error)) {
             throw error;
         }
         await copyFileAtomic(resolvedSourcePath, resolvedTargetPath);
@@ -213,10 +213,7 @@ export async function publishImmutableFileAtomic(
     try {
         await linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath);
     } catch (error) {
-        const code = isErrnoException(error) && typeof error.code === 'string'
-            ? error.code
-            : undefined;
-        if (!RECOVERABLE_IMMUTABLE_LINK_CODES.has(code ?? '')) {
+        if (!isRecoverableImmutableLinkError(error)) {
             throw error;
         }
         return copyFileAtomic(resolvedSourcePath, resolvedTargetPath, options);

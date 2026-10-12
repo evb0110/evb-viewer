@@ -114,7 +114,7 @@ describe('native TIFF combine wrapper', () => {
             };
         });
 
-        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, undefined, 300)).resolves.toBe(true);
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, `${outputPath}.tmp`, undefined, 300)).resolves.toBe(true);
         await expect(readFile(outputPath, 'utf8')).resolves.toBe('native-tiff');
         expect(recordedInputs).toBe(`${inputPaths.join('\n')}\n`);
         expect(mocks.runNativeCommand).toHaveBeenCalledWith('/mock/evb-pdf-image-combine', expect.any(Array), {
@@ -133,7 +133,7 @@ describe('native TIFF combine wrapper', () => {
         await writeFile(`${outputPath}.tmp`, 'stale');
         mocks.runNativeCommand.mockRejectedValueOnce(new Error('native failed'));
 
-        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath))
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, `${outputPath}.tmp`))
             .rejects.toThrow('Native TIFF combine fallback is not allowed in tests');
 
         await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();
@@ -155,7 +155,7 @@ describe('native TIFF combine wrapper', () => {
             throw markUnprovenNativeTermination(new Error('evb-pdf-image-combine timed out'), 'process tree survived its kill');
         });
 
-        const error = await tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, undefined, 300)
+        const error = await tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, `${outputPath}.tmp`, undefined, 300)
             .then(() => null, (reason: unknown) => reason);
 
         // The caller sees the uncertainty instead of a fallback signal.
@@ -178,7 +178,7 @@ describe('native TIFF combine wrapper', () => {
         const stale = new NativeToolBuildMismatchError('evb-pdf-image-combine was built from other native sources');
         mocks.runNativeCommand.mockRejectedValueOnce(stale);
 
-        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath)).rejects.toBe(stale);
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, `${outputPath}.tmp`)).rejects.toBe(stale);
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
         // Every native adapter asks this helper before it falls back, in the
         // app as in tests: a stale binary is thrown, any other failure is not.
@@ -202,7 +202,7 @@ describe('native TIFF combine wrapper', () => {
             vi.stubEnv(name, scratchRoot);
         }
         try {
-            await expect(tryCombinePagesWithNativeTiffCombiner([join(tempDir, 'page-001.tif')], join(tempDir, 'combined.tiff')))
+            await expect(tryCombinePagesWithNativeTiffCombiner([join(tempDir, 'page-001.tif')], join(tempDir, 'combined.tiff'), join(tempDir, 'combined.tiff.tmp')))
                 .rejects.toThrow();
         } finally {
             // Restores unset variables too, which a copy of process.env cannot.
@@ -223,7 +223,7 @@ describe('native TIFF combine wrapper', () => {
             exitCode: 0,
         });
 
-        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath))
+        await expect(tryCombinePagesWithNativeTiffCombiner(inputPaths, outputPath, `${outputPath}.tmp`))
             .rejects.toThrow('Native TIFF combine fallback is not allowed in tests');
 
         await expect(readFile(`${outputPath}.tmp`, 'utf8')).rejects.toThrow();

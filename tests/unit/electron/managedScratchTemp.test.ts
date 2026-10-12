@@ -221,7 +221,11 @@ describe('managed scratch temp cleanup', () => {
             await writeFile(path, 'x', 'utf8');
         }
         // The last append was cut short: its line has no newline, so it names nothing.
-        await writeFile(join(ownerPath, '.evb-scratch-stages'), `${stagePath}\n${reportPath}\n${truncatedPath}`, 'utf8');
+        const stageEntry = (path: string) => JSON.stringify({
+            kind: 'stage',
+            path,
+        });
+        await writeFile(join(ownerPath, '.evb-scratch-record'), `${stageEntry(stagePath)}\n${stageEntry(reportPath)}\n${stageEntry(truncatedPath)}`, 'utf8');
 
         await sweepStaleManagedScratchTempDirs(mocks.appTempDir);
 
@@ -235,7 +239,10 @@ describe('managed scratch temp cleanup', () => {
         const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
         const stagePath = join(mocks.appTempDir, '.0123456789abcdef.tmp');
         await writeFile(stagePath, 'x', 'utf8');
-        await writeFile(join(ownerPath, '.evb-scratch-stages'), `${stagePath}\n`, 'utf8');
+        await writeFile(join(ownerPath, '.evb-scratch-record'), `${JSON.stringify({
+            kind: 'stage',
+            path: stagePath,
+        })}\n`, 'utf8');
 
         await sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0);
 

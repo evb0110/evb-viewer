@@ -4,6 +4,7 @@ import type * as TAtomicReplace from '@electron/utils/atomicReplace';
 import type * as TManagedScratch from '@electron/utils/managedScratchTemp';
 
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import {
     basename,
@@ -64,6 +65,9 @@ const mocks = vi.hoisted(() => ({
     runCommand: vi.fn(),
     stat: vi.fn(),
     rename: vi.fn(),
+    // Test-only holds: a matching read or removal never settles, as if the process had stopped.
+    holdReads: null as ((path: string) => boolean) | null,
+    holdRemoval: null as ((path: string) => boolean) | null,
     atomicReplace: vi.fn(),
     copyFileAtomic: vi.fn(),
     makeSiblingTempPath: vi.fn((targetPath: string) => `${targetPath}.tmp`),
@@ -90,6 +94,7 @@ const mocks = vi.hoisted(() => ({
     nativeTiffCombinePageGroups: [] as string[][],
     nativeTiffCombineStarted: false,
     nativeTiffCombineBlock: false,
+    nativeTiffCombineStopMidWrite: false,
     pageSizeOverrides: {} as Record<number, {
         widthPts: number;
         heightPts: number
@@ -119,9 +124,18 @@ vi.mock('fs/promises', async () => {
             if (String(path).includes('/render-pages-') && /\.tif{1,2}$/u.test(String(path))) {
                 mocks.tiffDescriptorReadCount += 1;
             }
+            if (mocks.holdReads?.(String(path))) {
+                return new Promise<never>(() => undefined);
+            }
             return actual.readFile(path, ...args);
         },
         rename: mocks.rename,
+        rm: async (path: Parameters<typeof actual.rm>[0], options?: Parameters<typeof actual.rm>[1]) => {
+            if (mocks.holdRemoval?.(String(path))) {
+                return new Promise<void>(() => undefined);
+            }
+            return actual.rm(path, options);
+        },
         stat: mocks.stat,
         statfs: mocks.statfs,
     };
@@ -149,6 +163,7 @@ vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombi
     return {tryCombinePagesWithNativeTiffCombiner: async (
         pagePaths: string[],
         outputPath: string,
+        tempOutputPath: string,
         signal?: AbortSignal,
     ) => {
         if (!mocks.nativeTiffCombineEnabled) {
@@ -157,6 +172,11 @@ vi.mock('@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombi
 
         mocks.nativeTiffCombinePageGroups.push([...pagePaths]);
         mocks.nativeTiffCombineStarted = true;
+        if (mocks.nativeTiffCombineStopMidWrite) {
+            // The writer stops once its temporary output, beside the output, exists.
+            await actual.writeFile(mocks.makeSiblingTempPath(outputPath), Buffer.from('partial-native-tiff'));
+            return new Promise<boolean>(() => undefined);
+        }
         if (mocks.nativeTiffCombineBlock) {
             await new Promise<void>((resolve, reject) => {
                 const handleAbort = () => {
@@ -255,6 +275,7 @@ vi.mock('@electron/utils/managedScratchTemp', async importOriginal => ({
 vi.mock('@electron/file-access/documentFileWriteAtomic', () => ({copyFileAtomic: mocks.copyFileAtomic}));
 
 const {
+    commitStagedFilePublications,
     createPageRanges,
     exportPdfAsMultiPageTiff,
     exportPdfPagesAsImages,
@@ -363,6 +384,8 @@ describe('image export', () => {
         mocks.stat.mockReset();
         mocks.statfs.mockReset();
         mocks.rename.mockReset();
+        mocks.holdReads = null;
+        mocks.holdRemoval = null;
         mocks.atomicReplace.mockReset();
         mocks.copyFileAtomic.mockReset();
         mocks.copyFileAtomic.mockImplementation(async (sourcePath: string, targetPath: string) => {
@@ -399,6 +422,7 @@ describe('image export', () => {
         mocks.nativeTiffCombinePageGroups.length = 0;
         mocks.nativeTiffCombineStarted = false;
         mocks.nativeTiffCombineBlock = false;
+        mocks.nativeTiffCombineStopMidWrite = false;
         mocks.pageSizeOverrides = {};
         mocks.stat.mockImplementation(async () => ({
             isFile: () => true,
@@ -1462,34 +1486,10 @@ describe('image export', () => {
         expect(mocks.copyFileAtomic).toHaveBeenCalledWith(
             targetPath,
             `${targetPath}.tmp`,
-            {durable: true},
+            expect.objectContaining({durable: true}),
         );
         await rollbackStagedFilePublications(ledger);
         expect(await readFile(targetPath, 'utf8')).toBe('original');
-    });
-
-    it('restores a displaced target when promotion identity stat fails', async () => {
-        const targetPath = join(tempDir, 'stat-failure-target.png');
-        const stagedPath = join(tempDir, 'stat-failure-target.staged');
-        await writeFile(targetPath, 'original');
-        await writeFile(stagedPath, 'replacement');
-        mocks.stat
-            .mockRejectedValueOnce(new Error('stat unavailable after promotion'))
-            .mockResolvedValueOnce({
-                isFile: () => true,
-                size: 11,
-                dev: 1,
-                ino: 2,
-                mtimeMs: 3,
-            });
-
-        await expect(promoteStagedFiles([{
-            stagedPath,
-            targetPath,
-        }])).rejects.toThrow('stat unavailable after promotion');
-
-        expect(await readFile(targetPath, 'utf8')).toBe('original');
-        expect(existsSync(`${targetPath}.tmp`)).toBe(false);
     });
 
     it('keeps an unproven native termination on the promotion error when a backup is retained', async () => {
@@ -2139,6 +2139,206 @@ describe('image export', () => {
 
         expect(listStagedNames(tempDir)).toEqual(['.fedcba9876543210.tmp']);
         await expect(readFile(join(tempDir, 'unrelated.tmp'), 'utf8')).resolves.toBe('keep');
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
+    it('restores both originals when the export stops after replacing one of two targets', async () => {
+        mocks.stat.mockImplementation(realFs.stat);
+        mocks.rename.mockImplementation(realFs.rename);
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        const appTempRoot = join(tempDir, 'app-temp');
+        const firstTargetPath = join(tempDir, 'first.png');
+        const secondTargetPath = join(tempDir, 'second.png');
+        await Promise.all([
+            writeFile(firstTargetPath, 'old-first'),
+            writeFile(secondTargetPath, 'old-second'),
+            writeFile(join(tempDir, 'first.staged'), 'new-first'),
+            writeFile(join(tempDir, 'second.staged'), 'new-second'),
+        ]);
+        const scratchPath = await realManagedScratch.createManagedScratchTempDir('pdfExport-', appTempRoot);
+        let reachedSecondReplacement = false;
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (targetPath === secondTargetPath) {
+                // The process stops while the second target is being replaced.
+                reachedSecondReplacement = true;
+                return new Promise<void>(() => undefined);
+            }
+            return realAtomicReplace.atomicReplace(sourcePath, targetPath);
+        });
+        void promoteStagedFiles([
+            {
+                stagedPath: join(tempDir, 'first.staged'),
+                targetPath: firstTargetPath,
+            },
+            {
+                stagedPath: join(tempDir, 'second.staged'),
+                targetPath: secondTargetPath,
+            },
+        ], undefined, createStagedFilePublicationLedger(scratchPath));
+        await vi.waitFor(() => expect(reachedSecondReplacement).toBe(true));
+        await expect(readFile(firstTargetPath, 'utf8')).resolves.toBe('new-first');
+
+        await restartAfterCrash(appTempRoot);
+
+        await expect(readFile(firstTargetPath, 'utf8')).resolves.toBe('old-first');
+        await expect(readFile(secondTargetPath, 'utf8')).resolves.toBe('old-second');
+        expect(listStagedNames(tempDir)).toEqual([]);
+    });
+
+    it('keeps the new files and removes the backups when the export stops after completing', async () => {
+        mocks.stat.mockImplementation(realFs.stat);
+        mocks.rename.mockImplementation(realFs.rename);
+        mocks.atomicReplace.mockImplementation(realAtomicReplace.atomicReplace);
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        const appTempRoot = join(tempDir, 'app-temp');
+        const firstTargetPath = join(tempDir, 'first.png');
+        const secondTargetPath = join(tempDir, 'second.png');
+        await Promise.all([
+            writeFile(firstTargetPath, 'old-first'),
+            writeFile(secondTargetPath, 'old-second'),
+            writeFile(join(tempDir, 'first.staged'), 'new-first'),
+            writeFile(join(tempDir, 'second.staged'), 'new-second'),
+        ]);
+        const scratchPath = await realManagedScratch.createManagedScratchTempDir('pdfExport-', appTempRoot);
+        const publication = createStagedFilePublicationLedger(scratchPath);
+        await promoteStagedFiles([
+            {
+                stagedPath: join(tempDir, 'first.staged'),
+                targetPath: firstTargetPath,
+            },
+            {
+                stagedPath: join(tempDir, 'second.staged'),
+                targetPath: secondTargetPath,
+            },
+        ], undefined, publication);
+        // Removing the backups never finishes: the process stops right after completion.
+        let reachedBackupRemoval = false;
+        mocks.holdRemoval = path => {
+            reachedBackupRemoval = true;
+            return publication.backupPaths.includes(path);
+        };
+        void commitStagedFilePublications(publication);
+        await vi.waitFor(() => expect(reachedBackupRemoval).toBe(true));
+        mocks.holdRemoval = null;
+
+        await restartAfterCrash(appTempRoot);
+
+        await expect(readFile(firstTargetPath, 'utf8')).resolves.toBe('new-first');
+        await expect(readFile(secondTargetPath, 'utf8')).resolves.toBe('new-second');
+        expect(listStagedNames(tempDir)).toEqual([]);
+    });
+
+    it('removes the temporary file of a local TIFF writer that stopped mid-write, on the next start', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        // The writer's first page read stops once its temporary file exists.
+        mocks.holdReads = path => path.includes('/render-pages-') && listStagedNames(tempDir).length > 0;
+        const outputPath = join(tempDir, 'interrupted-writer.tiff');
+        void exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath);
+        await vi.waitFor(() => expect(listStagedNames(tempDir)).toHaveLength(1));
+        mocks.holdReads = null;
+
+        await restartAfterCrash(tempDir);
+
+        expect(listStagedNames(tempDir)).toEqual([]);
+        expect(existsSync(outputPath)).toBe(false);
+    });
+
+    it('keeps an edited target and its backup when the export stops before publishing, on the next start', async () => {
+        mocks.stat.mockImplementation(realFs.stat);
+        mocks.rename.mockImplementation(realFs.rename);
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        const appTempRoot = join(tempDir, 'app-temp');
+        const targetPath = join(tempDir, 'first.png');
+        await Promise.all([
+            writeFile(targetPath, 'old-first'),
+            writeFile(join(tempDir, 'first.staged'), 'new-first'),
+        ]);
+        const scratchPath = await realManagedScratch.createManagedScratchTempDir('pdfExport-', appTempRoot);
+        let copied = false;
+        mocks.copyFileAtomic.mockImplementation(async (sourcePath: string, backupPath: string) => {
+            await copyFile(sourcePath, backupPath);
+            // The backup is complete, then the process stops before publishing.
+            copied = true;
+            return new Promise<void>(() => undefined);
+        });
+        void promoteStagedFiles([{
+            stagedPath: join(tempDir, 'first.staged'),
+            targetPath,
+        }], undefined, createStagedFilePublicationLedger(scratchPath));
+        await vi.waitFor(() => expect(copied).toBe(true));
+        await writeFile(targetPath, 'edited-after-backup');
+
+        await restartAfterCrash(appTempRoot);
+
+        await expect(readFile(targetPath, 'utf8')).resolves.toBe('edited-after-backup');
+        const backupNames = listStagedNames(tempDir);
+        expect(backupNames).toHaveLength(1);
+        await expect(readFile(join(tempDir, ...backupNames), 'utf8')).resolves.toBe('old-first');
+    });
+
+    it('restores the original of a replaced target that is gone on the next start', async () => {
+        mocks.stat.mockImplementation(realFs.stat);
+        mocks.rename.mockImplementation(realFs.rename);
+        mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
+        const appTempRoot = join(tempDir, 'app-temp');
+        const firstTargetPath = join(tempDir, 'first.png');
+        const secondTargetPath = join(tempDir, 'second.png');
+        await Promise.all([
+            writeFile(firstTargetPath, 'old-first'),
+            writeFile(join(tempDir, 'first.staged'), 'new-first'),
+            writeFile(join(tempDir, 'second.staged'), 'new-second'),
+        ]);
+        const scratchPath = await realManagedScratch.createManagedScratchTempDir('pdfExport-', appTempRoot);
+        let reachedSecondReplacement = false;
+        mocks.atomicReplace.mockImplementation(async (sourcePath: string, targetPath: string) => {
+            if (targetPath === secondTargetPath) {
+                // The process stops while the second target is being replaced.
+                reachedSecondReplacement = true;
+                return new Promise<void>(() => undefined);
+            }
+            return realAtomicReplace.atomicReplace(sourcePath, targetPath);
+        });
+        void promoteStagedFiles([
+            {
+                stagedPath: join(tempDir, 'first.staged'),
+                targetPath: firstTargetPath,
+            },
+            {
+                stagedPath: join(tempDir, 'second.staged'),
+                targetPath: secondTargetPath,
+            },
+        ], undefined, createStagedFilePublicationLedger(scratchPath));
+        await vi.waitFor(() => expect(reachedSecondReplacement).toBe(true));
+        // The replaced target is removed before the next start.
+        await rm(firstTargetPath);
+
+        await restartAfterCrash(appTempRoot);
+
+        await expect(readFile(firstTargetPath, 'utf8')).resolves.toBe('old-first');
+        expect(existsSync(secondTargetPath)).toBe(false);
+        expect(listStagedNames(tempDir)).toEqual([]);
+    });
+
+    it('removes the temporary output of a native TIFF writer that stopped mid-write, on the next start', async () => {
+        mocks.renderPageCount = 2;
+        mocks.pdfPageCount = 2;
+        mocks.nativeTiffCombineEnabled = true;
+        mocks.nativeTiffCombineStopMidWrite = true;
+        // A hash of each path gives a name the record accepts, and the same name
+        // each time the export and the writer ask for it.
+        mocks.makeSiblingTempPath.mockImplementation((targetPath: string) => join(
+            dirname(targetPath),
+            `.${createHash('sha256').update(targetPath).digest('hex').slice(0, 16)}.tmp`,
+        ));
+        const outputPath = join(tempDir, 'interrupted-native.tiff');
+        void exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath);
+        await vi.waitFor(() => expect(listStagedNames(tempDir)).toHaveLength(1));
+
+        await restartAfterCrash(tempDir);
+
+        expect(listStagedNames(tempDir)).toEqual([]);
         expect(existsSync(outputPath)).toBe(false);
     });
 });

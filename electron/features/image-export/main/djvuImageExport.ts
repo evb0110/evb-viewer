@@ -34,7 +34,7 @@ import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
-    recordManagedScratchStage,
+    recordManagedScratchPath,
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
@@ -165,7 +165,7 @@ async function renderDjvuImagePages(
     return usingDjvuScratch(options, 'djvu-image-export-', async tempDirectory => {
         let stagedBytes = 0;
         const stagedFiles: IStagedImageFile[] = [];
-        const publicationLedger = createStagedFilePublicationLedger();
+        const publicationLedger = createStagedFilePublicationLedger(tempDirectory);
         const outputPaths: string[] = [];
         const totalPages = getExportPageCount(pageCount, pages);
         const promoteBatch = async () => {
@@ -184,7 +184,6 @@ async function renderDjvuImagePages(
                 total: totalPages,
                 percent: 0,
             });
-            let outputIndex = 0;
             for (const page of iterateExportPages(pageCount, pages)) {
                 throwIfAborted(options.signal);
                 const format = options.format ?? 'png';
@@ -242,7 +241,7 @@ async function renderDjvuImagePages(
                 await mkdir(dirname(outputPath), {recursive: true});
                 const sibling = makeSiblingTempPath(outputPath);
                 try {
-                    await recordManagedScratchStage(tempDirectory, sibling);
+                    await recordManagedScratchPath(tempDirectory, 'stage', sibling);
                     await copyFile(imagePath, sibling);
                     throwIfAborted(options.signal);
                     stagedFiles.push({
@@ -257,12 +256,11 @@ async function renderDjvuImagePages(
                     await rm(imagePath, {force: true}).catch(() => undefined);
                 }
                 outputPaths.push(outputPath);
-                outputIndex += 1;
                 options.onProgress?.({
                     phase: 'rendering',
-                    processed: outputIndex,
+                    processed: outputPaths.length,
                     total: totalPages,
-                    percent: (outputIndex / totalPages) * 100,
+                    percent: (outputPaths.length / totalPages) * 100,
                 });
             }
             throwIfAborted(options.signal);
@@ -334,8 +332,10 @@ export async function exportDjvuAsMultiPageTiff(
             stagedBytes = 0;
             try {
                 const stagedPath = makeSiblingTempPath(targetPath);
-                await recordManagedScratchStage(tempDirectory, stagedPath);
+                await recordManagedScratchPath(tempDirectory, 'stage', stagedPath);
                 stagedGroups.push({stagedPath});
+                const nativeTempPath = makeSiblingTempPath(stagedPath);
+                await recordManagedScratchPath(tempDirectory, 'writer', nativeTempPath);
                 const combineLease = await mainJobBroker.acquire({
                     ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
                     kind: 'djvu-tiff-combine',
@@ -348,17 +348,13 @@ export async function exportDjvuAsMultiPageTiff(
                     },
                     ...(options.signal ? {signal: options.signal} : {}),
                 });
-                let combined = false;
-                try {
-                    combined = await tryCombinePagesWithNativeTiffCombiner(
-                        batchPaths,
-                        stagedPath,
-                        options.signal,
-                        currentBatchDpi,
-                    );
-                } finally {
-                    combineLease.release();
-                }
+                const combined = await tryCombinePagesWithNativeTiffCombiner(
+                    batchPaths,
+                    stagedPath,
+                    nativeTempPath,
+                    options.signal,
+                    currentBatchDpi,
+                ).finally(() => combineLease.release());
                 if (!combined) {
                     throw new Error('Native TIFF output service is unavailable for DjVu export');
                 }
@@ -433,7 +429,9 @@ export async function exportDjvuAsMultiPageTiff(
             });
             throwIfAborted(options.signal);
             await options.beforePublish?.();
-            await promoteStagedFiles(stagedFiles, options.signal);
+            const publication = createStagedFilePublicationLedger(tempDirectory);
+            await promoteStagedFiles(stagedFiles, options.signal, publication);
+            await commitStagedFilePublications(publication);
             promoted = true;
             options.onProgress?.({
                 phase: 'combining',
