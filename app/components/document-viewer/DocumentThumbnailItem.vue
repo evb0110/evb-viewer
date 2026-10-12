@@ -111,7 +111,7 @@ const {
 }
 
 /* The page itself carries the edge, so any page shape keeps a tight outline
-   inside the fixed portrait slot. box-shadow stays untransitioned: animating
+   inside the fixed slot. box-shadow stays untransitioned: animating
    it repaints every frame. */
 .document-thumbnail-item__frame :deep(img),
 .document-thumbnail-item__frame :deep(canvas) {

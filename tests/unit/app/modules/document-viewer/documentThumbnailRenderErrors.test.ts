@@ -249,7 +249,7 @@ describe('DocumentThumbnailList render errors', () => {
         expect(documentThumbnailRow(host, 2)?.hasAttribute('data-thumbnail-render-error')).toBe(false);
     });
 
-    it('renders retries without loading page geometry', async () => {
+    it('renders retries without loading page geometry beyond the document\'s slot shape', async () => {
         const harness = createDocumentThumbnailSourceHarness();
         harness.behaviors.set(3, 'fail');
         const {host} = mountDocumentThumbnailList(harness.source);
@@ -260,6 +260,10 @@ describe('DocumentThumbnailList render errors', () => {
         await settleDocumentThumbnailList();
 
         expect(countDocumentThumbnailCalls(harness.renderCalls, 3)).toBeGreaterThan(1);
-        expect(harness.metricsCalls).toEqual([]);
+        expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([
+            1,
+            6,
+            12,
+        ]);
     });
 });

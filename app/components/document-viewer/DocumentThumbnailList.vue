@@ -141,7 +141,7 @@ defineExpose({
 });
 
 // A resize never stretches an old, smaller raster. Capped source images are
-// contained at their native density, while the portrait slot stays unchanged.
+// contained at their native density, while the slot stays unchanged.
 function surfaceState(pageNumber: number) {
     const state = states.get(pageNumber);
     return state && state.requestWidthPx >= rasterWidth.value ? state : undefined;

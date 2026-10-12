@@ -1,5 +1,7 @@
 export const DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT = 30;
 export const DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO = 297 / 210;
+// The widest slot a document's pages can give: a two-page spread is about 0.7.
+const MIN_DOCUMENT_THUMBNAIL_ASPECT_RATIO = 0.5;
 // A physical segment stays below Chromium's scroll-height limit.
 export const DOCUMENT_THUMBNAIL_SCROLL_SEGMENT_MAX_HEIGHT = 8_388_608;
 
@@ -20,16 +22,22 @@ export interface IDocumentThumbnailScrollSegmentTransition {
 }
 
 export interface IDocumentThumbnailLayoutOptions {
+    /** Slot height over width, shared by every page of the document. */
+    aspectRatio?: number;
     itemChromeHeight?: number;
     itemGap?: number;
     pageCount: number;
     renderWidth: number;
 }
 
-/** Fixed portrait slots: a raster's dimensions never change scroll geometry. */
+/**
+ * One slot per page, all shaped like the document's pages: a raster's
+ * dimensions never change scroll geometry.
+ */
 export class DocumentThumbnailLayout {
     private pageCount = 0;
     private rowHeight = 1;
+    private aspectRatio = DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO;
     private itemGap = 8;
     private itemChromeHeight = DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT;
 
@@ -41,9 +49,14 @@ export class DocumentThumbnailLayout {
         this.pageCount = Math.max(0, Math.trunc(options.pageCount));
         this.itemChromeHeight = options.itemChromeHeight ?? this.itemChromeHeight;
         this.itemGap = options.itemGap ?? this.itemGap;
+        this.aspectRatio = options.aspectRatio ?? this.aspectRatio;
         this.rowHeight = Math.max(1, Math.ceil(
-            options.renderWidth * DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO + this.itemChromeHeight,
+            options.renderWidth * this.aspectRatio + this.itemChromeHeight,
         ));
+    }
+
+    get slotAspectRatio() {
+        return this.aspectRatio;
     }
 
     get stride() {
@@ -139,4 +152,23 @@ export class DocumentThumbnailLayout {
             endPage: this.resolvePageAtScrollOffsetInSegment(scrollTop + viewportHeight + overscanPx, segmentIndex) ?? -1,
         };
     }
+}
+
+/**
+ * The slot shape of a document from a few of its pages' displayed sizes
+ * (height over width): their median, so one cover does not decide it, kept
+ * between a wide spread and the portrait slot taller pages always had.
+ */
+export function resolveDocumentThumbnailAspectRatio(pageSizes: ReadonlyArray<{
+    widthPoints: number;
+    heightPoints: number;
+}>) {
+    const ratios = pageSizes
+        .filter(size => size.widthPoints > 0 && size.heightPoints > 0)
+        .map(size => size.heightPoints / size.widthPoints)
+        .sort((left, right) => left - right);
+    const median = ratios[Math.floor(ratios.length / 2)];
+    return median === undefined
+        ? DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO
+        : Math.min(DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO, Math.max(MIN_DOCUMENT_THUMBNAIL_ASPECT_RATIO, median));
 }
