@@ -7,7 +7,9 @@ import {
 import {spawn} from 'node:child_process';
 import type {ChildProcess} from 'node:child_process';
 import {once} from 'node:events';
-import {resolve} from 'node:path';
+import {
+    basename, resolve,
+} from 'node:path';
 import {
     createCanvas, loadImage,
 } from '@napi-rs/canvas';
@@ -3512,8 +3514,28 @@ describe('browser document lifecycle UI', () => {
             await waitForOpenFileReady(page);
             keepFileChooserInterceptionEnabled(page);
 
+            // A previous PDF can remain painted before the incoming open claims
+            // the workspace. Readiness must belong to the requested document.
+            const waitForDocument = (fileName: string, expectedText: string) => page.waitForFunction(({
+                fileName, expectedText,
+            }) => {
+                const tab = document.querySelector('[data-tab-list] [role="tab"][aria-selected="true"]');
+                const container = document.querySelector('.page_container--rendered[data-page="1"]');
+                const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                const layer = container?.querySelector('.textLayer');
+                const rect = canvas?.getBoundingClientRect();
+                return tab?.textContent?.includes(fileName)
+                    && canvas && canvas.width > 0 && canvas.height > 0
+                    && rect && rect.width > 0 && rect.height > 0
+                    && getComputedStyle(canvas).visibility === 'visible'
+                    && layer?.getAttribute('data-pdf-text-layer-ready') === 'true'
+                    && layer.textContent?.includes(expectedText);
+            }, {
+                fileName,
+                expectedText,
+            }, {timeout: 60_000});
             let openCount = 0;
-            const openWithFile = async (filePath: string) => {
+            const openWithFile = async (filePath: string, expectedText: string) => {
                 const chooserPromise = page.waitForEvent('filechooser');
                 if (openCount === 0) {
                     await page.getByRole('button', {
@@ -3525,10 +3547,7 @@ describe('browser document lifecycle UI', () => {
                 }
                 await (await chooserPromise).setFiles(filePath);
                 openCount += 1;
-                await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
-                    state: 'visible',
-                    timeout: 60_000,
-                });
+                await waitForDocument(basename(filePath), expectedText);
                 await page.evaluate(async () => {
                     const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
                     if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
@@ -3540,7 +3559,7 @@ describe('browser document lifecycle UI', () => {
             await openWithFile(resolve(
                 process.cwd(),
                 'tests/fixtures/electron/generated-text.pdf',
-            ));
+            ), 'Hello Arabic world');
             await expect.poll(() => page.locator(
                 '[data-tab-list] [role="tab"][aria-selected="true"]',
             ).textContent()).toContain('generated-text.pdf');
@@ -3548,7 +3567,7 @@ describe('browser document lifecycle UI', () => {
             await openWithFile(resolve(
                 process.cwd(),
                 'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf',
-            ));
+            ), 'EVB annotation interoperability corpus');
             const replacementTab = page.locator('[data-tab-list] [role="tab"][aria-selected="true"]');
             await expect.poll(() => replacementTab.textContent()).toContain('synthetic-annotation-interoperability.pdf');
             await page.screenshot({
@@ -3566,10 +3585,7 @@ describe('browser document lifecycle UI', () => {
                 timeout: 60_000,
             });
             await recentReplacement.click();
-            await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({
-                state: 'visible',
-                timeout: 60_000,
-            });
+            await waitForDocument('synthetic-annotation-interoperability.pdf', 'EVB annotation interoperability corpus');
             await expect.poll(() => page.locator(
                 '[data-tab-list] [role="tab"][aria-selected="true"]',
             ).textContent()).toContain('synthetic-annotation-interoperability.pdf');
