@@ -51,6 +51,11 @@ pub(super) fn missing_free_text_appearance(
             }
         }
     }
+    let operator = |components: &[f64]| match components.len() {
+        1 => "g",
+        3 => "rg",
+        _ => "k",
+    };
     let mut content = String::new();
     if let Some(background) = annotation
         .get(b"C")
@@ -63,14 +68,10 @@ pub(super) fn missing_free_text_appearance(
         })
         .filter(|v| matches!(v.len(), 1 | 3 | 4) && v.iter().all(|n| (0.0..=1.0).contains(n)))
     {
-        let operator = match background.len() {
-            1 => "g",
-            3 => "rg",
-            _ => "k",
-        };
         content.push_str(&format!(
-            "q {} {operator} {} re f Q\n",
+            "q {} {} {} re f Q\n",
             format_operands(&background),
+            operator(&background),
             format_operands(&[inner.x1, inner.y1, inner.width(), inner.height()])
         ));
     }
@@ -99,11 +100,7 @@ pub(super) fn missing_free_text_appearance(
         x2: inner.x2 - 2.0 * width,
         y2: inner.y2 - 2.0 * width,
     };
-    let color_operator = match color.len() {
-        1 => "g",
-        3 => "rg",
-        _ => "k",
-    };
+    let color_operator = operator(&color);
     if let Ok(geometry) = print_text_geometry(
         document,
         annotation,
@@ -239,7 +236,7 @@ fn print_text_geometry(
         .and_then(|v| document.dereference(v).ok()?.1.as_i64().ok())
         .unwrap_or(0)
         .rem_euclid(360);
-    if annotation.has(b"EVBTextGeometry") {
+    if crate::text_box_font::editor_geometry(annotation).is_some() {
         let visible =
             read_box(document, annotation, b"Rect")?.ok_or("Invalid FreeText rectangle")?;
         let (source, rotation) = crate::text_box_font::stored_editor_geometry(

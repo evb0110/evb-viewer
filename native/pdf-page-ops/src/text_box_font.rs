@@ -129,15 +129,9 @@ pub(crate) fn embed_fonts(
 }
 
 pub(crate) fn unicode_hex(text: &str, bom: bool) -> String {
-    let mut result = if bom {
-        String::from("FEFF")
-    } else {
-        String::new()
-    };
-    for unit in text.encode_utf16() {
-        result.push_str(&format!("{unit:04X}"));
-    }
-    result
+    let prefix = if bom { "FEFF" } else { "" };
+    let units = text.encode_utf16().map(|unit| format!("{unit:04X}"));
+    std::iter::once(prefix.to_string()).chain(units).collect()
 }
 
 pub(crate) struct Geometry {
@@ -214,6 +208,11 @@ pub(crate) fn write_editor_geometry(
     );
 }
 
+/// EVB's private layout geometry. PDF reads a key whose value is null as absent.
+pub(crate) fn editor_geometry(annotation: &Dictionary) -> Option<&Object> {
+    (annotation.get(b"EVBTextGeometry").ok()).filter(|value| !matches!(value, Object::Null))
+}
+
 pub(crate) fn transform_editor_geometry(
     document: &impl PdfObjectSource,
     annotation: &mut Dictionary,
@@ -221,7 +220,7 @@ pub(crate) fn transform_editor_geometry(
     matrix: [f64; 6],
     page_rotation: i64,
 ) -> Result<()> {
-    if annotation.get(b"EVBTextGeometry").is_err() {
+    if editor_geometry(annotation).is_none() {
         return Ok(());
     }
     let rotation = document
@@ -293,7 +292,7 @@ pub(crate) fn stored_editor_geometry(
     rotation: i64,
     page_rotation: i64,
 ) -> Result<(PdfRect, i64)> {
-    let Ok(metadata) = dictionary.get(b"EVBTextGeometry") else {
+    let Some(metadata) = editor_geometry(dictionary) else {
         if rotation != 0 || page_rotation.rem_euclid(360) != 0 {
             return Err("Imported rotated FreeText has no recoverable canonical geometry".into());
         }

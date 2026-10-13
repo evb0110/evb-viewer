@@ -3020,17 +3020,23 @@ fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
 #[test]
 fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
     // review-b6yw: a 25 x 45 pt foreign "W" at 22 pt, edited for color only,
-    // and a foreign DA whose trailing Tf size is malformed.
-    for (da, rect, text, fits_at_22) in [
-        ("/Helv 22 Tf 0 0 0 rg", [20.0, 20.0, 45.0, 65.0], "W", false),
-        ("/Helv 22 Tf 0.2 0.4 0.6 rg /Helv invalid Tf", [20.0, 15.0, 180.0, 90.0], "Edited foreign text", true),
+    // and a foreign DA whose trailing Tf size is malformed. A tool that strips
+    // EVB's private keys, as PyMuPDF does, leaves their values null.
+    for (da, rect, text, fits_at_22, stripped) in [
+        ("/Helv 22 Tf 0 0 0 rg", [20.0, 20.0, 45.0, 65.0], "W", false, false),
+        ("/Helv 22 Tf 0.2 0.4 0.6 rg /Helv invalid Tf", [20.0, 15.0, 180.0, 90.0], "Edited foreign text", true, false),
+        ("/Helv 22 Tf 0 0 0 rg", [20.0, 15.0, 180.0, 90.0], "Stripped label", true, true),
     ] {
         let (mut document, page_id) = create_test_document();
-        let foreign_id = document.add_object(dictionary! {
+        let mut foreign = dictionary! {
             "Type" => "Annot", "Subtype" => "FreeText", "NM" => Object::string_literal("foreign"),
             "Rect" => rect.iter().map(|value| Object::Real(*value as f32)).collect::<Vec<_>>(),
             "Contents" => Object::string_literal(text), "DA" => Object::string_literal(da), "P" => page_id,
-        });
+        };
+        if stripped {
+            foreign.set("EVBTextGeometry", Object::Null);
+        }
+        let foreign_id = document.add_object(foreign);
         document.get_dictionary_mut(page_id).unwrap().set("Annots", vec![Object::Reference(foreign_id)]);
         let pdf_path = temp_pdf_path("edited-foreign-text-box");
         let _cleanup = RemovePdfFilesOnDrop([pdf_path.clone()]);
