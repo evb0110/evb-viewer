@@ -678,6 +678,7 @@ export default {
         'switchingAfterPageProcessing': 'Esta ação continuará quando o processamento das páginas terminar.',
     },
     'tabs': {
+        'moving': 'A mover o separador…',
         'tabListLabel': 'Separadores de documentos',
         'newTab': 'Novo Separador',
         'unsavedChanges': 'Alterações por guardar',
@@ -692,6 +693,8 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Existem alterações por guardar. Guarde-as antes de fechar a janela, descarte-as ou cancele.',
         'discardChanges': 'Descartar alterações',
         'transferErrors': {
+            'sourceChanged': 'O documento foi alterado durante a movimentação do separador.',
+            'rolledBack': 'Não foi possível mover o separador. O documento e as suas alterações permanecem nesta janela.',
             'noTargetPane': 'Nenhum painel de destino está disponível na janela de destino.',
             'noTargetTab': 'Nenhum separador de destino está disponível na janela de destino.',
             'restoreFailed': 'Falha ao restaurar o estado do separador transferido.',

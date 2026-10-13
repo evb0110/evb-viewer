@@ -1,13 +1,9 @@
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import { requireDocumentInstanceId } from '@contracts/documentInstanceId';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {createDocumentInstanceId} from '@contracts/documentInstanceId';
 import type {
     ComputedRef,
-    Ref,
     ShallowRef,
 } from 'vue';
 import { isEqual } from 'es-toolkit/predicate';
@@ -16,7 +12,9 @@ import type {
     IWorkspaceExpose,
     IWorkspaceOpenFailure,
 } from '@app/types/workspaceExpose';
-import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import type {
+    IDocumentOperationOwnership, TDocumentOperationKind,
+} from '@app/types/documentOperationKind';
 import {
     createWorkspaceDocumentView,
     type IWorkspaceDocumentView,
@@ -24,7 +22,9 @@ import {
     type IWorkspaceDocumentViewSeed,
 } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
 import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
-import { requireSessionId } from '@contracts/shared';
+import {
+    createSessionId, requireSessionId,
+} from '@contracts/shared';
 import { requireTabId } from '@contracts/windowTabs';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -46,10 +46,16 @@ export type {
     IWorkspaceDocumentView,
 };
 
+interface IWorkspaceDocumentCloseRequest {
+    persist: boolean;
+    ownership?: IDocumentOperationOwnership;
+    assertCurrent?: () => void;
+}
+
 export interface IDocumentOperationLease {
-    activeKind: Ref<TDocumentOperationKind | null>;
+    activeKind: ComputedRef<TDocumentOperationKind | null>;
     isBusy: ComputedRef<boolean>;
-    runExclusive: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
+    runExclusive: <T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>) => Promise<T>;
 }
 
 /** A document the shell assigns to a tab before any workspace has loaded it. */
@@ -99,13 +105,16 @@ export interface IWorkspaceDocumentController {
     reportFailure(failure: IWorkspaceOpenFailure): void;
     dismissFailure(): void;
     setDirty(dirty: boolean): void;
+    bindMutationFrontier(read: () => string, prepare: () => Promise<void>, close: (assertCurrent: () => void) => Promise<void>): void;
+    readMutationFrontier(): string | null;
+    prepareTransfer(): Promise<void>;
     getView(tabId: string): IWorkspaceDocumentView | null;
     addView(tabId: string, seed?: IWorkspaceDocumentViewSeed): IWorkspaceDocumentView;
     /** Removes a tab's view and returns how many views remain. */
     removeView(tabId: string): number;
     attachWorkspace(tabId: string, workspace: IWorkspaceExpose): void;
     detachWorkspace(tabId: string, workspace: IWorkspaceExpose): void;
-    close(request: {persist: boolean}): Promise<boolean>;
+    close(request: IWorkspaceDocumentCloseRequest): Promise<boolean>;
     dispose(): void;
     createCommandTarget(tabId: string, mode?: 'current' | 'active-transaction'): TWorkspaceCommandTarget;
     validateCommandTarget(target: TWorkspaceCommandTarget): {ok: true} | {
@@ -114,9 +123,6 @@ export interface IWorkspaceDocumentController {
     };
 }
 
-let nextSessionIndex = 0;
-let nextTransactionIndex = 0;
-let nextDocumentSessionKeyIndex = 0;
 
 function createEmptyIdentity(): IWorkspaceDocumentIdentity {
     return {
@@ -136,24 +142,6 @@ export function identityHasDocument(identity: IWorkspaceDocumentIdentity) {
         || identity.originalPath !== null
         || identity.fileName !== null
         || identity.isDjvu;
-}
-
-function getLogicalDocumentSignature(identity: Pick<IWorkspaceDocumentIdentity, 'originalPath' | 'fileName' | 'isDjvu' | 'documentRef'>) {
-    const sourceRef = identity.originalPath ?? identity.documentRef;
-    return JSON.stringify([
-        sourceRef,
-        sourceRef ? null : identity.fileName,
-        identity.isDjvu,
-    ]);
-}
-
-function createDocumentSessionKey(tabId: string, documentRef: string | null) {
-    nextDocumentSessionKeyIndex += 1;
-    return `workspace-document-instance:${tabId}:${Date.now()}:${nextDocumentSessionKeyIndex}:${documentRef ?? 'unknown'}`;
-}
-
-function createDocumentInstanceId() {
-    return requireDocumentInstanceId(crypto.randomUUID());
 }
 
 /** The tab title, path and dirty dot the shell shows for this document. */
@@ -182,20 +170,29 @@ export function snapshotOccupiesTab(snapshot: IWorkspaceDocumentSnapshot) {
 }
 
 function createDocumentOperationLease(): IDocumentOperationLease {
-    const activeKind = ref<TDocumentOperationKind | null>(null);
+    const active = shallowRef<{
+        kind: TDocumentOperationKind;
+        ownership: IDocumentOperationOwnership
+    } | null>(null);
     const pendingCount = ref(0);
     let queueTail: Promise<void> = Promise.resolve();
 
-    async function runExclusive<T>(kind: TDocumentOperationKind, operation: () => Promise<T>) {
+    async function runExclusive<T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>) {
         pendingCount.value += 1;
         const operationPromise = queueTail
             .catch(() => undefined)
             .then(async () => {
-                activeKind.value = kind;
+                const ownership: IDocumentOperationOwnership = {assertCurrent: () => {
+                    if (active.value?.ownership !== ownership) throw new Error('Document operation ownership has ended');
+                }};
+                active.value = {
+                    kind,
+                    ownership,
+                };
                 try {
-                    return await operation();
+                    return await operation(ownership);
                 } finally {
-                    activeKind.value = null;
+                    active.value = null;
                     pendingCount.value = Math.max(0, pendingCount.value - 1);
                 }
             });
@@ -205,7 +202,7 @@ function createDocumentOperationLease(): IDocumentOperationLease {
     }
 
     return {
-        activeKind,
+        activeKind: computed(() => active.value?.kind ?? null),
         isBusy: computed(() => pendingCount.value > 0),
         runExclusive,
     };
@@ -218,8 +215,7 @@ export function createWorkspaceDocumentController(options: {
     reportFailure?: ((failure: IWorkspaceRecordedFailure) => void) | undefined;
 }): IWorkspaceDocumentController {
     const tabId = options.tabId;
-    nextSessionIndex += 1;
-    const sessionId = requireSessionId(`workspace-document-session:${tabId}:${Date.now()}:${nextSessionIndex}`);
+    const sessionId = createSessionId('workspace-document-session');
     const snapshot = shallowRef<IWorkspaceDocumentSnapshot>({
         sessionId,
         sessionRevision: 0,
@@ -235,6 +231,11 @@ export function createWorkspaceDocumentController(options: {
     const operationLease = createDocumentOperationLease();
     const settleWaiters = new Map<string, PromiseWithResolvers<boolean>>();
     let activeClose: Promise<boolean> | null = null;
+    let mutationFrontier: {
+        read: () => string;
+        prepare: () => Promise<void>;
+        close: (assertCurrent: () => void) => Promise<void>
+    } | null = null;
 
     function update(patch: Partial<IWorkspaceDocumentSnapshot>, bumpRevision = false) {
         const current = snapshot.value;
@@ -311,7 +312,7 @@ export function createWorkspaceDocumentController(options: {
             identity: hasDocument
                 ? {
                     ...identity,
-                    documentSessionKey: createDocumentSessionKey(tabId, identity.documentRef),
+                    documentSessionKey: crypto.randomUUID(),
                     documentInstanceId: document.documentInstanceId ?? createDocumentInstanceId(),
                 }
                 : identity,
@@ -325,9 +326,8 @@ export function createWorkspaceDocumentController(options: {
 
     function claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void) {
         supersedeActiveTransaction();
-        nextTransactionIndex += 1;
         const transaction: IWorkspaceDocumentTransaction = {
-            id: `workspace-document-transaction:${tabId}:${request.kind}:${nextTransactionIndex}`,
+            id: `workspace-document-transaction:${crypto.randomUUID()}`,
             kind: request.kind,
             target: request.target,
             acceptDocumentWithoutVisual: request.acceptDocumentWithoutVisual === true,
@@ -415,15 +415,17 @@ export function createWorkspaceDocumentController(options: {
             }
             return;
         }
-        const sameLogicalDocument = identityHasDocument(current)
-            && getLogicalDocumentSignature(current) === getLogicalDocumentSignature(next);
+        const currentSource = current.originalPath ?? current.documentRef;
+        const nextSource = next.originalPath ?? next.documentRef;
+        const sameLogicalDocument = identityHasDocument(current) && currentSource === nextSource
+            && current.isDjvu === next.isDjvu && (currentSource !== null || current.fileName === next.fileName);
         const resumesCheckpointWorkingCopy = snapshot.value.recoveryWorkingCopyPath !== null
             && snapshot.value.recoveryWorkingCopyPath === next.workingCopyPath;
         const identity = {
             ...next,
             documentSessionKey: sameLogicalDocument
                 ? current.documentSessionKey
-                : createDocumentSessionKey(tabId, next.documentRef),
+                : crypto.randomUUID(),
             documentInstanceId: sameLogicalDocument || resumesCheckpointWorkingCopy
                 ? current.documentInstanceId
                 : createDocumentInstanceId(),
@@ -555,12 +557,21 @@ export function createWorkspaceDocumentController(options: {
         }, true);
     }
 
-    function runClose(request: {persist: boolean}) {
+    function runClose(request: IWorkspaceDocumentCloseRequest) {
         const onCloseCommit = async () => {
             await rememberReadingView(controller);
             supersedeActiveTransaction();
             resetToEmpty();
         };
+        if (!request.persist && request.ownership && mutationFrontier) {
+            // The transfer already owns admission. Close through the document's
+            // lifecycle, rather than waiting for this same lease to become idle.
+            request.ownership.assertCurrent();
+            return mutationFrontier.close(request.assertCurrent ?? (() => undefined)).then(async () => {
+                await onCloseCommit();
+                return true;
+            });
+        }
         return getDocumentWorkspace({views})?.handleCloseFileFromUi({
             ...request,
             onCloseCommit,
@@ -568,7 +579,7 @@ export function createWorkspaceDocumentController(options: {
             ?? onCloseCommit().then(() => true);
     }
 
-    function close(request: {persist: boolean}) {
+    function close(request: IWorkspaceDocumentCloseRequest) {
         activeClose ??= runClose(request).finally(() => {
             activeClose = null;
         });
@@ -580,27 +591,17 @@ export function createWorkspaceDocumentController(options: {
         settleMountWaiters(null);
     }
 
-    function getTargetDocumentBackend(documentRef: string | null) {
-        const parsedDocumentRef = parseDocumentRef(documentRef);
-        const documentBackend = parsedDocumentRef === null
-            ? undefined
-            : resolveDocumentRefBackend(parsedDocumentRef);
-        return documentBackend === undefined ? {} : {documentBackend};
-    }
-
-    function getTargetDocumentRevisionToken(info: IDocumentRevisionInfo | null) {
-        return info?.token === undefined ? {} : {documentRevisionToken: info.token};
-    }
-
     function createCommandTarget(viewTabId: string, mode: 'current' | 'active-transaction' = 'current'): TWorkspaceCommandTarget {
         const current = snapshot.value;
+        const documentBackend = resolveDocumentRefBackend(current.identity.documentRef);
+        const documentRevisionToken = current.identity.revisionInfo?.token;
         const common = {
             tabId: requireTabId(viewTabId),
             sessionId: requireSessionId(current.sessionId),
             documentRef: current.identity.documentRef,
-            ...getTargetDocumentBackend(current.identity.documentRef),
+            ...(documentBackend === undefined ? {} : {documentBackend}),
             documentInstanceId: current.identity.documentInstanceId,
-            ...getTargetDocumentRevisionToken(current.identity.revisionInfo),
+            ...(documentRevisionToken === undefined ? {} : {documentRevisionToken}),
         };
         return mode === 'active-transaction' && current.activeTransaction
             ? {
@@ -620,47 +621,37 @@ export function createWorkspaceDocumentController(options: {
         reason: string
     } {
         const current = snapshot.value;
-        const mismatch = [
-            [
-                !views.value.has(target.tabId),
-                'tab-id-mismatch',
-            ],
-            [
-                target.sessionId !== current.sessionId,
-                'session-id-mismatch',
-            ],
-            [
-                (target.documentInstanceId ?? null) !== current.identity.documentInstanceId,
-                'document-instance-id-mismatch',
-            ],
-            [
-                target.documentRef !== current.identity.documentRef,
-                'document-ref-mismatch',
-            ],
-            [
-                target.documentBackend !== undefined
-                && target.documentBackend !== resolveDocumentRefBackend(current.identity.documentRef),
-                'document-backend-mismatch',
-            ],
-            [
-                target.documentRevisionToken !== undefined
-                && target.documentRevisionToken !== current.identity.revisionInfo?.token,
-                'document-revision-token-mismatch',
-            ],
-            [
-                target.kind === 'transaction'
-                    ? current.activeTransaction?.id !== target.transactionId
-                    : target.sessionRevision !== current.sessionRevision,
-                target.kind === 'transaction' ? 'transaction-id-mismatch' : 'session-revision-mismatch',
-            ],
-        ] as const;
-        const failed = mismatch.find(([isMismatch]) => isMismatch);
-        return failed
-            ? {
+        if (!views.value.has(target.tabId)) return {
+            ok: false,
+            reason: 'tab-id-mismatch',
+        };
+        const expected = createCommandTarget(target.tabId, target.kind === 'transaction' ? 'active-transaction' : 'current');
+        // Capture and validation share the same identity projection. Optional
+        // backend/revision fields only constrain commands that supplied them.
+        const fields = {
+            sessionId: 'session-id-mismatch',
+            documentInstanceId: 'document-instance-id-mismatch',
+            documentRef: 'document-ref-mismatch',
+            ...(target.documentBackend === undefined ? {} : {documentBackend: 'document-backend-mismatch'}),
+            ...(target.documentRevisionToken === undefined ? {} : {documentRevisionToken: 'document-revision-token-mismatch'}),
+        };
+        for (const [
+            field,
+            reason,
+        ] of Object.entries(fields)) {
+            const actual: unknown = Reflect.get(target, field);
+            if ((field === 'documentInstanceId' ? actual ?? null : actual) !== Reflect.get(expected, field)) return {
                 ok: false,
-                reason: failed[1],
-            }
-            : {ok: true};
+                reason,
+            };
+        }
+        const matches = target.kind === 'transaction'
+            ? current.activeTransaction?.id === target.transactionId
+            : current.sessionRevision === target.sessionRevision;
+        return matches ? {ok: true} : {
+            ok: false,
+            reason: target.kind === 'transaction' ? 'transaction-id-mismatch' : 'session-revision-mismatch',
+        };
     }
 
     addView(tabId);
@@ -682,6 +673,13 @@ export function createWorkspaceDocumentController(options: {
         reportFailure,
         dismissFailure,
         setDirty,
+        bindMutationFrontier: (read, prepare, close) => { mutationFrontier = {
+            read,
+            prepare,
+            close,
+        }; },
+        readMutationFrontier: () => mutationFrontier?.read() ?? null,
+        prepareTransfer: async () => { await mutationFrontier?.prepare(); },
         getView: viewTabId => views.value.get(viewTabId) ?? null,
         addView,
         removeView,

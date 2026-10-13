@@ -678,6 +678,7 @@ export default {
         'switchingAfterPageProcessing': 'Cette action reprendra une fois le traitement des pages terminé.',
     },
     'tabs': {
+        'moving': 'Déplacement de l’onglet…',
         'tabListLabel': 'Onglets de documents',
         'newTab': 'Nouvel onglet',
         'unsavedChanges': 'Modifications non enregistrées',
@@ -692,6 +693,8 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Des modifications ne sont pas enregistrées. Enregistrez-les avant de fermer la fenêtre, abandonnez-les ou annulez.',
         'discardChanges': 'Abandonner les modifications',
         'transferErrors': {
+            'sourceChanged': 'Le document a changé pendant le déplacement de l’onglet.',
+            'rolledBack': 'Impossible de déplacer l’onglet. Votre document et vos modifications restent dans cette fenêtre.',
             'noTargetPane': 'Aucun panneau cible n’est disponible dans la fenêtre de destination.',
             'noTargetTab': 'Aucun onglet cible n’est disponible dans la fenêtre de destination.',
             'restoreFailed': 'Impossible de restaurer l’état de l’onglet transféré.',

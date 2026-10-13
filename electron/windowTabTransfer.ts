@@ -50,6 +50,7 @@ interface IPendingTransfer {
     targetWindowId: number;
     targetOwnerId: number;
     resolve: (result: IWindowTabTransferResult) => void;
+    decide?: (committed: boolean) => void;
     timeoutMs: number;
     timeoutHandle: ReturnType<typeof setTimeout>;
     payload: IWindowTabIncomingTransfer;
@@ -161,7 +162,14 @@ export class WindowTabTransferBroker {
             return false;
         }
 
-        if (pending.targetWindowId !== windowId) {
+        if (pending.sourceWindowId === windowId && pending.decide) {
+            this.finishTransfer(ack.transferId, {
+                success: ack.success,
+                ...(ack.error ? {error: ack.error} : {}),
+            });
+            return true;
+        }
+        if (pending.targetWindowId !== windowId || pending.decide) {
             logger.warn('Ignoring transfer ack from unexpected window', {
                 windowId,
                 transferId: ack.transferId,
@@ -181,6 +189,18 @@ export class WindowTabTransferBroker {
             if (!success) {
                 error = 'PDF snapshot ownership commit was rejected.';
             }
+        }
+        if (success) {
+            this.deps.clearTimer(pending.timeoutHandle);
+            const decision = new Promise<boolean>((resolve) => { pending.decide = resolve; });
+            // Restoration lends the target its provisional copy. Only the source,
+            // after validating and finalizing under its lease, commits this decision.
+            pending.resolve({
+                transferId: ack.transferId,
+                success: true,
+                targetWindowId: pending.targetWindowId,
+            });
+            return decision;
         }
         this.finishTransfer(ack.transferId, {
             success,
@@ -357,6 +377,7 @@ export class WindowTabTransferBroker {
             );
         }
 
+        pending.decide?.(result.success);
         pending.resolve({
             transferId,
             success: result.success,

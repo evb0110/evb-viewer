@@ -678,6 +678,7 @@ export default {
         'switchingAfterPageProcessing': 'Esta ação continuará quando o processamento das páginas terminar.',
     },
     'tabs': {
+        'moving': 'Movendo aba…',
         'tabListLabel': 'Abas de documentos',
         'newTab': 'Nova Aba',
         'unsavedChanges': 'Alterações não salvas',
@@ -692,6 +693,8 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Há alterações não salvas. Salve-as antes de fechar a janela, descarte-as ou cancele.',
         'discardChanges': 'Descartar alterações',
         'transferErrors': {
+            'sourceChanged': 'O documento foi alterado enquanto a aba era movida.',
+            'rolledBack': 'Não foi possível mover a aba. O documento e suas alterações permanecem nesta janela.',
             'noTargetPane': 'Nenhum painel de destino está disponível na janela de destino.',
             'noTargetTab': 'Nenhuma aba de destino está disponível na janela de destino.',
             'restoreFailed': 'Falha ao restaurar o estado da aba transferida.',

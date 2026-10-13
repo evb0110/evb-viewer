@@ -1,5 +1,5 @@
 import {
-    mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
+    copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -12,13 +12,15 @@ import {
     afterEach, describe, expect, it, onTestFinished, vi,
 } from 'vitest';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {readPdfTextAnnotationRecords} from '@tests/e2e/electron/helpers/fixtures';
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
-    ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
+    ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import type * as Pdfjs from 'pdfjs-dist';
@@ -165,6 +167,107 @@ async function waitForTransferredViewSettled(page: Page) {
 }
 
 describe('Move Tab to New Window view state', () => {
+    it.each([
+        'annotation',
+        'save',
+    ] as const)('keeps accepted work when a person attempts %s during a move', async (action) => {
+        const {page: source} = sessions.getSession();
+        const appTempDirectory = electronAppTempDirPath(sessions.getSession().name);
+        mkdirSync(appTempDirectory, {recursive: true});
+        outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, `transfer-${action}-`)));
+        const fixture = join(outputDirectory, `pending-${action}.pdf`);
+        createSlowTransferFixture(fixture, 32 * 1024 * 1024);
+        await openPdfInApp(source, fixture, 120_000);
+        await createFreeTextAnnotationWithPointer(source, 'Captured edit', {
+            x: 0.28,
+            y: 0.32,
+        }, 1);
+        await clickAsUser(source, '.tab-new');
+        await clickAsUser(source, '.tab-list .tab:first-child');
+        await waitForPdfLoaded(source, 120_000);
+        await waitForViewerInteractive(source);
+        const oldPages = new Set(await source.browser().pages());
+        await clickAsUser(source, '.tab.is-active', {button: 'right'});
+        await clickAsUser(source, '[role="menuitem"][data-tab-command="move-to-new-window"]');
+        let destination: Page | undefined;
+        await vi.waitFor(async () => {
+            destination = (await source.browser().pages()).find(page => !oldPages.has(page));
+            expect(destination).toBeDefined();
+        }, {timeout: 30_000});
+        const annotationTexts = (page: Page) => page.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
+            node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()
+        )));
+        const save = (page: Page) => clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+            .find(button => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled), undefined, {description: 'Save'});
+        // On the old app these ordinary controls remain editable. Exercise that
+        // same opportunity; accepted work must survive in the moved PDF.
+        const moving = await source.$('.workspace-transfer-state');
+        if (moving) {
+            expect(await source.$eval('.workspace-transfer-state', node => node.textContent?.trim())).toBe(LOCALE_MESSAGES.en.tabs.moving);
+            expect(await source.$$eval('button[aria-label]', buttons => buttons.some(button => (
+                /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !(button as HTMLButtonElement).disabled
+            )))).toBe(false);
+            if (process.env.EVB_R3_EVIDENCE_DIR) {
+                await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-moving.png`)});
+            }
+            // Trusted input hits the moving surface, which shields the editor.
+            await clickAsUser(source, '.workspace-transfer-state');
+            if (action === 'annotation') await source.keyboard.type('Accepted during move');
+        } else if (action === 'annotation') {
+            await createFreeTextAnnotationWithPointer(source, 'Accepted during move', {
+                x: 0.65,
+                y: 0.55,
+            }, 1);
+        } else {
+            await save(source);
+        }
+        const acceptedInSource = await annotationTexts(source);
+        await waitForPdfLoaded(destination!, 120_000);
+        const destinationTexts = await annotationTexts(destination!);
+        await vi.waitFor(async () => {
+            expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
+                .not.toContain(`pending-${action}.pdf`);
+        }, {timeout: 10_000}).catch(() => undefined);
+        const sourceLabels = await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim()));
+        if (sourceLabels.includes(`pending-${action}.pdf`)) {
+            console.log('TRANSFER_MUTATION_RESULT', JSON.stringify({
+                action,
+                moving: moving !== null,
+                acceptedInSource,
+                destinationTexts,
+                sourceLabels,
+                saved: await readPdfTextAnnotationRecords(fixture),
+            }));
+            expect(sourceLabels).not.toContain(`pending-${action}.pdf`);
+        }
+        await save(destination!);
+        await vi.waitFor(async () => {
+            expect(await destination!.$('.tab.is-active.is-dirty')).toBeNull();
+        }, {timeout: 30_000});
+        const saved = await readPdfTextAnnotationRecords(fixture);
+        console.log('TRANSFER_MUTATION_RESULT', JSON.stringify({
+            action,
+            moving: moving !== null,
+            acceptedInSource,
+            destinationTexts,
+            sourceLabels,
+            saved,
+        }));
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            copyFileSync(fixture, join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-saved.pdf`));
+            await source.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-source.png`)});
+            await destination!.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${action}-destination.png`)});
+        }
+        expect(sourceLabels).not.toContain(`pending-${action}.pdf`);
+        expect(destinationTexts).toContain('Captured edit');
+        expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Captured edit'})]));
+        for (const text of acceptedInSource) {
+            expect(destinationTexts).toContain(text);
+            expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: text})]));
+        }
+        expect(moving).not.toBeNull();
+    }, 180_000);
+
     it('restores a fast incoming tab while another source is still opening in the target', async () => {
         const {page: target} = sessions.getSession();
         const appTempDirectory = electronAppTempDirPath(sessions.getSession().name);
@@ -209,11 +312,11 @@ describe('Move Tab to New Window view state', () => {
             await source.keyboard.type(String(percent));
             await source.keyboard.press('Enter');
         }
-        const targetTitle = await target.title();
-        const targetWindow = await fastSource.evaluate(async (title: string) => (
-            (await window.electronAPI!.windowTabs!.listTargetWindows()).find(candidate => candidate.label === title)
-        ), targetTitle);
-        if (!targetWindow) throw new Error(`Transfer target window ${targetTitle} was not listed`);
+        const peers = await target.evaluate(() => window.electronAPI!.windowTabs!.listTargetWindows());
+        const targetWindow = await fastSource.evaluate(async (peerIds: number[]) => (
+            (await window.electronAPI!.windowTabs!.listTargetWindows()).find(candidate => !peerIds.includes(candidate.windowId))
+        ), peers.map(peer => peer.windowId));
+        if (!targetWindow) throw new Error('Transfer target window was not listed');
         const moveToTarget = async (source: Page) => {
             await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
             // The first incoming document changes the window's title. Its

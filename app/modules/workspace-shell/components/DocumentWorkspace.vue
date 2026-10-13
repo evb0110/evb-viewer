@@ -1,28 +1,29 @@
 <template>
-    <WorkspaceShell>
+    <WorkspaceShell :aria-busy="documentContext.isMoving.value">
+        <div class="workspace-transfer-content" :inert="documentContext.isMoving.value">
         <WorkspaceToolbarHost
             :is-active="isActive && surfaceMode === 'reader'"
             :can-teleport="canTeleportToolbar"
         >
             <WorkspacePdfToolbarView
                 :snapshot="workspaceToolbarSnapshot"
-                :has-pdf="toolbarHasPdf"
-                :can-toggle-sidebar="canToggleSidebar"
+                :has-pdf="presentation.toolbarHasPdf.value"
+                :can-toggle-sidebar="presentation.canToggleSidebar.value"
                 :can-use-ocr="isDesktopRuntime"
                 can-use-djvu
                 :is-desktop-runtime="isDesktopRuntime"
                 :surface="toolbarSurface"
                 :is-fullscreen="isFullscreen"
                 :fullscreen-supported="fullscreenSupported"
-                :is-opening-document="isOpeningDocumentForDisplay"
-                :document-busy="toolbarDocumentBusyForDisplay"
-                :controls-disabled="toolbarControlsDisabled"
-                :page-dropdown-total-pages="documentMetadataReady ? totalPages : 0"
-                :page-labels="toolbarPageLabels"
+                :is-opening-document="presentation.isOpeningDocumentForDisplay.value"
+                :document-busy="presentation.toolbarDocumentBusyForDisplay.value"
+                :controls-disabled="presentation.toolbarControlsDisabled.value"
+                :page-dropdown-total-pages="presentation.documentMetadataReady.value ? totalPages : 0"
+                :page-labels="presentation.toolbarPageLabels.value"
                 :navigation-ticket="documentOpenSurface.navigationTicket.value"
                 :physical-page="physicalToolbarPage"
                 :ocr="documentContext.ocr"
-                :ocr-working-copy-path="workingCopyPath"
+                :ocr-working-copy-path="file.workingCopyPath.value"
                 :ocr-external-error="docxExportError"
                 :ocr-is-exporting-docx="isExportingDocx"
                 :ocr-popup-open="ocrPopupOpen"
@@ -52,11 +53,11 @@
                 @export-docx="runToolbarAction(handleExportDocx)"
                 @ocr-export-docx="handleExportDocx"
                 @ocr-cancel-docx-export="cancelDocxExportDirect"
-                @export-images="handleExportImages()"
-                @export-multi-page-tiff="handleExportMultiPageTiff()"
-                @convert-to-pdf="openConvertDialog"
-                @undo="runToolbarAction(handleUndo)"
-                @redo="runToolbarAction(handleRedo)"
+                @export-images="exportWorkflow.handleExportImages()"
+                @export-multi-page-tiff="exportWorkflow.handleExportMultiPageTiff()"
+                @convert-to-pdf="file.openConvertDialog"
+                @undo="runToolbarAction(history.handleUndo)"
+                @redo="runToolbarAction(history.handleRedo)"
                 @insert-image-from-file="handleInsertImageFromFile"
                 @paste-image-from-clipboard="handlePasteImageFromClipboard"
                 @delete-pages="workspaceExpose.handleDeletePages()"
@@ -68,26 +69,26 @@
                 @fit-width="runToolbarAction(workspaceExpose.handleFitWidth)"
                 @fit-height="runToolbarAction(workspaceExpose.handleFitHeight)"
                 @toggle-continuous-scroll="runToolbarAction(workspaceExpose.handleToggleContinuousScroll)"
-                @enable-drag="runToolbarAction(enableDragMode)"
+                @enable-drag="runToolbarAction(navigation.enableDragMode)"
                 @disable-drag="runToolbarAction(workspaceExpose.handleDisableDragMode)"
                 @capture-region="runToolbarAction(handleCaptureRegion)"
                 @crop="runToolbarAction(handleCropAction)"
                 @quick-note="runToolbarAction(handleQuickNoteAction)"
                 @toggle-fullscreen="emit('toggle-fullscreen')"
                 @set-view-mode="observeReaderCommand(); runToolbarAction(() => setViewMode($event))"
-                @go-to-page="handleGoToPage"
+                @go-to-page="navigation.handleGoToPage"
             />
         </WorkspaceToolbarHost>
         <WorkspaceDocumentAlerts
             :visible="surfaceMode === 'reader'"
-            :show-djvu-banner="showDjvuConversionBanner"
-            :djvu-converting="conversionState.isConverting"
-            @convert="openConvertDialog"
-            @dismiss="djvuDismissBanner"
+            :show-djvu-banner="presentation.showDjvuConversionBanner.value"
+            :djvu-converting="file.conversionState.value.isConverting"
+            @convert="file.openConvertDialog"
+            @dismiss="file.djvuDismissBanner"
         />
         <WorkspaceSidebarHost
             v-show="surfaceMode === 'reader' || !scanCleanup.workspaceMounted.value"
-            :show-sidebar="toolbarShowSidebarForDisplay"
+            :show-sidebar="presentation.toolbarShowSidebarForDisplay.value"
             :sidebar-wrapper-style="sidebarWrapperStyle"
             :sidebar-content-width="search.sidebarContentWidth.value"
             :is-resizing-sidebar="isPointerResizingSidebar"
@@ -99,17 +100,17 @@
         >
             <template #sidebar>
                 <WorkspaceDocumentSidebar
-                    :shows-pdf-sidebar="showsPdfSidebar"
+                    :shows-pdf-sidebar="presentation.showsPdfSidebar.value"
                     :is-open="isSidebarPresented"
                     :is-active="isDocumentSidebarActive"
                     :is-source-resizing="isSourceSidebarResizing"
-                    :page-labels="toolbarPageLabels"
-                    :document-opening="isOpeningDocumentForDisplay"
+                    :page-labels="presentation.toolbarPageLabels.value"
+                    :document-opening="presentation.isOpeningDocumentForDisplay.value"
                 />
             </template>
             <!-- The document chassis stays laid out while Start covers it, so an
             open presents its first frame at the final geometry. -->
-            <div class="workspace-viewer-host" :aria-hidden="!showWorkspaceViewerDocument ? 'true' : undefined">
+            <div class="workspace-viewer-host" :aria-hidden="!presentation.showWorkspaceViewerDocument.value ? 'true' : undefined">
                 <component
                     :is="activeViewerComponent"
                     v-if="mountedDocumentDriver"
@@ -126,7 +127,7 @@
             <PdfStatusBar
                 :file-path="statusBar.statusFilePath.value"
                 :file-size-label="statusBar.statusFileSizeLabel.value"
-                :zoom-label="statusZoomLabel"
+                :zoom-label="presentation.statusZoomLabel.value"
                 :materialization-label="statusBar.statusMaterializationLabel.value"
                 :can-show-in-folder="statusBar.statusCanShowInFolder.value"
                 :show-in-folder-tooltip="statusBar.statusShowInFolderTooltip.value"
@@ -134,26 +135,35 @@
                 :save-dot-class="statusBar.statusSaveDotClass.value"
                 :save-dot-tooltip="statusBar.statusSaveDotTooltip.value"
                 :save-dot-aria-label="statusBar.statusSaveDotAriaLabel.value"
-                :can-save="statusBar.statusSaveDotCanSave.value"
+                :can-save="!documentContext.isMoving.value && statusBar.statusSaveDotCanSave.value"
                 @show-in-folder="statusBar.handleStatusShowInFolderClick"
                 @save="statusBar.handleStatusSaveClick"
             />
         </Teleport>
-        <WorkspaceAnnotationOverlays :visible="surfaceMode === 'reader'" />
+        <WorkspaceAnnotationOverlays :visible="surfaceMode === 'reader' && !documentContext.isMoving.value" />
         <DjvuConversionOverlay
-            v-bind="conversionState"
-            :is-converting="conversionState.isConverting && isRenderActive"
+            v-bind="file.conversionState.value"
+            :is-converting="file.conversionState.value.isConverting && isRenderActive"
             :modal="isActive"
-            @cancel="handleDjvuCancel"
+            @cancel="file.handleDjvuCancel"
         />
         <WorkspaceSaveDialogHost
             :visible="surfaceMode === 'reader'"
-            :show-djvu-conversion-ui="showDjvuConversionUi"
+            :show-djvu-conversion-ui="presentation.showDjvuConversionUi.value"
+        />
+        </div>
+        <AppProgressOverlay
+            class="workspace-transfer-state"
+            :open="documentContext.isMoving.value"
+            :title="t('tabs.moving')"
+            :value="null"
+            :show-indeterminate-bar="false"
         />
     </WorkspaceShell>
 </template>
 
 <script setup lang="ts">
+import {useEventListener} from '@vueuse/core';
 import '@app/assets/css/pdfjs-overrides.scss';
 import '@app/assets/css/pdf-comment-markers.scss';
 import '@app/assets/css/pdf-comment-ui.scss';
@@ -173,7 +183,8 @@ import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout
 import WorkspaceDocumentSidebar from '@app/modules/workspace-shell/components/WorkspaceDocumentSidebar.vue';
 import WorkspaceScanCleanupSurface from '@app/modules/workspace-shell/components/WorkspaceScanCleanupSurface.vue';
 import WorkspaceToolbarHost from '@app/modules/workspace-shell/components/layout/WorkspaceToolbarHost.vue';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
+import {runDetached} from '@app/utils/asyncGuard';
 import type { TPdfViewMode } from '@contracts/shared';
 import { useDocumentWorkspaceAgent } from '@app/modules/workspace-shell/agent/useDocumentWorkspaceAgent';
 import { createDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
@@ -271,14 +282,6 @@ const {
     docxExport,
 } = documentContext;
 const {
-    workingCopyPath,
-    documentRevisionToken,
-    conversionState,
-    openConvertDialog,
-    djvuDismissBanner,
-    handleDjvuCancel,
-} = file;
-const {
     zoomDropdownOpen,
     pageDropdownOpen,
     ocrPopupOpen,
@@ -301,22 +304,10 @@ const {
     setSidebarContainerWidth,
 } = search;
 const {
-    handleExportImages,
-    handleExportMultiPageTiff,
-} = exportWorkflow;
-const {
     error: docxExportError,
     isExporting: isExportingDocx,
     cancel: cancelDocxExportDirect,
 } = docxExport;
-const {
-    handleUndo,
-    handleRedo,
-} = history;
-const {
-    enableDragMode,
-    handleGoToPage,
-} = navigation;
 const {
     ensureEditProjection,
     handleDropdownOpen,
@@ -329,22 +320,7 @@ const {
 } = context.djvuProjection;
 const {openOptimizePdfForInteractionDialog} = save.optimizeDialog;
 const presentation = useWorkspacePresentation(documentContext, context);
-const {
-    showsPdfSidebar,
-    toolbarHasPdf,
-    canToggleSidebar,
-    toolbarShowSidebarForDisplay,
-    isOpeningDocumentForDisplay,
-    toolbarDocumentBusyForDisplay,
-    statusZoomLabel,
-    documentMetadataReady,
-    toolbarPageLabels,
-    toolbarControlsDisabled,
-    showDjvuConversionUi,
-    showDjvuConversionBanner,
-    showWorkspaceViewerDocument,
-    waitForDocumentOpenSettled,
-} = presentation;
+
 
 const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayoutResizing === true);
 const isActiveViewerLayoutResizing = computed(() => (
@@ -371,8 +347,8 @@ const {
 } = createDocumentWorkspaceAutomationHandlers({
     getContext: () => ({
         currentPage: view.currentPage.value,
-        documentRevisionToken: documentRevisionToken.value,
-        path: file.originalPath.value ?? workingCopyPath.value,
+        documentRevisionToken: file.documentRevisionToken.value,
+        path: file.originalPath.value ?? file.workingCopyPath.value,
         tabId,
         totalPages: totalPages.value,
     }),
@@ -397,27 +373,39 @@ const {
         emitFirstPageRendered();
     },
 });
+// Inert covers the document surface; shortcuts listen above that surface.
+// The same operation owner refuses their input while this view is active.
+useEventListener(globalThis.window, [
+    'keydown',
+    'pointerdown',
+    'pointerup',
+    'click',
+    'dblclick',
+    'contextmenu',
+], (event) => {
+    if (isActive && documentContext.isMoving.value && !(event.target instanceof Element && event.target.closest('.tab-bar'))) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+}, {capture: true});
 const {mountedDocumentDriver} = documentContext.driver;
 // Start shows only the shell's own actions; document commands arrive with a document.
 const toolbarSurface = computed(() => (
-    toolbarHasPdf.value ? DESKTOP_EDITOR_READER_COMMAND_SURFACE : EMPTY_STATE_READER_COMMAND_SURFACE
+    presentation.toolbarHasPdf.value ? DESKTOP_EDITOR_READER_COMMAND_SURFACE : EMPTY_STATE_READER_COMMAND_SURFACE
 ));
 const canExportDocx = computed(() => (
-    Boolean(workingCopyPath.value) && !save.isAnySaving.value && !history.isHistoryBusy.value
+    Boolean(file.workingCopyPath.value) && !save.isAnySaving.value && !history.isHistoryBusy.value
 ));
 const handleCropAction = () => runPdfEditAction(context.crop.handleCrop);
 // A toolbar action closes the open menus and logs its failure.
 function runToolbarAction(action: () => unknown) {
-    const result = action();
-    if (result instanceof Promise) {
-        void result.catch((error: unknown) => {
-            BrowserLogger.error('workspace', 'Toolbar action failed', {
-                tabId,
-                error,
-            }, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
-        });
-    }
+    if (documentContext.isMoving.value) return;
     closeAllDropdowns();
+    void runDetached(() => Promise.resolve(action()), {
+        category: 'user-visible-operation',
+        scope: 'workspace',
+        message: 'Toolbar action failed',
+    });
 }
 // The zoom control's own edits are the reader moving this view, as a scroll is;
 // the workspace's view commands count themselves.
@@ -429,7 +417,7 @@ const viewerCapabilities = computed(() => documentContext.viewerCapabilities.val
 const {
     runAgentAction,
     readAgentResource,
-} = useDocumentWorkspaceAgent(documentContext, context, waitForDocumentOpenSettled);
+} = useDocumentWorkspaceAgent(documentContext, context, presentation.waitForDocumentOpenSettled);
 
 
 const workspaceExpose = createWorkspaceExpose(documentContext, context, {
@@ -449,7 +437,7 @@ const workspaceExpose = createWorkspaceExpose(documentContext, context, {
     viewerCapabilities,
     captureSplitPayload: splitPayload.captureSplitPayload,
     restoreSplitPayload: splitPayload.restoreSplitPayload,
-    waitForDocumentOpenSettled,
+    waitForDocumentOpenSettled: presentation.waitForDocumentOpenSettled,
     runAgentAction,
     readAgentResource,
 });
@@ -469,8 +457,8 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     readViewState: () => createTabViewSessionState(workspaceToolbarSnapshot.value, documentView.viewState.value),
     openPath: file.openFileDirectWithViewerLifecycle,
     closeFailedDocument: () => fileOps.handleCloseFileFromUi({persist: false}),
-    hasWorkingCopy: () => workingCopyPath.value !== null,
-    goToPage: handleGoToPage,
+    hasWorkingCopy: () => file.workingCopyPath.value !== null,
+    goToPage: navigation.handleGoToPage,
     formatBatchLabel: values => t('tabs.preparingBatch', values),
 });
 watch(() => isActive || isRenderActive, (shown, wasShown) => {
@@ -494,6 +482,11 @@ defineExpose(workspaceExpose);
 </script>
 
 <style scoped>
+.workspace-transfer-content {
+    display: contents;
+}
+
+
 .workspace-viewer-host {
     position: relative;
     width: 100%;

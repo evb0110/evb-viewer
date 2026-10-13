@@ -290,15 +290,12 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handleCropPages: (pages: number[], margins: ICropMargins) => Promise<boolean>;
     handleConvertToPdf: () => void;
     /** Captures the document at `page`, by default the page this view reads. */
-    captureSplitPayload: (page?: number) => Promise<TSplitPayload>;
+    captureSplitPayload: (page?: number, ownership?: () => void) => Promise<TSplitPayload>;
     restoreSplitPayload: (payload: TSplitPayload, transactionId?: string, captureOpenedTarget?: () => () => boolean) => Promise<TDocumentOpenOutcome>;
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
     getOpenFailure: () => IWorkspaceOpenFailure | null;
-    waitForDocumentOpenSettled: (options?: {
-        acceptDocumentWithoutVisual?: boolean;
-        signal?: AbortSignal;
-    }) => Promise<void>;
+    waitForDocumentOpenSettled: () => Promise<void>;
     runAgentAction: (
         actionId: string,
         input?: Record<string, unknown>,

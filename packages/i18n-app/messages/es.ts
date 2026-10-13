@@ -678,6 +678,7 @@ export default {
         'switchingAfterPageProcessing': 'Esta acción continuará cuando termine el procesamiento de las páginas.',
     },
     'tabs': {
+        'moving': 'Moviendo pestaña…',
         'tabListLabel': 'Pestañas de documentos',
         'newTab': 'Nueva pestaña',
         'unsavedChanges': 'Cambios sin guardar',
@@ -692,6 +693,8 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Hay cambios sin guardar. Guárdelos antes de cerrar la ventana, descártelos o cancele.',
         'discardChanges': 'Descartar cambios',
         'transferErrors': {
+            'sourceChanged': 'El documento cambió mientras se movía la pestaña.',
+            'rolledBack': 'No se pudo mover la pestaña. El documento y sus cambios permanecen en esta ventana.',
             'noTargetPane': 'No hay ningún panel de destino disponible en la ventana de destino.',
             'noTargetTab': 'No hay ninguna pestaña de destino disponible en la ventana de destino.',
             'restoreFailed': 'No se pudo restaurar el estado de la pestaña transferida.',

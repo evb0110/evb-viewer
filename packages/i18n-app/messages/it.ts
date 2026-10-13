@@ -678,6 +678,7 @@ export default {
         'switchingAfterPageProcessing': 'Questa azione riprenderà al termine dell’elaborazione delle pagine.',
     },
     'tabs': {
+        'moving': 'Spostamento della scheda…',
         'tabListLabel': 'Schede dei documenti',
         'newTab': 'Nuova scheda',
         'unsavedChanges': 'Modifiche non salvate',
@@ -692,6 +693,8 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Ci sono modifiche non salvate. Salvale prima di chiudere la finestra, scartale o annulla.',
         'discardChanges': 'Scarta modifiche',
         'transferErrors': {
+            'sourceChanged': 'Il documento è cambiato durante lo spostamento della scheda.',
+            'rolledBack': 'Impossibile spostare la scheda. Il documento e le modifiche restano in questa finestra.',
             'noTargetPane': 'Nella finestra di destinazione non è disponibile alcun pannello di destinazione.',
             'noTargetTab': 'Nella finestra di destinazione non è disponibile alcuna scheda di destinazione.',
             'restoreFailed': 'Impossibile ripristinare lo stato della scheda trasferita.',

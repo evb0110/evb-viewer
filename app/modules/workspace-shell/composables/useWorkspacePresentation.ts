@@ -62,7 +62,7 @@ export const useWorkspacePresentation = (
         isOpeningDocument.value || isDjvuOpening.value || isRestoring.value
     ));
     const toolbarDocumentBusy = computed(() => (
-        file.conversionState.value.isConverting || document.ocr.progress.value.isRunning || isOpeningForToolbar.value
+        document.isMoving.value || file.conversionState.value.isConverting || document.ocr.progress.value.isRunning || isOpeningForToolbar.value
     ));
     const toolbarHasPdf = computed(() => (
         file.hasPdf.value

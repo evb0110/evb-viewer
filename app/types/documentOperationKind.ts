@@ -10,4 +10,8 @@ export type TDocumentOperationKind =
     | 'ocr-apply'
     | 'raster-export'
     | 'recovery-snapshot'
-    | 'split-capture';
+    | 'split-capture'
+    | 'tab-transfer';
+
+/** The live operation owner lends its lease to work that is part of that operation. */
+export interface IDocumentOperationOwnership {assertCurrent: () => void;}

@@ -51,7 +51,11 @@ const transferAckMock = vi.hoisted(() => vi.fn(async (_ack: {
     success: boolean;
     error?: string
 }) => true));
-const transferMock = vi.hoisted(() => vi.fn(async (_request: {payload: unknown}) => ({success: true})));
+const transferMock = vi.hoisted(() => vi.fn(async (_request: {payload: unknown}) => ({
+    success: true,
+    transferId: 'transfer-source',
+    targetWindowId: 7,
+})));
 // A clean document's split capture clones its working copy; the clone is the
 // only platform call a merge capture makes.
 const createWorkingCopyFromPathMock = vi.hoisted(() => vi.fn(async (path: string) => `${path}.snapshot.pdf`));
@@ -184,7 +188,11 @@ describe('window tab transfer orchestration helpers', () => {
         // Both show the same document; the source must still be removed.
         transferMock.mockImplementationOnce(async () => {
             source.markPresented();
-            return {success: true};
+            return {
+                success: true,
+                transferId: 'transfer-source',
+                targetWindowId: 7,
+            };
         });
         source.attachWorkspace('source', createWorkspaceExposeFixture({
             waitForDocumentOpenSettled: async () => {source.markPresented();},
@@ -266,7 +274,6 @@ describe('window tab transfer orchestration helpers', () => {
             handoffStarted.promise,
             moving,
         ]);
-        expect(snapshotOccupiesTab(source.snapshot.value)).toBe(false);
         settings.openSettingsPage();
         finishHandoff.resolve(undefined);
         await moving;
@@ -716,7 +723,7 @@ describe('window tab transfer orchestration helpers', () => {
                 // These loaded views need no open, even if their pixels have
                 // been evicted. An inactive view cannot repaint for a merge.
                 waitForDocumentOpenSettled: () => Promise.withResolvers<undefined>().promise,
-                captureSplitPayload: () => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value),
+                captureSplitPayload: (_page, ownership) => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value, ownership),
             }));
         }
 

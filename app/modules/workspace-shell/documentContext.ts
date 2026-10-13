@@ -48,7 +48,6 @@ import {
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
-import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import {
     createDocumentViews,
     type TViewShellState,
@@ -72,11 +71,11 @@ interface IDocumentContextDeps {controller: IWorkspaceDocumentController;}
 export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const {controller} = deps;
     const { t } = useTypedI18n();
-    const toast = useToast();
     const openingTransaction = computed(() => {
         const transaction = controller.snapshot.value.activeTransaction;
         return transaction && transaction.kind !== 'close' ? transaction : null;
     });
+    const isMoving = computed(() => controller.operationLease.activeKind.value === 'tab-transfer');
     const isOpeningDocument = computed(() => openingTransaction.value !== null);
     const pendingDocumentPath = computed(() => openingTransaction.value?.target?.originalPath ?? null);
     const pendingDjvuDocumentOpen = computed(() => openingTransaction.value?.target?.isDjvu === true);
@@ -155,24 +154,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
-    let operationQueueFeedbackShown = false;
-    async function runExclusive<T>(kind: TDocumentOperationKind, operation: () => Promise<T>) {
-        if (controller.operationLease.activeKind.value === 'page-operation' && !operationQueueFeedbackShown) {
-            operationQueueFeedbackShown = true;
-            toast.add({
-                color: 'info',
-                title: t('notifications.documentBusyTitle'),
-                description: t('notifications.switchingAfterPageProcessing'),
-            });
-        }
-        try {
-            return await controller.operationLease.runExclusive(kind, operation);
-        } finally {
-            if (!controller.operationLease.isBusy.value) {
-                operationQueueFeedbackShown = false;
-            }
-        }
-    }
+    const runExclusive = controller.operationLease.runExclusive;
 
     const metadata = useMetadataSession({
         pdfDocument: computed(() => loadedView.value?.view.pdfDocument.value ?? null),
@@ -204,6 +186,30 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         || pageLabelState.pageLabelsDirty.value
         || bookmarkState.bookmarksDirty.value
     ));
+
+    // This is authored state, including edits made while already dirty and drafts
+    // outside the store. Parsed clean annotations are projections of the bytes.
+    controller.bindMutationFrontier(() => JSON.stringify({
+        revision: documentRevisionToken.value,
+        annotations: pdfDocumentAnnotations.application.value.store.dirtyEntities().map(entity => [
+            entity.identity.id,
+            entity.revision,
+            entity.deleted,
+        ]),
+        textBoxDrafts: [...pdfDocumentAnnotations.textBoxDrafts],
+        noteDrafts: annotations.getAnnotationNoteDraftsChangeSignature(),
+        metadata: metadata.captureRecovery(),
+        operation: controller.operationLease.activeKind.value,
+    }), async () => {
+        pdfDocumentAnnotations.commitPendingDraftsForSave();
+        if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
+    }, async (assertCurrent) => {
+        await file.handleDjvuCancel();
+        // No await separates the final authored-state check from clearing the
+        // source. The ordinary close's admission and view hooks belong to its UI.
+        assertCurrent();
+        await file.closeFile();
+    });
 
     const unencryptedSaveNotice = useUnencryptedSaveNotice();
     const saveService = usePageSaveOrchestration({
@@ -264,7 +270,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         reloadSrc: file.pdfReloadSrc,
         documentLifecycleKey: computed(() => originalPath.value ?? pendingDocumentPath.value),
         documentRevisionToken,
-        isAnySaving: saveService.isAnySaving,
         workingCopyPath,
     });
     const driver = useWorkspaceDocumentDriver({
@@ -300,22 +305,17 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             await flushScanCleanupPreferencesStore();
         },
     });
-    async function ensureWorkingCopyFreshForRead() {
-        return !hasPendingUnsavedChanges.value || saveService.saveForExternalRead();
-    }
+    const ensureWorkingCopyFreshForRead = saveService.saveForExternalRead;
     const save = {
-        canSave: saveService.canSave,
+        ...saveService,
+        canSave: computed(() => !isMoving.value && saveService.canSave.value),
         isAnySaving: saveService.isAnySaving,
-        hasSaveFailure: saveService.hasSaveFailure,
         isSaving,
         isSavingAs,
         hasPendingUnsavedChanges,
         handleSave: () => saveThroughDriver('save'),
         handleSaveAs: () => saveThroughDriver('save-as'),
-        handleRepairSave: saveService.handleRepairSave,
-        handleOptimizePdfForInteraction: saveService.handleOptimizePdfForInteraction,
         optimizeDialog: useDocumentWorkspaceOptimizeDialog({handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy}),
-        createRecoverySnapshotBytes: saveService.createRecoverySnapshotBytes,
         ensureWorkingCopyFreshForRead,
     };
 
@@ -627,14 +627,13 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
 
     return {
         controller,
+        isMoving,
         isOpeningDocument,
         pendingDocumentPath,
         pendingDjvuDocumentOpen,
         sourceCapabilities,
         failure,
         file,
-        totalPages,
-        pdfDocument,
         driver,
         viewerCapabilities,
         metadata,

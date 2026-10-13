@@ -158,6 +158,7 @@ export default {
         'switchingAfterPageProcessing': 'This action will continue after page processing finishes.',
     },
     'tabs': {
+        'moving': 'Moving tab…',
         'tabListLabel': 'Document tabs',
         'newTab': 'New Tab',
         'unsavedChanges': 'Unsaved changes',
@@ -172,6 +173,8 @@ export default {
         'confirmCloseWindowDirtyDescription': 'There are unsaved changes. Save them before closing the window, discard them, or cancel.',
         'discardChanges': 'Discard changes',
         'transferErrors': {
+            'sourceChanged': 'The document changed while the tab was moving.',
+            'rolledBack': 'The tab could not be moved. Your document and edits remain in this window.',
             'noTargetPane': 'No target pane is available in the destination window.',
             'noTargetTab': 'No target tab is available in the destination window.',
             'restoreFailed': 'Failed to restore transferred tab state.',

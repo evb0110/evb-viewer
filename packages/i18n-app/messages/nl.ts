@@ -678,6 +678,7 @@ export default {
         'switchingAfterPageProcessing': 'Deze actie gaat verder zodra de paginaverwerking is voltooid.',
     },
     'tabs': {
+        'moving': 'Tabblad verplaatsen…',
         'tabListLabel': 'Documenttabbladen',
         'newTab': 'Nieuw tabblad',
         'unsavedChanges': 'Niet-opgeslagen wijzigingen',
@@ -692,6 +693,8 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Er zijn niet-opgeslagen wijzigingen. Sla ze op voordat u het venster sluit, verwerp ze of annuleer.',
         'discardChanges': 'Wijzigingen verwerpen',
         'transferErrors': {
+            'sourceChanged': 'Het document is gewijzigd tijdens het verplaatsen van het tabblad.',
+            'rolledBack': 'Het tabblad kon niet worden verplaatst. Uw document en wijzigingen blijven in dit venster.',
             'noTargetPane': 'Er is geen doelpaneel beschikbaar in het bestemmingsvenster.',
             'noTargetTab': 'Er is geen doeltabblad beschikbaar in het bestemmingsvenster.',
             'restoreFailed': 'De status van het overgezette tabblad kon niet worden hersteld.',

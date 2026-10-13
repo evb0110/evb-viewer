@@ -102,7 +102,7 @@ describe('WindowTabTransferBroker', () => {
         vi.useRealTimers();
     });
 
-    it('delivers to an existing ready target and resolves on ack', async () => {
+    it('keeps the restored target provisional until the source finalizes', async () => {
         const targetWindow = createWindow(2);
         windowsById.set(targetWindow.id, targetWindow);
         broker.markWindowReady(targetWindow.id);
@@ -118,9 +118,16 @@ describe('WindowTabTransferBroker', () => {
             success: true,
         });
 
-        expect(acknowledged).toBe(true);
-
         const result = await transferPromise;
+        let targetEditable = false;
+        void Promise.resolve(acknowledged).then(committed => { targetEditable = committed; });
+        await Promise.resolve();
+        expect(targetEditable).toBe(false);
+        expect(broker.acknowledgeTransfer(1, {
+            transferId: sentPayload.transferId,
+            success: true,
+        })).toBe(true);
+        await expect(acknowledged).resolves.toBe(true);
         expect(result).toMatchObject({
             transferId: sentPayload.transferId,
             success: true,
@@ -128,7 +135,7 @@ describe('WindowTabTransferBroker', () => {
         } satisfies Partial<IWindowTabTransferResult>);
     });
 
-    it('keeps a PDF snapshot transfer provisional until the target ACK commits it', async () => {
+    it('rolls back a restored PDF snapshot when source finalization fails', async () => {
         const targetWindow = createWindow(22);
         windowsById.set(targetWindow.id, targetWindow);
         const prepare = vi.fn(() => 7);
@@ -159,13 +166,23 @@ describe('WindowTabTransferBroker', () => {
         const sentPayload = targetWindow.sentTransfers[0] as { transferId: string };
 
         expect(prepare).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id);
-        broker.acknowledgeTransfer(targetWindow.id, {
+        const decision = broker.acknowledgeTransfer(targetWindow.id, {
             transferId: sentPayload.transferId,
             success: true,
         });
         await expect(transferPromise).resolves.toMatchObject({success: true});
         expect(commit).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id, 7);
         expect(revoke).not.toHaveBeenCalled();
+        expect(broker.acknowledgeTransfer(99, {
+            transferId: sentPayload.transferId,
+            success: false,
+        })).toBe(false);
+        expect(broker.acknowledgeTransfer(11, {
+            transferId: sentPayload.transferId,
+            success: false,
+        })).toBe(true);
+        await expect(decision).resolves.toBe(false);
+        expect(revoke).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id, 7);
     });
 
     it('revokes provisional PDF snapshot access when the target rejects the transfer', async () => {

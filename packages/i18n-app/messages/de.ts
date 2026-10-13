@@ -678,6 +678,7 @@ export default {
         'switchingAfterPageProcessing': 'Diese Aktion wird nach der Seitenverarbeitung fortgesetzt.',
     },
     'tabs': {
+        'moving': 'Tab wird verschoben…',
         'tabListLabel': 'Dokumentregisterkarten',
         'newTab': 'Neuer Tab',
         'unsavedChanges': 'Ungespeicherte Änderungen',
@@ -692,6 +693,8 @@ export default {
         'confirmCloseWindowDirtyDescription': 'Es gibt ungespeicherte Änderungen. Vor dem Schließen speichern, verwerfen oder abbrechen.',
         'discardChanges': 'Änderungen verwerfen',
         'transferErrors': {
+            'sourceChanged': 'Das Dokument wurde während des Verschiebens geändert.',
+            'rolledBack': 'Der Tab konnte nicht verschoben werden. Ihr Dokument und Ihre Änderungen bleiben in diesem Fenster.',
             'noTargetPane': 'Im Zielfenster ist kein Zielfeld verfügbar.',
             'noTargetTab': 'Im Zielfenster ist kein Ziel-Tab verfügbar.',
             'restoreFailed': 'Der Zustand des übertragenen Tabs konnte nicht wiederhergestellt werden.',

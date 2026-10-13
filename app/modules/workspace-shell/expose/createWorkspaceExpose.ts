@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
+import {cloneDeep} from 'es-toolkit';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
     pageSelectionCount,
@@ -50,36 +50,13 @@ function normalizeToolbarSnapshotTotalPages(totalPages: number | undefined, mini
     return Math.max(minimum, Math.floor(totalPages));
 }
 
-/**
- * Copy the inventory record out of reactive state.
- *
- * The snapshot is a value handed to automation clients, not a window onto
- * live state: returning the ref's own object would let a caller mutate the
- * workspace's completeness record, and would make every snapshot taken
- * from the same ref alias the one before it, so a mutation applied to one
- * reading silently rewrites the others.
- */
-function cloneAnnotationInventory(
-    inventory: IAnnotationInventoryCompleteness | null,
-): IAnnotationInventoryCompleteness | null {
-    if (!inventory) {
-        return null;
-    }
-    return {
-        complete: inventory.complete,
-        omissions: [...inventory.omissions],
-        scannedPageCount: inventory.scannedPageCount,
-        totalPageCount: inventory.totalPageCount,
-        failedPageCount: inventory.failedPageCount,
-    };
-}
-
 /** Builds the workspace command surface that tabs, menus and automation call. */
 export function createWorkspaceExpose(
     document: TDocumentContext,
     viewContext: TDocumentViewContext,
     owners: IWorkspaceExposeOwners,
 ): IWorkspaceExpose {
+    const {t} = useTypedI18n();
     const {
         file,
         save,
@@ -114,7 +91,8 @@ export function createWorkspaceExpose(
 
     async function handleSaveFromCommandSurface() {
         if (
-            !file.hasPdf.value
+            document.isMoving.value
+            || !file.hasPdf.value
             || save.isAnySaving.value
             || history.isHistoryBusy.value
             || !viewerCapabilities().save
@@ -152,8 +130,8 @@ export function createWorkspaceExpose(
             canSave: save.canSave.value,
             canRepairSave: owners.canRepairSave.value,
             canOptimizePdf: owners.canOptimizePdf.value,
-            canUndo: history.canUndo.value,
-            canRedo: history.canRedo.value,
+            canUndo: !document.isMoving.value && history.canUndo.value,
+            canRedo: !document.isMoving.value && history.canRedo.value,
             canExportDocx: owners.canExportDocx.value,
             isSaving: save.isSaving.value,
             isSavingAs: save.isSavingAs.value,
@@ -200,7 +178,7 @@ export function createWorkspaceExpose(
             documentIdentity: file.documentRevisionInfo.value,
             annotationComments: [...annotations.annotationComments.value],
             annotationCommentsStatus: annotations.annotationCommentsStatus.value,
-            annotationInventory: cloneAnnotationInventory(annotations.annotationInventory.value),
+            annotationInventory: cloneDeep(annotations.annotationInventory.value),
             annotationDirty: annotations.annotationDirty.value,
             pageLabels: pageLabelState.pageLabels.value,
             pageLabelRanges: structuredClone(pageLabelState.pageLabelRanges.value),
@@ -238,12 +216,12 @@ export function createWorkspaceExpose(
     }
 
     async function runPageOperation(operation: () => Promise<boolean>) {
-        return await owners.ensurePdfProjectionForEdit() && operation();
+        return !document.isMoving.value && await owners.ensurePdfProjectionForEdit() && operation();
     }
 
     function whenCapable(capability: keyof IWorkspaceViewerCapabilities, action: () => void) {
         return () => {
-            if (viewerCapabilities()[capability]) {
+            if (!document.isMoving.value && viewerCapabilities()[capability]) {
                 action();
             }
         };
@@ -251,11 +229,11 @@ export function createWorkspaceExpose(
 
     return {
         hasPdf: file.hasPdf,
-        handleSaveAs: owners.handleSaveAs,
+        handleSaveAs: () => document.isMoving.value ? Promise.resolve(false) : owners.handleSaveAs(),
         handlePrint: print.handlePrint,
         handlePrintCurrentPage: () => { void print.handlePrintCurrentPage(); },
-        handleUndo: () => { void history.handleUndo(); },
-        handleRedo: () => { void history.handleRedo(); },
+        handleUndo: () => { if (!document.isMoving.value) void history.handleUndo(); },
+        handleRedo: () => { if (!document.isMoving.value) void history.handleRedo(); },
         handleOpenFileFromUi: fileOps.handleOpenFileFromUi,
         handleCombineImages: fileOps.handleCombineImages,
         handleOpenFileDirectWithPersist: fileOps.handleOpenFileDirectWithPersist,
@@ -269,9 +247,9 @@ export function createWorkspaceExpose(
         handleToggleSidebar: () => { view.showSidebar.value = !view.showSidebar.value; },
         handleEnableDragMode: () => { navigation.enableDragMode(); },
         handleDisableDragMode: () => { viewContext.annotationToolState.handleAnnotationToolChange('none'); },
-        handleQuickNote: () => { void viewContext.annotationActions.handleQuickNoteAction(); },
-        handleInsertImageFromFile: owners.handleInsertImageFromFile,
-        handlePasteImageFromClipboard: owners.handlePasteImageFromClipboard,
+        handleQuickNote: () => { if (!document.isMoving.value) void viewContext.annotationActions.handleQuickNoteAction(); },
+        handleInsertImageFromFile: async () => { if (!document.isMoving.value) await owners.handleInsertImageFromFile(); },
+        handlePasteImageFromClipboard: async () => { if (!document.isMoving.value) await owners.handlePasteImageFromClipboard(); },
         handlePageDelete: (pages) => {
             void runPageOperation(() => pageOps.pageOpsDelete(pages, view.totalPages.value));
         },
@@ -281,11 +259,14 @@ export function createWorkspaceExpose(
         handlePageMove: (move) => {
             void runPageOperation(() => pageOps.pageOpsMove(move));
         },
-        captureSplitPayload: page => owners.captureSplitPayload(page ?? view.currentPage.value),
+        captureSplitPayload: (page, ownership) => owners.captureSplitPayload(page ?? view.currentPage.value, ownership),
         restoreSplitPayload: owners.restoreSplitPayload,
         closeAllDropdowns: view.closeAllDropdowns,
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,
-        runAgentAction: owners.runAgentAction,
+        runAgentAction: async (...args) => {
+            if (document.isMoving.value) throw new Error(t('tabs.moving'));
+            return owners.runAgentAction(...args);
+        },
         readAgentResource: owners.readAgentResource,
         handleOcrComplete: async payload => document.ocr.applyResult(
             payload as Parameters<typeof document.ocr.applyResult>[0],
@@ -431,10 +412,10 @@ export function createWorkspaceExpose(
         getAllShapes: () => pdfViewer()?.getAllShapes?.() ?? [],
         getDeletedEmbeddedShapeAnnotationIds: () => pdfViewer()?.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
         getDeletedEmbeddedShapeStableKeys: () => pdfViewer()?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-        highlightSelection: () => pdfViewer()?.highlightSelection?.() ?? Promise.resolve(false),
+        highlightSelection: () => !document.isMoving.value ? pdfViewer()?.highlightSelection?.() ?? Promise.resolve(false) : Promise.resolve(false),
         commentAtPoint: (pageNumber, pageX, pageY, options) => {
             const parsedPageNumber = parsePageNumber(pageNumber);
-            return parsedPageNumber === null
+            return document.isMoving.value || parsedPageNumber === null
                 ? Promise.resolve(false)
                 : pdfViewer()?.commentAtPoint?.(parsedPageNumber, pageX, pageY, options)
                     ?? Promise.resolve(false);
