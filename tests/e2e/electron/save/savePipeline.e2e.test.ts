@@ -905,7 +905,9 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         expect(await isSaveButtonEnabled(page)).toBe(true);
         const failureText = await page.$eval('.app-toast-failure:not([data-state="closed"])', element => element.textContent ?? '');
         expect(failureText).toContain('Failed to save file');
-        expect(failureText).toContain('Permission to write the file was denied. Choose Save As to save your changes elsewhere.');
+        expect(failureText).toContain('EVB Viewer cannot write in the folder that holds this PDF, so it was not saved. Choose Save As to save your changes in another folder.');
+        // The refusal offers Save As itself, not only in its text.
+        expect(await page.$$eval('.app-toast-failure:not([data-state="closed"]) button', buttons => buttons.map(button => button.textContent?.trim()))).toContain('Save As...');
         await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'))
             .find(button => button.textContent?.trim() === 'Copy details'), null, {description: 'Copy save failure details'});
         const copied = await page.evaluate(() => navigator.clipboard.readText());
