@@ -4,9 +4,9 @@ import type {
     IDocumentRenderLease,
 } from '@app/modules/document-viewer/source/documentPageSource';
 import {
-    DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO,
     DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT,
     DocumentThumbnailLayout,
+    resolveDocumentThumbnailAspectRatio,
     type IDocumentThumbnailVirtualRange,
 } from '@app/modules/document-viewer/thumbnails/documentThumbnailLayout';
 import {
@@ -100,6 +100,24 @@ function prepareSurface(lease: IDocumentRenderLease, signal: AbortSignal) {
     }).then(() => signal.throwIfAborted());
 }
 
+// The first, middle and last pages' displayed sizes give the document's slot
+// shape; a page that cannot report its size is left out.
+async function measureSlotAspectRatio(source: IDocumentPageSource, signal: AbortSignal) {
+    const pages = [...new Set([
+        1,
+        Math.ceil(source.pageCount / 2),
+        source.pageCount,
+    ])].filter(page => page >= 1);
+    const sizes = await Promise.all(pages.map(async (page) => {
+        try {
+            return await source.getPageMetrics(page, signal);
+        } catch {
+            return null;
+        }
+    }));
+    return resolveDocumentThumbnailAspectRatio(sizes.filter(size => size !== null));
+}
+
 function addRange(target: Set<number>, range: IDocumentThumbnailVirtualRange, pageCount: number) {
     for (
         let page = Math.max(1, range.startPage);
@@ -114,6 +132,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     const viewportRevision = ref(0);
     const isVisible = ref(false);
     const cssWidth = ref(MIN_CSS_WIDTH);
+    let slotShapeRequest: AbortController | null = null;
     const outputScale = ref(resolveThumbnailOutputScale(window.devicePixelRatio));
     const viewportWritePort = createDocumentViewportWritePort();
     const itemChromeHeight = ref(DEFAULT_DOCUMENT_THUMBNAIL_ITEM_CHROME_HEIGHT);
@@ -379,8 +398,17 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         });
     }
 
-    function updateLayoutGeometry(nextWidth: number, nextItemChromeHeight: number) {
-        if (nextWidth === cssWidth.value && nextItemChromeHeight === itemChromeHeight.value) {
+    function updateLayoutGeometry(
+        nextWidth: number,
+        nextItemChromeHeight: number,
+        nextAspectRatio = layout.slotAspectRatio,
+        keepAnchor = true,
+    ) {
+        if (
+            nextWidth === cssWidth.value
+            && nextItemChromeHeight === itemChromeHeight.value
+            && nextAspectRatio === layout.slotAspectRatio
+        ) {
             return;
         }
         const root = options.scrollRoot.value;
@@ -389,12 +417,13 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         cssWidth.value = nextWidth;
         itemChromeHeight.value = nextItemChromeHeight;
         layout.reset({
+            aspectRatio: nextAspectRatio,
             itemChromeHeight: nextItemChromeHeight,
             pageCount: options.source.value?.pageCount ?? 0,
             renderWidth: nextWidth,
         });
         layoutRevision.value += 1;
-        if (root && anchor) {
+        if (keepAnchor && root && anchor) {
             writeScrollTop(root, resolveAnchorScrollTop(anchor, root));
             lastKnownAnchor = anchor;
         }
@@ -625,6 +654,32 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         }
     }
 
+    // The slot shape follows the document's pages and is measured again for
+    // every source, a reload after page operations included; until then the
+    // previous shape stands. A new shape moves the rows once, by one rule: a
+    // current page the user can see stays in view, otherwise their place in
+    // the rail is kept, and a resize in progress keeps its own anchor.
+    function measureSlotShape(source: IDocumentPageSource | null) {
+        slotShapeRequest?.abort();
+        slotShapeRequest = null;
+        if (!source) return;
+        const request = new AbortController();
+        slotShapeRequest = request;
+        void measureSlotAspectRatio(source, request.signal).then((aspectRatio) => {
+            if (request.signal.aborted || aspectRatio === layout.slotAspectRatio) return;
+            const root = options.scrollRoot.value;
+            const page = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
+            const viewport = root ? getActiveScrollViewport(root) : null;
+            const bounds = resolveDocumentThumbnailPageBounds(page, getActiveSegmentLayout());
+            const followPage = !resizeAnchorLifecycle.isActive()
+                && viewport !== null
+                && bounds.bottom > viewport.scrollTop
+                && bounds.top < viewport.scrollTop + viewport.clientHeight;
+            updateLayoutGeometry(cssWidth.value, itemChromeHeight.value, aspectRatio, !followPage);
+            if (followPage) revealPage(page, {force: true});
+        });
+    }
+
     const virtualItems = computed<IDocumentThumbnailVirtualItem[]>(() => {
         void layoutRevision.value;
         void viewportRevision.value;
@@ -641,7 +696,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             page += 1
         ) pages.add(page);
         return [...pages].sort((left, right) => left - right).map(pageNumber => ({
-            aspectRatio: String(1 / DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO),
+            aspectRatio: String(1 / layout.slotAspectRatio),
             height: layout.getPageHeight(pageNumber),
             pageNumber,
             top: layout.getPageTopInScrollSegment(pageNumber, activeScrollSegmentIndex.value),
@@ -673,7 +728,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         const steps = Math.floor((getActiveScrollSegment().height - cover + stride) / stride);
         return steps < 1 ? null : {
             '--document-thumbnail-slot-cover': `${String(cover)}px`,
-            '--document-thumbnail-slot-height': `${String(cssWidth.value * DEFAULT_DOCUMENT_THUMBNAIL_ASPECT_RATIO)}px`,
+            '--document-thumbnail-slot-height': `${String(cssWidth.value * layout.slotAspectRatio)}px`,
             '--document-thumbnail-slot-steps': String(steps),
             '--document-thumbnail-slot-stride': `${String(stride)}px`,
             '--document-thumbnail-slot-width': `${String(cssWidth.value)}px`,
@@ -695,6 +750,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     watch(
         options.source,
         async (source, previous) => {
+            measureSlotShape(source);
             // With page revisions, a reloaded source of the same document keeps
             // the rows and their thumbnails; pages re-render as keys change.
             if (
@@ -788,6 +844,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     });
     onBeforeUnmount(() => {
         mounted = false;
+        slotShapeRequest?.abort();
         unsubscribeWheelScrollSequence();
         scrollRestorer.cancel();
         pendingScrollSegmentTransitionIndex = null;

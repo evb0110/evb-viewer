@@ -12,6 +12,7 @@ import type {
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     attachScanCleanupPageOverrideDefaults,
+    createScanCleanupPageOverride,
     getScanCleanupPageOverride,
     getScanCleanupPageOverrideDefaults,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
@@ -111,6 +112,29 @@ function detectionIsTerminal(state: TScanCleanupDetectionJobState | null) {
 
 function yieldToDetectionReconciliation() {
     return new Promise<void>(resolve => setTimeout(resolve, 0));
+}
+
+// The page edits detection depends on, read as the contract's detection
+// signature reads them: a default override that only exists, or only carries
+// output inclusion, placement or margins, changes nothing detection computes.
+function detectionOverrideSignature(pageOverride: IScanCleanupPageOverride) {
+    return JSON.stringify({
+        layoutOverride: pageOverride.layoutOverride,
+        rotationDegrees: pageOverride.rotationDegrees,
+        manualSplit: pageOverride.manualSplit,
+        manualSkewDegrees: pageOverride.manualSkewDegrees,
+        manualZones: pageOverride.manualZones ?? {
+            picture: [],
+            fill: [],
+        },
+    });
+}
+
+function withoutMargins(documentSignature: string) {
+    return JSON.stringify({
+        ...JSON.parse(documentSignature) as object,
+        marginsMm: null,
+    });
 }
 
 export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetectionSessionOptions) => {
@@ -420,26 +444,18 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             normalizeIllumination: !lossless && (options.settings.normalizeIllumination ?? true),
             autoDewarp: !lossless && (options.settings.autoDewarp ?? false),
             autoDewarpDepth: options.settings.autoDewarpDepth,
-            pageOverrideDefaults: options.settings.pageOverrideDefaults,
+            pageOverrideDefaults: detectionOverrideSignature(
+                options.settings.pageOverrideDefaults ?? createScanCleanupPageOverride(),
+            ),
         });
     });
     function pageOverrideSignature(pageNumber: number) {
-        const pageOverride = pageNumber === 0
+        return detectionOverrideSignature(pageNumber === 0
             ? getScanCleanupPageOverrideDefaults(options.settings.pageOverrides)
             : getScanCleanupPageOverride(
                 options.settings.pageOverrides,
                 requirePageNumber(pageNumber),
-            );
-        return JSON.stringify({
-            layoutOverride: pageOverride.layoutOverride,
-            rotationDegrees: pageOverride.rotationDegrees,
-            manualSplit: pageOverride.manualSplit,
-            manualSkewDegrees: pageOverride.manualSkewDegrees,
-            manualZones: pageOverride.manualZones ?? {
-                picture: [],
-                fill: [],
-            },
-        });
+            ));
     }
 
     // The default page portion is the same for every untouched page. Keep that
@@ -557,7 +573,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         return null;
     }
 
-    function clearDetectionEvidence() {
+    function clearDetectionEvidence(keepLayouts = false) {
         placementAnchorCalibrationGeneration += 1;
         signatures.clear();
         retainedDetectionPages.clear();
@@ -568,7 +584,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         placementAnchorSummary.value = null;
         placementAnchorCalibrationInFlight.value = false;
         placementAnchorCalibrationError.value = '';
-        detectedLayoutByPage.clear();
+        if (!keepLayouts) detectedLayoutByPage.clear();
         confidenceByPage.clear();
         documentPriorByPage.clear();
         settledPages.clear();
@@ -764,7 +780,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             // bounded settled-page set.
             retainSettledPage(result.pageNumber, documentPageCount);
             const requestSignature = detectionRequestSignature(result.pageNumber);
-            if (requestSignature === signature(result.pageNumber)) {
+            const measuredUnderCurrentSettings = requestSignature === signature(result.pageNumber);
+            if (measuredUnderCurrentSettings) {
                 signatures.set(result.pageNumber, requestSignature);
             } else {
                 signatures.delete(result.pageNumber);
@@ -774,7 +791,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             } else {
                 sourcePageMetadataByPage.delete(result.pageNumber);
             }
-            if (result.pagePlanEvidence !== undefined) {
+            // A job a settings change outlived still reports pages; their plans
+            // were measured under the old settings, as their layouts were.
+            if (measuredUnderCurrentSettings && result.pagePlanEvidence !== undefined) {
                 pagePlanEvidenceByPage.set(result.pageNumber, result.pagePlanEvidence);
             } else {
                 pagePlanEvidenceByPage.delete(result.pageNumber);
@@ -857,6 +876,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         if (!automatic && options.lifecycleDocumentKey.value) {
             autoDetectionCanceledDocuments.delete(options.lifecycleDocumentKey.value);
         }
+        // Layouts measured under the same settings but margins stay until the
+        // new job replaces them, as the settings watcher kept them.
+        const keepLayouts = detectionPageOverrideSignatureToken === pageOverrideSignatureToken.value
+            && withoutMargins(detectionDocumentSignature) === withoutMargins(documentSignature.value);
         captureDetectionSignatures();
         signatures.clear();
         const requestSourcePath = options.sourcePath.value;
@@ -907,7 +930,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             errorCode.value = result.errorCode;
             return;
         }
-        clearDetectionEvidence();
+        clearDetectionEvidence(keepLayouts);
         jobId = result.jobId;
         jobState.value = {
             jobId: result.jobId,
@@ -1547,17 +1570,22 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     && detectionDocumentPageCount.value === currentTotalPages
                 );
             const changedPages = new Set<number>();
-            if (documentChanged || pageCountChanged) {
-                clearDetectionEvidence();
-            } else {
-                for (const pageNumber of new Set([
-                    ...observedPageOverrideSignatures.keys(),
-                    ...currentPageSignatures.keys(),
-                ])) {
-                    if (observedPageOverrideSignatures.get(pageNumber) !== currentPageSignatures.get(pageNumber)) {
-                        changedPages.add(pageNumber);
-                    }
+            for (const pageNumber of new Set([
+                ...observedPageOverrideSignatures.keys(),
+                ...currentPageSignatures.keys(),
+            ])) {
+                if (observedPageOverrideSignatures.get(pageNumber) !== currentPageSignatures.get(pageNumber)) {
+                    changedPages.add(pageNumber);
                 }
+            }
+            if (documentChanged || pageCountChanged) {
+                // Margins are applied after a page is split, so a change to
+                // them alone keeps every page's layout: the matched page stays
+                // measurable while detection measures the content again.
+                clearDetectionEvidence(!pageCountChanged
+                    && changedPages.size === 0
+                    && withoutMargins(currentDocumentSignature) === withoutMargins(observedDocumentSignature));
+            } else {
                 for (const pageNumber of changedPages) clearDetectionEvidenceForPage(pageNumber);
             }
             observedDocumentSignature = currentDocumentSignature;

@@ -54,14 +54,24 @@ const LEAF_INK_TOPS_PX = [
     126,
 ];
 
+/** Every cleaned frame the preview showed while detection reran. */
+interface IRerunProbeWindow extends Window {rerunFrames?: {
+    frames: Array<{
+        matched: boolean;
+        widths: number[];
+        heights: number[];
+    }>;
+    done: boolean;
+};}
+
 const sessionFixture = createElectronE2ESessionFixture({sessionName: () => `e2e-scan-cleanup-ink-placement-${Date.now()}`});
 
 /**
  * A scanned page: one leaf, or a spread of two leaves with a fold shadow
  * between them. Each leaf carries a text block whose ink starts at the given
- * top, in pixels at 150 DPI.
+ * top, in pixels at 150 DPI; a spread's right block is `rightColumns` wide.
  */
-async function createScannedBookPdf(path: string, pages: ReadonlyArray<readonly number[]>) {
+async function createScannedBookPdf(path: string, pages: ReadonlyArray<readonly number[]>, rightColumns = 26) {
     const doc = await PDFDocument.create();
     for (const leafTops of pages) {
         const widthPx = FIXTURE_WIDTH_PX * leafTops.length;
@@ -71,7 +81,7 @@ async function createScannedBookPdf(path: string, pages: ReadonlyArray<readonly 
             top,
         ] of leafTops.entries()) {
             for (let line = 0; line < 12; line += 1) {
-                for (let column = 0; column < 26; column += 1) {
+                for (let column = 0; column < (leaf === 1 ? rightColumns : 26); column += 1) {
                     const left = leaf * FIXTURE_WIDTH_PX + 150 + column * 20;
                     const glyphTop = top + line * 40;
                     for (let y = glyphTop; y < glyphTop + 15; y += 1) {
@@ -134,8 +144,12 @@ function readInkTopMm(pdfPath: string, pageNumber: number, outputPrefix: string)
     throw new Error(`Output page ${String(pageNumber)} has no ink`);
 }
 
-/** Opens a generated book in Scan cleanup and waits until it can run. */
-async function openInScanCleanup(pages: ReadonlyArray<readonly number[]>) {
+/** Opens a generated book in Scan cleanup and, unless told not to, waits until it can run. */
+async function openInScanCleanup(
+    pages: ReadonlyArray<readonly number[]>,
+    rightColumns?: number,
+    waitForDetection = true,
+) {
     const session = sessionFixture.getSession();
     await session.command('windowResize', [
         1280,
@@ -147,7 +161,7 @@ async function openInScanCleanup(pages: ReadonlyArray<readonly number[]>) {
         force: true,
     }));
     const sourcePath = join(sourceDirectory, 'scanned-book.pdf');
-    await createScannedBookPdf(sourcePath, pages);
+    await createScannedBookPdf(sourcePath, pages, rightColumns);
     await openPdfInApp(session.page, sourcePath, 90_000);
     await waitForPdfLoaded(session.page, 90_000);
     await waitForViewerInteractive(session.page, 90_000);
@@ -160,7 +174,7 @@ async function openInScanCleanup(pages: ReadonlyArray<readonly number[]>) {
         visible: true,
         timeout: 20_000,
     });
-    await waitForFunctionInPage(session.page, () => {
+    if (waitForDetection) await waitForFunctionInPage(session.page, () => {
         const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
         if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
         const rect = action.getBoundingClientRect();
@@ -240,5 +254,108 @@ describe('scan cleanup ink placement', () => {
         };
         expect(previewTopsMm.left).toBeCloseTo(printedTopsMm.left, 0);
         expect(previewTopsMm.right).toBeCloseTo(printedTopsMm.right, 0);
+    }, 300_000);
+
+    it('keeps a spread\'s halves on one page size while a margin change re-detects', async () => {
+        // The right leaf's block is half as wide, so a half drawn at its own
+        // size is visibly narrower. A margin change while detection runs used
+        // to discard detection's layouts; the job it outlived finishes before
+        // the rerun starts, and the preview drawn meanwhile could not measure
+        // the matched page, drew each half at its own size and kept that frame
+        // until the rerun settled. Every frame shown from the change on is
+        // recorded.
+        const opened = await openInScanCleanup(Array.from({length: 48}, () => [
+            100,
+            100,
+        ]), 13, false);
+        const {page} = opened.session;
+        // The first matched frame while the first detection still runs.
+        await waitForFunctionInPage(page, () => {
+            const canvases = [...document.querySelectorAll<HTMLElement>('[data-output-half] .uniform-canvas')];
+            return canvases.length === 2
+                && canvases.every(canvas => canvas.dataset.matchedCanvasHeightPoints !== undefined)
+                && document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'pending';
+        }, {timeout: 120_000});
+        await page.evaluate(() => {
+            const record: NonNullable<IRerunProbeWindow['rerunFrames']> = {
+                frames: [],
+                done: false,
+            };
+            (window as IRerunProbeWindow).rerunFrames = record;
+            // Every DOM change is checked, so a frame shown between two
+            // samples cannot escape: an image or canvas swap is a mutation.
+            const frameKey = () => [...document.querySelectorAll<HTMLElement>('[data-output-half] .uniform-canvas')]
+                .map(canvas => [
+                    canvas.dataset.frameWidth,
+                    canvas.dataset.frameHeight,
+                    canvas.querySelector<HTMLImageElement>('img.cleaned-image:not(.is-outgoing):not(.is-incoming)')?.src,
+                ].join(':'))
+                .join(' ');
+            let lastKey = frameKey();
+            // The probe arms on the margin change itself, not on the click,
+            // and ends only once detection, open after that change, has
+            // settled and its preview is shown: the first detection finishing
+            // before the click lands cannot end it early.
+            const marginInput = document.querySelector<HTMLInputElement>('input[data-margin-side="topMm"]');
+            const initialMargin = marginInput?.value;
+            let marginChanged = false;
+            let rerunOpen = false;
+            const observer = new MutationObserver(() => {
+                const settled = document.querySelector('.scan-cleanup-surface')
+                    ?.getAttribute('data-detection-status') === 'completed'
+                    && !/Page size may still change|Building cleanup preview|Preview updating|Updating preview|Reading page images/i
+                        .test(document.body.innerText);
+                marginChanged ||= marginInput?.value !== initialMargin;
+                rerunOpen ||= marginChanged && !settled;
+                const key = frameKey();
+                if (marginChanged && key !== lastKey) {
+                    const canvases = [...document.querySelectorAll<HTMLElement>('[data-output-half] .uniform-canvas')];
+                    record.frames.push({
+                        matched: canvases.length === 2
+                            && canvases.every(canvas => canvas.dataset.matchedCanvasHeightPoints !== undefined),
+                        widths: canvases.map(canvas => canvas.getBoundingClientRect().width),
+                        heights: canvases.map(canvas => canvas.getBoundingClientRect().height),
+                    });
+                }
+                lastKey = key;
+                if (rerunOpen && settled) {
+                    record.done = true;
+                    observer.disconnect();
+                }
+            });
+            observer.observe(document.body, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+            });
+        });
+
+        await clickAsUser(page, '[data-margin-side="topMm"] ~ [data-slot="increment"] button');
+        await waitForFunctionInPage(page, () => (window as IRerunProbeWindow).rerunFrames?.done === true, {timeout: 240_000});
+        const frames = await page.evaluate(() => (window as IRerunProbeWindow).rerunFrames?.frames ?? []);
+        const status = await page.evaluate(() => document.querySelector('.scan-cleanup-surface')
+            ?.getAttribute('data-detection-status'));
+
+        expect(frames.length).toBeGreaterThan(0);
+        expect(frames.filter(frame => !frame.matched
+            || Math.abs(frame.widths[0]! - frame.widths[1]!) > 1
+            || Math.abs(frame.heights[0]! - frame.heights[1]!) > 1)).toEqual([]);
+        expect(status).toBe('completed');
+
+        // The frame detection settles on is the one the user keeps.
+        await waitForFunctionInPage(page, () => !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i
+            .test(document.body.innerText), {timeout: 60_000});
+        const settledFrame = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-output-half] .uniform-canvas')]
+            .map(canvas => ({
+                matched: canvas.dataset.matchedCanvasHeightPoints !== undefined,
+                width: canvas.getBoundingClientRect().width,
+                height: canvas.getBoundingClientRect().height,
+            })));
+        expect(settledFrame.map(half => half.matched)).toEqual([
+            true,
+            true,
+        ]);
+        expect(Math.abs(settledFrame[0]!.width - settledFrame[1]!.width)).toBeLessThanOrEqual(1);
+        expect(Math.abs(settledFrame[0]!.height - settledFrame[1]!.height)).toBeLessThanOrEqual(1);
     }, 300_000);
 });

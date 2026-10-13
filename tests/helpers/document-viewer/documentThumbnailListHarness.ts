@@ -178,6 +178,10 @@ export function restoreDocumentThumbnailListEnvironment() {
 export function createDocumentThumbnailSourceHarness(
     pageCount = 12,
     documentRef = '/thumbnails.pdf',
+    pageSize = {
+        widthPoints: 500,
+        heightPoints: 700,
+    },
 ): IDocumentThumbnailSourceHarness {
     const behaviors = new Map<number, TDocumentThumbnailRenderBehavior>();
     const metricsCalls: number[] = [];
@@ -249,8 +253,7 @@ export function createDocumentThumbnailSourceHarness(
             sourceActivity += 1;
             metricsCalls.push(pageNumber);
             return {
-                widthPoints: 500,
-                heightPoints: 700,
+                ...pageSize,
                 rotation: 0 as const,
             };
         }),
@@ -295,6 +298,7 @@ export function createDocumentThumbnailSourceHarness(
 export function mountDocumentThumbnailList(
     source: IDocumentPageSource | null,
     isActive = true,
+    pageRevision?: (pageNumber: number) => string,
 ): IMountedDocumentThumbnailList {
     const activeSource = ref<IDocumentPageSource | null>(source);
     const active = ref(isActive);
@@ -309,6 +313,7 @@ export function mountDocumentThumbnailList(
         currentPage: currentPage.value,
         isActive: active.value,
         itemMetricsKey: itemMetricsKey.value,
+        ...(pageRevision === undefined ? {} : {pageRevision}),
         onGoToPage: (pageNumber: number, event: MouseEvent) => {
             navigations.push(pageNumber);
             navigationEvents.push(event);
