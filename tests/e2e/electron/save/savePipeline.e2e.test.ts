@@ -3,6 +3,7 @@ import {createHash} from 'node:crypto';
 import {
     clickAsUser,
     clickFoundAsUser,
+    activateMenuItemAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {existsSync} from 'node:fs';
 import {
@@ -2054,5 +2055,94 @@ describe('[crpart3core] huge imported numbering', () => {
         const range = tree.lookup(PDFName.of('Nums'), PDFArray).lookup(1, PDFDict);
         expect(range.lookup(PDFName.of('St'), PDFNumber).asNumber()).toBe(startNumber);
         expect((await readPdfTextAnnotationRecords(fixture)).map(note => note.contents)).toContain('Save keeps imported numbering');
+    }, E2E_TIMEOUT_MS);
+});
+
+describe('[crpart3core] submitted open', () => {
+    it('CR2 replaces a submitted large PDF and frees its worker', async () => {
+        const {createLargeScannedFixturePdf} = await import('@tests/e2e/electron/helpers/fixtures');
+        const large = await createLargeScannedFixturePdf(`crpart3core-large-${Date.now()}.pdf`);
+        const replacement = await createMultiPageTextFixturePdf(`crpart3core-small-${Date.now()}.pdf`, 1);
+        const pdf = await PDFDocument.load(await readFile(replacement));
+        pdf.getPage(0).drawText('Replacement is ready', {
+            x: 60,
+            y: 80,
+            size: 18,
+        });
+        await writeFile(replacement, await pdf.save());
+        const run = await startElectronE2ESession(`e2e-crpart3core-submitted-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_E2E_OPEN_DIALOG_PATH: replacement},
+        });
+        onTestFinished(() => run.stop());
+        const {page} = run;
+        const errors: string[] = [];
+        page.on('pageerror', error => errors.push(String(error)));
+        const client = await run.browser.target().createCDPSession();
+        const listWorkers = async () => (await client.send('Target.getTargets')).targetInfos
+            .filter(target => target.type === 'worker').map(target => target.targetId);
+        try {
+            const existingWorkers = await listWorkers();
+            await page.evaluate(() => {
+                const owner = window as Window & {__crpart3coreSubmitted?: boolean};
+                const OriginalWorker = window.Worker;
+                // Keep the viewer's first document submitted: the worker that
+                // receives the first GetDocRequest parses the file, but the page
+                // never hears its GetDoc reply, so that loading task never
+                // settles. Teardown still reaches the worker.
+                window.Worker = new Proxy(OriginalWorker, {construct(target, args) {
+                    const worker = Reflect.construct(target, args) as Worker;
+                    const post = worker.postMessage.bind(worker);
+                    const listen = worker.addEventListener.bind(worker);
+                    let submitted = false;
+                    let held: Event | null = null;
+                    worker.postMessage = ((message: unknown, options?: Transferable[] | StructuredSerializeOptions) => {
+                        if (typeof message === 'object' && message !== null && (message as {action?: unknown}).action === 'GetDocRequest') {
+                            submitted = true;
+                            window.Worker = OriginalWorker;
+                        }
+                        Reflect.apply(post, worker, options === undefined ? [message] : [
+                            message,
+                            options,
+                        ]);
+                    }) as Worker['postMessage'];
+                    worker.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => listen(
+                        type,
+                        type === 'message' && typeof listener === 'function'
+                            ? (event: Event) => {
+                                // Every listener of this worker must miss the same reply.
+                                if (submitted && (event === held || (!held && (event as MessageEvent<{action?: unknown} | null>).data?.action === 'GetDoc'))) {
+                                    held = event;
+                                    owner.__crpart3coreSubmitted = true;
+                                    return;
+                                }
+                                listener.call(worker, event);
+                            }
+                            : listener,
+                        options,
+                    )) as Worker['addEventListener'];
+                    return worker;
+                }});
+            });
+            await triggerOpenPathInApp(page, large);
+            await page.waitForFunction(() => (window as Window & {__crpart3coreSubmitted?: boolean}).__crpart3coreSubmitted, {timeout: 20_000});
+            const readTab = () => page.$eval('.editor-pane.is-active .tab.is-active[data-tab-id]', node => (node as HTMLElement).dataset.tabId);
+            const tab = await readTab();
+            const firstWorkers = (await listWorkers()).filter(id => !existingWorkers.includes(id));
+            expect(firstWorkers.length).toBeGreaterThan(0);
+            await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+O'});
+            await waitForOpenedPdf(page, replacement);
+            expect(await readTab()).toBe(tab);
+            await expect.poll(async () => page.$eval('.editor-pane.is-active .textLayer', node => node.textContent), {timeout: 20_000})
+                .toContain('Replacement is ready');
+            expect(await page.$$eval('.editor-pane.is-active .page_container', nodes => nodes.length)).toBe(1);
+            await expect.poll(async () => (await listWorkers()).some(id => firstWorkers.includes(id)), {timeout: 20_000}).toBe(false);
+            expect((await listWorkers()).filter(id => !existingWorkers.includes(id))).toHaveLength(1);
+            expect(await page.$$eval('[role="status"], [role="alert"]', nodes => nodes.map(node => node.textContent).join(' ')))
+                .not.toMatch(/failed|error|unable/i);
+            expect(errors).toEqual([]);
+        } finally {
+            await client.detach();
+        }
     }, E2E_TIMEOUT_MS);
 });
