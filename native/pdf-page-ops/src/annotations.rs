@@ -87,12 +87,10 @@ pub(crate) fn text_note_pdf_rect(
         return Err("Text note icon does not fit within the PDF page dimensions".into());
     }
 
-    // Keep the icon in the normalized page box when the click lands within
-    // one icon of an edge. The anchor remains the requested point everywhere
-    // else, and the physical rectangle is always exactly 20 points square.
+    // Expand around the marker's centre, keeping the icon inside the page.
     let anchor = MarkerRect {
-        left: marker_rect.left.min(1.0 - width),
-        top: marker_rect.top.min(1.0 - height),
+        left: (marker_rect.left + (marker_rect.width - width) / 2.0).clamp(0.0, 1.0 - width),
+        top: (marker_rect.top + (marker_rect.height - height) / 2.0).clamp(0.0, 1.0 - height),
         width,
         height,
     };

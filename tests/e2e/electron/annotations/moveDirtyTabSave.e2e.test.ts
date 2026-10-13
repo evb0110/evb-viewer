@@ -12,10 +12,14 @@ import {
 import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import {readPdfTextAnnotationRecords} from '@tests/e2e/electron/helpers/fixtures';
-import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
-    openAnnotationsTab, waitForPdfLoaded, waitForViewerInteractive,
+    createBlankFixturePdf, readPdfTextAnnotationRecords,
+} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    clickAnnotationTool, clickLatestVisibleNoteWindowClose, createFreeTextAnnotationWithPointer,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
+    openAnnotationsTab, saveViaVisibleToolbar, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
@@ -148,6 +152,65 @@ async function dragTabToOtherPane(page: Page, sourcePaneId: string, targetPaneId
 }
 
 describe('dirty tab transfer and annotation save', () => {
+    it('reopens a saved sticky note at the point where it was placed', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-note-placement-save-'));
+        const source = await createBlankFixturePdf(`note-placement-${Date.now()}.pdf`);
+        const saved = join(outputDirectory, 'note.pdf');
+        copyFileSync(source, saved);
+        rmSync(source);
+        session = await startElectronE2ESession(`e2e-note-placement-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [saved],
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Note');
+        const container = '.editor-pane.is-active .page_container[data-page="1"]';
+        const point = await page.$eval(container, element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: rect.x + rect.width * 0.3,
+                y: rect.y + rect.height * 0.35,
+            };
+        });
+        await page.mouse.click(point.x, point.y);
+        await page.waitForSelector('textarea.note-window__textarea', {visible: true});
+        await page.keyboard.type('Note placement round trip');
+        await clickLatestVisibleNoteWindowClose(page);
+        const marker = `${container} [data-annotation-kind="note"]`;
+        const expected = await page.$eval(container, (element, click) => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: (click.x - rect.x) / rect.width,
+                y: (click.y - rect.y) / rect.height,
+            };
+        }, point);
+        await saveViaVisibleToolbar(page, 30_000, saved);
+        expect(await readPdfTextAnnotationRecords(saved)).toEqual(expect.arrayContaining([expect.objectContaining({
+            contents: 'Note placement round trip',
+            subtype: '/Text',
+        })]));
+        await session.stop({preserveArtifacts: true});
+        session = await startElectronE2ESession(`e2e-note-placement-reopened-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [saved],
+        });
+        await waitForPdfLoaded(session.page);
+        await waitForViewerInteractive(session.page);
+        await session.page.waitForSelector(marker, {visible: true});
+        const error = await session.page.$eval(marker, (element, anchor) => {
+            const rect = element.getBoundingClientRect();
+            const pageRect = element.closest('.page_container')!.getBoundingClientRect();
+            return {
+                x: rect.x + rect.width / 2 - (pageRect.x + pageRect.width * anchor.x),
+                y: rect.y + rect.height / 2 - (pageRect.y + pageRect.height * anchor.y),
+            };
+        }, expected);
+        expect(Math.abs(error.x), `Reopened note horizontal drift: ${JSON.stringify(error)}`).toBeLessThanOrEqual(1);
+        expect(Math.abs(error.y), `Reopened note vertical drift: ${JSON.stringify(error)}`).toBeLessThanOrEqual(1);
+    }, 150_000);
+
     it('transfers the committed annotation and saves a later edit with it', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-dirty-tab-save-'));
         const sourcePath = join(outputDirectory, 'move-dirty-source.pdf');

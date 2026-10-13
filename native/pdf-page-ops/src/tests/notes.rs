@@ -265,10 +265,10 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
         .any(|object| object.as_reference().ok() == Some(popup_id)));
 
     let expected_rect = PdfRect {
-        x1: 120.0,
-        y1: 55.0,
-        x2: 140.0,
-        y2: 75.0,
+        x1: 125.0,
+        y1: 59.0,
+        x2: 145.0,
+        y2: 79.0,
     };
     let target = loaded.get_dictionary(target_id).unwrap();
     assert_eq!(
@@ -1277,8 +1277,8 @@ fn appends_free_text_note_as_text_annotation_for_legacy_callers() {
     assert!(text_note.get(b"AP").is_err());
     assert_approximately(rect.width(), 20.0);
     assert_approximately(rect.height(), 20.0);
-    assert_approximately(rect.x1, 20.0);
-    assert_approximately(rect.y1, 60.0);
+    assert_approximately((rect.x1 + rect.x2) / 2.0, 20.16);
+    assert_approximately((rect.y1 + rect.y2) / 2.0, 79.92);
 
     let _ = remove_file(input_path);
     let _ = remove_file(output_path);
