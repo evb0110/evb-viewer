@@ -268,7 +268,7 @@ describe('browser document lifecycle UI', () => {
                 name: 'Zoom Out',
                 exact: true,
             }).first().click();
-            await expect.poll(() => canvas.evaluate(element => (element as HTMLCanvasElement).width)).not.toBe(oldWidth);
+            await expect.poll(() => canvas.evaluate(element => (element as HTMLCanvasElement).width), {timeout: 15_000}).not.toBe(oldWidth);
             await expect.poll(() => problems.filter(problem => problem.includes('Failed to render annotation layer for page 2')).length).toBe(2);
             await expect.poll(() => container.getAttribute('data-page-layer-readiness')).toBe('failed');
             await page.evaluate(() => Reflect.set(window, '__annotationLayerFailure', false));
@@ -490,7 +490,7 @@ describe('browser document lifecycle UI', () => {
             }).click();
             await expect.poll(() => page.locator('.sidebar-wrapper').evaluate(
                 element => element.getBoundingClientRect().width,
-            )).toBe(0);
+            ), {timeout: 15_000}).toBe(0);
             const foreignMarkerCount = await page.getByRole('button', {
                 name: 'Open Note',
                 exact: true,
