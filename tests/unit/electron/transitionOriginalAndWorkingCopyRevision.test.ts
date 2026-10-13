@@ -2036,4 +2036,54 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             vi.doUnmock('node:fs/promises');
         }
     });
+    it('keeps the journal of a document closed while another program holds its save leftover, and the next start removes it', async () => {
+        const fs = await import('node:fs/promises');
+        let holding = false;
+        let originalDirectory = '';
+        vi.doMock('node:fs/promises', () => ({
+            ...fs,
+            // Windows refuses to delete a file another program holds without delete sharing.
+            rm: async (...args: Parameters<typeof fs.rm>) => {
+                const path = String(args[0]);
+                if (holding && dirname(path) === originalDirectory && path.includes('.evb-transition-') && existsSync(path)) {
+                    throw Object.assign(new Error('EBUSY: resource busy or locked'), {code: 'EBUSY'});
+                }
+                return fs.rm(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-held-at-close');
+            const readNeighbours = await writeUnrelatedNeighbours(originalPath);
+            const before = await readdir(dirname(originalPath));
+            originalDirectory = dirname(originalPath);
+            const saved = Buffer.alloc(2 * 1024 * 1024, 67);
+            holding = true;
+            await expect(saveAnnotations(saved)).resolves.toMatchObject({applied: true});
+            const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
+            await cleanupWorkingCopy(workingCopyPath, 7);
+            const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+            // The journal still owns the held file after close; only the document is gone.
+            expect(existsSync(getWorkingCopyJournalPath(workingCopyPath))).toBe(true);
+            expect(existsSync(workingCopyPath)).toBe(false);
+            expect((await readdir(originalDirectory)).filter(name => !before.includes(name))).toHaveLength(1);
+
+            // The other program lets go, and EVB starts again.
+            holding = false;
+            vi.resetModules();
+            const {cleanupStaleWorkingCopyDirectories} = await import('@electron/file-access/workingCopyCleanup');
+            await cleanupStaleWorkingCopyDirectories();
+            expect((await readdir(originalDirectory)).sort()).toEqual([...before].sort());
+            expect(existsSync(dirname(workingCopyPath))).toBe(false);
+            expect((await readFile(originalPath)).equals(saved)).toBe(true);
+            await expect(readNeighbours()).resolves.toEqual([
+                'another program',
+                'another program',
+                'another program',
+            ]);
+        } finally {
+            vi.doUnmock('node:fs/promises');
+        }
+    });
 });

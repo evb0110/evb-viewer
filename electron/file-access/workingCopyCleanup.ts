@@ -1,4 +1,6 @@
+import { existsSync } from 'fs';
 import {
+    readFile,
     readdir,
     rm,
     stat,
@@ -27,6 +29,7 @@ import {
     type IWorkingCopyOriginalEntry,
 } from '@electron/file-access/workingCopyStore';
 import {
+    getWorkingCopyJournalPath,
     isWorkingCopyDirectoryName,
     safeRemoveDirectory,
 } from '@electron/file-access/workingCopyDirectory';
@@ -112,6 +115,38 @@ function isRegisteredWorkingCopyDirectory(workDir: string) {
         ]) => normalizePathForLookup(
             dirname(getWorkingCopyLogicalPath(mapPath, entry)),
         ) === normalizedDirectory);
+}
+
+async function isRemovableStaleWorkingCopyDirectory(workDir: string, now: number) {
+    const workDirStat = await stat(workDir).catch(() => null);
+    return workDirStat !== null
+        && workDirStat.isDirectory()
+        && now - workDirStat.mtimeMs >= STALE_WORK_DIR_MAX_AGE_MS
+        && !isRegisteredWorkingCopyDirectory(workDir);
+}
+
+/**
+ * A document closed while another program held what its last save left beside the PDF keeps its journal and drops
+ * its working copy (see cleanupWorkingCopyDirectory). The next start finishes that journal as recovery after a crash
+ * would; the folder goes once nothing is held, whatever its age.
+ */
+async function finishClosedWorkingCopyJournal(workDir: string) {
+    const journalPath = getWorkingCopyJournalPath(join(workDir, 'document.pdf'));
+    const recordedPath = await readFile(journalPath, 'utf8')
+        .then(text => (JSON.parse(text) as {workingCopyPath?: unknown}).workingCopyPath, () => undefined);
+    const workingCopyPath = typeof recordedPath === 'string' ? join(workDir, basename(recordedPath)) : null;
+    if (workingCopyPath === null || existsSync(workingCopyPath)) {
+        return null;
+    }
+    const held = await recoverWorkingCopyTransition(workingCopyPath).catch((error: unknown) => {
+        logger.warn('Could not finish a closed document\'s working-copy journal', {error: getErrorMessage(error)});
+        return {held: true};
+    });
+    if (typeof held !== 'object') {
+        return 'finished';
+    }
+    await rm(workingCopyPath, {force: true});
+    return 'held';
 }
 
 async function performCleanupStaleWorkingCopyDirectories(
@@ -205,17 +240,8 @@ async function performCleanupStaleWorkingCopyDirectories(
                 continue;
             }
             const {workDir} = candidate;
-
-            try {
-                const workDirStat = await stat(workDir);
-                if (!workDirStat.isDirectory() || now - workDirStat.mtimeMs < STALE_WORK_DIR_MAX_AGE_MS) {
-                    continue;
-                }
-            } catch {
-                continue;
-            }
-
-            if (isRegisteredWorkingCopyDirectory(workDir)) {
+            const closedJournal = isRegisteredWorkingCopyDirectory(workDir) ? null : await finishClosedWorkingCopyJournal(workDir);
+            if (closedJournal === 'held' || closedJournal === null && !await isRemovableStaleWorkingCopyDirectory(workDir, now)) {
                 continue;
             }
             if (retainedAtomicReplaceBackupDirectories.has(workDir)) {
@@ -297,10 +323,16 @@ async function cleanupWorkingCopyDirectory(
                 logger.warn('Refused to delete a working directory containing its original backing', {workDir});
                 return;
             }
-            // The journal names what a save left beside the original; finish it before its folder goes.
-            await recoverWorkingCopyTransition(normalizedPath).catch((error: unknown) => {
+            // The journal names what a save left beside the original; finish it before its folder goes. While
+            // another program holds that file, the journal stays for the next start, and only the document goes.
+            const held = await recoverWorkingCopyTransition(normalizedPath).catch((error: unknown) => {
                 logger.warn('Could not finish a working-copy journal before closing', {error: getErrorMessage(error)});
             });
+            if (typeof held === 'object') {
+                logger.warn('Kept a closed document\'s journal while another program holds its save leftover', {workDir});
+                await rm(normalizedPath, {force: true});
+                return;
+            }
             await rm(workDir, {
                 recursive: true,
                 force: true,
