@@ -8,8 +8,12 @@ import type {
 } from '@contracts/search';
 import { validateSearchQuery } from '@pdf-core';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
-import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
+import {
+    findWorkingCopyPathByOriginalPath,
+    getWorkingCopyBackingEntry,
+} from '@electron/file-access/workingCopyStore';
 import { isWorkingCopyDocumentPath } from '@electron/file-access/workingCopyDirectory';
+import { ensureWorkingCopyMaterialized } from '@electron/file-access/workingCopyMaterialization';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {
     createSearchService,
@@ -22,7 +26,37 @@ import {
     streamPdfPageTexts,
 } from '@electron/features/search/pdfPageTexts';
 
-export async function resolveSearchablePdfPath(pdfPath: string, senderWebContentsId?: number) {
+/**
+ * A lazily backed working copy has no physical leaf until materialization
+ * publishes one. Search reads the whole document, so it waits for that leaf
+ * the way page operations do, then searches the copy as a materialized one.
+ */
+function lazyBackedWorkingCopyPath(pdfPath: string, senderWebContentsId?: number) {
+    const candidate = isWorkingCopyDocumentPath(pdfPath)
+        ? pdfPath
+        : findWorkingCopyPathByOriginalPath(pdfPath, senderWebContentsId);
+    if (!candidate) {
+        return null;
+    }
+    const backingState = getWorkingCopyBackingEntry(candidate, senderWebContentsId)?.backingState;
+    return backingState === 'lazy-original' || backingState === 'materializing' ? candidate : null;
+}
+
+export async function resolveSearchablePdfPath(
+    pdfPath: string,
+    senderWebContentsId?: number,
+    signal?: AbortSignal,
+) {
+    const lazyBackedPath = lazyBackedWorkingCopyPath(pdfPath, senderWebContentsId);
+    if (lazyBackedPath) {
+        // The reason only labels the materialization progress; search reads the copy as a page operation does.
+        const {physicalWorkingCopyPath} = await ensureWorkingCopyMaterialized(lazyBackedPath, {
+            reason: 'page-operation',
+            ...(senderWebContentsId === undefined ? {} : {ownerWebContentsId: senderWebContentsId}),
+            ...(signal ? {signal} : {}),
+        });
+        return resolveAllowedReadPath(physicalWorkingCopyPath);
+    }
     if (isWorkingCopyDocumentPath(pdfPath)) {
         const directResolvedPath = await resolveAllowedReadPath(pdfPath);
         if (directResolvedPath) {
@@ -62,8 +96,9 @@ async function resolvePdfSearchDocument(
     pdfPath: string,
     documentRevision: TDocumentRevisionToken | undefined,
     senderId: number,
+    signal: AbortSignal,
 ) {
-    const resolvedPdfPath = await resolveSearchablePdfPath(pdfPath, senderId);
+    const resolvedPdfPath = await resolveSearchablePdfPath(pdfPath, senderId, signal);
     if (!resolvedPdfPath) {
         throw searchPathDeniedError();
     }
@@ -90,7 +125,7 @@ function handlePdfSearch(context: ISearchSenderContext, request: INormalizedPdfS
         useRegex: request.useRegex === true,
         ...(request.pageCount === undefined ? {} : {pageCount: request.pageCount}),
         workingCopyPath: knownWorkingCopyPath(request.pdfPath, senderId),
-        resolveDocument: () => resolvePdfSearchDocument(request.pdfPath, request.documentRevision, senderId),
+        resolveDocument: signal => resolvePdfSearchDocument(request.pdfPath, request.documentRevision, senderId, signal),
     });
 }
 
@@ -106,7 +141,7 @@ async function handlePdfSearchWarmIndex(context: ISearchSenderContext, request: 
         useRegex: false,
         ...(request.pageCount === undefined ? {} : {pageCount: request.pageCount}),
         workingCopyPath: knownWorkingCopyPath(request.pdfPath, senderId),
-        resolveDocument: () => resolvePdfSearchDocument(request.pdfPath, request.documentRevision, senderId),
+        resolveDocument: signal => resolvePdfSearchDocument(request.pdfPath, request.documentRevision, senderId, signal),
     });
     return true;
 }

@@ -1,7 +1,7 @@
 use super::*;
 
 const MAX_RECOVERY_BYTES: usize = 1024 * 1024;
-const MAX_RECOVERY_OBJECTS: usize = 1024;
+pub(crate) const MAX_RECOVERY_OBJECTS: usize = 1024;
 
 /// A bounded, native-owned snapshot lives in annotation undo history. No
 /// deleted content is added to the output PDF until the user restores it.
@@ -83,7 +83,7 @@ pub(crate) fn capture_note_recovery(
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-fn inspect_recovery_object(
+pub(crate) fn inspect_recovery_object(
     object: &Object,
     depth: usize,
     budget: &mut usize,

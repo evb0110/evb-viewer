@@ -155,5 +155,6 @@ of these checks. Identify the owning compiler before changing a type or option.
 Strict desktop builds require the pinned Rust toolchain and
 `wasm32-unknown-unknown`. They verify generated WASM fingerprints. A web-only
 session can use the committed fallback artifacts; a release must use artifacts
-that match its sources. The strict-build marker lets local packaging reuse an
-unchanged validated build.
+that match its sources. Local packaging reuses a strict build only when a build
+receipt (`EVB_RELEASE_BUILD_RECEIPT`) proves that its sources, toolchain, compiled
+configuration and outputs are unchanged; without a receipt it rebuilds.

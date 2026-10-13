@@ -32,6 +32,13 @@ import {
     resolveScanCleanupSelection,
     type TScanCleanupSelectionIntent,
 } from '@app/modules/scan-cleanup/runtime/resolveScanCleanupSelection';
+import {updateScanCleanupPageOverrideRotation} from '@app/modules/scan-cleanup/runtime/scanCleanupSelectionOverrides';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    attachScanCleanupPageOverrideDefaults,
+    createScanCleanupPageOverride,
+    setScanCleanupPageOverride,
+} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import AppTooltip from '@app/components/AppTooltip.vue';
 import ScanCleanupThumbnailRail from '@app/modules/scan-cleanup/components/ScanCleanupThumbnailRail.vue';
 
@@ -994,6 +1001,39 @@ describe('ScanCleanupThumbnailRail', () => {
         select.value = 'auto';
         select.dispatchEvent(new Event('change', {bubbles: true}));
         expect(harness.overrideUpdates.at(-1)?.[1]).not.toHaveProperty('outputModeOverride');
+    });
+
+    it('marks a page by its difference from the all-pages value it inherits', () => {
+        const overrides: TScanCleanupPageOverrides = {};
+        attachScanCleanupPageOverrideDefaults(overrides, createScanCleanupPageOverride({rotationDegrees: 90}));
+        setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({rotationDegrees: 0}));
+
+        const differs = mountRail({overrides});
+        expect(pageRow(differs.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
+            .toContain('is-customized');
+        expect(pageRow(differs.host, 1).querySelector('.scan-thumbnail-options-toggle')?.classList)
+            .not.toContain('is-customized');
+        differs.host.remove();
+
+        setScanCleanupPageOverride(overrides, requirePageNumber(2), createScanCleanupPageOverride({rotationDegrees: 90}));
+        const matches = mountRail({overrides});
+        expect(pageRow(matches.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
+            .not.toContain('is-customized');
+    });
+
+    it('clears customization after rotating a page back to its inherited value', () => {
+        const overrides: TScanCleanupPageOverrides = {};
+        // The rotation reset leaves empty collections behind; they resolve like omitted fields.
+        const rotatedBack = updateScanCleanupPageOverrideRotation(createScanCleanupPageOverride({rotationDegrees: 90}), 0);
+        expect(rotatedBack.manualZones).toEqual({
+            picture: [],
+            fill: [],
+        });
+        setScanCleanupPageOverride(overrides, requirePageNumber(2), rotatedBack);
+        const harness = mountRail({overrides});
+        expect(pageRow(harness.host, 2).querySelector('.scan-thumbnail-options-toggle')?.classList)
+            .not.toContain('is-customized');
+        expect(overrides).toEqual({});
     });
 
     it('shows effective fixed and lossless modes in the status line', async () => {

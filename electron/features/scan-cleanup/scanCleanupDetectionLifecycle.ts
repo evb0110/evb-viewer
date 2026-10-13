@@ -603,7 +603,7 @@ export function scanCleanupDetectionOwner(
                             rasterScratchPath: rawRasterRetention.rasterScratchPath,
                             stagedRasterPath: rawRasterRetention.stagedRasterPath,
                             retain: (rendered, claimId = ownerId) => rawRasterRetention.retain(rendered, claimId),
-                            releaseRaster: (document, pageNumber, dpi) => rawRasterRetention.releaseRaster(
+                            releaseRaster: (document, pageNumber, dpi) => rawRasterRetention.evictRaster(
                                 document,
                                 pageNumber,
                                 dpi,

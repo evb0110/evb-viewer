@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use lopdf::{dictionary, Document, Object};
+use lopdf::{dictionary, Document, Object, StringFormat};
 
 fn temporary_path(label: &str, extension: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -106,6 +106,84 @@ fn parse_annotations_cli_writes_the_streaming_jsonl_sidecar() {
     assert_eq!(kind_of("bottom-edge-note").unwrap(), "note");
     assert_ne!(kind_of("off-page-note").unwrap(), "note");
     assert!(lines.next().is_none());
+
+    fs::remove_file(input).unwrap();
+    fs::remove_file(output).unwrap();
+}
+
+#[test]
+fn parse_annotations_decodes_pdfdocencoding_text_strings() {
+    let input = temporary_path("parse-pdfdocencoding-input", "pdf");
+    let output = temporary_path("parse-pdfdocencoding-output", "jsonl");
+    let mut document = Document::with_version("1.4");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    // Without a Unicode BOM a PDF text string is PDFDocEncoding, where 0xE9
+    // is é. Written by other tools, such strings are valid and must not
+    // decode to U+FFFD.
+    let note_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "Rect" => vec![10.into(), 20.into(), 30.into(), 40.into()],
+        "NM" => Object::string_literal("pdfdoc-note"),
+        "Contents" => Object::String(b"caf\xe9".to_vec(), StringFormat::Hexadecimal),
+        "T" => Object::String(b"Jos\xe9".to_vec(), StringFormat::Hexadecimal),
+        "P" => page_id,
+    });
+    document.set_object(
+        page_id,
+        dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+            "Annots" => vec![Object::Reference(note_id)],
+        },
+    );
+    document.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+            "MediaBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+        },
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args([
+            "parse-annotations",
+            "--input",
+            input.to_str().unwrap(),
+            "--output",
+            output.to_str().unwrap(),
+            "--modified-at",
+            "D:20260830130000Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let sidecar = fs::read_to_string(&output).unwrap();
+    let chunk = serde_json::from_str::<serde_json::Value>(sidecar.lines().nth(1).unwrap()).unwrap();
+    let entry = chunk["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"] == "pdfdoc-note")
+        .unwrap();
+    assert_eq!(entry["kind"], "note");
+    assert_eq!(entry["contents"], "café");
+    assert_eq!(entry["author"], "José");
 
     fs::remove_file(input).unwrap();
     fs::remove_file(output).unwrap();

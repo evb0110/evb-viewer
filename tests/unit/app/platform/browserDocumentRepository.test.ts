@@ -16,6 +16,7 @@ import {
 import {
     createFileSystemFileHandle,
     FakeIndexedDbFactory,
+    FakeLockManager,
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
@@ -253,6 +254,105 @@ describe('BrowserDocumentStore source registration', () => {
         expect((await store.requireEntry(workingRef)).sourceBaseWitness).toBe(openingWitness);
     });
 
+    it.each([
+        'base validation',
+        'post-commit witness',
+    ])(
+        'refuses revoked read permission without prompting under the save lock: %s', async phase => {
+            const locks = new FakeLockManager();
+            vi.stubGlobal('navigator', {locks});
+            const bytes = Uint8Array.of(1, 2, 3);
+            const file = new File([bytes], 'permission.pdf');
+            let granted = true;
+            const promptLocks: string[] = [];
+            const handle = Object.assign(createFileSystemFileHandle({
+                name: file.name,
+                getFile: async () => file,
+            }), {
+                queryPermission: async () => granted ? 'granted' : 'prompt',
+                requestPermission: async () => {
+                    promptLocks.push(...(await locks.query()).held.map(lock => lock.name));
+                    return 'granted';
+                },
+            });
+            const store = new BrowserDocumentStore();
+            const source = await store.registerFile(file, {
+                saveHandle: handle,
+                saveKind: 'pdf',
+            });
+            const working = await store.cloneAsWorkingCopy(source);
+            await store.writeForBootstrap(working, Uint8Array.of(4, 5, 6), 'permission-test');
+            const revision = await store.getDocumentRevision(working);
+            const saving = store.runDocumentMutationWithSource(working, source, revision.token, async mutation => {
+                granted = false;
+                if (phase === 'base validation') await mutation.assertPhysicalSourceBaseCurrent();
+                else await mutation.acknowledgePhysicalSourceCommit();
+            });
+            await expect(saving).rejects.toThrow(/permission/iu);
+            expect(promptLocks).toEqual([]);
+            expect((await locks.query()).held).toEqual([]);
+            await expect(store.read(working)).resolves.toEqual(Uint8Array.of(4, 5, 6));
+        },
+    );
+
+    it('serializes two saves of one physical file so the second cannot overwrite the first', async () => {
+        vi.stubGlobal('navigator', {locks: new FakeLockManager()});
+        const openingBytes = Uint8Array.of(37, 80, 68, 70, 1);
+        const openFile = () => new File([openingBytes], 'shared.pdf', {
+            type: 'application/pdf',
+            lastModified: 100,
+        });
+        let physicalFile = openFile();
+        const handle = createFileSystemFileHandle({
+            name: 'shared.pdf',
+            getFile: vi.fn(async () => physicalFile),
+        });
+        const store = new BrowserDocumentStore();
+        // Two windows select the same physical file: two File objects, two source versions.
+        const sourceA = await store.registerFile(openFile(), {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        const sourceB = await store.registerFile(openFile(), {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        const workingA = await store.cloneAsWorkingCopy(sourceA);
+        const workingB = await store.cloneAsWorkingCopy(sourceB);
+        const save = async (workingRef: string, sourceRef: string, edit: number) => {
+            const expectedRevision = (await store.getDocumentRevision(workingRef)).token;
+            return store.runDocumentMutationWithSource(
+                workingRef,
+                sourceRef,
+                expectedRevision,
+                async (mutation) => {
+                    await mutation.assertPhysicalSourceBaseCurrent();
+                    physicalFile = new File([Uint8Array.of(37, 80, 68, 70, edit)], 'shared.pdf', {
+                        type: 'application/pdf',
+                        lastModified: 200 + edit,
+                    });
+                    await mutation.acknowledgePhysicalSourceCommit();
+                    return true;
+                },
+            );
+        };
+
+        const results = await Promise.allSettled([
+            save(workingA, sourceA, 2),
+            save(workingB, sourceB, 3),
+        ]);
+
+        const accepted = results.filter(result => result.status === 'fulfilled');
+        expect(accepted).toHaveLength(1);
+        expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+        const acceptedEdit = results[0].status === 'fulfilled' ? 2 : 3;
+        await expect(physicalFile.arrayBuffer().then(bytes => new Uint8Array(bytes))).resolves.toEqual(
+            Uint8Array.of(37, 80, 68, 70, acceptedEdit),
+        );
+    });
+
     it('refreshes a handle-backed source without inventing a new source version after save', async () => {
         const bytes = Uint8Array.of(37, 80, 68, 70, 1, 2);
         const file = new File([bytes], 'saved-source.pdf', {
@@ -359,6 +459,38 @@ describe('BrowserDocumentStore source registration', () => {
         });
         await expect(store.read(retryRef)).resolves.toEqual(bytes);
         expect((await store.requireEntry(retryRef)).memoryOnly).toBe(false);
+    });
+
+    it('reopens a retained source after acquiring read permission outside the save lock', async () => {
+        const locks = new FakeLockManager();
+        vi.stubGlobal('navigator', {locks});
+        const bytes = Uint8Array.of(37, 80, 68, 70);
+        const file = new File([bytes], 'recent.pdf', {lastModified: 100});
+        let permission: PermissionState = 'granted';
+        const handle = Object.assign(createFileSystemFileHandle({
+            name: file.name,
+            getFile: vi.fn(async () => file),
+        }), {
+            queryPermission: vi.fn(async () => permission),
+            requestPermission: vi.fn(async () => {
+                expect((await locks.query()).held).not.toEqual(expect.arrayContaining([expect.objectContaining({name: 'evb-viewer:browser-physical-save'})]));
+                permission = 'granted';
+                return permission;
+            }),
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.registerFile(file, {
+            saveHandle: handle,
+            saveKind: 'pdf',
+        });
+        await store.touchRecentFile(ref);
+        permission = 'prompt';
+
+        const reopened = await store.refreshSourceVersionIfChanged(ref);
+        const working = await store.cloneAsWorkingCopy(reopened);
+
+        await expect(store.read(working)).resolves.toEqual(bytes);
+        expect(handle.requestPermission).toHaveBeenCalledExactlyOnceWith({mode: 'read'});
     });
 
     it('fences live lease lifecycle transitions through the repository owner', async () => {

@@ -71,7 +71,7 @@ function normalizeDjvuViewingPath(djvuPath: string) {
     }
 
     try {
-        return resolve(djvuPath.trim());
+        return resolve(djvuPath);
     } catch {
         return null;
     }

@@ -120,10 +120,6 @@ export async function loadBrowserWorkspaceRecovery(ownerId: string) {
     return result.available ? decodeRecoveryRecord(result.value) : null;
 }
 
-export async function loadBrowserWorkspaceRecoveryLeasedRefs() {
-    return new Set<string>((await loadBrowserWorkspaceRecoveries()).flatMap(record => record.snapshotRefs));
-}
-
 async function mutateBrowserWorkspaceRecovery(
     ownerId: string,
     expectedGeneration: number,

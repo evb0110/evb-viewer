@@ -285,23 +285,18 @@ describe('scan cleanup selection override state', () => {
             layoutOverride: 'spread',
             excluded: true,
             manualSplit: null,
-            manualContentBoxes: {},
-            manualZones: {
-                picture: [],
-                fill: [],
-            },
         });
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)))
+            .not.toHaveProperty('manualContentBoxes');
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)))
+            .not.toHaveProperty('manualZones');
         expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1)))
             .not.toHaveProperty('manualSkewDegrees');
 
         selection.updateRotation(90);
-        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), undefined)).toMatchObject({
-            rotationDegrees: 90,
-            manualZones: {
-                picture: [],
-                fill: [],
-            },
-        });
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), undefined)).toMatchObject({rotationDegrees: 90});
+        expect(getScanCleanupPageOverride(settings.pageOverrides, requirePageNumber(1), undefined))
+            .not.toHaveProperty('manualZones');
 
         selection.updateCurrentManualZones({
             picture: [],

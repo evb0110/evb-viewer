@@ -13,14 +13,57 @@ import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Keyed by crate name: the native build ID each public/wasm file was built from.
-const buildIdsPath = path.join(projectRoot, '.tmp', 'wasm-build-ids.json');
+const buildIdsPathFor = root => path.join(root, '.tmp', 'wasm-build-ids.json');
 
-/** @returns {Record<string, string>} */
-function readRecordedBuildIds() {
+/** @param {string} root @returns {Record<string, string>} */
+function readRecordedBuildIds(root) {
     try {
-        return JSON.parse(readFileSync(buildIdsPath, 'utf8'));
+        return JSON.parse(readFileSync(buildIdsPathFor(root), 'utf8'));
     } catch {
         return {};
+    }
+}
+
+/**
+ * The browser WASM files that are missing or were built from other native
+ * sources, with the build ID each one must carry. Without native/ sources there
+ * is no identity to compare, so only presence counts and the build ID is null.
+ * @param {string} [root]
+ * @returns {Array<{artifact: import('./wasm-artifacts.mjs').IWasmArtifact, buildId: string | null}>}
+ */
+export function findWasmArtifactsToBuild(root = projectRoot) {
+    const isPresent = artifact => existsSync(path.join(root, artifact.publicRelativePath));
+    if (!existsSync(path.join(root, 'native', 'Cargo.toml'))) {
+        return WASM_ARTIFACTS
+            .filter(artifact => !isPresent(artifact))
+            .map(artifact => ({
+                artifact,
+                buildId: null,
+            }));
+    }
+    const recorded = readRecordedBuildIds(root);
+    return WASM_ARTIFACTS
+        .map(artifact => ({
+            artifact,
+            buildId: computeNativeBuildId(root, artifact.crateName),
+        }))
+        .filter(({
+            artifact, buildId,
+        }) => !isPresent(artifact) || recorded[artifact.crateName] !== buildId);
+}
+
+/**
+ * A web deploy uploads the local browser WASM. Its remote build has no native/
+ * sources to check, so the local build identities must be current first.
+ * @param {string} root
+ */
+export function assertWasmArtifactsCurrent(root) {
+    const stale = findWasmArtifactsToBuild(root);
+    if (stale.length > 0) {
+        throw new Error(
+            `Browser WASM is missing or built from other native sources: ${stale.map(({artifact}) => artifact.publicRelativePath).join(', ')}. `
+            + 'Run node scripts/ensure-wasm-artifacts.mjs before deploying.',
+        );
     }
 }
 
@@ -30,29 +73,21 @@ function readRecordedBuildIds() {
  * they only have to exist.
  */
 export async function ensureWasmArtifacts() {
-    const missing = WASM_ARTIFACTS.filter(artifact => !existsSync(path.join(projectRoot, artifact.publicRelativePath)));
+    const stale = findWasmArtifactsToBuild();
     if (!existsSync(path.join(projectRoot, 'native', 'Cargo.toml'))) {
-        if (missing.length > 0) {
-            throw new Error(`Missing ${missing.map(artifact => artifact.publicRelativePath).join(', ')} and no native/ sources to build them from.`);
+        if (stale.length > 0) {
+            throw new Error(`Missing ${stale.map(({artifact}) => artifact.publicRelativePath).join(', ')} and no native/ sources to build them from.`);
         }
         return;
     }
-    const recorded = readRecordedBuildIds();
-    const stale = WASM_ARTIFACTS
-        .map(artifact => ({
-            artifact,
-            buildId: computeNativeBuildId(projectRoot, artifact.crateName),
-        }))
-        .filter(({
-            artifact, buildId,
-        }) => missing.includes(artifact) || recorded[artifact.crateName] !== buildId);
+    const recorded = readRecordedBuildIds(projectRoot);
     for (const {
         artifact, buildId,
     } of stale) {
         await runWasmToolBuilder([artifact.crateName]);
         recorded[artifact.crateName] = buildId;
-        mkdirSync(path.dirname(buildIdsPath), {recursive: true});
-        writeFileSync(buildIdsPath, `${JSON.stringify(recorded, null, 2)}\n`);
+        mkdirSync(path.dirname(buildIdsPathFor(projectRoot)), {recursive: true});
+        writeFileSync(buildIdsPathFor(projectRoot), `${JSON.stringify(recorded, null, 2)}\n`);
     }
 }
 

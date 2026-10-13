@@ -42,7 +42,11 @@ function resolveTs7Compiler() {
         packageJsonPath,
         tscPath,
     } = readTs7Package();
-    const result = spawnSync(tscPath, ['--version'], {
+    // The tsc entry is a Node script; Windows cannot execute it through its shebang.
+    const result = spawnSync(process.execPath, [
+        tscPath,
+        '--version',
+    ], {
         encoding: 'utf8',
         stdio: [
             'ignore',
@@ -132,7 +136,8 @@ function runProject(tscPath, version, project, buildInfoPath, {cold = false} = {
     }
     /** @type {Promise<void>} */
     const result = new Promise((resolve, reject) => {
-        const child = spawn(tscPath, [
+        const child = spawn(process.execPath, [
+            tscPath,
             '-p',
             project,
             '--noEmit',

@@ -3045,6 +3045,200 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
+    it('shows a literal percent sequence in a browser file name exactly on its tab', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            const chooser = await chooserPromise;
+            await chooser.setFiles({
+                name: 'report%20final.pdf',
+                mimeType: 'application/pdf',
+                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
+            });
+
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await page.evaluate(async () => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                    throw new Error('Active browser document did not settle');
+                }
+            });
+            const activeTab = page.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            );
+            await expect.poll(() => activeTab.textContent()).toContain('report%20final.pdf');
+            await expect.poll(() => activeTab.getAttribute('aria-label')).toBe('report%20final.pdf');
+        } finally {
+            await browser.close();
+        }
+    }, 90_000);
+
+    it.each([
+        [
+            'removal',
+            'Remove from Recent',
+            undefined,
+        ],
+        [
+            'clear',
+            'Clear Recent Files',
+            'Clear History',
+        ],
+    ] as const)('keeps an open document source when Recent Files %s meets an unreadable dependent record', async (_action, buttonName, confirmName) => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({viewport: {
+                width: 1_280,
+                height: 900,
+            }});
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+
+            const chooserPromise = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            const chooser = await chooserPromise;
+            await chooser.setFiles({
+                name: 'recent-dependent.pdf',
+                mimeType: 'application/pdf',
+                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await page.evaluate(async () => {
+                const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
+                if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {
+                    throw new Error('Active browser document did not settle');
+                }
+            });
+            // The open document's source record, found by its file name.
+            const sourceRef = await page.evaluate(`(async () => {
+                const {loadAllRecordKeys, loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                for (const key of await loadAllRecordKeys()) {
+                    const found = await loadRecord(key);
+                    if (found?.fileName === 'recent-dependent.pdf' && found.kind === 'source') return key;
+                }
+                return null;
+            })()`);
+            expect(typeof sourceRef).toBe('string');
+            // Opening the file also creates a readable working copy that names the source,
+            // which keeps the source by itself. Remove those copies so the unreadable record
+            // below is the only dependent of the source.
+            await page.evaluate(`(async () => {
+                const {loadAllRecordKeys, loadRecord, runObjectStoresTransaction} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                const {DOCUMENTS_STORE} = await import('/_nuxt/platform/browser/browserDocumentConstants.ts');
+                const dependents = [];
+                for (const key of await loadAllRecordKeys()) {
+                    if ((await loadRecord(key))?.sourceRef === ${JSON.stringify(sourceRef)}) dependents.push(key);
+                }
+                await runObjectStoresTransaction([DOCUMENTS_STORE], 'readwrite', (transaction, setResult) => {
+                    for (const key of dependents) transaction.objectStore(DOCUMENTS_STORE).delete(key);
+                    setResult(true);
+                });
+            })()`);
+            // A working record that names the source but cannot be decoded. The helper
+            // resolves null when its database cannot open, so the write is asserted.
+            const planted = await page.evaluate(`(async () => {
+                const {runObjectStoresTransaction} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                const {DOCUMENTS_STORE} = await import('/_nuxt/platform/browser/browserDocumentConstants.ts');
+                return runObjectStoresTransaction([DOCUMENTS_STORE], 'readwrite', (transaction, setResult) => {
+                    transaction.objectStore(DOCUMENTS_STORE).put({
+                        ref: 'browser://documents/unreadable-dependent.pdf',
+                        sourceRef: ${JSON.stringify(sourceRef)},
+                        kind: 'working',
+                        storageMode: 'source-proxy',
+                    });
+                    setResult(true);
+                });
+            })()`);
+            expect(planted).toBe(true);
+
+            await page.getByRole('button', {
+                name: 'New Tab',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: buttonName,
+                exact: true,
+            }).click();
+            if (confirmName) {
+                await page.getByRole('button', {
+                    name: confirmName,
+                    exact: true,
+                }).click();
+            }
+            await expect.poll(() => page.getByRole('button', {
+                name: 'Remove from Recent',
+                exact: true,
+            }).count()).toBe(0);
+            // The row can leave the list before the detached cleanup that follows the
+            // removal has finished. An awaited cleanup of the same ref, serialized behind
+            // it, settles the outcome before the stored record is read.
+            await page.evaluate(`(async () => {
+                const {browserDocumentStore} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                await browserDocumentStore.cleanupDetachedDocument(${JSON.stringify(sourceRef)});
+            })()`);
+            // Read the stored record and its first chunk on a raw connection: the bytes helper
+            // reads nothing whenever its database connection fails to open.
+            const stored = await page.evaluate<{
+                present: boolean;
+                chunkBytes: number | null
+            }>(`(async () => {
+                const database = await new Promise((resolve, reject) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents');
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+                const transaction = database.transaction(['documents', 'document-chunks'], 'readonly');
+                const read = (store, key) => new Promise((resolve, reject) => {
+                    const request = transaction.objectStore(store).get(key);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+                const record = await read('documents', ${JSON.stringify(sourceRef)});
+                const chunk = record?.storageMode === 'chunked'
+                    ? await read('document-chunks', ${JSON.stringify(sourceRef)} + '::' + record.chunkGeneration + '::0')
+                    : undefined;
+                database.close();
+                return {present: Boolean(record), chunkBytes: chunk?.data?.byteLength ?? chunk?.byteLength ?? null};
+            })()`);
+            expect(stored.present).toBe(true);
+            expect(stored.chunkBytes).toBeGreaterThan(0);
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
     it('renders a DjVu open, conversion, and generated PDF reopen in the viewer', async () => {
         const browser = await chromium.launch({headless: true});
         try {
@@ -3691,6 +3885,91 @@ describe('browser document lifecycle UI', () => {
             await browser.close();
         }
     }, 120_000);
+    it('keeps the saved copy source and both notes after Clear Recent Files and Save', async () => {
+        const browser = await chromium.launch({headless: true});
+        try {
+            const page = await browser.newPage({
+                acceptDownloads: true,
+                viewport: {
+                    width: 1280,
+                    height: 900,
+                },
+            });
+            const button = (name: string) => page.getByRole('button', {
+                name,
+                exact: true,
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await button('Open File').first().click();
+            await (await chooser).setFiles({
+                name: 'review-saved.pdf',
+                mimeType: 'application/pdf',
+                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await addNote(page, 'review first saved note', {
+                x: 160,
+                y: 180,
+            });
+            const firstDownload = page.waitForEvent('download');
+            await button('Save options').click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            await firstDownload;
+            await page.evaluate(async () => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                await api.waitForActiveDocumentOpenSettled?.();
+            });
+            const openingWorkingRef = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{workingCopyPath: string}>(['workingCopyPath']).workingCopyPath;
+            });
+            const sourceRef = await page.evaluate<string>(`(async () => {
+                const {browserDocumentStore} = await import('/_nuxt/platform/browser/browserDocumentRepository.ts');
+                return browserDocumentStore.getSourceRef(${JSON.stringify(openingWorkingRef)});
+            })()`);
+            const tabId = await page.locator('.tab.is-active[data-tab-id]').first().getAttribute('data-tab-id');
+            await button('New Tab').click();
+            await button('Clear Recent Files').click();
+            await button('Clear History').click();
+            await expect.poll(() => button('Remove from Recent').count()).toBe(0);
+            expect(await page.evaluate(`(async () => {
+                const {loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                return Boolean(await loadRecord(${JSON.stringify(sourceRef)}));
+            })()`)).toBe(true);
+            await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+            await addNote(page, 'review second saved note', {
+                x: 260,
+                y: 280,
+            });
+            await button('Save').click();
+            await expect.poll(() => page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.getActiveToolbarSnapshot?.()?.canSave;
+            })).toBe(false);
+            const workingRef = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{workingCopyPath: string}>(['workingCopyPath']).workingCopyPath;
+            });
+            const savedBytes = await readPersistedDocumentBytes(page, workingRef!);
+            const savedTexts = Array.from(noteTexts(await PDFDocument.load(Buffer.from(savedBytes))));
+            expect(savedTexts).toEqual(expect.arrayContaining([
+                'review first saved note',
+                'review second saved note',
+            ]));
+        } finally {
+            await browser.close();
+        }
+    }, 120_000);
+
 });
 
 describe('optional search-cache mutation completion proof', () => {

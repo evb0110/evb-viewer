@@ -444,6 +444,7 @@ export default {
         'completedTitle': 'Nettoyage des scans terminé',
         'completedPartialTitle': 'Pages sélectionnées nettoyées',
         'openResultFailed': 'Le PDF nettoyé n\'a pas pu être ouvert',
+        'outputClosedBeforeSaveAs': 'Le PDF nettoyé n\'est plus ouvert, rien n\'a donc été enregistré. Rouvrez-le pour l\'enregistrer.',
         'saveAs': 'Enregistrer sous…',
         'cancel': 'Annuler le nettoyage',
         'canceling': 'Annulation…',
@@ -518,6 +519,7 @@ export default {
         'summary': '{input} pages sources sont devenues {output} pages de sortie ; {spreads} doubles pages ont été divisées et {offcuts} chutes ont été supprimées.',
         'sourceTextOmitted': 'Le texte source a été omis dans les résultats de {count} page(s) source : {pages}. La recherche et la copie sont indisponibles sur les pages de sortie concernées. Lancez l’OCR du PDF nettoyé pour rétablir la recherche de texte.',
         'sourceTextOmittedMorePages': '{pages} et {remaining} autres',
+        'accessibilityTagsRemoved': 'Les balises d’accessibilité ont été supprimées, car les pages nettoyées ne correspondent plus à la structure d’origine du document.',
     },
     'app': {
         'title': 'EVB Viewer',

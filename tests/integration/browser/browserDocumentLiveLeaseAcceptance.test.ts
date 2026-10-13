@@ -204,6 +204,7 @@ describe('browser document live lease acceptance in Chromium', () => {
                 '__evbFinalizeLiveLeaseAcceptance',
             );
             expect(finalized.generation).toBe(resumed.generation);
+            expect(await callEntry<boolean>(pageB, '__evbCleanupDetachedLiveLeaseDocument', setup.refs.generatedWorking)).toBe(false);
             const reopened = await callEntry<{bytes: number[]}>(
                 pageB,
                 '__evbReopenLiveLeaseAcceptance',

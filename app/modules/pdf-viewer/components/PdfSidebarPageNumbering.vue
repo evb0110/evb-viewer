@@ -110,6 +110,7 @@
                                     class="w-full"
                                     size="xs"
                                     :min="1"
+                                    :max="getPageLabelStartNumberMax(getConfiguredPageLabelStyle())"
                                     :step="1"
                                     :disabled="pageLabelStyle.length === 0"
                                     @update:model-value="handleStartNumberModelUpdate"
@@ -158,6 +159,7 @@
 <script setup lang="ts">
 
 import { uniq } from 'es-toolkit/array';
+import { clamp } from 'es-toolkit/math';
 import type {
     IPdfPageLabelRange,
     TPageLabelStyle,
@@ -168,6 +170,7 @@ import {
     buildWholeDocumentPageLabelRanges,
     derivePageLabelRangesFromLabels,
     formatPageRange,
+    getPageLabelStartNumberMax,
     normalizePageLabelRanges,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
     parsePageRangeInput,
@@ -271,6 +274,12 @@ const pageLabelStyleSelectValue = computed({
         pageLabelStyle.value = value === PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE
             ? ''
             : normalizePageLabelStyleSelectValue(value);
+        // A start value the new style cannot format is corrected in the field itself.
+        pageLabelStartNumber.value = clamp(
+            pageLabelStartNumber.value,
+            1,
+            getPageLabelStartNumberMax(getConfiguredPageLabelStyle()),
+        );
     },
 });
 
@@ -426,7 +435,7 @@ function handleStartNumberModelUpdate(value: number | null | undefined) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
         return;
     }
-    pageLabelStartNumber.value = Math.max(1, Math.trunc(value));
+    pageLabelStartNumber.value = clamp(Math.trunc(value), 1, getPageLabelStartNumberMax(getConfiguredPageLabelStyle()));
 }
 
 function setSelectedPagesSilently(pages: number[]) {

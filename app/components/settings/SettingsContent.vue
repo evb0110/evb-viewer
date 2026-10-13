@@ -770,7 +770,7 @@ function presentAssistantFailure(
 }
 
 async function refreshAgentMcpStatus() {
-    if (!isDesktopRuntime.value || !settings.value.assistantPanelEnabled || isAgentMcpBusy.value) {
+    if (!isDesktopRuntime.value || isAgentMcpBusy.value) {
         return;
     }
 
@@ -864,9 +864,9 @@ onMounted(() => {
     void ensureUpdatesInitialized();
     if (isDesktopRuntime.value) {
         unsubscribeAssistantEvent = getAgentCapability().onAssistantEvent(handleAssistantEvent);
+        void refreshAgentMcpStatus();
         if (settings.value.assistantPanelEnabled) {
             void refreshAssistantState();
-            void refreshAgentMcpStatus();
         }
     }
 });

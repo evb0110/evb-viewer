@@ -9,24 +9,15 @@ use std::{collections::VecDeque, rc::Rc};
 const MAX_TEXT_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_OBJECT_GRAPH_DEPTH: usize = 128;
 fn resolved_dictionary<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Dictionary> {
-    document
-        .dereference(object)
-        .ok()
-        .and_then(|(_, object)| object.as_dict().ok())
+    document.resolved(object).ok()?.as_dict().ok()
 }
 
 fn resolved_array<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Vec<Object>> {
-    document
-        .dereference(object)
-        .ok()
-        .and_then(|(_, object)| object.as_array().ok())
+    document.resolved(object).ok()?.as_array().ok()
 }
 
 fn resolved_name<'a>(document: &'a Document, object: &'a Object) -> Option<&'a [u8]> {
-    document
-        .dereference(object)
-        .ok()
-        .and_then(|(_, object)| object.as_name().ok())
+    document.resolved(object).ok()?.as_name().ok()
 }
 
 fn resolved_number(document: &Document, object: &Object) -> Option<f64> {
@@ -1123,18 +1114,19 @@ fn normalize_greek_micro_sign_in_operations(operations: &mut [ContentOperation])
     }
 }
 
-fn clone_object_graph(
+pub(crate) fn clone_object_graph<F: Fn(&Object) -> Result<Option<Object>>>(
     source: &Document,
     target: &mut Document,
     object: &Object,
     copied: &mut HashMap<ObjectId, ObjectId>,
-    pages: &[OverlayPage<'_>],
+    nav: (&[OverlayPage<'_>], &F),
     transform: &impl Fn(&mut Document, &mut Dictionary) -> Result<()>,
     depth: usize,
 ) -> Result<Object> {
     if depth > MAX_OBJECT_GRAPH_DEPTH {
         return Err("overlay-text object graph exceeded the dereference limit".into());
     }
+    let (pages, remap) = nav;
     match object {
         Object::Reference(source_id) => {
             if let Some(target_id) = copied.get(source_id).copied().or_else(|| {
@@ -1154,7 +1146,7 @@ fn clone_object_graph(
                     format!("overlay-text source object {source_id:?} is missing")
                 })?,
                 copied,
-                pages,
+                nav,
                 transform,
                 depth + 1,
             )?;
@@ -1170,7 +1162,7 @@ fn clone_object_graph(
             items
                 .iter()
                 .map(|item| {
-                    clone_object_graph(source, target, item, copied, pages, transform, depth + 1)
+                    clone_object_graph(source, target, item, copied, nav, transform, depth + 1)
                 })
                 .collect::<Result<Vec<_>>>()?,
         )),
@@ -1200,15 +1192,11 @@ fn clone_object_graph(
             let destination = dictionary.remove(key);
             for (_, value) in dictionary.iter_mut() {
                 *value =
-                    clone_object_graph(source, target, value, copied, pages, transform, depth + 1)?;
+                    clone_object_graph(source, target, value, copied, nav, transform, depth + 1)?;
             }
             // A destination no output shows is dropped; the annotation stays.
             if let Some(destination) = destination {
-                if let Some(remapped) = crate::internal_destinations::remap_internal_destination(
-                    source,
-                    &destination,
-                    pages,
-                )? {
+                if let Some(remapped) = remap(&destination)? {
                     dictionary.set(key, remapped);
                 }
             }
@@ -1719,7 +1707,7 @@ pub(crate) fn append_text_layer(
             target,
             source_font,
             &mut staged_copied,
-            &[],
+            (&[], &|_| Ok(None)),
             &|_, _| Ok(()),
             0,
         ) {
@@ -1781,33 +1769,28 @@ pub(crate) fn append_text_layer(
 }
 
 /// Carry the source annotation graph with the same geometry as its text and
-/// pixels. A page-local copy keeps split outputs independent; seeding /P avoids
-/// cloning the source page tree through notes, popups and reply links.
-pub(crate) fn append_source_annotations(
+/// pixels. Source slots bind its thread to the complete final output map.
+pub(crate) fn append_source_annotations<F: Fn(&Object) -> Result<Option<Object>>>(
     target: &mut Document,
     source: &Document,
     target_page_id: ObjectId,
     source_page_id: ObjectId,
     instruction: &TextLayerInstruction,
-    pages: &[OverlayPage<'_>],
+    nav: (&[OverlayPage<'_>], &F),
 ) -> Result<()> {
-    let Ok(annots) = source.get_dictionary(source_page_id)?.get(b"Annots") else {
-        return Ok(());
-    };
-    let annotations = source.dereference(annots)?.1.as_array()?;
+    let annotations = crate::split_navigation::source_annotation_entries(source, source_page_id);
     let view = resolve_page_view(target, target_page_id)?;
     let output_view = instruction.filter_to_output_page.then_some(view);
     let filter = match (instruction.source_region, output_view) {
         (Some(region), Some(_)) => Some((region.matrix, validate_crop_rect(region.rect)?)),
         (_, view) => view.map(|view| (instruction.matrix, view)),
     };
-    let rotation = resolve_page_rotation(target, target_page_id)?;
     let copy = NoteCopy {
         source,
         source_page_id,
         matrix: instruction.matrix,
         view,
-        rotation,
+        rotation: resolve_page_rotation(target, target_page_id)?,
     };
     let transform = |target: &mut Document, annotation: &mut Dictionary| {
         place_note_copy(target, annotation, None, &copy)?;
@@ -1816,29 +1799,15 @@ pub(crate) fn append_source_annotations(
         Ok(())
     };
     let mut copied = HashMap::from([(source_page_id, target_page_id)]);
-    let mut output = match target.get_dictionary(target_page_id)?.get(b"Annots") {
-        Ok(annots) => target.dereference(annots)?.1.as_array()?.clone(),
-        Err(_) => Vec::new(),
-    };
-    for annotation in annotations {
-        let Some(mut owner) = resolved_dictionary(source, annotation) else {
+    let mut output =
+        page_annotation_array(target, target.get_dictionary(target_page_id)?).unwrap_or_default();
+    for (slot, annotation) in annotations.iter().enumerate() {
+        let Some(original) = resolved_dictionary(source, annotation) else {
             continue;
         };
+        let owner = crate::annotation_threads::thread_owner(source, original, source_page_id)?;
         let subtype = resolved_name(source, owner.get(b"Subtype").unwrap_or(&Object::Null));
-        // The terminal owner places the whole reply and popup thread.
         if let Some((matrix, view)) = filter {
-            let mut owners = HashSet::from([owner as *const Dictionary]);
-            while let Some(next) = owner
-                .get(b"IRT")
-                .or_else(|_| owner.get(b"Parent"))
-                .ok()
-                .and_then(|object| resolved_dictionary(source, object))
-            {
-                if owners.len() >= MAX_OBJECT_GRAPH_DEPTH || !owners.insert(next as *const _) {
-                    return Err("overlay-text annotation ownership is cyclic or too deep".into());
-                }
-                owner = next;
-            }
             let legacy_marker = legacy_marker_on_page(source, owner, source, source_page_id)?;
             if annotation_bounds(source, owner).is_some_and(|rect| {
                 let rect = TextMatrix::from_values(matrix).bounds(rect);
@@ -1852,18 +1821,33 @@ pub(crate) fn append_source_annotations(
                 continue;
             }
         }
-        output.push(clone_object_graph(
+        // Copy appearance dependencies, never recursively invent a thread member.
+        // Its edges are resolved after every output page has been assembled.
+        let mut annotation = original.clone();
+        crate::note_markers::legacy_note_marker_as_text(
+            source,
+            &mut annotation,
+            source,
+            source_page_id,
+        )?;
+        for key in [b"IRT".as_slice(), b"Parent".as_slice(), b"Popup".as_slice()] {
+            annotation.remove(key);
+        }
+        annotation.set(
+            crate::split_navigation::SOURCE_ANNOTATION_SLOT,
+            i64::try_from(slot)?,
+        );
+        let mut annotation = clone_object_graph(
             source,
             target,
-            annotation,
+            &Object::Dictionary(annotation),
             &mut copied,
-            pages,
+            nav,
             &transform,
             0,
-        )?);
-        if let Some(Object::Dictionary(annotation)) = output.last_mut() {
-            transform(target, annotation)?;
-        }
+        )?;
+        transform(target, annotation.as_dict_mut()?)?;
+        output.push(target.add_object(annotation).into());
     }
     target
         .get_dictionary_mut(target_page_id)?

@@ -127,10 +127,10 @@ export function isChunkedRecordMissingChunks(
     return false;
 }
 
-export function countNonWorkingDependents(records: IBrowserPersistedDocumentRecord[]) {
+export function countSourceDependents(records: IBrowserPersistedDocumentRecord[]) {
     const dependentCounts = new Map<string, number>();
     for (const record of records) {
-        if (!record.sourceRef || record.kind === 'working') {
+        if (!record.sourceRef) {
             continue;
         }
 
@@ -145,7 +145,7 @@ export function countNonWorkingDependents(records: IBrowserPersistedDocumentReco
 export function shouldRemovePersistedRecord(
     record: IBrowserPersistedDocumentRecord,
     recentRefs: Set<string>,
-    nonWorkingDependentCounts: Map<string, number>,
+    sourceDependentCounts: Map<string, number>,
 ) {
     const durableWorkingRecoveryGraceMs = 10 * 60 * 1_000;
     return (
@@ -158,7 +158,7 @@ export function shouldRemovePersistedRecord(
         )
         || (
             !recentRefs.has(record.ref)
-            && (nonWorkingDependentCounts.get(record.ref) ?? 0) === 0
+            && (sourceDependentCounts.get(record.ref) ?? 0) === 0
         )
     );
 }

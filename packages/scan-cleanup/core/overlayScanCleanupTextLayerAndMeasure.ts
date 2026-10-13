@@ -1,3 +1,4 @@
+import {decodeScanCleanupPageOpsResult} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {
     readFile,
     stat,
@@ -15,16 +16,16 @@ import type { IScanCleanupRepresentationReport } from '@evb/scan-cleanup/core/ty
  * Overlays the source text once over the finished output. The batches measured
  * the output before this pass, so when the overlay rewrites it, the
  * representation report and the compact-source budget are brought up to date
- * with the file that will be published. Returns whether the file was rewritten.
+ * with the file that will be published. Returns the native output loss result.
  */
 export async function overlayScanCleanupTextLayerAndMeasure(
     ...args: Parameters<typeof overlayScanCleanupTextLayer>
 ) {
     const stagedPdfPath = args[3];
     const scratch = args[4];
-    const rewritten = await overlayScanCleanupTextLayer(...args);
-    if (!rewritten) {
-        return false;
+    const result = await overlayScanCleanupTextLayer(...args);
+    if (result === null) {
+        return decodeScanCleanupPageOpsResult('');
     }
     const after = await stat(stagedPdfPath);
     const reportPath = join(scratch, 'scan-cleanup-representation-report.json');
@@ -36,5 +37,5 @@ export async function overlayScanCleanupTextLayerAndMeasure(
         after.size,
         report.compactSourceBudget as IScanCleanupCompactSourceBudget | null,
     );
-    return true;
+    return result;
 }

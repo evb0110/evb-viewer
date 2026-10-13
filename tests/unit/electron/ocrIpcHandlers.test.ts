@@ -256,6 +256,34 @@ describe('OCR platform feature main bindings', () => {
         await expect(readPromise).rejects.toMatchObject({name: 'AbortError'});
     });
 
+    it('cancels a searchable PDF while its working copy is still preparing, before any OCR job starts', async () => {
+        mocks.ensureWorkingCopyMaterialized.mockImplementationOnce((_path: string, options: {signal: AbortSignal}) => new Promise((_resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(new Error('Working-copy materialization was cancelled')), {once: true});
+        }));
+        mocks.handleOcrCancel.mockReturnValue({
+            canceled: false,
+            reason: 'not-found',
+        });
+
+        const startPromise = getHandler('ocr:createSearchablePdf')(
+            {sender: createMockSender(51)},
+            '/tmp/working-copy.pdf',
+            [{
+                pageNumber: 1,
+                languages: ['eng'],
+            }],
+            'ocr-cancel-while-preparing',
+        );
+        await vi.waitFor(() => expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledTimes(1));
+
+        expect(getHandler('ocr:cancel')(
+            {sender: createMockSender(51)},
+            'ocr-cancel-while-preparing',
+        )).toMatchObject({canceled: true});
+        await expect(startPromise).resolves.toMatchObject({started: false});
+        expect(mocks.handleOcrCreateSearchablePdfAsync).not.toHaveBeenCalled();
+    });
+
     it('rejects unmanaged OCR catalog paths', async () => {
         mocks.requireManagedWorkingCopyPath.mockRejectedValue(new Error('not managed'));
 
@@ -368,6 +396,7 @@ describe('OCR platform feature main bindings', () => {
                 preprocessingMode: 'clean',
                 pageSegmentationMode: 11,
             },
+            expect.any(AbortSignal),
         );
     });
 
@@ -393,6 +422,7 @@ describe('OCR platform feature main bindings', () => {
             }],
             'job-legacy-dpi',
             { renderDpi: 240 },
+            expect.any(AbortSignal),
         );
     });
 

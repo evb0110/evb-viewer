@@ -268,7 +268,7 @@ import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createScanCleanupPageOverride,
     getScanCleanupPageOverride,
-    isDefaultScanCleanupPageOverride,
+    isScanCleanupPageOverrideInherited,
 } from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import type {IDocumentPageSource} from '@app/modules/document-viewer/public';
@@ -483,7 +483,7 @@ function pageOverride(page: number) {
 }
 
 function isCustomized(page: number) {
-    return !isDefaultScanCleanupPageOverride(pageOverride(page));
+    return !isScanCleanupPageOverrideInherited(props.overrides, pageOverride(page));
 }
 
 function updateOverride(page: number, patch: Partial<IScanCleanupPageOverride>) {

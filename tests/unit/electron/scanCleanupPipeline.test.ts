@@ -80,6 +80,11 @@ import {
     assembleWithCompactSourcePages, overlayScanCleanupTextLayer, resolveCompactSourcePreservation,
 } from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {
+    buildScanCleanupPageOpsInstructions,
+    serializeLegacyScanCleanupPageOpsInstructions,
+    serializeScanCleanupPageOpsInstructions,
+} from '@evb/scan-cleanup/core/compactManifest';
+import {
     createArrayBackedPdfPageSizeStore,
     type IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
@@ -243,6 +248,14 @@ async function setup() {
 // These conversion controls are rasters; the native read must not write an
 // assembler output or invent positioned source text on their refused pages.
 async function rasterSourceInspectionResult(args: readonly string[]) {
+    if (args[0] === 'overlay-text') {
+        await writeFile(args[args.indexOf('--output') + 1]!, await readFile(args[args.indexOf('--input') + 1]!));
+        return {
+            exitCode: 0,
+            stderr: '',
+            stdout: '',
+        };
+    }
     if (args[0] === '--empty') {
         await writeFile(args.at(-1)!, await readFile(args[args.indexOf('--pages') + 1]!));
         return {
@@ -813,7 +826,10 @@ describe('scan cleanup pipeline', () => {
         expect(await readFile(raster, 'utf8')).toBe('unpublished raster');
     });
 
-    it('saves the overlay output for an all-preserved plan so its retained links are rebound', async () => {
+    it.each([
+        false,
+        true,
+    ])('saves the final catalog map when all pages are link-only (unmapped=%s)', async (unmappedGeometry) => {
         const fixture = await setup();
         const staged = join(fixture.dir, 'staged.pdf');
         await writeFile(staged, 'assembled without overlay');
@@ -838,6 +854,7 @@ describe('scan cleanup pipeline', () => {
                 0,
             ],
             linkOnly: true,
+            unmappedGeometry,
         }], pipelinePaths(fixture.dir), fixture.sourcePdfPath, staged, fixture.dir,
         new AbortController().signal, vi.fn(), deps);
         expect(await readFile(staged, 'utf8')).toBe('overlaid');
@@ -2002,6 +2019,39 @@ describe('scan cleanup pipeline', () => {
         });
     });
 
+    it('adds the assembly catalog to the page-ops envelope and keeps it off the legacy one', () => {
+        const pages = [{
+            sourcePageIndex: 0,
+            rotationQuarterTurns: 0,
+            outputs: [{
+                cropRect: {
+                    x: 0,
+                    y: 0,
+                    width: 240,
+                    height: 336,
+                },
+                contentTransform: {
+                    scale: 1,
+                    translateX: 0,
+                    translateY: 0,
+                },
+            }],
+        }];
+        const assembly = buildScanCleanupPageOpsInstructions(pages, 'abcdef', 'assembly');
+        expect(JSON.parse(serializeScanCleanupPageOpsInstructions(assembly))).toEqual({
+            provenanceStampHex: 'abcdef',
+            catalog: 'assembly',
+            pages,
+        });
+        expect(JSON.parse(serializeLegacyScanCleanupPageOpsInstructions(assembly))).toEqual({pages});
+        expect(JSON.parse(serializeScanCleanupPageOpsInstructions(
+            buildScanCleanupPageOpsInstructions(pages, 'abcdef'),
+        ))).toEqual({
+            provenanceStampHex: 'abcdef',
+            pages,
+        });
+    });
+
     it('retains an Auto Mixed source page only when native reports its MRC tone unchanged', () => {
         const preserved = resolveCompactSourcePreservation(
             {
@@ -2345,7 +2395,12 @@ describe('scan cleanup pipeline', () => {
         const pipelineDependencies = dependencies(runSidecar);
         pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
             const visibility = await rasterSourceInspectionResult(args);
-            if (visibility) return visibility;
+            if (visibility) return args[0] === 'overlay-text'
+                ? {
+                    ...visibility,
+                    stdout: JSON.stringify({accessibilityTagsRemoved: true}),
+                }
+                : visibility;
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2397,6 +2452,7 @@ describe('scan cleanup pipeline', () => {
             outputPages: 2,
         });
         expect(summary.sourceTextOmission).toBeUndefined();
+        expect(summary.accessibilityTagsRemoved).toBe(true);
         expect(await readFile(fixture.outputPdfPath, 'utf8')).toContain('%PDF-1.7');
     });
 

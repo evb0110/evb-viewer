@@ -47,6 +47,30 @@ function toPositiveInt(value: unknown, fallback: number) {
     return parsed;
 }
 
+/**
+ * Largest start number the alphabetic style admits: four letters, the length
+ * a toolbar page indicator can show. Its labels grow by one letter per 26.
+ */
+export const PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER = 26 * 4;
+
+/** Largest start number a Roman numeral can express in the classic form (MMMCMXCIX). */
+export const PAGE_LABEL_MAX_ROMAN_START_NUMBER = 3999;
+
+/** Largest start number the given style can format, for the admission boundary and its UI. */
+export function getPageLabelStartNumberMax(style: TDocumentPageLabelStyle): number {
+    if (style === 'A' || style === 'a') {
+        return PAGE_LABEL_MAX_ALPHABETIC_START_NUMBER;
+    }
+    if (style === 'R' || style === 'r') {
+        return PAGE_LABEL_MAX_ROMAN_START_NUMBER;
+    }
+    return Number.MAX_SAFE_INTEGER;
+}
+
+function clampPageLabelStartNumber(style: TDocumentPageLabelStyle, startNumber: number) {
+    return clamp(startNumber, 1, getPageLabelStartNumberMax(style));
+}
+
 function normalizeStyle(style: unknown): TDocumentPageLabelStyle {
     if (style === null) {
         return null;
@@ -342,7 +366,7 @@ export function normalizePageLabelRanges(
         );
         const style = normalizeStyle(range.style);
         const prefix = typeof range.prefix === 'string' ? range.prefix : '';
-        const startNumber = toPositiveInt(range.startNumber, 1);
+        const startNumber = clampPageLabelStartNumber(style, toPositiveInt(range.startNumber, 1));
 
         deduped.set(startPage, {
             startPage,
@@ -899,6 +923,17 @@ function isPageLabelArray(
     return Array.isArray(pageLabels);
 }
 
+/** Parse the numbering part of a label in its segment's style, or null when it is not one. */
+function parseSegmentNumber(style: TNonNullPageLabelStyle, suffix: string) {
+    if (style === 'D') {
+        return /^\d+$/.test(suffix) ? Number.parseInt(suffix, 10) : null;
+    }
+    if (style === 'R' || style === 'r') {
+        return parseRoman(suffix);
+    }
+    return parseAlphabetic(suffix);
+}
+
 function findPageByLabelInModel(
     input: string,
     model: IDocumentPageLabelModel,
@@ -914,15 +949,20 @@ function findPageByLabelInModel(
             continue;
         }
 
-        const parsed = segment.style === 'D'
-            ? inferDecimalCandidate(input)
-            : segment.style === 'R' || segment.style === 'r'
-                ? inferRomanCandidate(input)
-                : inferAlphabeticCandidate(input);
-        if (!parsed || parsed.style !== segment.style || parsed.prefix !== segment.prefix) {
+        // The segment already knows its prefix; only the remainder is numbering.
+        const inputPrefix = input.slice(0, segment.prefix.length);
+        const prefixMatches = caseInsensitive
+            ? inputPrefix.toLowerCase() === segment.prefix.toLowerCase()
+            : inputPrefix === segment.prefix;
+        if (!prefixMatches) {
             continue;
         }
-        const page = segment.startPage + parsed.startNumber - segment.startNumber;
+        const suffix = input.slice(segment.prefix.length);
+        const number = parseSegmentNumber(segment.style, caseInsensitive ? suffix.toLowerCase() : suffix);
+        if (number === null) {
+            continue;
+        }
+        const page = segment.startPage + number - segment.startNumber;
         if (page >= segment.startPage && page <= segment.endPage) {
             const actual = model.labelAt(page);
             if (actual === input || actual?.toLowerCase() === candidate) {

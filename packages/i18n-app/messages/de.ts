@@ -444,6 +444,7 @@ export default {
         'completedTitle': 'Scanbereinigung abgeschlossen',
         'completedPartialTitle': 'Ausgewählte Seiten bereinigt',
         'openResultFailed': 'Das bereinigte PDF konnte nicht geöffnet werden',
+        'outputClosedBeforeSaveAs': 'Das bereinigte PDF ist nicht mehr geöffnet, daher wurde nichts gespeichert. Öffnen Sie es erneut, um es zu speichern.',
         'saveAs': 'Speichern unter…',
         'cancel': 'Bereinigung abbrechen',
         'canceling': 'Wird abgebrochen…',
@@ -518,6 +519,7 @@ export default {
         'summary': 'Aus {input} Quellseiten wurden {output} Ausgabeseiten; {spreads} Doppelseiten wurden geteilt und {offcuts} Randstücke verworfen.',
         'sourceTextOmitted': 'Der Quelltext wurde bei der Ausgabe von {count} Quellseite(n) weggelassen: {pages}. Auf den betroffenen Ausgabeseiten sind Textsuche und Kopieren nicht verfügbar. Führen Sie OCR für die bereinigte PDF aus, um durchsuchbaren Text wiederherzustellen.',
         'sourceTextOmittedMorePages': '{pages} und {remaining} weitere',
+        'accessibilityTagsRemoved': 'Barrierefreiheits-Tags wurden entfernt, weil die bereinigten Seiten nicht mehr zur ursprünglichen Dokumentstruktur passen.',
     },
     'app': {
         'title': 'EVB Viewer',

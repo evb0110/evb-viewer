@@ -2036,3 +2036,1842 @@ fn split_pages_keeps_a_legacy_marker_with_navigation_a_note() {
         }
     }
 }
+
+/// A source whose catalog carries what a lossless split must keep: outlines,
+/// named destinations, page labels, viewer preferences, language, metadata and
+/// valid optional content. Its Info has a title and an author.
+fn save_rich_catalog_source(path: &Path) {
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let content_id = document.add_object(Stream::new(dictionary! {}, Vec::new()));
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()],
+        "Contents" => content_id,
+    });
+    document.objects.insert(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        }
+        .into(),
+    );
+    let group_id = document.add_object(dictionary! {
+        "Type" => "OCG",
+        "Name" => Object::string_literal("Layer"),
+    });
+    let properties_id = document.add_object(dictionary! {
+        "OCGs" => vec![Object::Reference(group_id)],
+        "D" => dictionary! {
+            "Order" => vec![Object::Reference(group_id)],
+            "ON" => vec![Object::Reference(group_id)],
+        },
+    });
+    let outlines_id = document.add_object(dictionary! {"Type" => "Outlines", "Count" => 0});
+    let metadata_id = document.add_object(Stream::new(
+        dictionary! {"Type" => "Metadata", "Subtype" => "XML"},
+        b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>".to_vec(),
+    ));
+    let info_id = document.add_object(dictionary! {
+        "Title" => Object::string_literal("Rich source"),
+        "Author" => Object::string_literal("Source author"),
+    });
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+        "Outlines" => outlines_id,
+        "Names" => dictionary! {
+            "Dests" => dictionary! {
+                "Names" => vec![
+                    Object::string_literal("start"),
+                    Object::Array(vec![Object::Reference(page_id), "Fit".into()]),
+                ],
+            },
+        },
+        "PageLabels" => dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "D"}.into()]},
+        "ViewerPreferences" => dictionary! {"DisplayDocTitle" => true},
+        "Lang" => Object::string_literal("en-US"),
+        "Metadata" => metadata_id,
+        "OCProperties" => properties_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.trailer.set("Info", info_id);
+    document.save(path).unwrap();
+}
+
+fn split_catalog_keys(split: &Document) -> Vec<Vec<u8>> {
+    let catalog_id = split.trailer.get(b"Root").unwrap().as_reference().unwrap();
+    let mut keys: Vec<Vec<u8>> = split
+        .get_dictionary(catalog_id)
+        .unwrap()
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect();
+    keys.sort();
+    keys
+}
+
+#[test]
+fn split_pages_keeps_the_source_catalog_and_info_by_default() {
+    let input = path("split-default-catalog-input", "pdf");
+    let output = path("split-default-catalog-output", "pdf");
+    let instructions = path("split-default-catalog-instructions", "json");
+    save_rich_catalog_source(&input);
+    write(&instructions, r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120}}]}]}"#).unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let split = Document::load(&output).unwrap();
+    let keys = split_catalog_keys(&split);
+    for key in [
+        &b"Outlines"[..],
+        b"Names",
+        b"PageLabels",
+        b"ViewerPreferences",
+        b"Lang",
+        b"Metadata",
+        b"OCProperties",
+    ] {
+        assert!(
+            keys.iter().any(|kept| kept == key),
+            "the lossless split keeps /{} from the source catalog",
+            String::from_utf8_lossy(key)
+        );
+    }
+    assert_eq!(split.get_pages().len(), 1);
+    let info_id = split.trailer.get(b"Info").unwrap().as_reference().unwrap();
+    let info = split.get_dictionary(info_id).unwrap();
+    assert_eq!(
+        info.get(b"Title").unwrap().as_str().unwrap(),
+        b"Rich source"
+    );
+    assert_eq!(
+        info.get(b"Author").unwrap().as_str().unwrap(),
+        b"Source author"
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
+}
+
+#[test]
+fn split_pages_assembly_keeps_page_dependencies_and_stamp_only_info() {
+    let input = path("split-assembly-catalog-input", "pdf");
+    let output = path("split-assembly-catalog-output", "pdf");
+    let instructions = path("split-assembly-catalog-instructions", "json");
+    save_rich_catalog_source(&input);
+    write(&instructions, r#"{"catalog":"assembly","provenanceStampHex":"5445535453544d50","pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120}}]}]}"#).unwrap();
+
+    run_split_pages(&input, &output, &instructions);
+
+    let split = Document::load(&output).unwrap();
+    assert_eq!(
+        split_catalog_keys(&split),
+        vec![
+            b"Names".to_vec(),
+            b"OCProperties".to_vec(),
+            b"Outlines".to_vec(),
+            b"PageLabels".to_vec(),
+            b"Pages".to_vec(),
+            b"Type".to_vec()
+        ]
+    );
+    assert_eq!(split.get_pages().len(), 1);
+    assert!(split.trailer.get(b"ID").is_err());
+    let info_id = split.trailer.get(b"Info").unwrap().as_reference().unwrap();
+    let info = split.get_dictionary(info_id).unwrap();
+    assert_eq!(info.len(), 1);
+    assert_eq!(
+        info.get(b"EVBScanCleanup").unwrap().as_str().unwrap(),
+        b"5445535453544d50"
+    );
+
+    let _ = remove_file(input);
+    let _ = remove_file(output);
+    let _ = remove_file(instructions);
+}
+
+/// The public synthetic three-page catalog_probe.py source from review-b6h.
+/// It includes labels, destinations, forms, tags, Info and two disjoint OCGs.
+fn review_catalog_source() -> Document {
+    let hex = include_str!("fixtures/scan-cleanup-catalog.pdf.hex");
+    let bytes = hex.split_whitespace().collect::<String>();
+    let bytes = bytes
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+        .collect::<Vec<_>>();
+    Document::load_mem(&bytes).unwrap()
+}
+
+fn review_split(source: &mut Document, order: &[usize], assembly: bool, stamp: bool) -> Document {
+    let input = path("review-catalog-input", "pdf");
+    let output = path("review-catalog-output", "pdf");
+    let instructions = path("review-catalog-instructions", "json");
+    source.save(&input).unwrap();
+    let mut value = serde_json::json!({"pages": order.iter().map(|index| serde_json::json!({
+        "sourcePageIndex": index, "rotationQuarterTurns": 0,
+        "outputs": [{"cropRect": {"x": 0, "y": 0, "width": 200, "height": 120},
+            "contentTransform": {"scale": 1, "translateX": 0, "translateY": 0}}]
+    })).collect::<Vec<_>>()});
+    if assembly {
+        value["catalog"] = "assembly".into();
+    }
+    if stamp {
+        value["provenanceStampHex"] = "54455354".into();
+    }
+    write(&instructions, value.to_string()).unwrap();
+    run_split_pages(&input, &output, &instructions);
+    let split = Document::load(&output).unwrap();
+    for file in [input, output, instructions] {
+        let _ = remove_file(file);
+    }
+    split
+}
+
+#[test]
+fn split_pages_accepts_forms_without_a_readable_field_list() {
+    for fields in [None, Some(Object::Null), Some(Object::Integer(7))] {
+        let mut source = review_catalog_source();
+        let mut form = dictionary! {"DA" => Object::string_literal("/Helv 12 Tf 0 g")};
+        if let Some(fields) = fields {
+            form.set("Fields", fields);
+        }
+        source.catalog_mut().unwrap().set("AcroForm", form);
+        for assembly in [false, true] {
+            let mut split = review_split(&mut source, &[0], assembly, false);
+            let input = path("empty-form-source", "pdf");
+            let output = path("empty-form-output", "pdf");
+            let instructions = path("empty-form-overlay", "json");
+            source.save(&input).unwrap();
+            split.save(&output).unwrap();
+            write(
+                &instructions,
+                serde_json::json!({"pages": [{
+                    "sourcePageIndex": 0, "outputPageIndex": 0,
+                    "matrix": [1, 0, 0, 1, 0, 0], "linkOnly": true
+                }]})
+                .to_string(),
+            )
+            .unwrap();
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .args(["overlay-text", "--qpdf"])
+                .arg(qpdf_path())
+                .arg("--input")
+                .arg(&output)
+                .arg("--source")
+                .arg(&input)
+                .arg("--output")
+                .arg(&output)
+                .arg("--instructions-file")
+                .arg(&instructions)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let output_document = Document::load(&output).unwrap();
+            let form = output_document
+                .dereference(output_document.catalog().unwrap().get(b"AcroForm").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            assert!(form.get(b"Fields").unwrap().as_array().unwrap().is_empty());
+            assert_eq!(
+                form.get(b"DA").unwrap().as_str().unwrap(),
+                b"/Helv 12 Tf 0 g"
+            );
+            for file in [input, output, instructions] {
+                let _ = remove_file(file);
+            }
+        }
+    }
+}
+
+#[test]
+fn split_pages_cross_page_reply_targets_the_listed_output_note() {
+    for order in [&[0, 1, 2][..], &[2, 0][..]] {
+        let mut source = review_catalog_source();
+        let target = source.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => (5, 0),
+            "Rect" => vec![100.into(), 60.into(), 120.into(), 80.into()],
+            "Contents" => Object::string_literal("other-root"),
+        });
+        source
+            .get_dictionary_mut((5, 0))
+            .unwrap()
+            .set("Annots", vec![Object::Reference(target)]);
+        source
+            .get_dictionary_mut((21, 0))
+            .unwrap()
+            .set("IRT", target);
+        let split = review_split(&mut source, order, false, false);
+        let annotations = (1..=order.len() as u32)
+            .flat_map(|number| split_page_annotations(&split, number))
+            .collect::<Vec<_>>();
+        let (root, _) = annotations
+            .iter()
+            .find(|(_, annotation)| {
+                annotation.get(b"Contents").and_then(Object::as_str).ok() == Some(b"other-root")
+            })
+            .unwrap();
+        let (_, reply) = annotations
+            .iter()
+            .find(|(_, annotation)| annotation.has(b"IRT"))
+            .unwrap();
+        assert_eq!(
+            reply.get(b"IRT").unwrap().as_reference().unwrap(),
+            *root,
+            "the cross-page reply must target the listed note, never an unlisted twin"
+        );
+    }
+}
+
+#[test]
+fn split_pages_keeps_text_from_cyclic_annotation_threads() {
+    for key in ["IRT", "Parent"] {
+        for self_link in [false, true] {
+            let mut source = review_catalog_source();
+            let page = source.get_pages()[&1];
+            let first = source.new_object_id();
+            let second = source.new_object_id();
+            for (id, related, text) in [
+                (first, if self_link { first } else { second }, "first"),
+                (second, first, "second"),
+            ] {
+                let mut note = dictionary! {"Subtype" => "Text", "P" => page,
+                "Rect" => vec![10.into(), 20.into(), 26.into(), 36.into()],
+                "Contents" => Object::string_literal(text)};
+                note.set(key, related);
+                source.set_object(id, note);
+            }
+            source.get_dictionary_mut(page).unwrap().set(
+                "Annots",
+                vec![Object::Reference(first), Object::Reference(second)],
+            );
+            let split = review_split(&mut source, &[0], false, false);
+            let text = split_page_annotations(&split, 1)
+                .iter()
+                .map(|(_, note)| note.get(b"Contents").unwrap().as_str().unwrap().to_vec())
+                .collect::<Vec<_>>();
+            assert_eq!(text, [b"first".to_vec(), b"second".to_vec()]);
+        }
+    }
+}
+
+#[test]
+fn split_pages_keeps_choice_options_when_widgets_are_pruned_or_duplicated() {
+    for field_type in ["Ch", "Btn"] {
+        for inherited in [false, true] {
+            let mut source = review_catalog_source();
+            let field = source.new_object_id();
+            let parent = source.new_object_id();
+            let mut kids = Vec::new();
+            for page in source.get_pages().values() {
+                let widget = source
+                    .add_object(dictionary! {"Subtype" => "Widget", "Parent" => field,
+                    "P" => *page, "Rect" => vec![10.into(), 20.into(), 26.into(), 36.into()]});
+                source
+                    .get_dictionary_mut(*page)
+                    .unwrap()
+                    .set("Annots", vec![Object::Reference(widget)]);
+                kids.push(Object::Reference(widget));
+            }
+            let options = vec![
+                Object::string_literal("A"),
+                Object::string_literal("B"),
+                Object::string_literal("C"),
+            ];
+            let mut dictionary = dictionary! {"T" => Object::string_literal("choice"), "Opt" => options.clone(), "Kids" => kids};
+            let root = if inherited {
+                dictionary.set("Parent", parent);
+                source.set_object(
+                    parent,
+                    dictionary! {"FT" => field_type, "Kids" => vec![Object::Reference(field)]},
+                );
+                parent
+            } else {
+                dictionary.set("FT", field_type);
+                field
+            };
+            source.set_object(field, dictionary);
+            source.catalog_mut().unwrap().set(
+                "AcroForm",
+                dictionary! {"Fields" => vec![Object::Reference(root)]},
+            );
+            for order in [&[2, 0][..], &[0, 1, 0, 2][..]] {
+                let split = review_split(&mut source, order, false, false);
+                let choices = split
+                    .objects
+                    .values()
+                    .filter_map(|object| object.as_dict().ok())
+                    .filter_map(|field| field.get(b"Opt").ok())
+                    .collect::<Vec<_>>();
+                let expected = if field_type == "Ch" {
+                    options.clone()
+                } else {
+                    (0..3)
+                        .flat_map(|index| {
+                            vec![
+                                options[index].clone();
+                                order.iter().filter(|page| **page == index).count()
+                            ]
+                        })
+                        .collect()
+                };
+                assert_eq!(choices, vec![&Object::Array(expected)]);
+            }
+        }
+    }
+}
+
+#[test]
+fn split_pages_removed_reply_target_keeps_text_without_an_unlisted_clone() {
+    let mut source = review_catalog_source();
+    let target = source.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => (5, 0),
+        "Rect" => vec![100.into(), 60.into(), 120.into(), 80.into()],
+        "Contents" => Object::string_literal("other-root"),
+    });
+    source
+        .get_dictionary_mut((5, 0))
+        .unwrap()
+        .set("Annots", vec![Object::Reference(target)]);
+    source
+        .get_dictionary_mut((21, 0))
+        .unwrap()
+        .set("IRT", target);
+    let split = review_split(&mut source, &[0], false, false);
+    let annotations = split_page_annotations(&split, 1);
+    let (_, reply) = annotations
+        .iter()
+        .find(|(_, annotation)| {
+            annotation.get(b"Contents").and_then(Object::as_str).ok() == Some(b"reply")
+        })
+        .unwrap();
+    assert!(
+        !reply.has(b"IRT"),
+        "a removed target leaves a standalone note with the reply's text"
+    );
+    assert!(!split
+        .objects
+        .values()
+        .filter_map(|object| object.as_dict().ok())
+        .any(
+            |annotation| annotation.get(b"Contents").and_then(Object::as_str).ok()
+                == Some(b"other-root")
+        ));
+}
+
+#[test]
+fn split_pages_labels_and_navigation_follow_the_output_page_mapping() {
+    for assembly in [false, true] {
+        for order in [&[2, 0][..], &[2, 0, 2][..]] {
+            let split = review_split(&mut review_catalog_source(), order, assembly, true);
+            let catalog = split.catalog().unwrap();
+            let labels = split
+                .dereference(catalog.get(b"PageLabels").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let nums = split
+                .dereference(labels.get(b"Nums").unwrap())
+                .unwrap()
+                .1
+                .as_array()
+                .unwrap();
+            let prefixes = nums
+                .chunks_exact(2)
+                .map(|pair| {
+                    split
+                        .dereference(&pair[1])
+                        .unwrap()
+                        .1
+                        .as_dict()
+                        .unwrap()
+                        .get(b"P")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .to_vec()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                prefixes,
+                order
+                    .iter()
+                    .map(
+                        |index| [b"one".to_vec(), b"two".to_vec(), b"three".to_vec()][*index]
+                            .clone()
+                    )
+                    .collect::<Vec<_>>()
+            );
+            let names = split
+                .dereference(catalog.get(b"Names").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let dests = split
+                .dereference(names.get(b"Dests").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let names = split
+                .dereference(dests.get(b"Names").unwrap())
+                .unwrap()
+                .1
+                .as_array()
+                .unwrap();
+            let destinations = names
+                .chunks_exact(2)
+                .map(|pair| {
+                    (
+                        pair[0].as_str().unwrap().to_vec(),
+                        pair[1].as_array().unwrap()[0].as_reference().unwrap(),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>();
+            let pages = split.get_pages();
+            assert_eq!(destinations[b"third".as_slice()], pages[&1]);
+            assert_eq!(destinations[b"first".as_slice()], pages[&2]);
+            assert!(!destinations.contains_key(b"removed".as_slice()));
+            let legacy = split
+                .dereference(catalog.get(b"Dests").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            assert!(!legacy.has(b"legacy"));
+            let outlines = split
+                .dereference(catalog.get(b"Outlines").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let first = split
+                .dereference(outlines.get(b"First").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            assert_eq!(
+                first.get(b"Dest").unwrap().as_array().unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+                pages[&2]
+            );
+            let removed = split
+                .dereference(outlines.get(b"Last").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            assert_eq!(removed.get(b"Title").unwrap().as_str().unwrap(), b"removed");
+            assert!(
+                !removed.has(b"Dest"),
+                "retain the heading and children, but neutralize a discarded target"
+            );
+            if assembly {
+                continue;
+            }
+            let annotations = split_page_annotations(&split, 2);
+            let link = annotations
+                .iter()
+                .find(|(_, annotation)| {
+                    annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Link")
+                })
+                .unwrap();
+            assert_eq!(
+                link.1.get(b"Dest").unwrap().as_array().unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+                pages[&1]
+            );
+        }
+    }
+}
+
+#[test]
+fn split_pages_numeric_label_ranges_keep_the_source_number_after_reorder() {
+    let mut source = review_catalog_source();
+    let child = source.add_object(dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "r", "P" => Object::string_literal("pre-"), "St" => 8}.into()]});
+    source.catalog_mut().unwrap().set(
+        "PageLabels",
+        dictionary! {"Kids" => vec![Object::Reference(child)]},
+    );
+    let split = review_split(&mut source, &[2, 0, 2], true, false);
+    let labels = split
+        .catalog()
+        .unwrap()
+        .get(b"PageLabels")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Nums")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let starts = labels
+        .chunks_exact(2)
+        .map(|pair| {
+            pair[1]
+                .as_dict()
+                .unwrap()
+                .get(b"St")
+                .unwrap()
+                .as_i64()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(starts, [10, 8, 10]);
+}
+
+#[test]
+fn split_pages_form_fields_use_the_widgets_listed_by_retained_pages() {
+    for assembly in [false, true] {
+        for order in [&[0, 1, 2][..], &[2, 0][..]] {
+            let split = review_split(&mut review_catalog_source(), order, assembly, false);
+            let form = split
+                .dereference(split.catalog().unwrap().get(b"AcroForm").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            let field = split
+                .dereference(form.get(b"Fields").unwrap())
+                .unwrap()
+                .1
+                .as_array()
+                .unwrap()[0]
+                .as_reference()
+                .unwrap();
+            let (widget, annotation) = (1..=order.len() as u32)
+                .flat_map(|page| split_page_annotations(&split, page))
+                .find(|(_, annotation)| {
+                    annotation.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Widget")
+                })
+                .unwrap();
+            assert_eq!(
+                field, widget,
+                "the field and page must name the same widget"
+            );
+            assert!(split.get_pages().values().any(|page| annotation
+                .get(b"P")
+                .unwrap()
+                .as_reference()
+                .unwrap()
+                == *page));
+            assert_eq!(annotation.get(b"V").unwrap().as_str().unwrap(), b"value");
+        }
+    }
+}
+
+#[test]
+fn split_pages_never_publishes_disconnected_tags_as_a_marked_document() {
+    let mut source = review_catalog_source();
+    assert!(source.catalog().unwrap().has(b"StructTreeRoot"));
+    for order in [&[0, 0, 2][..], &[2, 0][..]] {
+        let split = review_split(&mut source, order, false, false);
+        assert!(!split.catalog().unwrap().has(b"StructTreeRoot"));
+        assert!(!split.catalog().unwrap().has(b"MarkInfo"));
+        for page in split.get_pages().values() {
+            assert!(!split.get_dictionary(*page).unwrap().has(b"StructParents"));
+            let number = *split
+                .get_pages()
+                .iter()
+                .find(|(_, id)| *id == page)
+                .unwrap()
+                .0;
+            for (_, annotation) in split_page_annotations(&split, number) {
+                assert!(!annotation.has(b"StructParent"));
+            }
+        }
+    }
+}
+
+#[test]
+fn split_pages_field_kids_and_calculation_order_keep_one_connected_graph() {
+    let mut source = review_catalog_source();
+    let field = source.new_object_id();
+    let removed_widget = source.add_object(dictionary! {"Subtype" => "Widget", "Parent" => field, "P" => (4, 0), "Rect" => vec![130.into(), 20.into(), 190.into(), 40.into()]});
+    source.set_object(field, dictionary! {"FT" => "Tx", "T" => Object::string_literal("parent"), "Kids" => vec![Object::Reference((27, 0)), Object::Reference(removed_widget)]});
+    let widget = source.get_dictionary_mut((27, 0)).unwrap();
+    widget.remove(b"FT");
+    widget.remove(b"T");
+    widget.set("Parent", field);
+    source
+        .get_dictionary_mut((4, 0))
+        .unwrap()
+        .set("Annots", vec![Object::Reference(removed_widget)]);
+    source.catalog_mut().unwrap().set("AcroForm", dictionary! {"Fields" => vec![Object::Reference(field)], "CO" => vec![Object::Reference(field)]});
+    let split = review_split(&mut source, &[0, 0, 2], true, false);
+    let form = split
+        .catalog()
+        .unwrap()
+        .get(b"AcroForm")
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let root = form.get(b"Fields").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    assert_eq!(
+        form.get(b"CO").unwrap().as_array().unwrap()[0]
+            .as_reference()
+            .unwrap(),
+        root
+    );
+    let root_field = split.get_dictionary(root).unwrap();
+    assert_eq!(root_field.get(b"T").unwrap().as_str().unwrap(), b"parent");
+    let kids = root_field.get(b"Kids").unwrap().as_array().unwrap();
+    assert_eq!(
+        kids.len(),
+        1,
+        "the discarded page's widget leaves no field child"
+    );
+    let combined = kids[0].as_reference().unwrap();
+    let widgets = split
+        .get_dictionary(combined)
+        .unwrap()
+        .get(b"Kids")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(
+        widgets.len(),
+        2,
+        "both duplicated page widgets remain attached to their one field"
+    );
+    let listed = (1..=3)
+        .flat_map(|page| split_page_annotations(&split, page))
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+    for widget in widgets {
+        let id = widget.as_reference().unwrap();
+        assert!(listed.contains(&id));
+        assert_eq!(
+            split
+                .get_dictionary(id)
+                .unwrap()
+                .get(b"Parent")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            combined
+        );
+    }
+}
+
+#[test]
+fn split_pages_source_stamp_merges_info_while_assembly_is_stamp_only() {
+    let mut source = review_catalog_source();
+    let original = source
+        .get_dictionary(source.trailer.get(b"Info").unwrap().as_reference().unwrap())
+        .unwrap()
+        .clone();
+    for assembly in [false, true] {
+        let split = review_split(&mut source, &[0, 1, 2], assembly, true);
+        let info = split
+            .get_dictionary(split.trailer.get(b"Info").unwrap().as_reference().unwrap())
+            .unwrap();
+        assert_eq!(
+            info.get(b"EVBScanCleanup").unwrap().as_str().unwrap(),
+            b"54455354"
+        );
+        if assembly {
+            assert_eq!(info.len(), 1);
+        } else {
+            for (key, value) in original.iter() {
+                assert_eq!(info.get(key).unwrap(), value);
+            }
+            assert_eq!(
+                split.trailer.get(b"ID").unwrap(),
+                source.trailer.get(b"ID").unwrap()
+            );
+        }
+    }
+}
+
+fn review_color_pixels(document: &mut Document, page: u32, color: [u8; 3]) -> usize {
+    let input = path("review-pixels", "pdf");
+    document.save(&input).unwrap();
+    let result = Command::new(external_tool::tool_path(
+        "PDFTOPPM_PATH",
+        "poppler",
+        "pdftoppm",
+    ))
+    .args([
+        "-r",
+        "72",
+        "-singlefile",
+        "-hide-annotations",
+        "-f",
+        &page.to_string(),
+        "-l",
+        &page.to_string(),
+    ])
+    .arg(&input)
+    .output()
+    .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let pixels = result
+        .stdout
+        .splitn(4, |byte| *byte == b'\n')
+        .nth(3)
+        .unwrap();
+    let count = pixels.chunks_exact(3).filter(|rgb| *rgb == color).count();
+    let _ = remove_file(input);
+    count
+}
+
+#[test]
+fn split_pages_assembly_interleave_preserves_optional_content_pixels() {
+    let mut source = review_catalog_source();
+    assert_eq!(review_color_pixels(&mut source, 1, [255, 0, 0]), 0);
+    assert_eq!(review_color_pixels(&mut source, 2, [0, 0, 255]), 4800);
+    let mut split = review_split(&mut source, &[0, 1], true, true);
+    let primary = path("review-ocg-primary", "pdf");
+    let raster = path("review-ocg-raster", "pdf");
+    let output = path("review-ocg-interleave", "pdf");
+    split.save(&primary).unwrap();
+    let mut raster_document = Document::with_version("1.7");
+    let pages = raster_document.new_object_id();
+    let page = raster_document.add_object(dictionary! {"Type" => "Page", "Parent" => pages, "MediaBox" => vec![0.into(), 0.into(), 200.into(), 120.into()], "Resources" => dictionary! {}});
+    raster_document.set_object(
+        pages,
+        dictionary! {"Type" => "Pages", "Kids" => vec![Object::Reference(page)], "Count" => 1},
+    );
+    let catalog = raster_document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages});
+    raster_document.trailer.set("Root", catalog);
+    raster_document.save(&raster).unwrap();
+    let result = Command::new(qpdf_path())
+        .arg(&primary)
+        .args(["--coalesce-contents", "--pages", ".", "1"])
+        .arg(&raster)
+        .args(["1", ".", "2", "--"])
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        matches!(result.status.code(), Some(0 | 3)),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let mut assembled = Document::load(&output).unwrap();
+    assert_eq!(
+        review_color_pixels(&mut assembled, 1, [255, 0, 0]),
+        0,
+        "the source's hidden red layer stays hidden"
+    );
+    assert_eq!(
+        review_color_pixels(&mut assembled, 3, [0, 0, 255]),
+        4800,
+        "the other page's blue layer stays visible"
+    );
+    assert!(
+        result.status.success(),
+        "connected forms must interleave without a widget warning: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    for file in [primary, raster, output] {
+        let _ = remove_file(file);
+    }
+}
+
+fn write_review_large_source(input: &Path) {
+    let mut source = review_catalog_source();
+    let mut bytes = Vec::new();
+    source.save_to(&mut bytes).unwrap();
+    let previous = Document::load_mem(&bytes).unwrap().xref_start;
+    let id = source.max_id + 1;
+    let mut file = sparse_file::create_sparse_file(input);
+    file.write_all(&bytes).unwrap();
+    file.write_all(b"\n").unwrap();
+    let offset = file.stream_position().unwrap();
+    writeln!(file, "{id} 0 obj\n<</Length 537919488>>\nstream").unwrap();
+    file.seek(SeekFrom::Current(513 * 1024 * 1024)).unwrap();
+    file.write_all(b"\nendstream\nendobj\n").unwrap();
+    let xref = file.stream_position().unwrap();
+    write!(file, "xref\n{id} 1\n{offset:010} 00000 n \ntrailer\n<</Size {}/Root 1 0 R/Info 12 0 R/ID[<0123456789abcdef0123456789abcdef><fedcba9876543210fedcba9876543210>]/Prev {previous}>>\nstartxref\n{xref}\n%%EOF\n", id + 1).unwrap();
+}
+
+#[test]
+fn split_pages_assembly_trailer_policy_is_identical_across_the_size_boundary() {
+    for large in [false, true] {
+        for stamp in [false, true] {
+            let input = path("review-trailer-input", "pdf");
+            let output = path("review-trailer-output", "pdf");
+            let instructions = path("review-trailer-instructions", "json");
+            if large {
+                write_review_large_source(&input);
+            } else {
+                review_catalog_source().save(&input).unwrap();
+            }
+            let mut value = serde_json::json!({"catalog": "assembly", "pages": [{"sourcePageIndex": 0,
+                "rotationQuarterTurns": 0, "outputs": [{"cropRect": {"x": 0, "y": 0, "width": 200, "height": 120}}]}]});
+            if stamp {
+                value["provenanceStampHex"] = "54455354".into();
+            }
+            write(&instructions, value.to_string()).unwrap();
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .args(["split-pages", "--qpdf"])
+                .arg(qpdf_path())
+                .arg("--input")
+                .arg(&input)
+                .arg("--output")
+                .arg(&output)
+                .arg("--instructions-file")
+                .arg(&instructions)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let json = Command::new(qpdf_path())
+                .args(["--json", "--json-stream-data=none", "--json-key=qpdf"])
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                json.status.success(),
+                "{}",
+                String::from_utf8_lossy(&json.stderr)
+            );
+            let json: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+            let objects = &json["qpdf"][1];
+            let trailer = &objects["trailer"]["value"];
+            assert!(
+                trailer["/ID"].is_null(),
+                "assembly must not inherit source ID (large={large}, stamp={stamp}): {trailer}"
+            );
+            if stamp {
+                let id = trailer["/Info"].as_str().unwrap();
+                let info = &objects[format!("obj:{id}")]["value"];
+                assert_eq!(
+                    info.as_object().unwrap().len(),
+                    1,
+                    "assembly Info is stamp-only: {info}"
+                );
+                assert_eq!(info["/EVBScanCleanup"], "u:54455354");
+            } else {
+                assert!(
+                    trailer["/Info"].is_null(),
+                    "unstamped assembly must not inherit source Info: {trailer}"
+                );
+            }
+            let check = Command::new(qpdf_path())
+                .arg("--check")
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                check.status.success(),
+                "{}",
+                String::from_utf8_lossy(&check.stderr)
+            );
+            for file in [input, output, instructions] {
+                let _ = remove_file(file);
+            }
+        }
+    }
+}
+/// Compact assembly replaces raster pages before the final overlay. Catalog
+/// destinations must name those listed pages, including at the byte boundary.
+#[test]
+fn compact_catalog_follows_raster_replacements_at_every_size() {
+    for large in [false, true] {
+        for preserved in [false, true] {
+            let input = path("compact-catalog-source", "pdf");
+            let raster = path("compact-catalog-raster", "pdf");
+            let primary = path("compact-catalog-primary", "pdf");
+            let assembled = path("compact-catalog-assembled", "pdf");
+            let output = path("compact-catalog-output", "pdf");
+            let instructions = path("compact-catalog-plan", "json");
+            let mut source = review_catalog_source();
+            source.catalog_mut().unwrap().set("PageLabels", dictionary! {"Nums" => vec![
+                0.into(), dictionary! {"S" => "r"}.into(), 2.into(), dictionary! {"S" => "D"}.into()]});
+            let title = source.add_object(Object::string_literal("Nested body"));
+            let child = source.add_object(dictionary! {"Title" => title, "Parent" => (10,0), "Dest" => Object::string_literal("third")});
+            source
+                .get_dictionary_mut((10, 0))
+                .unwrap()
+                .set("First", child);
+            source
+                .get_dictionary_mut((10, 0))
+                .unwrap()
+                .set("Last", child);
+            source.get_dictionary_mut((10, 0)).unwrap().set("Count", 1);
+            source
+                .catalog_mut()
+                .unwrap()
+                .get_mut(b"Dests")
+                .unwrap()
+                .as_dict_mut()
+                .unwrap()
+                .set("surviving", vec![Object::Reference((5, 0)), "Fit".into()]);
+            source.save(&input).unwrap();
+            let mut blank = Document::with_version("1.7");
+            let pages_id = blank.new_object_id();
+            let pages = (0..2).map(|_| blank.add_object(dictionary! {"Type" => "Page", "Parent" => pages_id,
+                "MediaBox" => vec![0.into(),0.into(),200.into(),120.into()], "Resources" => dictionary! {}})).collect::<Vec<_>>();
+            blank.set_object(pages_id, dictionary! {"Type" => "Pages", "Kids" => pages.iter().copied().map(Object::Reference).collect::<Vec<_>>(), "Count" => 2});
+            let catalog = blank.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+            blank.trailer.set("Root", catalog);
+            let info = blank
+                .add_object(dictionary! {"EVBScanCleanup" => Object::string_literal("54455354")});
+            blank.trailer.set("Info", info);
+            blank.save(&raster).unwrap();
+            if preserved {
+                review_split(&mut source, &[2], true, true)
+                    .save(&primary)
+                    .unwrap();
+                let result = Command::new(qpdf_path())
+                    .arg(&primary)
+                    .args(["--coalesce-contents", "--pages"])
+                    .arg(&raster)
+                    .args(["1", ".", "1", "--"])
+                    .arg(&assembled)
+                    .output()
+                    .unwrap();
+                assert!(
+                    matches!(result.status.code(), Some(0 | 3)),
+                    "{}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            } else {
+                std::fs::copy(&raster, &assembled).unwrap();
+            }
+            if large {
+                // A sparse unreferenced stream forces the path-backed writer.
+                // The active catalog and Info inherit from the previous trailer.
+                for file_path in [&input, &assembled] {
+                    let mut document = Document::load(file_path).unwrap();
+                    let root = document
+                        .trailer
+                        .get(b"Root")
+                        .unwrap()
+                        .as_reference()
+                        .unwrap();
+                    let previous = document.xref_start;
+                    let info = document
+                        .trailer
+                        .get(b"Info")
+                        .unwrap()
+                        .as_reference()
+                        .unwrap();
+                    let id = document.new_object_id().0;
+                    let mut file = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(file_path)
+                        .unwrap();
+                    let offset = file.seek(SeekFrom::End(0)).unwrap();
+                    writeln!(file, "{id} 0 obj\n<</Length 537919488>>\nstream").unwrap();
+                    // append mode ignores seeks for writes; extend the file first.
+                    let end = file.stream_position().unwrap() + 513 * 1024 * 1024;
+                    file.set_len(end).unwrap();
+                    file.seek(SeekFrom::End(0)).unwrap();
+                    file.write_all(b"\nendstream\nendobj\n").unwrap();
+                    let xref = file.stream_position().unwrap();
+                    write!(file,"xref\n{id} 1\n{offset:010} 00000 n \ntrailer\n<</Size {}/Root {} {} R/Info {} {} R/Prev {previous}>>\nstartxref\n{xref}\n%%EOF\n",id+1,root.0,root.1,info.0,info.1).unwrap();
+                }
+            }
+            write(&instructions, serde_json::json!({"pages": [
+                {"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true,"unmappedGeometry":true},
+                {"sourcePageIndex":2,"outputPageIndex":1,"matrix":[1,0,0,1,0,0],"linkOnly":true}
+            ]}).to_string()).unwrap();
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .args(["overlay-text", "--qpdf"])
+                .arg(qpdf_path())
+                .arg("--input")
+                .arg(&assembled)
+                .arg("--source")
+                .arg(&input)
+                .arg("--output")
+                .arg(&output)
+                .arg("--instructions-file")
+                .arg(&instructions)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let result = Command::new(qpdf_path())
+                .args([
+                    "--json",
+                    "--json-stream-data=none",
+                    "--json-key=qpdf",
+                    "--json-key=pages",
+                    "--json-key=outlines",
+                ])
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let json: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(json["pages"].as_array().unwrap().len(), 2);
+            assert_eq!(json["pages"][0]["label"]["/S"], "/r");
+            assert_eq!(json["pages"][0]["label"]["/St"], 1);
+            assert_eq!(json["pages"][1]["label"]["/S"], "/D");
+            assert_eq!(json["pages"][1]["label"]["/St"], 1);
+            assert_eq!(json["outlines"][0]["title"], "first");
+            assert_eq!(json["outlines"][0]["destpageposfrom1"], 1);
+            assert_eq!(json["outlines"][0]["kids"][0]["title"], "Nested body");
+            assert_eq!(json["outlines"][0]["kids"][0]["destpageposfrom1"], 2);
+            assert!(json["outlines"][1]["dest"].is_null());
+            let objects = &json["qpdf"][1];
+            let root = objects["trailer"]["value"]["/Root"].as_str().unwrap();
+            let catalog = &objects[format!("obj:{root}")]["value"];
+            assert_eq!(
+                catalog["/Dests"]["/surviving"][0],
+                json["pages"][1]["object"]
+            );
+            assert!(catalog["/Dests"]["/legacy"].is_null());
+            let dests = &catalog["/Names"]["/Dests"]["/Names"];
+            assert_eq!(dests[0], "u:first");
+            assert_eq!(dests[1][0], json["pages"][0]["object"]);
+            assert_eq!(dests[2], "u:third");
+            assert_eq!(dests[3][0], json["pages"][1]["object"]);
+            let info = objects["trailer"]["value"]["/Info"].as_str().unwrap();
+            assert_eq!(
+                objects[format!("obj:{info}")]["value"]["/EVBScanCleanup"],
+                "u:54455354"
+            );
+            let check = Command::new(qpdf_path())
+                .arg("--check")
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                check.status.success(),
+                "{}",
+                String::from_utf8_lossy(&check.stderr)
+            );
+            for file in [input, raster, primary, assembled, output, instructions] {
+                let _ = remove_file(file);
+            }
+        }
+    }
+}
+
+fn r8_cross_source() -> Document {
+    let mut source = review_catalog_source();
+    let root = source.add_object(dictionary! {"Type" => "Annot", "Subtype" => "Text", "P" => (5, 0),
+        "Rect" => vec![150.into(), 60.into(), 170.into(), 80.into()], "Contents" => Object::string_literal("remote root")});
+    source
+        .get_dictionary_mut((5, 0))
+        .unwrap()
+        .set("Annots", vec![Object::Reference(root)]);
+    let reply = source.get_dictionary_mut((21, 0)).unwrap();
+    reply.set("IRT", root);
+    reply.set("Rect", vec![20.into(), 60.into(), 40.into(), 80.into()]);
+    source
+}
+
+#[test]
+fn r8_cross_page_reply_uses_its_own_crop_geometry() {
+    for assembly in [false, true] {
+        let input = path("r8-cross-input", "pdf");
+        let output = path("r8-cross-output", "pdf");
+        let instructions = path("r8-cross-instructions", "json");
+        r8_cross_source().save(&input).unwrap();
+        write(&instructions, serde_json::json!({"catalog": if assembly {"assembly"} else {"source"}, "pages": [
+            {"sourcePageIndex": 0, "rotationQuarterTurns": 0, "outputs": [{"cropRect": {"x": 0, "y": 0, "width": 100, "height": 120}}]},
+            {"sourcePageIndex": 2, "rotationQuarterTurns": 0, "outputs": [{"cropRect": {"x": 0, "y": 0, "width": 200, "height": 120}}]}
+        ]}).to_string()).unwrap();
+        run_split_pages(&input, &output, &instructions);
+        let split = Document::load(&output).unwrap();
+        let annotations = split_page_annotations(&split, 1);
+        let reply = annotations
+            .iter()
+            .find(|(_, a)| a.get(b"Contents").and_then(Object::as_str).ok() == Some(b"reply"));
+        assert!(
+            reply.is_some(),
+            "the reply lies within its own retained crop"
+        );
+        let root = split_page_annotations(&split, 2)[0].0;
+        assert_eq!(
+            reply
+                .unwrap()
+                .1
+                .get(b"IRT")
+                .unwrap()
+                .as_reference()
+                .unwrap(),
+            root
+        );
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+#[test]
+fn r8_mixed_compact_replies_target_only_listed_final_annotations() {
+    for preserved_reply in [true, false] {
+        for remove_root in [false, true] {
+            if remove_root && !preserved_reply {
+                continue;
+            }
+            let input = path("r8-mixed-input", "pdf");
+            let primary = path("r8-mixed-primary", "pdf");
+            let raster = path("r8-mixed-raster", "pdf");
+            let interleave = path("r8-mixed-interleave", "pdf");
+            let output = path("r8-mixed-output", "pdf");
+            let instructions = path("r8-mixed-instructions", "json");
+            let mut source = r8_cross_source();
+            source.save(&input).unwrap();
+            review_split(
+                &mut source,
+                &[if preserved_reply { 0 } else { 2 }],
+                true,
+                false,
+            )
+            .save(&primary)
+            .unwrap();
+            save_single_page_pdf(&raster, Stream::new(Dictionary::new(), b"".to_vec()));
+            let result = Command::new(qpdf_path())
+                .arg(&primary)
+                .args(["--coalesce-contents", "--pages"])
+                .args(if preserved_reply {
+                    vec![".", "1"]
+                } else {
+                    vec![]
+                })
+                .arg(&raster)
+                .arg("1")
+                .args(if preserved_reply {
+                    vec![]
+                } else {
+                    vec![".", "1"]
+                })
+                .arg("--")
+                .arg(&interleave)
+                .output()
+                .unwrap();
+            assert!(
+                matches!(result.status.code(), Some(0 | 3)),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            write(&instructions, serde_json::json!({"pages": [
+                {"sourcePageIndex": 0, "outputPageIndex": 0, "matrix": [1,0,0,1,0,0], "linkOnly": preserved_reply},
+                {"sourcePageIndex": 2, "outputPageIndex": 1, "matrix": [1,0,0,1,0,0], "linkOnly": !preserved_reply,
+                    "filterToOutputPage": remove_root,
+                    "sourceRegion": if remove_root {serde_json::json!({"matrix": [1,0,0,1,0,0], "rect": {"x":0,"y":0,"width":100,"height":120}})} else {serde_json::Value::Null}}
+            ]}).to_string()).unwrap();
+            // A retained raster page may crop away its root annotation.
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .args(["overlay-text", "--qpdf"])
+                .arg(qpdf_path())
+                .arg("--input")
+                .arg(&interleave)
+                .arg("--source")
+                .arg(&input)
+                .arg("--output")
+                .arg(&output)
+                .arg("--instructions-file")
+                .arg(&instructions)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let split = Document::load(&output).unwrap();
+            let annotations = (1..=2)
+                .flat_map(|page| split_page_annotations(&split, page))
+                .collect::<Vec<_>>();
+            let reply = &annotations
+                .iter()
+                .find(|(_, a)| a.get(b"Contents").and_then(Object::as_str).ok() == Some(b"reply"))
+                .unwrap()
+                .1;
+            if remove_root {
+                assert!(!reply.has(b"IRT"));
+            } else {
+                let root = annotations
+                    .iter()
+                    .find(|(_, a)| {
+                        a.get(b"Contents").and_then(Object::as_str).ok() == Some(b"remote root")
+                    })
+                    .unwrap()
+                    .0;
+                assert_eq!(
+                    reply.get(b"IRT").ok().and_then(|id| id.as_reference().ok()),
+                    Some(root)
+                );
+            }
+            assert!(annotations
+                .iter()
+                .all(|(_, a)| !a.has(b"EVBSourceAnnotation")));
+            for file in [input, primary, raster, interleave, output, instructions] {
+                let _ = remove_file(file);
+            }
+        }
+    }
+}
+
+#[test]
+fn r8_radio_exports_follow_pruned_and_duplicated_widgets() {
+    let mut source = review_catalog_source();
+    let field = source.new_object_id();
+    let mut kids = Vec::new();
+    for (index, page) in [(3, 0), (4, 0), (5, 0)].into_iter().enumerate() {
+        let name = ["A", "B", "C"][index];
+        let widget = source.add_object(dictionary! {"Type" => "Annot", "Subtype" => "Widget", "Parent" => field,
+            "P" => page, "Rect" => vec![130.into(), 50.into(), 146.into(), 66.into()], "AS" => name});
+        kids.push(Object::Reference(widget));
+        source
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(widget)]);
+    }
+    source.set_object(field, dictionary! {"FT" => "Btn", "T" => Object::string_literal("radio"), "Ff" => 32768,
+        "V" => "B", "Kids" => kids, "Opt" => vec![Object::string_literal("Option A"), Object::string_literal("Option B"), Object::string_literal("Option C")]});
+    source.catalog_mut().unwrap().set("AcroForm", dictionary! {"Fields" => vec![Object::Reference(field)], "CO" => vec![Object::Reference(field)], "NeedAppearances" => true});
+    for order in [&[0, 1, 0, 2][..], &[2, 0][..], &[2, 0, 1][..]] {
+        let split = review_split(&mut source, order, false, false);
+        r8_assert_radio_exports(&split, order);
+    }
+    let input = path("r8-radio-input", "pdf");
+    let primary = path("r8-radio-primary", "pdf");
+    let raster = path("r8-radio-raster", "pdf");
+    let interleave = path("r8-radio-interleave", "pdf");
+    let output = path("r8-radio-output", "pdf");
+    let instructions = path("r8-radio-instructions", "json");
+    source.save(&input).unwrap();
+    review_split(&mut source, &[2], true, false)
+        .save(&primary)
+        .unwrap();
+    save_single_page_pdf(&raster, Stream::new(Dictionary::new(), Vec::new()));
+    let mut raster_document = Document::load(&raster).unwrap();
+    let raster_page = raster_document.get_pages()[&1];
+    raster_document
+        .get_dictionary_mut(raster_page)
+        .unwrap()
+        .set("Resources", Dictionary::new());
+    raster_document.save(&raster).unwrap();
+    let result = Command::new(qpdf_path())
+        .arg(&primary)
+        .args(["--coalesce-contents", "--pages", ".", "1"])
+        .arg(&raster)
+        .args(["1", "--"])
+        .arg(&interleave)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    write(
+        &instructions,
+        serde_json::json!({"pages": [
+            {"sourcePageIndex":2,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true},
+            {"sourcePageIndex":0,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["overlay-text", "--qpdf"])
+        .arg(qpdf_path())
+        .arg("--input")
+        .arg(&interleave)
+        .arg("--source")
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .arg("--instructions-file")
+        .arg(&instructions)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    r8_assert_radio_exports(&Document::load(&output).unwrap(), &[2, 0]);
+    for file in [input, primary, raster, interleave, output, instructions] {
+        let _ = remove_file(file);
+    }
+}
+
+fn r8_assert_radio_exports(split: &Document, order: &[usize]) {
+    let form = split
+        .catalog()
+        .unwrap()
+        .get(b"AcroForm")
+        .unwrap()
+        .as_dict()
+        .unwrap();
+    let field = form.get(b"Fields").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let dictionary = split.get_dictionary(field).unwrap();
+    let kids = dictionary.get(b"Kids").unwrap().as_array().unwrap();
+    let options = dictionary.get(b"Opt").unwrap().as_array().unwrap();
+    assert_eq!(options.len(), kids.len());
+    for (page, source_index) in order.iter().enumerate() {
+        let (id, widget) = &split_page_annotations(split, page as u32 + 1)[0];
+        assert_eq!(
+            widget.get(b"Parent").unwrap().as_reference().unwrap(),
+            field,
+            "pure widgets remain direct field children"
+        );
+        let slot = kids
+            .iter()
+            .position(|kid| kid.as_reference().unwrap() == *id)
+            .unwrap();
+        assert_eq!(
+            options[slot].as_str().unwrap(),
+            [b"Option A", b"Option B", b"Option C"][*source_index]
+        );
+    }
+    assert_eq!(
+        form.get(b"CO").unwrap().as_array().unwrap()[0]
+            .as_reference()
+            .unwrap(),
+        field
+    );
+    assert!(form.get(b"NeedAppearances").unwrap().as_bool().unwrap());
+}
+
+#[test]
+fn r8_indirect_link_targets_an_active_output_page() {
+    let mut source = review_catalog_source();
+    let subtype = source.add_object(Object::Name(b"Link".to_vec()));
+    source
+        .get_dictionary_mut((23, 0))
+        .unwrap()
+        .set("Subtype", subtype);
+    let split = review_split(&mut source, &[2, 0], false, false);
+    let link = split_page_annotations(&split, 2)
+        .into_iter()
+        .find(|(_, a)| {
+            split
+                .dereference(a.get(b"Subtype").unwrap())
+                .unwrap()
+                .1
+                .as_name()
+                .ok()
+                == Some(b"Link")
+        })
+        .unwrap()
+        .1;
+    let destination = link.get(b"Dest").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    assert!(split.get_pages().values().any(|id| *id == destination));
+    assert!(!link.has(b"EVBDestinationPage"));
+}
+
+#[test]
+fn r8_identity_output_retains_accessibility_structure_and_references() {
+    let mut source = review_catalog_source();
+    let root = source
+        .catalog()
+        .unwrap()
+        .get(b"StructTreeRoot")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let element = source.add_object(
+        dictionary! {"Type" => "StructElem", "S" => "P", "P" => root, "Pg" => (3, 0),
+        "K" => vec![Object::Dictionary(dictionary! {"Type" => "OBJR", "Pg" => (3, 0), "Obj" => (20, 0)}),
+            Object::Dictionary(dictionary! {"Type" => "MCR", "Pg" => (3, 0), "Stm" => (6, 0), "MCID" => 0})]},
+    );
+    source.get_dictionary_mut(root).unwrap().set("K", element);
+    let split = review_split(&mut source, &[0, 1, 2], false, false);
+    assert!(split.catalog().unwrap().has(b"MarkInfo"));
+    let root = split
+        .dereference(split.catalog().unwrap().get(b"StructTreeRoot").unwrap())
+        .unwrap()
+        .1
+        .as_dict()
+        .unwrap();
+    let element = split
+        .dereference(root.get(b"K").unwrap())
+        .unwrap()
+        .1
+        .as_dict()
+        .unwrap();
+    assert_eq!(
+        element.get(b"Pg").unwrap().as_reference().unwrap(),
+        split.get_pages()[&1]
+    );
+    let members = element.get(b"K").unwrap().as_array().unwrap();
+    let objr = members[0].as_dict().unwrap();
+    let mcr = members[1].as_dict().unwrap();
+    assert!(
+        split
+            .get_page_contents(split.get_pages()[&1])
+            .contains(&mcr.get(b"Stm").unwrap().as_reference().unwrap()),
+        "marked content references the painted stream, not a detached clone"
+    );
+    assert_eq!(
+        objr.get(b"Obj").unwrap().as_reference().unwrap(),
+        split_page_annotations(&split, 1)[0].0
+    );
+    for page in split.get_pages().values() {
+        assert!(split.get_dictionary(*page).unwrap().has(b"StructParents"));
+    }
+    for (order, removed) in [(&[0, 1, 2][..], false), (&[2, 0][..], true)] {
+        let input = path("r8-tag-result-input", "pdf");
+        let output = path("r8-tag-result-output", "pdf");
+        let instructions = path("r8-tag-result-instructions", "json");
+        source.save(&input).unwrap();
+        write(
+            &instructions,
+            serde_json::json!({"pages": order.iter().map(|index| serde_json::json!({
+            "sourcePageIndex": index, "rotationQuarterTurns": 0,
+            "outputs": [{"cropRect": {"x":0,"y":0,"width":200,"height":120}}]
+        })).collect::<Vec<_>>()} )
+            .to_string(),
+        )
+        .unwrap();
+        let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+            .args(["split-pages", "--input"])
+            .arg(&input)
+            .arg("--output")
+            .arg(&output)
+            .arg("--instructions-file")
+            .arg(&instructions)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let result: serde_json::Value = if result.stdout.is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_slice(&result.stdout).unwrap()
+        };
+        assert_eq!(
+            result["accessibilityTagsRemoved"]
+                .as_bool()
+                .unwrap_or(false),
+            removed
+        );
+        for file in [input, output, instructions] {
+            let _ = remove_file(file);
+        }
+    }
+}
+
+// The review's compact plans use qpdf interleaving and the public CLI, so the
+// assertions see the final saved identities rather than an intermediate graph.
+fn r9_compact(source: &mut Document, specs: &[(usize, bool, i32, i32)]) -> Document {
+    let input = path("r9-source", "pdf");
+    let primary = path("r9-primary", "pdf");
+    let raster = path("r9-raster", "pdf");
+    let interleave = path("r9-interleave", "pdf");
+    let output = path("r9-output", "pdf");
+    let instructions = path("r9-instructions", "json");
+    source.save(&input).unwrap();
+    let kept = specs.iter().filter(|spec| spec.1).collect::<Vec<_>>();
+    write(&instructions, serde_json::json!({"catalog":"assembly", "pages": kept.iter().map(|spec| serde_json::json!({
+        "sourcePageIndex":spec.0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":spec.3,"height":120},
+        "contentTransform":{"scale":1,"translateX":spec.2,"translateY":0}}]
+    })).collect::<Vec<_>>()}).to_string()).unwrap();
+    if !kept.is_empty() {
+        run_split_pages(&input, &primary, &instructions);
+    }
+    save_single_page_pdf(&raster, Stream::new(Dictionary::new(), Vec::new()));
+    let mut raster_doc = Document::load(&raster).unwrap();
+    let raster_page = raster_doc.get_pages()[&1];
+    raster_doc
+        .get_dictionary_mut(raster_page)
+        .unwrap()
+        .set("Resources", Dictionary::new());
+    raster_doc.save(&raster).unwrap();
+    let mut command = Command::new(qpdf_path());
+    command
+        .arg(if kept.is_empty() { &raster } else { &primary })
+        .args(["--coalesce-contents", "--pages"]);
+    let mut preserved = 0;
+    for spec in specs {
+        if spec.1 {
+            preserved += 1;
+            command.args([".", &preserved.to_string()]);
+        } else {
+            command.arg(&raster).arg("1");
+        }
+    }
+    let result = command.arg("--").arg(&interleave).output().unwrap();
+    assert!(
+        matches!(result.status.code(), Some(0 | 3)),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let mut assembled = Document::load(&interleave).unwrap();
+    for (page, spec) in assembled.get_pages().values().zip(specs) {
+        if !spec.1 {
+            let page = assembled.get_dictionary_mut(*page).unwrap();
+            page.set(
+                "MediaBox",
+                vec![0.into(), 0.into(), spec.3.into(), 120.into()],
+            );
+            page.set(
+                "CropBox",
+                vec![0.into(), 0.into(), spec.3.into(), 120.into()],
+            );
+        }
+    }
+    assembled.save(&interleave).unwrap();
+    write(&instructions, serde_json::json!({"pages":specs.iter().enumerate().map(|(index,spec)| serde_json::json!({
+        "sourcePageIndex":spec.0,"outputPageIndex":index,"matrix":[1,0,0,1,spec.2,0],"linkOnly":spec.1,"filterToOutputPage":true
+    })).collect::<Vec<_>>()}).to_string()).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["overlay-text", "--qpdf"])
+        .arg(qpdf_path())
+        .arg("--input")
+        .arg(&interleave)
+        .arg("--source")
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .arg("--instructions-file")
+        .arg(&instructions)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    for file in [input, primary, raster, interleave, output, instructions] {
+        let _ = remove_file(file);
+    }
+    saved
+}
+
+#[test]
+fn r9_compact_links_follow_the_catalog_selection_policy() {
+    for kind in [0, 1, 2, 3] {
+        for coordinate in [None, Some(160), Some(250)] {
+            let mut source = review_catalog_source();
+            for page in [(3, 0), (4, 0), (5, 0)] {
+                source
+                    .get_dictionary_mut(page)
+                    .unwrap()
+                    .set("Annots", Vec::<Object>::new());
+            }
+            source.catalog_mut().unwrap().remove(b"AcroForm");
+            let dest = if let Some(x) = coordinate {
+                vec![(3, 0).into(), "XYZ".into(), x.into(), 80.into(), 0.into()]
+            } else {
+                vec![(3, 0).into(), "Fit".into()]
+            };
+            let link = source
+                .add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Link","P"=>(5,0),
+                "Rect"=>vec![20.into(),20.into(),50.into(),40.into()],"Dest"=>dest.clone()});
+            source
+                .get_dictionary_mut((5, 0))
+                .unwrap()
+                .set("Annots", vec![Object::Reference(link)]);
+            source.catalog_mut().unwrap().set("Names", dictionary! {"Dests"=>dictionary! {"Names"=>vec![Object::string_literal("target"),Object::Array(dest)]}});
+            let specs = if kind == 3 {
+                vec![(2, true, 0, 200), (0, true, 0, 200), (0, true, 0, 200)]
+            } else {
+                vec![
+                    (2, kind != 2, 0, 200),
+                    (0, kind == 0, 0, 100),
+                    (0, kind != 2, -100, 100),
+                ]
+            };
+            let saved = r9_compact(&mut source, &specs);
+            let annotations = split_page_annotations(&saved, 1);
+            let link = &annotations[0].1;
+            if coordinate == Some(250) {
+                assert!(!link.has(b"Dest"));
+            } else {
+                let dest = link.get(b"Dest").unwrap().as_array().unwrap();
+                let page = if coordinate.is_some() && kind != 3 {
+                    3
+                } else {
+                    2
+                };
+                assert_eq!(dest[0].as_reference().unwrap(), saved.get_pages()[&page]);
+                if coordinate.is_some() {
+                    assert_eq!(
+                        dest[2].as_float().unwrap(),
+                        if kind == 3 { 160.0 } else { 60.0 }
+                    );
+                }
+                let names = saved
+                    .catalog()
+                    .unwrap()
+                    .get(b"Names")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"Dests")
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"Names")
+                    .unwrap()
+                    .as_array()
+                    .unwrap();
+                assert_eq!(&names[1], &Object::Array(dest.clone()));
+            }
+            assert!(!link.has(b"EVBDestinationPage"));
+        }
+    }
+}
+
+#[test]
+fn r9_indirect_raster_widgets_keep_their_final_field_parents() {
+    for indirect in [false, true] {
+        let mut source = review_catalog_source();
+        let fields = [source.new_object_id(), source.new_object_id()];
+        let subtype = if indirect {
+            Object::Reference(source.add_object(Object::Name(b"Widget".to_vec())))
+        } else {
+            "Widget".into()
+        };
+        let mut kids = [Vec::new(), Vec::new()];
+        for (index, page) in [(3, 0), (4, 0), (5, 0)].into_iter().enumerate() {
+            let mut annots = Vec::new();
+            for (n, field) in fields.iter().enumerate() {
+                let widget = source.add_object(dictionary! {"Type"=>"Annot","Subtype"=>subtype.clone(),"P"=>page,"Parent"=>*field,
+                    "Rect"=>vec![20.into(),20.into(),40.into(),40.into()],"AS"=>["A","B","C"][index]});
+                kids[n].push(Object::Reference(widget));
+                annots.push(Object::Reference(widget));
+            }
+            source
+                .get_dictionary_mut(page)
+                .unwrap()
+                .set("Annots", annots);
+        }
+        source.set_object(fields[0],dictionary! {"FT"=>"Btn","T"=>Object::string_literal("radio"),"Ff"=>32768,"Kids"=>kids[0].clone(),
+            "Opt"=>vec![Object::string_literal("Option A"),Object::string_literal("Option B"),Object::string_literal("Option C")]});
+        source.set_object(
+            fields[1],
+            dictionary! {"FT"=>"Tx","T"=>Object::string_literal("text"),"Kids"=>kids[1].clone()},
+        );
+        source.catalog_mut().unwrap().set("AcroForm",dictionary! {"Fields"=>fields.iter().copied().map(Object::Reference).collect::<Vec<_>>()});
+        let saved = r9_compact(&mut source, &[(2, true, 0, 200), (0, false, 0, 200)]);
+        let form = saved
+            .catalog()
+            .unwrap()
+            .get(b"AcroForm")
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let fields = form.get(b"Fields").unwrap().as_array().unwrap();
+        for page in 1..=2 {
+            let annotations = split_page_annotations(&saved, page);
+            assert_eq!(annotations.len(), 2);
+            for (id, widget) in annotations {
+                let parent = widget.get(b"Parent").unwrap().as_reference().unwrap();
+                assert!(fields.contains(&Object::Reference(parent)));
+                let kids = saved
+                    .get_dictionary(parent)
+                    .unwrap()
+                    .get(b"Kids")
+                    .unwrap()
+                    .as_array()
+                    .unwrap();
+                assert!(kids.contains(&Object::Reference(id)));
+            }
+        }
+    }
+}
+
+#[test]
+fn r9_identity_tags_drop_when_an_objr_annotation_is_cropped_away() {
+    let mut source = review_catalog_source();
+    for page in [(3, 0), (4, 0), (5, 0)] {
+        source
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Annots", Vec::<Object>::new());
+    }
+    source.catalog_mut().unwrap().remove(b"AcroForm");
+    let root = source
+        .catalog()
+        .unwrap()
+        .get(b"StructTreeRoot")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let note = source.add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Text","P"=>(3,0),"StructParent"=>10,
+        "Rect"=>vec![150.into(),60.into(),170.into(),80.into()],"Contents"=>Object::string_literal("outside crop note")});
+    let kept = source.add_object(dictionary! {"Type"=>"Annot","Subtype"=>"Text","P"=>(3,0),"StructParent"=>11,
+        "Rect"=>vec![20.into(),60.into(),40.into(),80.into()],"Contents"=>Object::string_literal("inside crop note")});
+    let element = source.add_object(
+        dictionary! {"Type"=>"StructElem","S"=>"Annot","P"=>root,"Pg"=>(3,0),
+        "K"=>dictionary! {"Type"=>"OBJR","Pg"=>(3,0),"Obj"=>note}},
+    );
+    let tree = source.add_object(dictionary! {"Nums"=>vec![10.into(),element.into()]});
+    source.get_dictionary_mut(root).unwrap().set("K", element);
+    source
+        .get_dictionary_mut(root)
+        .unwrap()
+        .set("ParentTree", tree);
+    source
+        .get_dictionary_mut((3, 0))
+        .unwrap()
+        .set("CropBox", vec![0.into(), 0.into(), 100.into(), 120.into()]);
+    source.get_dictionary_mut((3, 0)).unwrap().set(
+        "Annots",
+        vec![Object::Reference(note), Object::Reference(kept)],
+    );
+    let input = path("r9-tags-input", "pdf");
+    let output = path("r9-tags-output", "pdf");
+    let instructions = path("r9-tags-plan", "json");
+    source.save(&input).unwrap();
+    write(&instructions,serde_json::json!({"pages":(0..3).map(|index|serde_json::json!({"sourcePageIndex":index,"rotationQuarterTurns":0,
+        "outputs":[{"cropRect":{"x":0,"y":0,"width":if index==0 {100} else {200},"height":120}}]})).collect::<Vec<_>>()} ).to_string()).unwrap();
+    let result = run_split_pages_output(&input, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let saved = Document::load(&output).unwrap();
+    assert!(!saved.catalog().unwrap().has(b"StructTreeRoot"));
+    assert!(!saved.catalog().unwrap().has(b"MarkInfo"));
+    for page in saved.get_pages().values() {
+        assert!(!saved.get_dictionary(*page).unwrap().has(b"StructParents"));
+    }
+    let annotations = split_page_annotations(&saved, 1);
+    assert_eq!(annotations.len(), 1);
+    assert!(!annotations[0].1.has(b"StructParent"));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&result.stdout).unwrap()
+            ["accessibilityTagsRemoved"],
+        true
+    );
+    for file in [input, output, instructions] {
+        let _ = remove_file(file);
+    }
+}

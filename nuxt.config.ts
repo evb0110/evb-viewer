@@ -4,6 +4,7 @@ import {getIcons} from '@iconify/utils';
 import {DEFAULT_LOCALE} from './packages/i18n-core/localeCodes';
 import {LOCALE_DEFINITIONS} from './packages/i18n-core/localeDefinitions';
 import {isPdfjsPackageId} from './scripts/lib/pdfjs-package-path.mjs';
+import {isVercelBuildOutput, nuxtOutputDirectory, readBuildEnvironment} from './scripts/lib/build-environment.mjs';
 
 const requireFromConfig = createRequire(import.meta.url);
 
@@ -67,41 +68,35 @@ function isInvalidNuxtUiResizableImport(entry: unknown) {
         && from.includes('@nuxt/ui/dist/runtime/composables/useResizable');
 }
 
-const isVercelBuildOutput = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1';
-const isolatedNuxtOutputDir = process.env.EVB_NUXT_OUTPUT_DIR?.trim();
+const buildEnv = readBuildEnvironment(process.env);
 const packageJson = requireFromConfig('./package.json') as {version?: unknown};
 // Release builds stamp package.json from their tag. A hosted deploy builds an
 // untagged main commit, so scripts/deployVercelPrivate.mjs names it instead, and
 // a hosted build without that name would report a stale version.
-const appVersion = process.env.EVB_APP_VERSION?.trim() || String(packageJson.version);
-if (isVercelBuildOutput && !process.env.EVB_APP_VERSION?.trim()) {
+const appVersion = buildEnv.EVB_APP_VERSION?.trim() || String(packageJson.version);
+if (isVercelBuildOutput(buildEnv) && !buildEnv.EVB_APP_VERSION?.trim()) {
     throw new Error('Hosted viewer builds need EVB_APP_VERSION; deploy with `pnpm run deploy:web`, which names it from the release tag.');
 }
 // Hosted browser builds report to Sentry only when a DSN is configured; the
 // desktop renderer sends through Electron main instead. Source maps are
 // emitted only for a build that uploads them (scripts/upload-sentry-sourcemaps.mjs).
-const sentryBrowserDsn = process.env.SENTRY_BROWSER_DSN?.trim() ?? '';
+const sentryBrowserDsn = buildEnv.SENTRY_BROWSER_DSN?.trim() ?? '';
 const sentryBrowserIngestOrigin = sentryBrowserDsn ? new URL(sentryBrowserDsn).origin : '';
-const emitSourceMaps = Boolean(process.env.SENTRY_AUTH_TOKEN);
-const nitroOutput = isVercelBuildOutput
+const emitSourceMaps = Boolean(buildEnv.SENTRY_AUTH_TOKEN);
+const nitroOutputDir = nuxtOutputDirectory(buildEnv);
+const nitroOutput = isVercelBuildOutput(buildEnv)
     // Let Nitro's Vercel preset keep Build Output API directories as static/ and functions/.
-    ? {dir: '.vercel/output'}
-    : isolatedNuxtOutputDir
-        ? {
-            dir: isolatedNuxtOutputDir,
-            publicDir: `${isolatedNuxtOutputDir}/public`,
-            serverDir: `${isolatedNuxtOutputDir}/server`,
-        }
-        : {
-            dir: 'nuxt-output',
-            publicDir: 'nuxt-output/public',
-            serverDir: 'nuxt-output/server',
-        };
+    ? {dir: nitroOutputDir}
+    : {
+        dir: nitroOutputDir,
+        publicDir: `${nitroOutputDir}/public`,
+        serverDir: `${nitroOutputDir}/server`,
+    };
 
-const isDev = process.env.NODE_ENV !== 'production';
-const isolatedNuxtBuildDir = process.env.EVB_NUXT_BUILD_DIR?.trim();
-const isolatedNuxtViteCacheDir = process.env.EVB_NUXT_VITE_CACHE_DIR?.trim();
-const enableNuxtCompatibilityV5 = process.env.EVB_NUXT_COMPATIBILITY_VERSION === '5';
+const isDev = buildEnv.NODE_ENV !== 'production';
+const isolatedNuxtBuildDir = buildEnv.EVB_NUXT_BUILD_DIR?.trim();
+const isolatedNuxtViteCacheDir = buildEnv.EVB_NUXT_VITE_CACHE_DIR?.trim();
+const enableNuxtCompatibilityV5 = buildEnv.EVB_NUXT_COMPATIBILITY_VERSION === '5';
 const appShellCacheHeaders = {
     // Firefox excludes no-store documents from BFCache. The clean browser
     // workspace must be restorable offline; revalidation still keeps a new
@@ -306,11 +301,11 @@ export default defineNuxtConfig({
             sentry: {
                 dsn: sentryBrowserDsn,
                 release: `evb-viewer-web@${appVersion}`,
-                environment: process.env.VERCEL_ENV || 'development',
+                environment: buildEnv.VERCEL_ENV || 'development',
             },
-            analyticsEnabled: process.env.NUXT_PUBLIC_ANALYTICS_ENABLED === '1',
-            landingUrl: process.env.NUXT_PUBLIC_LANDING_URL || 'https://evb-viewer.com',
-            siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
+            analyticsEnabled: buildEnv.NUXT_PUBLIC_ANALYTICS_ENABLED === '1',
+            landingUrl: buildEnv.NUXT_PUBLIC_LANDING_URL || 'https://evb-viewer.com',
+            siteUrl: buildEnv.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
         },
     },
 
@@ -388,14 +383,14 @@ export default defineNuxtConfig({
         restructureDir: 'app',
         locales: LOCALE_DEFINITIONS,
         defaultLocale: DEFAULT_LOCALE,
-        baseUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
+        baseUrl: buildEnv.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
         lazy: true,
         langDir: 'i18n/runtime-locales/',
         strategy: 'no_prefix',
         detectBrowserLanguage: {
             useCookie: true,
             cookieKey: 'i18n_redirected',
-            cookieSecure: process.env.NODE_ENV === 'production',
+            cookieSecure: buildEnv.NODE_ENV === 'production',
             redirectOn: 'root',
         },
     },
@@ -641,7 +636,7 @@ export default defineNuxtConfig({
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
         output: nitroOutput,
-        ...(isVercelBuildOutput ? {
+        ...(isVercelBuildOutput(buildEnv) ? {
             // Vercel's file tracer can omit modules re-exported only by this
             // package's barrel, which leaves the server function unable to boot.
             externals: {inline: ['@iconify/utils']},

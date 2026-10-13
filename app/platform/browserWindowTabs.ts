@@ -1020,6 +1020,14 @@ async function publishRecoveryLiveLease(ownerId: string, refs: TDocumentRef[]) {
     }
 }
 
+// Publishes the live leases of open documents without writing a recovery
+// record. A clean, unedited document writes no checkpoint, so save and touch
+// never carry its lease. The workspace-shell recovery hook calls this for every
+// open document, so that the sweep keeps its source.
+export function publishBrowserDocumentLiveLeases(ownerId: string, liveDocumentRefs: TDocumentRef[]) {
+    return publishRecoveryLiveLease(ownerId, liveDocumentRefs);
+}
+
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     browserRecovery: {
         getOwnerId: getBrowserWindowRecoveryOwnerId,

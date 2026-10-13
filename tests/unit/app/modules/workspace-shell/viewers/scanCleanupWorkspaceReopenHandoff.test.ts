@@ -6,10 +6,16 @@ import {
     vi,
 } from 'vitest';
 import {
+    computed,
     effectScope,
     nextTick,
     ref,
 } from 'vue';
+import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import { saveScanCleanupOutputAs } from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
+import { cast } from '@tests/helpers/cast';
+import type { TTranslateFn } from '@i18n-app';
 import type {
     IScanCleanupCapability,
     TScanCleanupJobState,
@@ -106,6 +112,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 return () => undefined;
             }),
             onDetectionJobState: vi.fn(() => () => undefined),
+            onSettingsChanged: vi.fn(() => () => undefined),
         };
 
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
@@ -117,7 +124,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 await reopenCommitted.promise;
                 return true;
             },
-            saveActiveDocumentAs: vi.fn(),
+            saveCompletedOutputAs: vi.fn(),
             t: ((key: string) => key) as never,
             toast: {add: vi.fn()},
         });
@@ -167,5 +174,72 @@ describe('scan-cleanup workspace reopen handoff', () => {
             lifecycle.dispose();
             scope.stop();
         }
+    });
+
+    it('saves the cleanup output from its own tab after another document becomes active', async () => {
+        const outputTab = {snapshot: ref({identity: {
+            documentRef: '/managed/book — cleaned.pdf',
+            workingCopyPath: '/managed/book — cleaned.pdf',
+            originalPath: null,
+        }})};
+        const activeTab = {snapshot: ref({identity: {
+            documentRef: '/source/other.pdf',
+            workingCopyPath: '/source/other.pdf',
+            originalPath: '/source/other.pdf',
+        }})};
+        const sessions = cast<Record<string, IWorkspaceDocumentController>>({
+            'tab-output': outputTab,
+            'tab-other': activeTab,
+        });
+        const activeTabId = ref('tab-other');
+        const saveAsByTab = {
+            'tab-output': vi.fn(async () => true),
+            'tab-other': vi.fn(async () => true),
+        };
+        const activeWorkspace = computed(() => cast<IWorkspaceExpose>({handleSaveAs: saveAsByTab[activeTabId.value as keyof typeof saveAsByTab]}));
+        const activateTab = vi.fn((tabId: string) => {
+            activeTabId.value = tabId;
+        });
+
+        await expect(saveScanCleanupOutputAs(
+            '/managed/book — cleaned.pdf',
+            activeWorkspace,
+            computed(() => sessions),
+            activateTab,
+            {add: vi.fn()},
+            cast<TTranslateFn>((key: string) => key),
+        )).resolves.toBe(true);
+
+        expect(activateTab).toHaveBeenCalledWith('tab-output');
+        expect(saveAsByTab['tab-output']).toHaveBeenCalledOnce();
+        expect(saveAsByTab['tab-other']).not.toHaveBeenCalled();
+    });
+
+    it('reports a closed output tab without saving the active document', async () => {
+        const sessions = cast<Record<string, IWorkspaceDocumentController>>({'tab-other': {snapshot: ref({identity: {
+            documentRef: '/source/other.pdf',
+            workingCopyPath: '/source/other.pdf',
+            originalPath: '/source/other.pdf',
+        }})}});
+        const handleSaveAs = vi.fn(async () => true);
+        const activeWorkspace = computed(() => cast<IWorkspaceExpose>({handleSaveAs}));
+        const activateTab = vi.fn();
+        const toastAdd = vi.fn();
+
+        await expect(saveScanCleanupOutputAs(
+            '/managed/book — cleaned.pdf',
+            activeWorkspace,
+            computed(() => sessions),
+            activateTab,
+            {add: toastAdd},
+            cast<TTranslateFn>((key: string) => key),
+        )).resolves.toBe(false);
+
+        expect(activateTab).not.toHaveBeenCalled();
+        expect(handleSaveAs).not.toHaveBeenCalled();
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
+            color: 'warning',
+            title: 'scanCleanup.outputClosedBeforeSaveAs',
+        }));
     });
 });

@@ -311,6 +311,7 @@ function previewBackend() {
         }),
         onJobState: vi.fn(),
         onDetectionJobState: vi.fn(),
+        onSettingsChanged: vi.fn(),
     };
     return {
         capability: value,

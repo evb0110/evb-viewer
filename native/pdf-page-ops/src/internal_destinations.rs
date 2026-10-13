@@ -1,27 +1,15 @@
 use super::*;
-use crate::split_pages::{validate_crop_rect, PdfMatrix};
+use crate::split_pages::PdfMatrix;
 
 const MAX_NAME_TREE_DEPTH: usize = 32;
 
-/// Resolve navigation through the destination page's geometry, independently
-/// of the page which owns the annotation. A destination on a page outside the
-/// output, an undefined name, or a transform the output cannot express yields
-/// `None`, and the caller drops that navigation while keeping the annotation.
-/// A point on a page that is in the output but outside every cropped region,
-/// or shown by several outputs, is still refused: the existing overlay tests
-/// pin that refusal. A split must identify one output.
+/// Transform the one surviving output selected by the shared destination policy.
+/// The catalog and annotations choose their output before applying coordinates.
 pub(crate) fn remap_internal_destination(
     source: &Document,
-    destination: &Object,
-    pages: &[crate::overlay_sources::OverlayPage<'_>],
+    mut destination: Vec<Object>,
+    selected: &crate::overlay_sources::OverlayPage<'_>,
 ) -> Result<Option<Object>> {
-    let Some(mut destination) = resolve_destination(source, destination)? else {
-        return Ok(None);
-    };
-    let source_page = destination
-        .first()
-        .ok_or("Missing internal destination page")?
-        .as_reference()?;
     let mode = source
         .dereference(
             destination
@@ -85,38 +73,6 @@ pub(crate) fn remap_internal_destination(
         vec![[left, bottom], [left, top], [right, bottom], [right, top]]
     } else {
         vec![point]
-    };
-    let mut outputs = pages.iter().filter(|page| page.0 == source_page);
-    let Some(first) = outputs.next() else {
-        return Ok(None);
-    };
-    let selected = if outputs.next().is_none() {
-        first
-    } else {
-        let mut matches = Vec::new();
-        for output in pages.iter().filter(|page| page.0 == source_page) {
-            let (matrix, view) = match output.2.source_region {
-                Some(region) => (region.matrix, validate_crop_rect(region.rect)?),
-                None => (output.2.matrix, output.3),
-            };
-            if points.iter().all(|point| {
-                let [x, y] = transform(matrix, *point);
-                x.is_none_or(|x| x >= view.x1 && x <= view.x2)
-                    && y.is_none_or(|y| y >= view.y1 && y <= view.y2)
-            }) {
-                matches.push(output);
-            }
-        }
-        match matches.as_slice() {
-            [output] => *output,
-            [] => {
-                return Err(
-                    "overlay-text cannot resolve an internal destination to an output region"
-                        .into(),
-                )
-            }
-            _ => return Err("overlay-text has an ambiguous internal destination".into()),
-        }
     };
     if selected.2.unmapped_geometry && points.iter().any(|point| point.iter().any(Option::is_some))
     {

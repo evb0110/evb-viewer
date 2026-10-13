@@ -1072,6 +1072,19 @@ fn overlays_source_batches_for_one_target_page_without_resetting_prior_batch() {
     );
 }
 
+// Inspect the same final publication phase as the path writer, after both
+// eager and incremental copy stages have assigned their output identities.
+fn finalize_cleanup_copy(target: &mut Document, source: &Document, instructions: &TextLayerFile) {
+    let source_path = temp_pdf_path("cleanup-final-source");
+    let output_path = temp_pdf_path("cleanup-final-output");
+    source.clone().save(&source_path).unwrap();
+    target.save(&output_path).unwrap();
+    rebind_retained_destinations(&output_path, &source_path, instructions, None).unwrap();
+    *target = Document::load(&output_path).unwrap();
+    remove_file(source_path).unwrap();
+    remove_file(output_path).unwrap();
+}
+
 #[test]
 fn cleanup_overlay_preserves_notes_replies_and_markup_at_affine_positions() {
     let mut source = create_overlay_source_document();
@@ -1162,13 +1175,14 @@ fn cleanup_overlay_preserves_notes_replies_and_markup_at_affine_positions() {
             target.save_to(&mut bytes).unwrap();
             target = Document::load_mem(&bytes).unwrap();
         }
+        finalize_cleanup_copy(&mut target, &source, &instructions);
         let annotations = get_page_annots(&target, target_page).unwrap();
-        assert_eq!(annotations.len(), 5);
+        assert_eq!(annotations.len(), 6);
         let dictionaries = annotations
             .iter()
             .map(|annotation| target.dereference(annotation).unwrap().1.as_dict().unwrap())
             .collect::<Vec<_>>();
-        for annotation in &dictionaries {
+        for annotation in dictionaries.iter().filter(|annotation| annotation.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Popup")) {
             assert_eq!(
                 annotation.get(b"Rect").unwrap(),
                 &Object::Array(vec![60.into(), 10.into(), 120.into(), 50.into()])
@@ -1196,6 +1210,7 @@ fn cleanup_overlay_preserves_notes_replies_and_markup_at_affine_positions() {
             dictionaries[0].get(b"P").unwrap(),
             &Object::Reference(target_page)
         );
+        assert!(annotations.iter().any(|annotation| annotation.as_reference().ok() == Some(popup_id)));
         assert_eq!(
             target
                 .get_dictionary(popup_id)
@@ -1336,6 +1351,7 @@ fn cleanup_split_keeps_notes_with_their_owner_and_markup_on_both_halves() {
         } else {
             overlay_text_layers(&mut target, &source, &instructions).unwrap();
         }
+        finalize_cleanup_copy(&mut target, &source, &instructions);
         let pages = target.get_pages();
         let left = get_page_annots(&target, pages[&1]).unwrap();
         let right = get_page_annots(&target, pages[&2]).unwrap();

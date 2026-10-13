@@ -1,4 +1,8 @@
 import {
+    decodeScanCleanupPageOpsResult,
+    decodeNativeScanCleanupPageMetadataJson,
+} from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import {
     readFile,
     rm,
     stat,
@@ -14,7 +18,6 @@ import type {
     TScanCleanupSummary,
     TScanCleanupWarningEvent,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {getScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
@@ -548,54 +551,49 @@ export async function runLosslessScanCleanup(
             }),
         });
     }
-    const pagePlanDigests = effectiveOptions.map(record => buildScanCleanupPagePlanDigest(
-        record.sourcePage,
-        record.options,
-        pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
-    ));
-    const buildIds = await buildScanCleanupStampBuildIds({
-        paths,
-        ...(dependencies.hashNativeBinary === undefined
-            ? {}
-            : {hashNativeBinary: dependencies.hashNativeBinary}),
-        assemblerBackend: request.assemblyBackend
-            ?? paths.assemblyBackend
-            ?? (isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
-                ? 'cli-fallback-qpdf-page-ops'
-                : 'native-pdf-page-ops'),
-        transportMode: request.transportMode
-            ?? paths.transportMode
-            ?? 'source-preserved',
-        ...(request.provenance === undefined
-            ? {}
-            : {reusableNativeBinarySha256s: request.provenance.nativeBinarySha256s}),
-    });
     const stamp = buildScanCleanupProvenanceStamp({
         sourceSha256: request.provenance?.sourceSha256 ?? await sha256ScanCleanupFile(preparedPdfPath),
         effectiveOptions,
         outputMappings,
-        pagePlanDigests,
-        buildIds,
+        pagePlanDigests: effectiveOptions.map(record => buildScanCleanupPagePlanDigest(
+            record.sourcePage,
+            record.options,
+            pageMetadataBySource.get(record.sourcePage) ?? {excluded: true},
+        )),
+        buildIds: await buildScanCleanupStampBuildIds({
+            paths,
+            ...(dependencies.hashNativeBinary === undefined
+                ? {}
+                : {hashNativeBinary: dependencies.hashNativeBinary}),
+            assemblerBackend: request.assemblyBackend
+            ?? paths.assemblyBackend
+            ?? (isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)
+                ? 'cli-fallback-qpdf-page-ops'
+                : 'native-pdf-page-ops'),
+            transportMode: request.transportMode
+            ?? paths.transportMode
+            ?? 'source-preserved',
+            ...(request.provenance === undefined
+                ? {}
+                : {reusableNativeBinarySha256s: request.provenance.nativeBinarySha256s}),
+        }),
     });
-    const provenanceStampHex = encodeScanCleanupProvenanceStampHex(stamp);
     await writeFile(join(scratch, 'scan-cleanup-provenance-stamp.json'), `${JSON.stringify(stamp, null, 2)}\n`);
     const instructionsPath = join(scratch, 'split-pages.json');
-    const instructions = buildScanCleanupPageOpsInstructions(analyzedPages.map(page => ({
-        sourcePageIndex: page.sourcePageIndex,
-        rotationQuarterTurns: page.rotationQuarterTurns,
-        outputs: page.outputs.map(({placement}) => ({
-            cropRect: placement.cropRect,
-            ...(placement.contentTransform ? {contentTransform: placement.contentTransform} : {}),
-        })),
-    })), provenanceStampHex);
-    await writeFile(
-        instructionsPath,
-        paths.provenanceStampSupport === false
-            ? serializeLegacyScanCleanupPageOpsInstructions(instructions)
-            : serializeScanCleanupPageOpsInstructions(instructions),
-    );
+    await writeFile(instructionsPath, (paths.provenanceStampSupport === false
+        ? serializeLegacyScanCleanupPageOpsInstructions
+        : serializeScanCleanupPageOpsInstructions)(
+        buildScanCleanupPageOpsInstructions(analyzedPages.map(page => ({
+            sourcePageIndex: page.sourcePageIndex,
+            rotationQuarterTurns: page.rotationQuarterTurns,
+            outputs: page.outputs.map(({placement}) => ({
+                cropRect: placement.cropRect,
+                ...(placement.contentTransform ? {contentTransform: placement.contentTransform} : {}),
+            })),
+        })), encodeScanCleanupProvenanceStampHex(stamp)),
+    ));
     emitProgress('assembling', 0, allOutputs.length, []);
-    await dependencies.runCommand(paths.pdfPageOpsBinary, [
+    const pageOps = await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'split-pages',
         '--input',
         preparedPdfPath,
@@ -612,6 +610,7 @@ export async function runLosslessScanCleanup(
         log,
         ...(context.onRecoveryPending === undefined ? {} : {onTerminationProof: context.onRecoveryPending}),
     });
+    summary.accessibilityTagsRemoved = decodeScanCleanupPageOpsResult(pageOps.stdout).accessibilityTagsRemoved;
     emitProgress('assembling', allOutputs.length, allOutputs.length);
     const [
         sourceFile,

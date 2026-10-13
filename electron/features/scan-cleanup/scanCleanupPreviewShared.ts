@@ -215,6 +215,12 @@ export interface IScanCleanupRasterRetention {
         dpi: number,
         claimId?: string,
     ): Promise<void>;
+    evictRaster(
+        document: IRetainedDocument,
+        pageNumber: number,
+        dpi: number,
+        claimId?: string,
+    ): Promise<void>;
     claimRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId: string): boolean;
     retainedPaths(
         document: IRetainedDocument,
@@ -530,7 +536,7 @@ export type IScanCleanupDetectionOwnerDependencies = Pick<IScanCleanupPreviewDep
 export type IScanCleanupDetectionRetentionView = Pick<IScanCleanupRasterRetention,
     | 'openDocument' | 'pageCount' | 'pageSizeStore' | 'rasterPageSource'
     | 'retainedPaths' | 'claimRaster' | 'rasterScratchPath' | 'stagedRasterPath'
-    | 'retain' | 'releaseRaster' | 'release' | 'invalidateSender'>;
+    | 'retain' | 'evictRaster' | 'release' | 'invalidateSender'>;
 
 export type IScanCleanupPreviewOwnerRetention = IScanCleanupRenderingRetention & Pick<
     IScanCleanupRasterRetention,

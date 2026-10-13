@@ -25,7 +25,6 @@ import {
     shouldVerifyPackagedStartup,
 } from './policy.mjs';
 import { notarizeMacDmgArtifacts } from './notarize-macos-dmgs.mjs';
-import { isStrictBuildStampFresh } from '../run-build-strict.mjs';
 
 const RELEASE_DIR = 'release';
 
@@ -197,22 +196,17 @@ function main() {
             reason: 'not-requested',
             valid: false,
         };
-    const freshBuildMarker = releaseCiEnv.EVB_GATE_NO_CACHE === '1'
-        ? false
-        : isStrictBuildStampFresh();
-    if (receiptResult.valid || freshBuildMarker) {
-        process.stdout.write(
-            receiptResult.valid
-                ? `Reusing strict build proven fresh by ${receiptPath}.\n`
-                : 'Reusing strict build proven fresh by the local input marker.\n',
-        );
+    // The receipt is the only reuse decision: it covers source, toolchain,
+    // compiled configuration and outputs. Without one, the build always runs.
+    if (receiptResult.valid) {
+        process.stdout.write(`Reusing strict build proven fresh by ${receiptPath}.\n`);
     } else {
         if (receiptPath) {
             process.stdout.write(
                 `Strict-build receipt is not reusable (${receiptResult.reason}); rebuilding.\n`,
             );
         } else {
-            process.stdout.write('No fresh strict-build marker was found; rebuilding.\n');
+            process.stdout.write('No strict-build receipt was requested; rebuilding.\n');
         }
         run(buildCommand.command, buildCommand.args, {
             env: releaseCiEnv,

@@ -459,3 +459,5 @@ Reflect.set(globalThis, '__evbPrepareDirtyTransferReceiver', prepareDirtyTransfe
 Reflect.set(globalThis, '__evbTransferDirtyTab', transferDirtyTab);
 Reflect.set(globalThis, '__evbReadDirtyTransferObservation', readDirtyTransferObservation);
 Reflect.set(globalThis, '__evbWaitForDirtyTransferCommit', waitForDirtyTransferCommit);
+
+Reflect.set(globalThis, '__evbCleanupDetachedLiveLeaseDocument', (ref: string) => browserDocumentStore.cleanupDetachedDocument(ref));

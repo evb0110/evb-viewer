@@ -60,7 +60,9 @@
         :aria-valuemin="0"
         :aria-valuemax="Math.round(duration)"
         :aria-valuenow="Math.round(time)"
-        @pointerdown="seekFromPointer"
+        @pointerdown="startScrub"
+        @pointermove="moveScrub"
+        @lostpointercapture="endScrub"
         @keydown.left.prevent="seekTo(time - 1)"
         @keydown.right.prevent="seekTo(time + 1)"
       >
@@ -181,20 +183,35 @@ function seekTo(seconds: number) {
     showPoster.value = false;
 }
 
+// A scrub belongs to the pointer that started it. Capture keeps its moves on the track, and the
+// track's own listeners go away with it, so a cancelled or lost pointer leaves nothing behind.
+let scrubPointerId: number | null = null;
+
 function seekFromPointer(event: PointerEvent) {
     if (!(event.currentTarget instanceof HTMLElement)) {
         return;
     }
     const rect = event.currentTarget.getBoundingClientRect();
-    const seek = (clientX: number) => seekTo(Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration.value);
-    seek(event.clientX);
-    const move = (moveEvent: PointerEvent) => seek(moveEvent.clientX);
-    const up = () => {
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    seekTo(Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * duration.value);
+}
+
+function startScrub(event: PointerEvent) {
+    if (!(event.currentTarget instanceof HTMLElement)) {
+        return;
+    }
+    scrubPointerId = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    seekFromPointer(event);
+}
+
+function moveScrub(event: PointerEvent) {
+    if (event.pointerId === scrubPointerId) {
+        seekFromPointer(event);
+    }
+}
+
+function endScrub() {
+    scrubPointerId = null;
 }
 
 // timeupdate fires only a few times a second; follow the playhead every frame instead.
@@ -354,6 +371,8 @@ onMounted(() => {
   border-radius: 0.125rem;
   background: var(--landing-border);
   cursor: pointer;
+  /* Horizontal drags scrub; a vertical drag pans the page and ends the scrub through pointercancel. */
+  touch-action: pan-y;
 }
 
 .film-fill {

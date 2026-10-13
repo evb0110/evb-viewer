@@ -1,5 +1,6 @@
 import {
     access,
+    copyFile,
     link,
     mkdir,
     mkdtemp,
@@ -62,6 +63,7 @@ import type {
 } from '@evb/scan-cleanup/core/types';
 import {resolveSourceDpi} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
+import type * as TScanCleanupInputLimits from '@contracts/scan-cleanup/inputLimits';
 import {
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
@@ -379,6 +381,21 @@ afterEach(async () => {
         recursive: true,
     })));
 });
+
+// Loads the conversion pipeline with another streaming batch size. The module
+// graph is fresh only for this load; the other tests keep the production batch.
+async function loadPipelineWithBatchPages(batchPages: number) {
+    vi.resetModules();
+    vi.doMock('@contracts/scan-cleanup/inputLimits', async importOriginal => ({
+        ...await importOriginal<typeof TScanCleanupInputLimits>(),
+        SCAN_CLEANUP_STREAMING_BATCH_PAGES: batchPages,
+    }));
+    try {
+        return await import('@evb/scan-cleanup/core/runScanCleanupConversion');
+    } finally {
+        vi.doUnmock('@contracts/scan-cleanup/inputLimits');
+    }
+}
 
 describe('scan-cleanup-core conversion coverage', () => {
     it('validates the fallback used when source DPI metadata is absent', () => {
@@ -1340,12 +1357,16 @@ describe('scan-cleanup-core conversion coverage', () => {
     });
 
     it('overlays source text once over the merged document, so a link can cross a batch boundary', async () => {
+        // A boundary at the production batch size needs 1,025 pages, about 4,100
+        // template copies per run on NTFS. Eight pages per batch cross it with nine.
+        const batchPages = 8;
+        const pipeline = await loadPipelineWithBatchPages(batchPages);
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-streamed-overlay-test-'));
         roots.push(root);
         const sourcePdfPath = join(root, 'source.pdf');
         const outputPdfPath = join(root, 'output.pdf');
         await writeFile(sourcePdfPath, '%PDF-streamed-overlay-source');
-        const documentPageCount = SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1;
+        const documentPageCount = batchPages + 1;
         const templates = {
             ppm: join(root, 'template.ppm'),
             composite: join(root, 'template-composite.bin'),
@@ -1385,7 +1406,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             _source: string,
             outputPath: string,
         ) => {
-            await link(templates.ppm, outputPath);
+            await copyFile(templates.ppm, outputPath);
         });
         const runSidecar = vi.fn(async (
             _binaryPath,
@@ -1406,9 +1427,10 @@ describe('scan-cleanup-core conversion coverage', () => {
                 page,
             ] of manifest.pages.entries()) {
                 const output = page.outputs[0]!;
-                await link(templates.composite, output.outputPath);
-                await link(templates.outputMetadata, output.metadataPath);
-                await link(templates.pageMetadata, page.pageMetadataPath);
+                // Copies, not hard links: NTFS allows 1,023 links per file and this document is longer.
+                await copyFile(templates.composite, output.outputPath);
+                await copyFile(templates.outputMetadata, output.metadataPath);
+                await copyFile(templates.pageMetadata, page.pageMetadataPath);
                 onProgress({
                     stage: 'page-complete',
                     completedPages: index + 1,
@@ -1467,7 +1489,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             hashNativeBinary: vi.fn(async () => 'a'.repeat(64)),
         };
 
-        const summary = await runScanCleanupConversion(
+        const summary = await pipeline.runScanCleanupConversion(
             {
                 sourcePdfPath,
                 outputPdfPath,
@@ -1495,7 +1517,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         expect(overlayOutputPages).toHaveLength(1);
         expect(overlayOutputPages[0]).toEqual(expect.arrayContaining([
             0,
-            SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+            batchPages,
         ]));
     });
 
@@ -1526,7 +1548,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             await utimes(outputPath, stagedNow.atime, stagedNow.mtime);
             return {
                 exitCode: 0,
-                stdout: '',
+                stdout: JSON.stringify({accessibilityTagsRemoved: true}),
                 stderr: '',
             };
         });
@@ -1564,7 +1586,7 @@ describe('scan-cleanup-core conversion coverage', () => {
 
         await writeFile(stagedPdfPath, '%PDF-1.7\n%%EOF\n');
         await writeReport(1_000);
-        await expect(overlay()).resolves.toBe(true);
+        await expect(overlay()).resolves.toEqual({accessibilityTagsRemoved: true});
         const report = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};
         expect(report.outputBytes).toBe(statSync(stagedPdfPath).size);
 
@@ -1573,7 +1595,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         await utimes(stagedPdfPath, 1_700_000_000, 1_700_000_000);
         const staged = statSync(stagedPdfPath);
         await writeReport(1_000);
-        await expect(overlay()).resolves.toBe(true);
+        await expect(overlay()).resolves.toEqual({accessibilityTagsRemoved: true});
         expect(statSync(stagedPdfPath).size).toBe(staged.size);
         expect(statSync(stagedPdfPath).mtimeMs).toBe(staged.mtimeMs);
         const sameSizeReport = JSON.parse(await readFile(reportPath, 'utf8')) as {outputBytes: number};

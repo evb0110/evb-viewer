@@ -7,12 +7,18 @@ import {
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {
+    createFileSystemFileHandle,
+    FakeLockManager,
+} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import type * as BrowserFilePickerAdapter from '@app/platform/browser-api/browserFilePickerAdapter';
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     getSourceRef: vi.fn(),
     getSaveTarget: vi.fn(),
     stat: vi.fn(),
     read: vi.fn(),
+    readRange: vi.fn(),
     write: vi.fn(),
     runDocumentMutationWithSource: vi.fn(),
     assignSaveTarget: vi.fn(),
@@ -22,6 +28,7 @@ const browserDocumentStoreMock = vi.hoisted(() => ({
 }));
 
 const filePickerMock = vi.hoisted(() => ({
+    ensureFileHandleWritePermission: vi.fn(),
     pickSaveTarget: vi.fn(),
     saveBytesToPickerOrDownload: vi.fn(),
     writeDocumentRefToHandle: vi.fn(),
@@ -36,6 +43,7 @@ vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
     BrowserFileWriteOutcomeError: class BrowserFileWriteOutcomeError extends Error {
         public readonly externalWriteCommitted = null;
     },
+    ensureFileHandleWritePermission: (...args: unknown[]) => filePickerMock.ensureFileHandleWritePermission(...args),
     pickSaveTarget: (...args: unknown[]) => filePickerMock.pickSaveTarget(...args),
     saveBytesToPickerOrDownload: (...args: unknown[]) => filePickerMock.saveBytesToPickerOrDownload(...args),
     writeDocumentRefToHandle: (...args: unknown[]) => filePickerMock.writeDocumentRefToHandle(...args),
@@ -69,6 +77,7 @@ describe('browserSaveTargets', () => {
         browserDocumentStoreMock.write.mockResolvedValue(true);
         browserDocumentStoreMock.assignSaveTarget.mockResolvedValue(undefined);
         browserDocumentStoreMock.touchRecentFile.mockResolvedValue(undefined);
+        filePickerMock.ensureFileHandleWritePermission.mockResolvedValue(undefined);
         filePickerMock.pickSaveTarget.mockResolvedValue({
             canceled: false,
             fileName: 'source.pdf',
@@ -138,6 +147,26 @@ describe('browserSaveTargets', () => {
                 externalWriteCommitted: false,
                 validation: null,
             });
+    });
+
+    it('stops a stored handle save at a denied write permission before the save lock', async () => {
+        browserDocumentStoreMock.getSaveTarget.mockResolvedValue({
+            saveName: 'source.pdf',
+            saveKind: 'pdf',
+            saveHandle: {kind: 'file'},
+        });
+        filePickerMock.ensureFileHandleWritePermission.mockRejectedValueOnce(new Error('write permission denied'));
+        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
+
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
+            .resolves
+            .toMatchObject({
+                ok: false,
+                reason: 'write-failed',
+                message: 'write permission denied',
+                externalWriteCommitted: false,
+            });
+        expect(browserDocumentStoreMock.runDocumentMutationWithSource).not.toHaveBeenCalled();
     });
 
     it('returns write-failed when the browser write path throws', async () => {
@@ -214,5 +243,57 @@ describe('browserSaveTargets', () => {
             expect.any(Function),
         );
         expect(filePickerMock.saveBytesToPickerOrDownload).not.toHaveBeenCalled();
+    });
+
+    it('does not prompt for a revoked write permission while holding the physical-save lock', async () => {
+        const actualAdapter = await vi.importActual<typeof BrowserFilePickerAdapter>(
+            '@app/platform/browser-api/browserFilePickerAdapter',
+        );
+        filePickerMock.ensureFileHandleWritePermission.mockImplementation(actualAdapter.ensureFileHandleWritePermission);
+        filePickerMock.writeDocumentRefToHandle.mockImplementation(actualAdapter.writeDocumentRefToHandle);
+        browserDocumentStoreMock.readRange.mockResolvedValue(Uint8Array.of(1, 2, 3));
+        const locks = new FakeLockManager();
+        const lockNamesAtPrompt: string[] = [];
+        let permissionQueries = 0;
+        // Granted when the preflight asks; revoked by the time the save is inside the lock.
+        const handle = Object.assign(createFileSystemFileHandle({name: 'source.pdf'}), {
+            queryPermission: async () => (++permissionQueries === 1 ? 'granted' : 'prompt'),
+            requestPermission: async () => {
+                lockNamesAtPrompt.push(...(await locks.query()).held.map(lock => lock.name));
+                return 'granted';
+            },
+        });
+        browserDocumentStoreMock.getSaveTarget.mockResolvedValue({
+            saveName: 'source.pdf',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+        browserDocumentStoreMock.runDocumentMutationWithSource.mockImplementation((
+            _path: string,
+            _sourceRef: string,
+            _revision: string | null | undefined,
+            operation: (mutation: unknown) => Promise<unknown>,
+        ) => locks.request('evb-viewer:browser-physical-save', {}, () => operation({
+            writeSource: browserDocumentStoreMock.write,
+            assertPhysicalSourceBaseCurrent: vi.fn(),
+            acknowledgePhysicalSourceCommit: browserDocumentStoreMock.acknowledgePhysicalSourceCommit,
+        })));
+        const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
+
+        let result: unknown;
+        try {
+            result = await saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint');
+        } finally {
+            filePickerMock.ensureFileHandleWritePermission.mockResolvedValue(undefined);
+            filePickerMock.writeDocumentRefToHandle.mockReset();
+        }
+
+        expect(lockNamesAtPrompt).not.toContain('evb-viewer:browser-physical-save');
+        expect(result).toMatchObject({
+            ok: false,
+            reason: 'write-failed',
+            externalWriteCommitted: false,
+        });
+        expect((await locks.query()).held).toEqual([]);
     });
 });

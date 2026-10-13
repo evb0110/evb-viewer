@@ -47,51 +47,48 @@ import { getErrorMessage } from '@electron/utils/error';
 const log = createLogger('ocr-ipc');
 type TOcrOperationContext = IPlatformMainSenderContext<WebContents>;
 
-interface ITextReadRequest {
+interface IOcrRequest {
     senderId: number;
     requestId: string;
     controller: AbortController;
 }
 
-const activeTextReadRequests = new Map<string, ITextReadRequest>();
+const activeOcrRequests = new Map<string, IOcrRequest>();
 
-function getTextReadRequestKey(senderId: number, requestId: string) {
+function getOcrRequestKey(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
 }
 
-function beginTextReadRequest(
+function beginOcrRequest(
     context: TOcrOperationContext,
-    requestId: string | undefined,
+    requestId: string,
 ) {
-    if (requestId === undefined) {
-        return undefined;
-    }
-    const request: ITextReadRequest = {
+    const request: IOcrRequest = {
         senderId: context.senderId,
         requestId,
         controller: new AbortController(),
     };
-    const key = getTextReadRequestKey(context.senderId, requestId);
-    if (activeTextReadRequests.has(key)) {
-        throw new Error(`Document text request is already active: ${requestId}`);
+    const key = getOcrRequestKey(context.senderId, requestId);
+    if (activeOcrRequests.has(key)) {
+        throw new Error(`OCR request is already active: ${requestId}`);
     }
-    activeTextReadRequests.set(key, request);
+    activeOcrRequests.set(key, request);
     return request;
 }
 
-function finishTextReadRequest(request: ITextReadRequest | undefined) {
+function finishOcrRequest(request: IOcrRequest | undefined) {
     if (request) {
-        activeTextReadRequests.delete(getTextReadRequestKey(request.senderId, request.requestId));
+        activeOcrRequests.delete(getOcrRequestKey(request.senderId, request.requestId));
     }
 }
 
-function cancelTextReadRequest(senderId: number, requestId: string) {
-    const request = activeTextReadRequests.get(getTextReadRequestKey(senderId, requestId));
+function cancelOcrRequest(senderId: number, requestId: string) {
+    const request = activeOcrRequests.get(getOcrRequestKey(senderId, requestId));
     if (!request) {
         return false;
     }
     if (!request.controller.signal.aborted) {
-        request.controller.abort(new DOMException('Document text read was canceled.', 'AbortError'));
+        request.controller.abort(new DOMException('OCR request was canceled.', 'AbortError'));
     }
     return true;
 }
@@ -152,7 +149,7 @@ export async function handleResolveDocumentTextCatalog(
     pageCount?: number,
     requestId?: string,
 ) {
-    const request = beginTextReadRequest(context, requestId);
+    const request = requestId === undefined ? undefined : beginOcrRequest(context, requestId);
     try {
         const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
         request?.controller.signal.throwIfAborted();
@@ -167,7 +164,7 @@ export async function handleResolveDocumentTextCatalog(
             request,
         );
     } finally {
-        finishTextReadRequest(request);
+        finishOcrRequest(request);
     }
 }
 
@@ -180,7 +177,7 @@ export async function handleResolveDocumentTextCatalogWindow(
     pageCount?: number,
     requestId?: string,
 ) {
-    const request = beginTextReadRequest(context, requestId);
+    const request = requestId === undefined ? undefined : beginOcrRequest(context, requestId);
     try {
         const logicalPath = await validateOcrSourcePdfPath(workingCopyPath, context.senderId);
         request?.controller.signal.throwIfAborted();
@@ -205,7 +202,7 @@ export async function handleResolveDocumentTextCatalogWindow(
             request,
         );
     } finally {
-        finishTextReadRequest(request);
+        finishOcrRequest(request);
     }
 }
 
@@ -246,7 +243,7 @@ async function runCancellableTextRead<T>(
     context: TOcrOperationContext,
     logicalPath: string,
     read: (signal: AbortSignal) => Promise<T>,
-    request?: ITextReadRequest,
+    request?: IOcrRequest,
 ) {
     const operation = registerMainOperation({
         kind: 'abortable-work',
@@ -287,13 +284,18 @@ async function validateOcrSourcePdfPath(sourcePdfPath: string, senderWebContents
     return managedSourcePdfPath;
 }
 
-async function validateOcrPersistenceSourcePdfPath(sourcePdfPath: string, senderWebContentsId: number) {
+async function validateOcrPersistenceSourcePdfPath(
+    sourcePdfPath: string,
+    senderWebContentsId: number,
+    signal: AbortSignal,
+) {
     let materializedSourcePdfPath: string;
     try {
         materializedSourcePdfPath = (
             await ensureWorkingCopyMaterialized(sourcePdfPath, {
                 ownerWebContentsId: senderWebContentsId,
                 reason: 'ocr-persist',
+                signal,
             })
         ).physicalWorkingCopyPath;
     } catch (error) {
@@ -313,6 +315,7 @@ export async function handleOcrCreateSearchablePdf(
     renderDpiOrOptionsPayload?: unknown,
 ): Promise<IOcrJobStartResult> {
     let jobId = parseJobId(requestIdPayload) ?? createJobId('ocr');
+    let request: IOcrRequest | undefined;
 
     try {
         const payload = validateCreateSearchablePdfPayload(
@@ -323,9 +326,13 @@ export async function handleOcrCreateSearchablePdf(
         );
 
         jobId = requireJobId(payload.requestId);
+        // Registered before the working copy is prepared, so a cancel during
+        // that wait stops it; the job itself exists only after preparation.
+        request = beginOcrRequest(context, payload.requestId);
         const validatedSourcePdfPath = await validateOcrPersistenceSourcePdfPath(
             payload.sourcePdfPath,
             context.senderId,
+            request.controller.signal,
         );
         const result = await handleOcrCreateSearchablePdfAsync(
             context,
@@ -333,6 +340,7 @@ export async function handleOcrCreateSearchablePdf(
             payload.pages,
             payload.requestId,
             payload.options,
+            request.controller.signal,
         );
 
         if (!result.started && result.error) {
@@ -360,6 +368,8 @@ export async function handleOcrCreateSearchablePdf(
             error: envelope.message,
             errorEnvelope: envelope,
         };
+    } finally {
+        finishOcrRequest(request);
     }
 }
 
@@ -369,9 +379,9 @@ export function handleOcrCancelValidated(
 ): IOcrCancelResult {
     try {
         const requestId = validateCancelRequestId(requestIdPayload);
-        const textReadCanceled = cancelTextReadRequest(context.senderId, requestId);
+        const ocrRequestCanceled = cancelOcrRequest(context.senderId, requestId);
         const jobResult = handleOcrCancel(context, requestId);
-        return textReadCanceled && !jobResult.canceled
+        return ocrRequestCanceled && !jobResult.canceled
             ? {canceled: true}
             : jobResult;
     } catch (error) {

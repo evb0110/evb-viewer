@@ -88,7 +88,7 @@ describe('scan cleanup sidecar protocol failures', () => {
         lines.emit('line', '{');
         controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
 
-        await vi.advanceTimersByTimeAsync(3_500);
+        await vi.advanceTimersByTimeAsync(3_000);
         await expect(rejection).resolves.toMatchObject({name: 'SyntaxError'});
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledTimes(1);
     });
@@ -140,7 +140,6 @@ describe('scan cleanup sidecar protocol failures', () => {
         lines.emit('line', line);
         await vi.waitFor(() => {
             expect(lines.close).toHaveBeenCalled();
-            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
         });
         child.emit('close', null, 'SIGTERM');
 

@@ -10,6 +10,17 @@ import {
     writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import {
+    BUILD_PRESENCE_ENVIRONMENT_KEYS,
+    BUILD_SECRET_ENVIRONMENT_KEYS,
+    getCargoBuildEnvironment,
+    getCargoConfigurationInputs,
+    getCargoFingerprintEnvironment,
+    nuxtOutputDirectory,
+    readBuildEnvironment,
+} from '../lib/build-environment.mjs';
 import { getRequestedNativeRustTarget } from '../native-rust-targets.mjs';
 
 const RECEIPT_SCHEMA_VERSION = 1;
@@ -19,7 +30,7 @@ export const RELEASE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_BUILD_RECEIPT';
 /** @typedef {{env?: NodeJS.ProcessEnv | undefined, inputFiles?: string[] | undefined, outputPaths?: string[] | undefined, projectRoot?: string | undefined, runCommand?: TCommandRunner | undefined}} IComputeReleaseBuildStateOptions */
 
 /** @param {NodeJS.ProcessEnv} env @param {string} projectRoot */
-function getBuildOutputs(env, projectRoot) {
+function getNativeBuildOutputs(env, projectRoot) {
     const {platformArch} = getRequestedNativeRustTarget(env);
     const nativeManifest = `.tmp/native-build-manifest/${platformArch}.json`;
     const manifest = /** @type {IBuildManifest} */ (JSON.parse(readFileSync(path.resolve(projectRoot, nativeManifest), 'utf8')));
@@ -37,26 +48,10 @@ function getBuildOutputs(env, projectRoot) {
     ) {
         throw new Error(`Invalid native build manifest: ${nativeManifest}`);
     }
-    return [
-        'dist-electron',
-        'nuxt-output',
-        '.tmp/generated-electron-builder-resources.yml',
-        nativeManifest,
-        ...manifest.stagingRoots,
-    ];
+    return manifest.stagingRoots.concat(nativeManifest);
 }
-const BUILD_ENVIRONMENT_KEYS = [
-    'NODE_ENV',
-    'RUSTFLAGS',
-    'TARGET_ARCH',
-    'npm_config_arch',
-    'EVB_NATIVE_TARGET_ARCH',
-    'EVB_NATIVE_TARGET_PLATFORM',
-    'EVB_RELEASE_TARGET_ARCH',
-    'EVB_RELEASE_TARGET_PLATFORM',
-    'EVB_RELEASE_TARGET_DIST',
-    'EVB_ELECTRON_SOURCEMAP',
-];
+// Nuxt and Vite read these by prefix, for their own overrides. The named values
+// the build reads come from readBuildEnvironment.
 const BUILD_ENVIRONMENT_PREFIXES = [
     'NUXT_',
     'VITE_',
@@ -144,14 +139,49 @@ export function getReleaseBuildInputFiles({
     return output.split('\0').filter(Boolean);
 }
 
+// Nuxt's c12 loader is async; keep the synchronous receipt API by resolving in
+// a short-lived child. Reuse its interpolation and environment precedence rather
+// than maintaining a second dotenv parser. No values are printed by this owner.
+/** @param {NodeJS.ProcessEnv} env @param {string} projectRoot @returns {NodeJS.ProcessEnv} */
+function nuxtBuildEnvironment(env, projectRoot) {
+    const require = createRequire(import.meta.url);
+    const c12 = require.resolve('c12', {paths: [require.resolve('nuxt/package.json')]});
+    return JSON.parse(execFileSync(process.execPath, [
+        '--input-type=module',
+        '-e',
+        `
+        import {loadDotenv} from ${JSON.stringify(pathToFileURL(c12).href)};
+        const env = await loadDotenv({cwd: ${JSON.stringify(projectRoot)}, env: process.env, interpolate: true});
+        process.stdout.write(JSON.stringify(env));
+    `,
+    ], {
+        env,
+        encoding: 'utf8',
+    }));
+}
+
 /** @param {NodeJS.ProcessEnv} env */
 function buildEnvironment(env) {
-    return Object.fromEntries(Object.entries(env)
-        .filter(([key]) => (
-            BUILD_ENVIRONMENT_KEYS.includes(key)
-            || BUILD_ENVIRONMENT_PREFIXES.some(prefix => key.startsWith(prefix))
-        ) && !SENSITIVE_BUILD_ENVIRONMENT_KEY.test(key))
-        .sort(([left], [right]) => left.localeCompare(right, 'en')));
+    const values = {
+        ...Object.fromEntries(Object.entries(env).filter(([key]) => BUILD_ENVIRONMENT_PREFIXES.some(prefix => key.startsWith(prefix)))),
+        ...readBuildEnvironment(env),
+    };
+    /** @type {Record<string, string | boolean>} */
+    const environment = {};
+    for (const [
+        key,
+        value,
+    ] of Object.entries(values).sort(([left], [right]) => left.localeCompare(right, 'en'))) {
+        if (BUILD_PRESENCE_ENVIRONMENT_KEYS.includes(key)) {
+            environment[`${key}_SET`] = Boolean(value);
+        } else if (value !== undefined) {
+            const sensitive = BUILD_SECRET_ENVIRONMENT_KEYS.includes(key) || SENSITIVE_BUILD_ENVIRONMENT_KEY.test(key);
+            environment[sensitive ? `${key}_SHA256` : key] = sensitive
+                ? createHash('sha256').update(value).digest('hex')
+                : value;
+        }
+    }
+    return environment;
 }
 
 /** @param {TCommandRunner} runCommand */
@@ -176,8 +206,19 @@ export function computeReleaseBuildState({
         projectRoot,
         runCommand,
     });
+    const effectiveNuxtEnv = nuxtBuildEnvironment(env, projectRoot);
+    const nativeEnv = getCargoBuildEnvironment({env}).env;
     const contract = {
+        nativeConfiguration: createHash('sha256')
+            .update(JSON.stringify(getCargoFingerprintEnvironment(nativeEnv)))
+            .update(fingerprintPaths(projectRoot, getCargoConfigurationInputs({
+                env: nativeEnv,
+                projectRoot,
+            })))
+            .digest('hex'),
+        dotenv: fingerprintPaths(projectRoot, ['.env']),
         environment: buildEnvironment(env),
+        nuxtConfiguration: createHash('sha256').update(JSON.stringify(buildEnvironment(effectiveNuxtEnv))).digest('hex'),
         platform: process.platform,
         architecture: process.arch,
         toolchain: toolchain(runCommand),
@@ -193,7 +234,12 @@ export function computeReleaseBuildState({
             .digest('hex'),
         outputFingerprint: fingerprintPaths(
             projectRoot,
-            outputPaths ?? getBuildOutputs(env, projectRoot),
+            outputPaths ?? [
+                'dist-electron',
+                nuxtOutputDirectory(readBuildEnvironment(effectiveNuxtEnv)),
+                '.tmp/generated-electron-builder-resources.yml',
+                ...getNativeBuildOutputs(env, projectRoot),
+            ],
             {requireExisting: true},
         ),
     };

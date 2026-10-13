@@ -34,15 +34,10 @@ type TDatedReleaseAsset = IGithubReleaseAsset & {updated_at: TIsoTimestamp};
 const RELEASE_COHORT_COOKIE = 'evb_release_cohort';
 const RELEASE_COHORT_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 const releaseCatalogLoader = createReleaseCatalogLoader<TPublishedGithubRelease[]>();
-// The core mirror is written and verified before a release is promoted, so
-// core installers always have a mirror copy. The Windows ARM64 installer is
-// built and mirrored after promotion, and only the object itself can say
-// whether that finished.
-const SUPPLEMENTAL_INSTALLER_PATTERN = /^EVB-Viewer-.+-arm64-setup\.exe$/u;
 const MIRROR_PROBE_TIMEOUT_MS = 2_000;
 // Mirror objects are immutable for as long as the tag stays in the retained
-// window, so a hit stays true; a miss is rechecked soon because the
-// supplemental workflow lands minutes after promotion.
+// window, so a hit stays true; a miss is rechecked soon because a mirror copy
+// can land after promotion (the Windows ARM64 installer, or a repaired transfer).
 const MIRROR_PROBE_HIT_TTL_MS = 60 * 60_000;
 const MIRROR_PROBE_MISS_TTL_MS = 5 * 60_000;
 const MIRROR_PROBE_CACHE_LIMIT = 32;
@@ -50,10 +45,6 @@ const mirrorProbeCache = new Map<string, {
     available: boolean
     checkedAt: number
 }>();
-
-function isSupplementalInstaller(assetName: string) {
-    return SUPPLEMENTAL_INSTALLER_PATTERN.test(assetName);
-}
 
 function readCachedMirrorProbe(url: string, now: number) {
     const cached = mirrorProbeCache.get(url);
@@ -120,9 +111,6 @@ async function resolveMirrorDownloadUrl(tag: string, assetName: string, mirrorBa
         return null;
     }
     const url = `${mirrorBaseUrl}/${encodeURIComponent(tag)}/${encodeURIComponent(assetName)}`;
-    if (!isSupplementalInstaller(assetName)) {
-        return url;
-    }
     return await isOnReleaseMirror(url) ? url : null;
 }
 

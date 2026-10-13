@@ -38,7 +38,6 @@
 
 - `pnpm build`
 - `EVB_APP_VERSION=<version> vercel build` (a hosted build refuses to start without the version that `pnpm run deploy:web` otherwise names from the release tag)
-- `pnpm run deploy:web:prod`
 
 ## Analytics
 
@@ -75,7 +74,10 @@ Call `trackWebEvent(name, properties)` from `app/utils/trackWebEvent.ts` in the 
 - Its temporary source copy omits local-only directories and environment files before upload, preserves `packages/`, removes the excluded landing app from the copied workspace manifest, and removes `.vercelignore` entries that point at omitted paths. This keeps the pruned workspace installable and avoids Vercel archive-mode `ENOENT` failures.
 - The copied `package.json` drops the root `prepare` hook for both targets. It stages desktop runtime binaries into `resources/`, which the deploy excludes; `pnpm build` generates the web build artifacts itself.
 - This avoids sending the commit author email in Vercel CLI Git metadata, which prevents Vercel from treating the GitHub no-reply address as a separate team collaborator. The CLI's Git discovery is also bounded by `GIT_CEILING_DIRECTORIES` set to the temporary directory, so a checkout that contains `TMPDIR` (agent sessions use `.devkit/`) is not picked up either.
-- Because Vercel still performs the build remotely, Production/Preview environment variables and normal alias behavior match dashboard or Git-backed deploys.
+- Production deploys require macOS or Linux and `python3` with `fcntl` for the inherited flock. Windows supports previews. Production deploys stage with `vercel deploy --prod --skip-domain`, preserving Production build variables without assigning domains. The CLI's own stdout URL is inspected for its immutable deployment ID. Every Vercel child inherits the per-project flock, keeping production locked if its parent dies. While holding it, the command checks that production still serves the recorded predecessor, then runs `vercel promote <id>`. If another publisher won during the build, it stops and reports the deployment holding production.
+- Acceptance paths run against that immutable deployment's URL, including `EVB_DEPLOY_ACCEPTANCE_URL` paths. Redirects are refused. For protected deployment URLs, supply the target project’s automation bypass secret as `VERCEL_AUTOMATION_BYPASS_SECRET`; acceptance sends it in the `x-vercel-protection-bypass` header. An optional `EVB_DEPLOY_ACCEPTANCE_COMMAND` receives that URL as `EVB_DEPLOYMENT_URL`. On failure, the predecessor is promoted only if a fresh production read still names this run's ID.
+- Vercel has no conditional promote. A publisher on another host can change production between the final authority read and Vercel applying either promotion or rollback. Staging removes the remote build from that window but cannot eliminate the read-to-promote race. Avoid simultaneous production commands across hosts; all production publishers must use this procedure.
+- The format-2 cutover retires PID/hostname interpretation at the new lock path. A pre-format-2 record is overwritten only after acquiring the free flock. Before the first deploy with this version, the owner must make sure no deploy started from an older checkout is still running on any host. Deploys are run by hand by the owner. Older versions used session-specific TMPDIR locks, so this command cannot detect or serialize them; do not run an older checkout after cutover. Previews retain their normal alias behavior.
 - If an upload fails due to a transient network error, rerun the same package command.
 
 The landing target keeps the root workspace manifests and shared `packages/`,

@@ -38,6 +38,7 @@ export {
     derivePageLabelRangesFromLabels,
     findPageByPageLabelInput,
     getPageLabelAt,
+    getPageLabelStartNumberMax,
     getPageLabelWindow,
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,

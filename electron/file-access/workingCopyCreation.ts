@@ -1,4 +1,7 @@
 import {
+    getInputFileExtension, isSupportedOpenPath,
+} from '@electron/utils/documentFileTypes';
+import {
     existsSync,
     mkdirSync,
 } from 'fs';
@@ -68,26 +71,10 @@ import {
 const logger = createLogger('working-copy');
 
 const WORKING_COPY_FILE_PREFIX = 'document';
-const WORKING_COPY_PRESERVED_EXTENSIONS = [
-    '.pdf',
-    '.djvu',
-    '.djv',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.tif',
-    '.tiff',
-    '.bmp',
-    '.webp',
-    '.gif',
-] as const;
-
 function getWorkingCopyFileName(fileName: string, ensurePdfExtension = false) {
-    // A trailing POSIX whitespace character belongs to the filename, not the
-    // format suffix. Preserve the source path while classifying its copy.
-    const lowerName = fileName.trimEnd().toLowerCase();
-    const extension = WORKING_COPY_PRESERVED_EXTENSIONS.find(candidate => lowerName.endsWith(candidate))
-        ?? (ensurePdfExtension ? '.pdf' : '');
+    const extension = isSupportedOpenPath(fileName)
+        ? getInputFileExtension(fileName)
+        : (ensurePdfExtension ? '.pdf' : '');
     return `${WORKING_COPY_FILE_PREFIX}${extension}`;
 }
 

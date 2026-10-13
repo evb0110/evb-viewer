@@ -1,31 +1,32 @@
 import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
+    closeSync,
+    constants,
     cpSync,
     existsSync,
+    ftruncateSync,
     lstatSync,
     mkdirSync,
     mkdtempSync,
+    openSync,
     readFileSync,
     realpathSync,
     rmSync,
     writeFileSync,
+    writeSync,
 } from 'node:fs';
 import {
-    link as linkAsync,
-    open as openFile,
-    readFile as readFileAsync,
-    unlink as unlinkAsync,
-} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+    homedir,
+    hostname,
+    tmpdir,
+} from 'node:os';
 import path from 'node:path';
 import {
     execFileSync,
+    spawn,
     spawnSync,
 } from 'node:child_process';
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
+import {createHash} from 'node:crypto';
 import {
     fileURLToPath,
     pathToFileURL,
@@ -38,6 +39,7 @@ import {
     isExcludedWebDeploySourceFileName,
     isRootVendorPath,
 } from './check-web-deploy-source.mjs';
+import { assertWasmArtifactsCurrent } from './ensure-wasm-artifacts.mjs';
 import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
 export {promoteLandingVercelOutput} from './promoteLandingVercelOutput.mjs';
 
@@ -184,14 +186,11 @@ function configureDeployManifest(sourceRoot, deployTarget) {
 
 // public/wasm is built locally, not tracked, and the remote build has no Rust
 // toolchain, so a viewer upload carries the files `pnpm run build` produced.
+// assertWasmArtifactsCurrent has already checked them against the native sources.
 function copyBrowserWasm(projectRoot, sourceRoot) {
     for (const artifact of WASM_ARTIFACTS) {
-        const sourcePath = path.join(projectRoot, artifact.publicRelativePath);
-        if (!existsSync(sourcePath)) {
-            throw new Error(`Missing ${artifact.publicRelativePath}; run node scripts/ensure-wasm-artifacts.mjs before deploying.`);
-        }
         mkdirSync(path.dirname(path.join(sourceRoot, artifact.publicRelativePath)), {recursive: true});
-        cpSync(sourcePath, path.join(sourceRoot, artifact.publicRelativePath));
+        cpSync(path.join(projectRoot, artifact.publicRelativePath), path.join(sourceRoot, artifact.publicRelativePath));
     }
 }
 
@@ -238,6 +237,9 @@ export function preparePrivateDeploySource({
     }
 
     assertCleanTrackedWebDeploySource(projectRoot);
+    if (deployTarget === 'viewer') {
+        assertWasmArtifactsCurrent(projectRoot);
+    }
 
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'evb-vercel-private-'));
     const sourceRoot = path.join(scratchRoot, 'source');
@@ -319,6 +321,7 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {
             '--build-env',
             `EVB_APP_VERSION=${appVersion}`,
         ] : []),
+        ...(deployArgs.includes('--prod') && !deployArgs.includes('--skip-domain') ? ['--skip-domain'] : []),
         ...deployArgs,
     ];
 }
@@ -409,7 +412,7 @@ export function buildVercelRollbackArgs(previousDeployment) {
         throw new Error('A previous deployment is required before a production rollback can run.');
     }
     return [
-        'rollback',
+        'promote',
         previousDeployment,
         '--yes',
     ];
@@ -461,7 +464,8 @@ function resolveProductionAliasUrl(deployTarget) {
     return aliasUrl;
 }
 
-export function extractVercelDeploymentIdentity(output, {
+// The deployment an alias serves, as `vercel inspect` reports it.
+function parseVercelDeployment(output, {
     expectedAliasUrl,
     expectedProjectName,
 } = {}) {
@@ -483,52 +487,48 @@ export function extractVercelDeploymentIdentity(output, {
             throw new Error('Vercel inspect returned a deployment that does not own the production alias.');
         }
     }
+    if (!id && !url) {
+        throw new Error('Vercel inspect did not identify the current production deployment.');
+    }
+    return {
+        id,
+        url,
+    };
+}
+
+function deploymentIdentity({
+    id,
+    url,
+}) {
     if (id) {
         return id;
     }
-    if (url) {
-        return /^https?:\/\//iu.test(url) ? url : `https://${url}`;
-    }
-    throw new Error('Vercel inspect did not identify the current production deployment.');
+    return /^https?:\/\//iu.test(url) ? url : `https://${url}`;
 }
 
-function inspectCurrentProductionDeployment({
-    aliasUrl,
-    command,
-    env,
-    expectedProjectName,
-    sourceRoot,
-    spawnSyncImpl,
+export function extractVercelDeploymentIdentity(output, options) {
+    return deploymentIdentity(parseVercelDeployment(output, options));
+}
+
+function inspectDeployment({
+    url, expectedAliasUrl, expectedProjectName, runCommand,
 }) {
-    const useShell = process.platform === 'win32';
-    const inspectArgs = [
+    const result = runCommand([
         'inspect',
-        aliasUrl,
+        url,
         '--json',
-    ];
-    const inspectCommand = useShell ? quoteWindowsShellArg(command) : command;
-    const inspectSpawnArgs = useShell ? inspectArgs.map(quoteWindowsShellArg) : inspectArgs;
-    const result = spawnSyncImpl(inspectCommand, inspectSpawnArgs, {
-        cwd: sourceRoot,
-        encoding: 'utf8',
-        env,
-        shell: useShell,
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
-    });
-    if (result.error) {
-        throw result.error;
-    }
+    ]);
     if ((result.status ?? 1) !== 0) {
         throw new Error(`Vercel inspect exited with ${result.status ?? 1}; refusing a production deploy without a rollback target.`);
     }
-    return extractVercelDeploymentIdentity(result.stdout ?? '', {
-        expectedAliasUrl: aliasUrl,
+    const deployment = parseVercelDeployment(result.stdout ?? '', {
+        expectedAliasUrl,
         expectedProjectName,
     });
+    if (!deployment.id) {
+        throw new Error('Vercel inspect did not return an immutable deployment id.');
+    }
+    return deployment;
 }
 
 function readVercelProjectLink(sourceRoot) {
@@ -557,64 +557,111 @@ function readVercelProjectLink(sourceRoot) {
     };
 }
 
-function getProductionDeployLockPath(projectId) {
+// One lock per Vercel project for this OS user. It is not under TMPDIR: each
+// agent session has its own task temp root, and a temp-dir lock would let two
+// sessions deploy the same project at once, which breaks the rollback target.
+export function getProductionDeployLockPath(projectId) {
     const projectFingerprint = createHash('sha256').update(projectId).digest('hex').slice(0, 24);
-    return path.join(tmpdir(), `evb-vercel-production-${projectFingerprint}.lock`);
+    return path.join(homedir(), '.cache', 'evb-viewer', 'deploy-locks', `evb-vercel-production-${projectFingerprint}.lock`);
 }
 
-async function readProductionDeployLock(lockPath) {
-    try {
-        return JSON.parse(await readFileAsync(lockPath, 'utf8'));
-    } catch {
-        return null;
-    }
+// A short-lived helper takes flock on the parent's open description. The parent
+// and every Vercel child retain descriptors, so SIGKILL cannot admit a follower
+// while a surviving CLI still mutates production. Format-2 cutover makes flock
+// authoritative; older records at this path no longer decide ownership.
+const PRODUCTION_DEPLOY_LOCK_HELPER = `
+import fcntl, sys, time
+wait_ms, poll_s = sys.argv[1:3]
+deadline = time.monotonic() + int(wait_ms) / 1000
+while True:
+    try:
+        fcntl.flock(3, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        print('locked', flush=True)
+        sys.exit(0)
+    except BlockingIOError:
+        if time.monotonic() >= deadline:
+            sys.exit(3)
+        time.sleep(float(poll_s))
+`;
+
+// Runs the helper against the lock descriptor this process holds (inherited as fd 3).
+// It resolves once the helper has the flock, and the descriptor keeps the lock.
+function takeProductionDeployLock(fd, {waitMs}) {
+    return new Promise((resolve, reject) => {
+        const helper = spawn('python3', [
+            '-I',
+            '-c',
+            PRODUCTION_DEPLOY_LOCK_HELPER,
+            String(waitMs),
+            String(PRODUCTION_DEPLOY_LOCK_POLL_MS / 1000),
+        ], {stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+            fd,
+        ]});
+        let locked = false;
+        let stderr = '';
+        helper.stdout.on('data', () => {
+            locked = true;
+        });
+        helper.stderr.on('data', (chunk) => {
+            stderr += chunk;
+        });
+        helper.once('error', error => reject(new Error('Production deploy locking requires python3 with fcntl on macOS or Linux.', {cause: error})));
+        helper.once('close', (code) => {
+            if (locked && code === 0) {
+                resolve();
+            } else if (code === 3) {
+                reject(new Error(`Timed out waiting for the production deploy lock for ${waitMs}ms.`));
+            } else {
+                reject(new Error(`Production deploy lock helper exited with ${code}: ${stderr.trim()}`));
+            }
+        });
+    });
 }
 
-async function acquireProductionDeployLock({
+export async function acquireProductionDeployLock({
     env,
     projectId,
 }) {
+    if (process.platform === 'win32') {
+        throw new Error('Production deploys require macOS or Linux for the inherited flock; previews support Windows.');
+    }
     const lockPath = getProductionDeployLockPath(projectId);
-    const lockToken = randomUUID();
     const configuredWaitMs = Number(env.EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS);
     const waitMs = Number.isSafeInteger(configuredWaitMs) && configuredWaitMs >= 0
         ? configuredWaitMs
         : PRODUCTION_DEPLOY_LOCK_WAIT_MS;
-    const deadline = Date.now() + waitMs;
+    mkdirSync(path.dirname(lockPath), {recursive: true});
 
-    while (true) {
-        const temporaryPath = `${lockPath}.${process.pid}.${lockToken}.tmp`;
-        try {
-            const handle = await openFile(temporaryPath, 'wx', 0o600);
-            try {
-                await handle.writeFile(JSON.stringify({
-                    acquiredAt: Date.now(),
-                    pid: process.pid,
-                    token: lockToken,
-                }));
-            } finally {
-                await handle.close();
-            }
-            await linkAsync(temporaryPath, lockPath);
-            await unlinkAsync(temporaryPath).catch(() => undefined);
-            return async () => {
-                const currentOwner = await readProductionDeployLock(lockPath);
-                if (currentOwner?.token === lockToken) {
-                    await unlinkAsync(lockPath).catch(() => undefined);
-                }
-            };
-        } catch (error) {
-            await unlinkAsync(temporaryPath).catch(() => undefined);
-            if (error?.code !== 'EEXIST') {
-                throw error;
-            }
-        }
-
-        if (Date.now() >= deadline) {
-            throw new Error(`Timed out waiting for the production deploy lock for ${waitMs}ms.`);
-        }
-        await new Promise(resolve => setTimeout(resolve, PRODUCTION_DEPLOY_LOCK_POLL_MS));
+    // The lock file is never removed while in use: a replaced file would be a
+    // second lock on a new inode.
+    const fd = openSync(lockPath, constants.O_RDWR | constants.O_CREAT, 0o600);
+    try {
+        await takeProductionDeployLock(fd, {waitMs});
+        ftruncateSync(fd, 0);
+        writeSync(fd, JSON.stringify({
+            acquiredAt: Date.now(),
+            format: 2,
+            hostname: hostname(),
+            pid: process.pid,
+        }), 0);
+    } catch (error) {
+        closeSync(fd);
+        throw error;
     }
+    let released = false;
+    return Object.assign(async () => {
+        if (released) {
+            return;
+        }
+        released = true;
+        // Clear the record while the lock is still held, then let the descriptor
+        // close: the close is what releases the flock.
+        ftruncateSync(fd, 0);
+        closeSync(fd);
+    }, {fd});
 }
 
 async function runDeployAcceptanceChecks({
@@ -626,21 +673,19 @@ async function runDeployAcceptanceChecks({
     sourceRoot,
     spawnSyncImpl,
 }) {
-    if (acceptanceUrls.length === 0) {
-        throw new Error('Production deploy acceptance requires at least one public URL.');
-    }
-    if (typeof fetchImpl !== 'function') {
-        throw new Error('Production deploy acceptance requires a fetch implementation.');
-    }
-
     for (const url of acceptanceUrls) {
-        const response = await fetchImpl(url, {
-            headers: {accept: 'text/html,application/json'},
-            redirect: 'follow',
+        const acceptanceUrl = new URL(url);
+        acceptanceUrl.host = new URL(deploymentUrl).host;
+        const response = await fetchImpl(acceptanceUrl.href, {
+            headers: {
+                accept: 'text/html,application/json',
+                ...(env.VERCEL_AUTOMATION_BYPASS_SECRET ? {'x-vercel-protection-bypass': env.VERCEL_AUTOMATION_BYPASS_SECRET} : {}),
+            },
+            redirect: 'error',
             signal: AbortSignal.timeout(30_000),
         });
         if (!response.ok) {
-            throw new Error(`Deploy acceptance URL ${url} responded with HTTP ${response.status}.`);
+            throw new Error(`Deploy acceptance URL ${acceptanceUrl.href} responded with HTTP ${response.status}.`);
         }
     }
 
@@ -676,6 +721,38 @@ export function quoteWindowsShellArg(arg) {
     // % (env expansion runs even inside quotes); it is not reachable from the
     // paths and deploy flags built here.
     return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
+// Rolls production back to the predecessor only while the alias still serves the
+// deployment this run promoted. Another deploy that promoted since would be
+// overwritten by the rollback, so the alias is left as it is and the outcome says
+// which deployment holds it.
+function rollBackPromotedDeployment({
+    aliasUrl, expectedProjectName, previous, promoted, runCommand,
+}) {
+    let production;
+    try {
+        production = inspectDeployment({
+            url: aliasUrl,
+            expectedAliasUrl: aliasUrl,
+            expectedProjectName,
+            runCommand,
+        });
+    } catch (error) {
+        return `Rollback skipped: the production alias could not be read (${getCliErrorMessage(error)}), so no alias was changed.`;
+    }
+    if (production.id !== promoted.id) {
+        return `Rollback skipped: ${aliasUrl} is served by ${production.id}, not by the deployment this run promoted (${promoted.id}), so no alias was changed.`;
+    }
+    // Vercel has no conditional promote: another host can win between this
+    // authority read and the promote being applied remotely.
+    try {
+        const result = runCommand(buildVercelRollbackArgs(previous.id));
+        if ((result.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${result.status ?? 1}.`);
+    } catch (error) {
+        return `Rollback also failed: ${getCliErrorMessage(error)}`;
+    }
+    return 'The failed deployment was rolled back.';
 }
 
 export async function runPrivateVercelDeploy({
@@ -719,14 +796,14 @@ export async function runPrivateVercelDeploy({
         prebuilt,
     });
     const vercelEnv = withScratchGitCeiling(env, prepared.scratchRoot);
-    let releaseProductionDeployLock = async () => undefined;
+    let lock;
 
     try {
         const projectLink = isProduction
             ? readVercelProjectLink(prepared.sourceRoot)
             : null;
         if (isProduction) {
-            releaseProductionDeployLock = await acquireProductionDeployLock({
+            lock = await acquireProductionDeployLock({
                 env,
                 projectId: projectLink.projectId,
             });
@@ -737,37 +814,36 @@ export async function runPrivateVercelDeploy({
                 env,
             })
             : [];
-        const previousProductionDeployment = isProduction
-            ? inspectCurrentProductionDeployment({
-                aliasUrl: resolveProductionAliasUrl(deployTarget),
-                command,
-                env: vercelEnv,
-                expectedProjectName: projectLink.projectName,
-                sourceRoot: prepared.sourceRoot,
-                spawnSyncImpl,
-            })
-            : null;
-        const useShell = process.platform === 'win32';
-        const spawnCommand = useShell ? quoteWindowsShellArg(command) : command;
-        const spawnArgs = useShell ? commandArgs.map(quoteWindowsShellArg) : commandArgs;
-        console.log(`> ${command} ${commandArgs.join(' ')}`);
-        const result = spawnSyncImpl(spawnCommand, spawnArgs, {
-            cwd: prepared.sourceRoot,
-            env: vercelEnv,
-            encoding: 'utf8',
-            shell: useShell,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+        const productionAliasUrl = isProduction ? resolveProductionAliasUrl(deployTarget) : null;
+        // Every CLI invocation inherits the lock description as fd 3.
+        const runCommand = (args) => {
+            const useShell = process.platform === 'win32';
+            const result = spawnSyncImpl(useShell ? quoteWindowsShellArg(command) : command,
+                useShell ? args.map(quoteWindowsShellArg) : args, {
+                    cwd: prepared.sourceRoot,
+                    env: vercelEnv,
+                    encoding: 'utf8',
+                    shell: useShell,
+                    stdio: [
+                        'ignore',
+                        'pipe',
+                        'pipe',
+                        ...(lock ? [lock.fd] : []),
+                    ],
+                });
+            if (result.error) throw result.error;
+            return result;
+        };
+        const inspectProduction = () => inspectDeployment({
+            url: productionAliasUrl,
+            expectedAliasUrl: productionAliasUrl,
+            expectedProjectName: projectLink.projectName,
+            runCommand,
         });
+        const previousProductionDeployment = isProduction ? inspectProduction() : null;
+        console.log(`> ${command} ${commandArgs.join(' ')}`);
+        const result = runCommand(commandArgs);
 
-        if (result.error) {
-            throw result.error;
-        }
-
-        const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
         if (result.stdout) {
             process.stdout.write(result.stdout);
         }
@@ -777,16 +853,30 @@ export async function runPrivateVercelDeploy({
         if ((result.status ?? 1) !== 0) {
             return result.status ?? 1;
         }
-        const deploymentUrl = extractVercelDeploymentUrl(output);
+        if (!isProduction) return 0;
+        // stdout is the CLI's deployment result, not a log line naming an alias.
+        const deploymentUrl = extractVercelDeploymentUrl(result.stdout ?? '');
+        if (!deploymentUrl) {
+            throw new Error('Production Vercel deploy did not report a deployment URL; refusing to promote.');
+        }
+        const deployment = inspectDeployment({
+            url: deploymentUrl,
+            expectedProjectName: projectLink.projectName,
+            runCommand,
+        });
+        const production = inspectProduction();
+        if (production.id !== previousProductionDeployment.id) {
+            throw new Error(`Production promotion stopped: another publisher won; ${productionAliasUrl} is served by ${production.id}.`);
+        }
+        // The only remaining cross-host race is the authority-read-to-promote
+        // window; Vercel does not support a conditional promote.
         try {
-            if (!isProduction) {
-                return 0;
-            }
-
-            if (!deploymentUrl) {
-                throw new Error('Production Vercel deploy did not report a deployment URL; refusing an unverified alias.');
-            }
-
+            const promotion = runCommand([
+                'promote',
+                deployment.id,
+                '--yes',
+            ]);
+            if ((promotion.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${promotion.status ?? 1}.`);
             await runDeployAcceptanceChecks({
                 acceptanceUrls,
                 deploymentUrl,
@@ -797,42 +887,19 @@ export async function runPrivateVercelDeploy({
                 spawnSyncImpl,
             });
         } catch (error) {
-            if (!isProduction) {
-                throw error;
-            }
-            let rollbackError;
-            try {
-                const rollbackArgs = buildVercelRollbackArgs(previousProductionDeployment);
-                const rollbackUseShell = process.platform === 'win32';
-                const rollbackCommand = rollbackUseShell ? quoteWindowsShellArg(command) : command;
-                const rollbackSpawnArgs = rollbackUseShell
-                    ? rollbackArgs.map(quoteWindowsShellArg)
-                    : rollbackArgs;
-                const rollbackResult = spawnSyncImpl(rollbackCommand, rollbackSpawnArgs, {
-                    cwd: prepared.sourceRoot,
-                    env: vercelEnv,
-                    shell: rollbackUseShell,
-                    stdio: 'inherit',
-                });
-                if (rollbackResult.error) {
-                    throw rollbackResult.error;
-                }
-                if ((rollbackResult.status ?? 1) !== 0) {
-                    throw new Error(`Vercel rollback exited with ${rollbackResult.status ?? 1}.`);
-                }
-            } catch (rollbackFailure) {
-                rollbackError = rollbackFailure;
-            }
-            const acceptanceMessage = getCliErrorMessage(error);
-            const rollbackMessage = rollbackError
-                ? ` Rollback also failed: ${getCliErrorMessage(rollbackError)}`
-                : ' The failed deployment was rolled back.';
-            throw new Error(`Production deploy acceptance failed: ${acceptanceMessage}.${rollbackMessage}`, {cause: error});
+            const outcome = rollBackPromotedDeployment({
+                aliasUrl: productionAliasUrl,
+                expectedProjectName: projectLink.projectName,
+                previous: previousProductionDeployment,
+                promoted: deployment,
+                runCommand,
+            });
+            throw new Error(`Production deploy acceptance failed: ${getCliErrorMessage(error)}. ${outcome}`, {cause: error});
         }
 
         return 0;
     } finally {
-        await releaseProductionDeployLock();
+        await lock?.();
         prepared.cleanup();
     }
 }

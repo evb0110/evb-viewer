@@ -1,7 +1,7 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
-import { createPageNavigationRequest } from '@app/modules/document-viewer/public';
+import { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
 
 interface INavigateToBookmarkDestinationOptions {
     item: IBookmarkItem;
@@ -28,14 +28,17 @@ export function navigateToBookmarkDestination(options: INavigateToBookmarkDestin
     const fallbackPage = hasFiniteFallback
         ? pageIndex + 1
         : 1;
-    const request = createPageNavigationRequest(fallbackPage, 'bookmark');
+    // A bookmark without a named destination keeps the vertical position its
+    // saved or restored entry records, so its ratio still reaches the page.
+    const request = createPdfPageNavigationRequest(fallbackPage, {
+        navigationSource: 'bookmark',
+        pageYRatio: hasFiniteFallback ? options.item.pageYRatio : null,
+    });
     if (options.item.dest) {
         request.target = {
             kind: 'named-dest',
             destination: options.item.dest,
         };
     }
-    request.alignment = 'page-top';
-    request.readiness = 'page-canvas';
     options.emitGoToPage(fallbackPage, {navigationRequest: request});
 }

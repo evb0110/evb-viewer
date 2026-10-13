@@ -741,7 +741,10 @@ export function* iteratePdfSearchMatches(
         }
         const value = match[0];
         if (value.length === 0) {
-            matcher.lastIndex += 1;
+            // A `u` matcher reads whole code points, so a one-unit step from an
+            // astral character would resume inside its surrogate pair.
+            const astral = matcher.unicode && (matchedText.codePointAt(matcher.lastIndex) ?? 0) > 0xffff;
+            matcher.lastIndex += astral ? 2 : 1;
             continue;
         }
         const normalizedEndOffset = match.index + value.length;

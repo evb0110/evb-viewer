@@ -443,6 +443,10 @@ fn parsed_annotation_kinds(pdf: &Path) -> Vec<(u64, String)> {
 }
 
 fn parsed_annotation_entries(pdf: &Path) -> Vec<Value> {
+    parsed_annotation_entries_with_qpdf(pdf, &qpdf_path())
+}
+
+fn parsed_annotation_entries_with_qpdf(pdf: &Path, qpdf: &Path) -> Vec<Value> {
     let sidecar = temp_path("annotation-parse", "ndjson");
     let _cleanup = TempFiles(vec![sidecar.clone()]);
     let output = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
@@ -451,7 +455,7 @@ fn parsed_annotation_entries(pdf: &Path) -> Vec<Value> {
         .arg("--output")
         .arg(&sidecar)
         .arg("--qpdf")
-        .arg(qpdf_path())
+        .arg(qpdf)
         .args(["--modified-at", "D:20261009120000Z"])
         .output()
         .unwrap();
@@ -1118,6 +1122,313 @@ fn scanned_file_sidecars_match_the_eager_reader() {
             );
         }
     }
+}
+
+#[test]
+fn note_with_a_small_appearance_parses_as_a_note_above_the_structural_ceiling() {
+    let small = temp_path("note-appearance-small", "pdf");
+    let large = temp_path("note-appearance-large", "pdf");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    // A foreign sticky note whose normal appearance is a few bytes. Above the
+    // eager-load ceiling the parse must still read that appearance, or the
+    // note imports as foreign and drops out of the editable notes.
+    let objects: [&[u8]; 3] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Reader note)/T(Reader)/NM(note-1)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/Popup 6 0 R/AP<</N 7 0 R>>>>",
+        b"<</Type/Annot/Subtype/Popup/Rect[40 40 140 80]/Parent 5 0 R/P 3 0 R/Open false>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+    ];
+    write_scanned_annotation_pdf(&small, 20 * 1024 * 1024, &objects, &[5, 6]);
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5, 6]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for pdf in [&small, &large] {
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(5, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+    }
+}
+
+#[test]
+fn note_whose_appearance_draws_on_a_form_resource_parses_as_a_note_above_the_structural_ceiling() {
+    let small = temp_path("note-resource-small", "pdf");
+    let large = temp_path("note-resource-large", "pdf");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    // The note's appearance is a form that paints a second form from its
+    // /Resources. The second form is a stream the structural reader leaves
+    // unread, so recovery needs it restored along with the appearance.
+    let objects: [&[u8]; 4] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Reader note)/T(Reader)/NM(note-1)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/Popup 6 0 R/AP<</N 7 0 R>>>>",
+        b"<</Type/Annot/Subtype/Popup/Rect[40 40 140 80]/Parent 5 0 R/P 3 0 R/Open false>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Resources<</XObject<</Fm 8 0 R>>>>/Length 6>>\nstream\n/Fm Do\nendstream",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 8>>\nstream\n0 0 1 rg\nendstream",
+    ];
+    write_scanned_annotation_pdf(&small, 20 * 1024 * 1024, &objects, &[5, 6]);
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5, 6]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for pdf in [&small, &large] {
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(5, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+    }
+}
+
+#[test]
+fn note_with_a_reply_and_a_popup_parses_as_a_note_above_the_structural_ceiling() {
+    let small = temp_path("note-reply-small", "pdf");
+    let large = temp_path("note-reply-large", "pdf");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    // The reply is a square, not a text note, and the popup has its own
+    // appearance. Recovery snapshots both, so both need their streams.
+    let objects: [&[u8]; 6] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Reader note)/T(Reader)/NM(note-1)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/Popup 6 0 R/AP<</N 7 0 R>>>>",
+        b"<</Type/Annot/Subtype/Popup/Rect[40 40 140 80]/Parent 5 0 R/P 3 0 R/Open false/AP<</N 9 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+        b"<</Type/Annot/Subtype/Square/Rect[60 60 90 90]/Contents(Second)/T(Second)/NM(reply-1)/M(D:20260102000000Z)/P 3 0 R/IRT 5 0 R/AP<</N 10 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n1 0 0 rg 0 0 3 1.5 re f\nendstream",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 1 0 rg 0 0 3 1.5 re f\nendstream",
+    ];
+    write_scanned_annotation_pdf(&small, 20 * 1024 * 1024, &objects, &[5, 6, 8]);
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5, 6, 8]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for pdf in [&small, &large] {
+        let entries = parsed_annotation_entries(pdf);
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(5, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+        let replies = entries[0]["replies"].as_array().unwrap();
+        assert_eq!(replies.len(), 1, "{}", pdf.display());
+        assert_eq!(replies[0]["objectNumber"], 8, "{}", pdf.display());
+    }
+}
+
+#[test]
+fn note_whose_normal_appearance_names_a_state_dictionary_parses_as_a_note_above_the_structural_ceiling(
+) {
+    let small = temp_path("note-state-small", "pdf");
+    let large = temp_path("note-state-large", "pdf");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    // /N is a reference to a state dictionary, and its state names the only
+    // stream the note draws on. The structural reader leaves that stream
+    // unread, so the parse must resolve /N to reach it.
+    let objects: [&[u8]; 3] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Reader note)/T(Reader)/NM(note-1)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/AP<</N 6 0 R>>>>",
+        b"<</On 7 0 R>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+    ];
+    write_scanned_annotation_pdf(&small, 20 * 1024 * 1024, &objects, &[5]);
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for pdf in [&small, &large] {
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(5, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+    }
+}
+
+#[test]
+fn note_sharing_a_form_with_a_note_on_an_oversized_form_parses_as_a_note_above_the_structural_ceiling(
+) {
+    let small = temp_path("note-shared-small", "pdf");
+    let large = temp_path("note-shared-large", "pdf");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    // Note A draws on the shared form 9 and on form 10, which is one byte over
+    // the per-stream limit, so A stays foreign. Note B draws on the same shared
+    // form 9 alone, so it must stay editable: A's failure may not withhold 9.
+    let oversized = format!(
+        "<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length {0}>>\nstream\n{1}\nendstream",
+        1024 * 1024 + 1,
+        "X".repeat(1024 * 1024 + 1)
+    )
+    .into_bytes();
+    let objects: [&[u8]; 6] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Oversized)/T(Reader)/NM(note-a)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/AP<</N 6 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Resources<</XObject<</A 9 0 R/Z 10 0 R>>>>/Length 5>>\nstream\n/A Do\nendstream",
+        b"<</Type/Annot/Subtype/Text/Rect[60 60 90 90]/Contents(Healthy)/T(Reader)/NM(note-b)/Name/Comment/M(D:20260102000000Z)/P 3 0 R/AP<</N 8 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Resources<</XObject<</A 9 0 R>>>>/Length 5>>\nstream\n/A Do\nendstream",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+        oversized.as_slice(),
+    ];
+    write_scanned_annotation_pdf(&small, 20 * 1024 * 1024, &objects, &[5, 7]);
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5, 7]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for pdf in [&small, &large] {
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(5, "foreign".to_string()), (7, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+    }
+}
+
+#[test]
+fn large_dictionary_in_one_appearance_leaves_its_neighbour_editable_above_the_structural_ceiling() {
+    let small = temp_path("note-dictionary-small", "pdf");
+    let large = temp_path("note-dictionary-large", "pdf");
+    let _cleanup = TempFiles(vec![small.clone(), large.clone()]);
+    // Note A's form has 23 raw bytes but a 34 MiB dictionary string. That form
+    // exceeds the note recovery budget, so A is foreign. Its dictionary must not
+    // push the qpdf run that also reads note B's small form past its output limit.
+    let padded = format!(
+        "<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Padding({})/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+        "Z".repeat(34 * 1024 * 1024)
+    )
+    .into_bytes();
+    let objects: [&[u8]; 4] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Padded)/T(Reader)/NM(note-a)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/AP<</N 6 0 R>>>>",
+        padded.as_slice(),
+        b"<</Type/Annot/Subtype/Text/Rect[60 60 90 90]/Contents(Plain)/T(Reader)/NM(note-b)/Name/Comment/M(D:20260102000000Z)/P 3 0 R/AP<</N 8 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+    ];
+    write_scanned_annotation_pdf(&small, 20 * 1024 * 1024, &objects, &[5, 7]);
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5, 7]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for pdf in [&small, &large] {
+        assert_eq!(
+            parsed_annotation_kinds(pdf),
+            [(5, "foreign".to_string()), (7, "note".to_string())],
+            "{}",
+            pdf.display()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_batch_read_keeps_each_note_whose_appearance_qpdf_can_read() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let large = temp_path("note-failed-batch-large", "pdf");
+    let _cleanup = TempFiles(vec![large.clone()]);
+    // The batch that reads both appearances fails in one of two ways, each
+    // tied to the first note's stream: a nonzero exit, or JSON cut short. The
+    // read of each stream on its own still succeeds, so both notes stay editable.
+    let objects: [&[u8]; 4] = [
+        b"<</Type/Annot/Subtype/Text/Rect[20 60 40 80]/Contents(Reader note)/T(Reader)/NM(note-a)/Name/Comment/M(D:20260101000000Z)/P 3 0 R/AP<</N 6 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+        b"<</Type/Annot/Subtype/Text/Rect[60 60 90 90]/Contents(Second note)/T(Reader)/NM(note-b)/Name/Comment/M(D:20260102000000Z)/P 3 0 R/AP<</N 8 0 R>>>>",
+        b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream",
+    ];
+    write_scanned_annotation_pdf(&large, STRUCTURAL_LOADER_STREAM_BYTES, &objects, &[5, 7]);
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+
+    for (label, failure) in [
+        ("exit-2", "exit 2"),
+        ("truncated-json", "printf '{\"qpdf\": ['; exit 0"),
+    ] {
+        let wrapper = temp_path(&format!("note-batch-{label}"), "sh");
+        let _wrapper_cleanup = TempFiles(vec![wrapper.clone()]);
+        fs::write(
+            &wrapper,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *--json-stream-data=inline*--json-object=6,0*) {failure} ;;\nesac\nexec '{}' \"$@\"\n",
+                qpdf_path().display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let entries = parsed_annotation_entries_with_qpdf(&large, &wrapper);
+        let kinds: Vec<(u64, String)> = entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry["objectNumber"].as_u64().unwrap(),
+                    entry["kind"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [(5, "note".to_string()), (7, "note".to_string())],
+            "{label}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn two_hundred_notes_above_the_structural_ceiling_read_their_appearances_in_one_qpdf_run() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let large = temp_path("note-batch-large", "pdf");
+    let wrapper = temp_path("note-batch-qpdf", "sh");
+    let log = temp_path("note-batch-qpdf", "log");
+    let _cleanup = TempFiles(vec![large.clone(), wrapper.clone(), log.clone()]);
+    // Each note's normal appearance is an unread stream above the structural
+    // ceiling. The parse must read them together, not spawn qpdf per note.
+    let mut objects = Vec::new();
+    for note in 0..200_u32 {
+        // A 20 by 10 grid of 10-point cells on the 200 by 100 page.
+        let x = (note % 20) * 10;
+        let y = (note / 20) * 10;
+        let appearance = 6 + 2 * note;
+        objects.push(format!(
+            "<</Type/Annot/Subtype/Text/Rect[{x} {y} {} {}]/Contents(Note {note})/T(Reader)/NM(note-{note})/Name/Comment/M(D:20260101000000Z)/P 3 0 R/AP<</N {appearance} 0 R>>>>",
+            x + 10,
+            y + 10
+        )
+        .into_bytes());
+        objects.push(
+            b"<</Type/XObject/Subtype/Form/BBox[0 0 3 1.5]/Length 23>>\nstream\n0 0 1 rg 0 0 3 1.5 re f\nendstream"
+                .to_vec(),
+        );
+    }
+    let object_bodies: Vec<&[u8]> = objects.iter().map(Vec::as_slice).collect();
+    let annotations: Vec<u32> = (0..200).map(|note| 5 + 2 * note).collect();
+    write_scanned_annotation_pdf(
+        &large,
+        STRUCTURAL_LOADER_STREAM_BYTES,
+        &object_bodies,
+        &annotations,
+    );
+    assert!(fs::metadata(&large).unwrap().len() > 512 * 1024 * 1024);
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\necho run >> '{}'\nexec '{}' \"$@\"\n",
+            log.display(),
+            qpdf_path().display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let entries = parsed_annotation_entries_with_qpdf(&large, &wrapper);
+    let kinds: Vec<(u64, String)> = entries
+        .iter()
+        .map(|entry| {
+            (
+                entry["objectNumber"].as_u64().unwrap(),
+                entry["kind"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    let expected: Vec<(u64, String)> = (0..200_u64)
+        .map(|note| (5 + 2 * note, "note".to_string()))
+        .collect();
+    assert_eq!(kinds, expected);
+    // The structural load and one batch read; the per-note spawns of the
+    // previous reader made more than two hundred runs.
+    let runs = fs::read_to_string(&log).unwrap().lines().count();
+    assert!(runs <= 3, "qpdf ran {runs} times for 200 notes");
 }
 
 #[test]

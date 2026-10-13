@@ -1,7 +1,7 @@
 import {
     mkdtempSync,
-    realpathSync,
     rmSync,
+    symlinkSync,
     writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
@@ -13,13 +13,15 @@ import {
     expect,
     it,
 } from 'vitest';
-import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
-import { isSupportedOpenPath } from '@electron/image/pdfConversion';
+import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
+import {
+    isDjvuPath, isPdfPath, isSupportedOpenPath,
+} from '@electron/image/pdfConversion';
 import { isAllowedOriginalSavePath } from '@electron/file-access/isAllowedOriginalSavePath';
 
 let tempRoot = '';
 
-describe('path encoding recovery', () => {
+describe('native path identity', () => {
     beforeEach(() => {
         tempRoot = mkdtempSync(join(tmpdir(), 'evb-path-encoding-test-'));
     });
@@ -31,34 +33,68 @@ describe('path encoding recovery', () => {
         });
     });
 
-    it('recovers URI-encoded Unicode file paths', () => {
-        const filePath = join(tempRoot, 'Гиргас.djvu');
-        writeFileSync(filePath, new Uint8Array([1]));
+    it('does not substitute a decoded sibling for an absent native path', () => {
+        const sibling = join(tempRoot, 'missing name.pdf');
+        writeFileSync(sibling, new Uint8Array([1]));
 
-        expect(normalizePossiblyEncodedExistingPath(encodeURI(filePath))).toBe(realpathSync.native(filePath));
+        expect(normalizeExistingPath(join(tempRoot, 'missing%20name.pdf'))).toBeNull();
     });
 
-    it('recovers percent-encoded UTF-8 bytes decoded as Latin-1', () => {
+    it('does not substitute a repaired Unicode sibling for an absent native path', () => {
         const fileName = 'Гиргас - Словарь.djvu';
-        const filePath = join(tempRoot, fileName);
-        writeFileSync(filePath, new Uint8Array([1]));
+        writeFileSync(join(tempRoot, fileName), new Uint8Array([1]));
         const mojibakePath = join(tempRoot, Buffer.from(fileName, 'utf8').toString('latin1'));
 
-        expect(normalizePossiblyEncodedExistingPath(encodeURIComponent(mojibakePath))).toBe(realpathSync.native(filePath));
+        expect(normalizeExistingPath(mojibakePath)).toBeNull();
     });
 
-    it('tries the exact physical path before trimming or repairing it', () => {
-        const fileName = '100% Гиргас .pdf ';
-        const filePath = join(tempRoot, fileName);
+    it('preserves exact physical paths with percent characters and trailing spaces', () => {
+        const filePath = join(tempRoot, '100% Гиргас .pdf ');
         writeFileSync(filePath, new Uint8Array([1]));
 
-        expect(normalizePossiblyEncodedExistingPath(filePath)).toBe(realpathSync.native(filePath));
-        expect(normalizePossiblyEncodedExistingPath(encodeURI(filePath))).toBe(realpathSync.native(filePath));
+        expect(normalizeExistingPath(filePath)).toBe(filePath);
+        expect(normalizeExistingPath(encodeURI(filePath))).toBeNull();
     });
 
     it('classifies a supported file while preserving trailing filename whitespace', () => {
         expect(isSupportedOpenPath('/tmp/report.pdf ')).toBe(true);
         expect(isSupportedOpenPath('/tmp/report.pdf\t')).toBe(true);
         expect(isAllowedOriginalSavePath('/tmp/report.pdf ')).toBe(true);
+    });
+
+    it('classifies literal quote suffixes consistently without resolving a different filename', () => {
+        expect(isPdfPath('/tmp/"quoted.PDF"')).toBe(true);
+        expect(isDjvuPath('/tmp/\'quoted.djvu\'\u00a0')).toBe(true);
+        for (const suffix of [
+            'pdf',
+            'djvu',
+            'djv',
+            'png',
+            'jpg',
+            'jpeg',
+            'jp2',
+            'tif',
+            'tiff',
+            'bmp',
+            'webp',
+            'gif',
+        ]) {
+            expect(isSupportedOpenPath(`/tmp/"quoted.${suffix}"`)).toBe(true);
+            expect(isSupportedOpenPath(`/tmp/file.${suffix}.exe`)).toBe(false);
+        }
+        if (process.platform !== 'win32') {
+            const requested = join(tempRoot, '"quoted.pdf"');
+            writeFileSync(requested, 'exact quoted file');
+            writeFileSync(join(tempRoot, 'quoted.pdf'), 'sibling');
+            expect(normalizeExistingPath(requested)).toBe(requested);
+        }
+    });
+    it('keeps the opened symlink spelling and Unicode filename', () => {
+        const target = join(tempRoot, 'café.pdf');
+        const requested = join(tempRoot, 'Гиргас-link.pdf');
+        writeFileSync(target, 'document');
+        symlinkSync(target, requested);
+
+        expect(normalizeExistingPath(requested)).toBe(requested);
     });
 });

@@ -632,6 +632,17 @@ describe('findPdfSearchMatches', () => {
         }
     });
 
+    it('skips empty Unicode matches without revisiting an astral character', () => {
+        expect(findPdfSearchMatches('😀', '(?:)', {useRegex: true})).toEqual([]);
+        expect(findPdfSearchMatches('😀😀a', 'a|(?:)', {
+            useRegex: true,
+            matchCase: true,
+        })).toEqual([{
+            startOffset: 4,
+            endOffset: 5,
+        }]);
+    });
+
     it('uses Unicode-aware whole-word boundaries', () => {
         expect(findPdfSearchMatches('cat bobcat кот cat_1 кот!', 'кот', { wholeWord: true })).toEqual([
             {

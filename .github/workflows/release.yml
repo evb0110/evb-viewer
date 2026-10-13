@@ -40,6 +40,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       target_sha: ${{ steps.resolve.outputs.target_sha }}
       drill: ${{ steps.resolve.outputs.drill }}
+      public_release: ${{ steps.published.outputs.public || 'false' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -92,7 +93,26 @@ jobs:
             echo "target_sha=$TARGET_SHA"
             echo "drill=$drill"
           } >> "$GITHUB_OUTPUT"
+      - name: Detect an already published release
+        id: published
+        if: ${{ steps.resolve.outputs.drill != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          public=false
+          if release_state="$(gh release view "$TAG" --json isDraft 2>/dev/null)"; then
+            if [ "$(jq -r .isDraft <<< "$release_state")" != true ]; then
+              public=true
+            fi
+          fi
+          echo "public=$public" >> "$GITHUB_OUTPUT"
       - name: Validate signing credentials
+        # A public release is only resumed here: its packages are not rebuilt or re-signed.
+        if: ${{ steps.published.outputs.public != 'true' }}
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -105,10 +125,6 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
-          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
-          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
-          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
-          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
         run: |
           set -euo pipefail
           if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ] || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
@@ -123,6 +139,14 @@ jobs:
             echo '::error::Public releases require Sentry source-map upload credentials and desktop DSN.'
             exit 1
           fi
+      - name: Validate mirror credentials
+        env:
+          MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
+          MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
+          MIRROR_S3_ACCESS_KEY_ID: ${{ secrets.MIRROR_S3_ACCESS_KEY_ID }}
+          MIRROR_S3_SECRET_KEY: ${{ secrets.MIRROR_S3_SECRET_KEY }}
+        run: |
+          set -euo pipefail
           if [ -z "$MIRROR_S3_ENDPOINT" ] || [ -z "$MIRROR_S3_BUCKET" ] || [ -z "$MIRROR_S3_ACCESS_KEY_ID" ] || [ -z "$MIRROR_S3_SECRET_KEY" ]; then
             echo '::error::Public releases require S3 mirror credentials.'
             exit 1
@@ -140,6 +164,7 @@ jobs:
   package:
     name: Package (${{ matrix.os }}, ${{ matrix.platform }}, ${{ matrix.arch }})
     needs: gate
+    if: ${{ needs.gate.outputs.public_release != 'true' }}
     runs-on: ${{ matrix.os }}
     environment: release
     timeout-minutes: 60
@@ -668,8 +693,20 @@ jobs:
           done < <(find artifacts -type f -print0)
           rm -rf artifacts
           mv final-assets artifacts
+      - name: Download published release assets
+        if: ${{ needs.gate.outputs.public_release == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.gate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The release is public and its assets are immutable: mirror these exact bytes.
+          mkdir artifacts
+          gh release download "$TAG" --dir artifacts
       - name: Validate final updater artifacts
-        if: ${{ needs.package.result == 'success' }}
+        if: ${{ needs.package.result == 'success' || needs.gate.outputs.public_release == 'true' }}
         env:
           EVB_RELEASE_HAS_MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' }}
         run: node scripts/release/assert-final-release-assets.mjs artifacts "${{ needs.gate.outputs.version }}" "$EVB_RELEASE_HAS_MAC_SIGNING"
@@ -716,6 +753,10 @@ jobs:
           node scripts/release/release-checksums.mjs generate artifacts
           if [ "${{ needs.gate.outputs.drill }}" = true ]; then node scripts/release/ensure-github-release-assets.mjs "$TAG" artifacts/SHA256SUMS --drill; else node scripts/release/ensure-github-release-assets.mjs "$TAG" artifacts/SHA256SUMS; fi
           node scripts/release/release-checksums.mjs verify artifacts
+      - name: Verify published checksums
+        if: ${{ needs.gate.outputs.public_release == 'true' }}
+        shell: bash
+        run: node scripts/release/release-checksums.mjs verify artifacts
       - name: Attest final release assets
         if: ${{ needs.package.result == 'success' }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -730,7 +771,7 @@ jobs:
         run: gh release edit "$TAG" --draft=false
       - name: Stage and activate mirror transaction
         id: mirror_stage
-        if: ${{ needs.package.result == 'success' }}
+        if: ${{ needs.package.result == 'success' || needs.gate.outputs.public_release == 'true' }}
         env:
           MIRROR_S3_ENDPOINT: ${{ secrets.MIRROR_S3_ENDPOINT }}
           MIRROR_S3_BUCKET: ${{ secrets.MIRROR_S3_BUCKET }}
@@ -762,7 +803,7 @@ jobs:
           if [ "$DRILL" = true ]; then args+=(--drill); fi
           node scripts/release/publish-release-mirror.mjs "${args[@]}"
       - name: Verify public release and updater mirror
-        if: ${{ needs.package.result == 'success' && steps.mirror_stage.outcome == 'success' && (needs.gate.outputs.drill == 'true' || steps.promote.outcome == 'success') }}
+        if: ${{ steps.mirror_stage.outcome == 'success' && (needs.gate.outputs.drill == 'true' || needs.gate.outputs.public_release == 'true' || steps.promote.outcome == 'success') }}
         env:
           GH_REPO: ${{ github.repository }}
           GITHUB_REPOSITORY: ${{ github.repository }}

@@ -138,4 +138,5 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
     onPreviewRaw: noopUnsubscribe,
     onJobState: noopUnsubscribe,
     onDetectionJobState: noopUnsubscribe,
+    onSettingsChanged: noopUnsubscribe,
 };

@@ -1,5 +1,5 @@
 import type { TPageNumber } from '@contracts/pageNumbers';
-import {parsePageNumber} from '@contracts/pageNumbers';
+import {isEqual} from 'es-toolkit/predicate';
 
 import type {
     IScanCleanupPageOverride,
@@ -41,8 +41,8 @@ export function createScanCleanupPageOverride(
         ...DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE,
         ...scalarValues,
         ...(manualSkewDegrees === undefined ? {} : {manualSkewDegrees}),
-        ...(manualContentBoxes ? {manualContentBoxes: {...manualContentBoxes}} : {}),
-        ...(manualZones ? {manualZones: {
+        ...(Object.keys(manualContentBoxes ?? {}).length > 0 ? {manualContentBoxes: {...manualContentBoxes}} : {}),
+        ...(manualZones && manualZones.picture.length + manualZones.fill.length > 0 ? {manualZones: {
             picture: manualZones.picture.map(zone => ({
                 layer: zone.layer,
                 polygon: {
@@ -59,7 +59,7 @@ export function createScanCleanupPageOverride(
         ...(marginsMm && (!documentMargins || !areScanCleanupMarginsMmEqual(marginsMm, documentMargins))
             ? {marginsMm: {...marginsMm}}
             : {}),
-        ...(placementOverrides ? {placementOverrides: {...placementOverrides}} : {}),
+        ...(Object.keys(placementOverrides ?? {}).length > 0 ? {placementOverrides: {...placementOverrides}} : {}),
     };
 }
 
@@ -88,30 +88,8 @@ export function setScanCleanupPageOverrideDefaults(
     return normalized;
 }
 
-function isPageOverrideRecord(
-    value: TScanCleanupPageOverrides | IScanCleanupPageOverride,
-): value is TScanCleanupPageOverrides {
-    return Object.keys(value).some(key => parsePageNumber(Number(key)) !== null);
-}
-
-export function getScanCleanupPageOverrideDefaults(
-    overrides: TScanCleanupPageOverrides,
-): IScanCleanupPageOverride;
-export function getScanCleanupPageOverrideDefaults(
-    defaults: IScanCleanupPageOverride | undefined,
-    documentMargins?: IScanCleanupMarginsMm,
-): IScanCleanupPageOverride;
-export function getScanCleanupPageOverrideDefaults(
-    value: TScanCleanupPageOverrides | IScanCleanupPageOverride | undefined,
-    documentMargins?: IScanCleanupMarginsMm,
-): IScanCleanupPageOverride {
-    if (value !== undefined && isPageOverrideRecord(value)) {
-        return createScanCleanupPageOverride(
-            scanCleanupPageOverrideDefaults.get(value),
-            documentMargins,
-        );
-    }
-    return createScanCleanupPageOverride(value, documentMargins);
+export function getScanCleanupPageOverrideDefaults(overrides: TScanCleanupPageOverrides): IScanCleanupPageOverride {
+    return createScanCleanupPageOverride(scanCleanupPageOverrideDefaults.get(overrides));
 }
 
 export function getScanCleanupPageOverride(
@@ -129,6 +107,15 @@ export function getScanCleanupPageOverride(
         : createScanCleanupPageOverride(explicit);
 }
 
+// The one rule for "differs from what the page inherits": a page whose normalized value
+// (empty collections omitted) equals the all-pages defaults is redundant and not customized.
+export function isScanCleanupPageOverrideInherited(
+    overrides: TScanCleanupPageOverrides,
+    value: IScanCleanupPageOverride,
+) {
+    return isEqual(value, getScanCleanupPageOverrideDefaults(overrides));
+}
+
 export function setScanCleanupPageOverride(
     overrides: TScanCleanupPageOverrides,
     pageNumber: TPageNumber,
@@ -137,7 +124,8 @@ export function setScanCleanupPageOverride(
 ) {
     const key = String(pageNumber);
     const normalized = createScanCleanupPageOverride(value, documentMargins);
-    if (isDefaultScanCleanupPageOverride(normalized)) {
+    // A built-in value is kept when the all-pages defaults differ from it.
+    if (isScanCleanupPageOverrideInherited(overrides, normalized)) {
         Reflect.deleteProperty(overrides, key);
         return;
     }

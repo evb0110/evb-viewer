@@ -44,7 +44,7 @@ export interface ISearchJobRequest extends ISearchQueryOptions {
     pageCount?: number;
     /** The working copy the request reads, when known before it resolves. */
     workingCopyPath?: string | null;
-    resolveDocument: () => Promise<ISearchIndexedDocument>;
+    resolveDocument: (signal: AbortSignal) => Promise<ISearchIndexedDocument>;
 }
 
 type TSearchJobHandle = IMainJobHandle<IPdfSearchProgress, IPdfSearchResponse, ISearchErrorEnvelope>;
@@ -132,7 +132,7 @@ export function createSearchService() {
             run: async ({
                 publish, signal,
             }) => {
-                const document = await request.resolveDocument();
+                const document = await request.resolveDocument(signal);
                 const onIndexProgress = (pagesScanned: number) => publish({
                     requestId,
                     processed: pagesScanned,

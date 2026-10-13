@@ -442,22 +442,36 @@ export async function resolvePageIndex(
     return resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache, signal);
 }
 
-export async function resolveBookmarkPageIndexes(
+export interface IResolvedBookmarkPageTarget {
+    pageIndex: number;
+    pageYRatio: number | null;
+}
+
+/**
+ * Resolves the page and vertical anchor of each lazily loaded bookmark. An
+ * item that already has its page keeps it and its recorded ratio.
+ */
+export async function resolveBookmarkPageTargets(
     pdfDocument: IPdfDocument | null,
     items: IBookmarkItem[],
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
     signal?: AbortSignal,
 ) {
-    const pageIndexes = new Map<IBookmarkItem, number | null>();
+    const targets = new Map<IBookmarkItem, IResolvedBookmarkPageTarget | null>();
     for (const item of items) {
-        const pageIndex = item.pageIndex ?? (pdfDocument && item.dest
-            ? await resolvePageIndex(pdfDocument, item.dest, destinationCache, refIndexCache, signal)
-            : null);
+        const target = item.pageIndex !== null && item.pageIndex !== undefined
+            ? {
+                pageIndex: item.pageIndex,
+                pageYRatio: item.pageYRatio ?? null,
+            }
+            : pdfDocument && item.dest
+                ? await resolveDestinationTarget(pdfDocument, item.dest, destinationCache, refIndexCache, signal)
+                : null;
         if (signal?.aborted) return null;
-        pageIndexes.set(item, pageIndex);
+        targets.set(item, target);
     }
-    return pageIndexes;
+    return targets;
 }
 
 async function resolveDestinationTarget(
@@ -465,22 +479,23 @@ async function resolveDestinationTarget(
     dest: IOutlineItemRaw['dest'],
     destinationCache: Map<string, unknown[] | null>,
     refIndexCache: Map<string, number | null>,
+    signal?: AbortSignal,
 ) {
     if (!dest) {
         return null;
     }
 
-    const destinationArray = await resolveDestinationArray(pdfDocument, dest, destinationCache);
+    const destinationArray = await resolveDestinationArray(pdfDocument, dest, destinationCache, signal);
     if (!destinationArray || destinationArray.length === 0) {
         return null;
     }
 
-    const pageIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache);
+    const pageIndex = await resolvePageIndexFromDestinationArray(pdfDocument, destinationArray, refIndexCache, signal);
     if (pageIndex === null) {
         return null;
     }
 
-    const pageYRatio = await resolveDestinationPageYRatio(pdfDocument, pageIndex + 1, destinationArray);
+    const pageYRatio = await resolveDestinationPageYRatio(pdfDocument, pageIndex + 1, destinationArray, signal);
     return {
         pageIndex,
         pageYRatio,

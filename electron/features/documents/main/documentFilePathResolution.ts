@@ -1,13 +1,11 @@
+import {getInputFileExtension} from '@electron/utils/documentFileTypes';
 import {
     existsSync,
     lstatSync,
     realpathSync,
     statSync,
 } from 'fs';
-import {
-    extname,
-    resolve,
-} from 'path';
+import {resolve} from 'path';
 import {
     describeReadPathValidationForDiagnostics,
     isAllowedReadPath,
@@ -49,15 +47,10 @@ const ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS = new Set([
 ]);
 
 export function normalizeNonEmptyPath(filePath: unknown) {
-    if (typeof filePath !== 'string') {
+    if (typeof filePath !== 'string' || !filePath.trim()) {
         throw new Error('Invalid file path: path must be a non-empty string');
     }
-
-    const normalizedPath = filePath.trim();
-    if (!normalizedPath) {
-        throw new Error('Invalid file path: path must be a non-empty string');
-    }
-    return normalizedPath;
+    return filePath;
 }
 
 function resolveDirectSourceReadPath(
@@ -197,7 +190,7 @@ export async function resolveExistingReadableBinaryPath(
     senderId?: number,
 ) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
-    const extension = extname(normalizedPath).toLowerCase();
+    const extension = getInputFileExtension(normalizedPath);
     if (!ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS.has(extension)) {
         throw new Error('Invalid file type: only PDF and DjVu files are allowed');
     }
@@ -210,7 +203,7 @@ export async function resolveExistingReadableDocumentOrImagePath(
     senderId?: number,
 ) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
-    const extension = extname(normalizedPath).toLowerCase();
+    const extension = getInputFileExtension(normalizedPath);
     if (!isAllowedBinaryReadExtension(extension)) {
         throw new Error('Invalid file type: only supported document and image files are allowed');
     }
@@ -241,7 +234,7 @@ async function resolveExistingReadablePath(
 
 export async function resolveExistingReadablePdfPath(filePath: unknown, senderId?: number) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
-    const extension = extname(normalizedPath).toLowerCase();
+    const extension = getInputFileExtension(normalizedPath);
     if (extension !== '.pdf') {
         throw new Error('Invalid file type: only PDF files are allowed');
     }

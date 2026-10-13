@@ -221,6 +221,110 @@ describe('document page labels', () => {
         expect(findPageByPageLabelInput('132', totalPages, pageLabels)).toBe(157);
     });
 
+    it('reverse-maps a label through the known prefix of its numbering segment', () => {
+        const cases: Array<{
+            label: string;
+            page: number;
+            ranges: Parameters<typeof createPageLabelModel>[1];
+        }> = [
+            {
+                label: '14',
+                page: 4,
+                ranges: [{
+                    startPage: 1,
+                    style: 'D',
+                    prefix: '1',
+                    startNumber: 1,
+                }],
+            },
+            {
+                label: 'SecD',
+                page: 4,
+                ranges: [{
+                    startPage: 1,
+                    style: 'A',
+                    prefix: 'Sec',
+                    startNumber: 1,
+                }],
+            },
+            {
+                label: 'CIV',
+                page: 4,
+                ranges: [{
+                    startPage: 1,
+                    style: 'R',
+                    prefix: 'C',
+                    startNumber: 1,
+                }],
+            },
+            {
+                label: 'iv',
+                page: 4,
+                ranges: [{
+                    startPage: 1,
+                    style: 'R',
+                    prefix: '',
+                    startNumber: 1,
+                }],
+            },
+            {
+                label: 'part-4',
+                page: 4,
+                ranges: [{
+                    startPage: 1,
+                    style: 'D',
+                    prefix: 'Part-',
+                    startNumber: 1,
+                }],
+            },
+        ];
+
+        for (const {
+            label, page, ranges,
+        } of cases) {
+            const model = createPageLabelModel(20, ranges);
+            expect(model.labelAt(page)).toMatch(new RegExp(`^${label.toLowerCase()}$`, 'i'));
+            expect(findPageByPageLabelInput(label, 20, model)).toBe(page);
+        }
+    });
+
+    it('bounds the label an accepted start value can format into', () => {
+        const alphabetic = createPageLabelModel(1, [{
+            startPage: 1,
+            style: 'A',
+            prefix: '',
+            startNumber: 20_000_000_000,
+        }]);
+        const roman = createPageLabelModel(1, [{
+            startPage: 1,
+            style: 'r',
+            prefix: '',
+            startNumber: 1_000_000_000,
+        }]);
+        const decimal = createPageLabelModel(1, [{
+            startPage: 1,
+            style: 'D',
+            prefix: '',
+            startNumber: 20_000_000_000,
+        }]);
+
+        expect(alphabetic.labelAt(1)?.length ?? 0).toBeLessThan(10_000);
+        expect(roman.labelAt(1)?.length ?? 0).toBeLessThan(1_000);
+        expect(decimal.labelAt(1)).toBe('20000000000');
+    });
+
+    it('prefers a logical label over a coincident physical page number', () => {
+        const model = createPageLabelModel(20, [{
+            startPage: 1,
+            style: 'D',
+            prefix: '1',
+            startNumber: 1,
+        }]);
+
+        expect(model.labelAt(4)).toBe('14');
+        expect(findPageByPageLabelInput('14', 20, model)).toBe(4);
+    });
+
     it('builds whole-document numbering ranges without depending on existing broken labels', () => {
         const ranges = buildWholeDocumentPageLabelRanges(348, {
             style: 'D',

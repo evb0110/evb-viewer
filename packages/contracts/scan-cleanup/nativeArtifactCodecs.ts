@@ -596,3 +596,8 @@ export function decodeNativeScanCleanupPreviewOutputMetadataJson(text: string): 
     parseArtifact(previewOutputTypedSchema, metadata, 'output metadata');
     return metadata as TNativeScanCleanupPreviewOutputArtifactMetadataV3;
 }
+
+/** PDF page operations emit a document-wide loss result on successful output. */
+export function decodeScanCleanupPageOpsResult(text: string) {
+    return v.parse(v.object({accessibilityTagsRemoved: v.optional(v.boolean())}), text.trim().length === 0 ? {} : JSON.parse(text));
+}

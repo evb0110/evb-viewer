@@ -14,6 +14,10 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
+import {
+    isSecondInstanceLaunch,
+    type ISecondInstanceLaunch,
+} from '@contracts/secondInstanceLaunch';
 import { resolveApplicationVersion } from '@electron/appVersion';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import { setNativeWindowCloseCancelHandler } from '@electron/window';
@@ -26,7 +30,7 @@ interface IShutdownCoordinator {
 }
 
 interface IExternalOpenManager {
-    queueOpenRequestFromArgs(args: string[]): void;
+    queueOpenRequestFromArgs(args: string[], workingDirectory: string): void;
     requestMainWindowForExternalOpen(): void;
     scheduleFlushPendingFiles(): void;
     claimPendingOpenPaths(): Promise<string[]>;
@@ -38,12 +42,11 @@ function normalizeAcknowledgedExternalOpenPaths(paths: string[]) {
     const normalizedPaths: string[] = [];
     const seenPaths = new Set<string>();
     for (const path of paths) {
-        const normalizedPath = path.trim();
-        if (!normalizedPath || seenPaths.has(normalizedPath)) {
+        if (!path || seenPaths.has(path)) {
             continue;
         }
-        seenPaths.add(normalizedPath);
-        normalizedPaths.push(normalizedPath);
+        seenPaths.add(path);
+        normalizedPaths.push(path);
     }
     return normalizedPaths;
 }
@@ -132,7 +135,7 @@ export interface IRunInitSequenceOptions {
     pruneStaleDjvuArtifactJobs?: () => Promise<unknown>;
 }
 
-function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
+export function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOptions, 'externalOpenManager' | 'logger'>): IStartupExternalOpenClaimTracker {
     const claimsBySender = new Map<WebContents, IStartupExternalOpenClaim>();
 
     function clearClaim(sender: WebContents) {
@@ -200,7 +203,13 @@ function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOpt
     };
 }
 
-function bootSingleInstance(options: IRunInitSequenceOptions) {
+interface ISingleInstanceApp {
+    on(event: 'second-instance', listener: (event: unknown, commandLine: string[], workingDirectory: string, additionalData: unknown) => void): void;
+    quit(): void;
+    requestSingleInstanceLock(additionalData: ISecondInstanceLaunch): boolean;
+}
+
+export function bootSingleInstance(options: Pick<IRunInitSequenceOptions, 'allowMultipleAutomationSessions' | 'externalOpenManager' | 'logger' | 'onPrimaryInstanceReady'> & { app: ISingleInstanceApp; }) {
     const {
         allowMultipleAutomationSessions,
         app,
@@ -209,7 +218,10 @@ function bootSingleInstance(options: IRunInitSequenceOptions) {
     } = options;
 
     if (!allowMultipleAutomationSessions) {
-        const singleInstanceLock = app.requestSingleInstanceLock();
+        const singleInstanceLock = app.requestSingleInstanceLock({
+            argv: process.argv,
+            workingDirectory: process.cwd(),
+        });
         if (!singleInstanceLock) {
             app.quit();
             process.exit(0);
@@ -221,11 +233,20 @@ function bootSingleInstance(options: IRunInitSequenceOptions) {
     options.onPrimaryInstanceReady();
 
     if (process.platform !== 'darwin' || allowMultipleAutomationSessions) {
-        externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1));
+        externalOpenManager.queueOpenRequestFromArgs(process.argv.slice(1), process.cwd());
     }
 
-    app.on('second-instance', (_event, commandLine) => {
-        externalOpenManager.queueOpenRequestFromArgs(commandLine.slice(1));
+    // Electron's event argv is not the exact list the second launch passed: it drops a trailing space from a
+    // file name. The launch sent with the lock request is exact, so open requests read that instead.
+    app.on('second-instance', (_event, commandLine, workingDirectory, additionalData) => {
+        if (isSecondInstanceLaunch(additionalData)) {
+            externalOpenManager.queueOpenRequestFromArgs(additionalData.argv.slice(1), additionalData.workingDirectory);
+        } else if (additionalData === undefined || additionalData === null) {
+            // Remove when supported secondaries all send the exact launch payload introduced in 3c6d864e1.
+            externalOpenManager.queueOpenRequestFromArgs(commandLine.slice(1), workingDirectory);
+        } else {
+            logger.warn('Ignoring a second instance that sent malformed launch arguments');
+        }
         externalOpenManager.requestMainWindowForExternalOpen();
     });
 }

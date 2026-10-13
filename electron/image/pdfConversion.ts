@@ -1,3 +1,4 @@
+import {getInputFileExtension} from '@electron/utils/documentFileTypes';
 import { existsSync } from 'fs';
 import {stat} from 'fs/promises';
 import {
@@ -13,7 +14,6 @@ import {
 } from 'worker_threads';
 import { createLogger } from '@electron/utils/createLogger';
 import {
-    isImagePath,
     PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
     stageNativeCombineInputs,
 } from '@electron/image/pdfCombineShared';
@@ -35,6 +35,9 @@ import {
     createPdfCombineOutputTooLargeError,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
+export {
+    isPdfPath, isDjvuPath, isPdfOrImagePath, isSupportedOpenPath,
+} from '@electron/utils/documentFileTypes';
 
 export interface ICreatePdfFromInputPathsProgress {
     processed: number;
@@ -199,23 +202,6 @@ function parseCombineWorkerPayload(message: unknown): TCombineWorkerPayload | nu
     }
 }
 
-export function isPdfPath(filePath: string) {
-    return extname(filePath.trimEnd()).toLowerCase() === '.pdf';
-}
-
-export function isDjvuPath(filePath: string) {
-    const extension = extname(filePath.trimEnd()).toLowerCase();
-    return extension === '.djvu' || extension === '.djv';
-}
-
-export function isPdfOrImagePath(filePath: string) {
-    return isPdfPath(filePath) || isImagePath(filePath);
-}
-
-export function isSupportedOpenPath(filePath: string) {
-    return isPdfOrImagePath(filePath) || isDjvuPath(filePath);
-}
-
 export function buildCombinedPdfOutputPath(inputPaths: string[]) {
     if (inputPaths.length === 0) {
         return 'combined.pdf';
@@ -235,7 +221,7 @@ export function buildCombinedPdfOutputPath(inputPaths: string[]) {
 
 function canCombineInWorker(inputPaths: string[]) {
     return inputPaths.every((sourcePath) => {
-        const extension = extname(sourcePath).toLowerCase();
+        const extension = getInputFileExtension(sourcePath);
         return (
             extension === '.pdf' || WORKER_SUPPORTED_IMAGE_EXTENSIONS.has(extension)
         );

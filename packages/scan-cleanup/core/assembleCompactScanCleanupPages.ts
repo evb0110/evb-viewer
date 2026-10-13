@@ -1,3 +1,4 @@
+import {decodeScanCleanupPageOpsResult} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {createReadStream} from 'node:fs';
 import * as v from 'valibot';
 import {isRecord} from '@contracts/runtimeGuards';
@@ -314,11 +315,8 @@ export async function overlayScanCleanupTextLayer(
     dependencies: IRunScanCleanupPipelineDependencies,
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
-    // Preserved pages keep links that only the overlay rebinds; skipped pages have no annotations.
-    const overlayPages = pages.filter(page => page.linkOnly !== true || page.unmappedGeometry !== true);
-    if (overlayPages.length === 0) {
-        return false;
-    }
+    // Every output participates in the final catalog map, including non-affine rasters.
+    if (pages.length === 0) return null;
     if (paths.pdfPageOpsBinary === undefined || isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
@@ -328,7 +326,7 @@ export async function overlayScanCleanupTextLayer(
         textLayerInstructionsPath,
         serializeScanCleanupTextLayerInstructions(pages),
     );
-    await dependencies.runCommand(paths.pdfPageOpsBinary, [
+    const pageOps = await dependencies.runCommand(paths.pdfPageOpsBinary, [
         'overlay-text',
         '--input',
         stagedPdfPath,
@@ -350,9 +348,9 @@ export async function overlayScanCleanupTextLayer(
     await rename(textLayerPdfPath, stagedPdfPath);
     log(
         'debug',
-        `Scan cleanup retained source text and annotations on ${String(overlayPages.length)} output page(s)`,
+        `Scan cleanup retained source text and annotations on ${String(pages.length)} output page(s)`,
     );
-    return true;
+    return decodeScanCleanupPageOpsResult(pageOps.stdout);
 }
 
 export async function assembleWithCompactSourcePages(
@@ -392,7 +390,7 @@ export async function assembleWithCompactSourcePages(
                 cropRect: page.cropRect,
                 contentTransform: page.contentTransform,
             }],
-        })), provenanceStampHex);
+        })), provenanceStampHex, 'assembly');
         await writeFile(
             instructionsPath,
             paths.provenanceStampSupport === false
@@ -418,10 +416,9 @@ export async function assembleWithCompactSourcePages(
         });
 
         const qpdfArgs = [
-            // The rasterized PDF is the primary input so its document-level Info
-            // dictionary — the native writer's provenance stamp — survives the
-            // interleave; --empty would emit a document without any Info entry.
-            rasterizedPdfPath,
+            // The preserved split is the primary input: it carries the output's
+            // catalog and provenance stamp, and each note is copied once.
+            preservedPdfPath,
             // Some otherwise capable PDF consumers only render the first stream in
             // a page Contents array. split-pages wraps preserved source content in
             // separate graphics-state streams, so leaving the array intact can make
@@ -443,9 +440,10 @@ export async function assembleWithCompactSourcePages(
             const pageNumber = output.preservedSource === undefined
                 ? index + 1
                 : ++preservedPageNumber;
+            // qpdf's name for the primary input, which is the preserved split.
             const path = output.preservedSource === undefined
                 ? rasterizedPdfPath
-                : preservedPdfPath;
+                : '.';
             if (path === runPath && pageNumber === runLast + 1) {
                 runLast = pageNumber;
                 return;

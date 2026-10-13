@@ -45,7 +45,8 @@ interface IResolveDocumentViewportPageNumbersOptions {
     overscanViewports: number;
 }
 
-interface IResolveNearestDocumentPageOptions {
+interface IResolveVisibleIndicatorPageOptions {
+    currentPage: number;
     geometry: IDocumentContinuousScrollGeometry;
     scrollTop: number;
     totalPages: number;
@@ -170,32 +171,65 @@ function getGeometryPageTop(
     return geometry.pageTops[pageNumber - 1] ?? normalizeGapPx(pageGapPx);
 }
 
-export function resolveNearestDocumentPageToViewportCenter(
-    options: IResolveNearestDocumentPageOptions,
+/**
+ * The page the indicator names: the current page while it stays fully
+ * visible, otherwise the qualifying page with the greatest visible fraction.
+ * A page qualifies when at least a quarter of the smaller of its height and the
+ * viewport height intersects the viewport, so a page whose centre is nearer
+ * but which lies wholly offscreen is never named. Ties keep the lower page.
+ */
+export function resolveDocumentVisiblePageForIndicator(
+    options: IResolveVisibleIndicatorPageOptions,
 ) {
-    if (options.totalPages <= 0) {
+    if (options.totalPages <= 0 || options.viewportHeight <= 0) {
         return null;
     }
-    const viewportCenter = Math.max(0, options.scrollTop) + Math.max(0, options.viewportHeight) / 2;
-    const pageCenter = (pageNumber: number) => (
-        (options.geometry.pageTops[pageNumber - 1] ?? 0)
-        + (options.geometry.pageHeights[pageNumber - 1] ?? 0) / 2
-    );
+    const viewportTop = Math.max(0, options.scrollTop);
+    const viewportBottom = viewportTop + options.viewportHeight;
+    const pageTop = (pageNumber: number) => options.geometry.pageTops[pageNumber - 1] ?? 0;
+    const pageHeight = (pageNumber: number) => options.geometry.pageHeights[pageNumber - 1] ?? 0;
+
+    const currentPage = normalizeDocumentPageNumber(options.currentPage, options.totalPages);
+    const currentTop = pageTop(currentPage);
+    const currentBottom = currentTop + pageHeight(currentPage);
+    if (
+        pageHeight(currentPage) > 0
+        && currentTop >= viewportTop
+        && currentBottom <= viewportBottom
+    ) {
+        return currentPage;
+    }
+
     let low = 1;
     let high = options.totalPages + 1;
     while (low < high) {
         const middle = Math.floor((low + high) / 2);
-        if (pageCenter(middle) < viewportCenter) {
-            low = middle + 1;
-        } else {
+        if (pageTop(middle) + pageHeight(middle) > viewportTop) {
             high = middle;
+        } else {
+            low = middle + 1;
         }
     }
-    const nextPage = Math.min(options.totalPages, low);
-    const previousPage = Math.max(1, nextPage - 1);
-    return Math.abs(pageCenter(nextPage) - viewportCenter) < Math.abs(pageCenter(previousPage) - viewportCenter)
-        ? nextPage
-        : previousPage;
+
+    let visiblePage: number | null = null;
+    let greatestFraction = 0;
+    for (let pageNumber = low; pageNumber <= options.totalPages; pageNumber += 1) {
+        const top = pageTop(pageNumber);
+        if (top >= viewportBottom) {
+            break;
+        }
+        const height = pageHeight(pageNumber);
+        const visibleHeight = measureIntersectionHeight(top, top + height, viewportTop, viewportBottom);
+        if (height <= 0 || visibleHeight < Math.min(height, options.viewportHeight) / 4) {
+            continue;
+        }
+        const fraction = visibleHeight / height;
+        if (fraction > greatestFraction) {
+            visiblePage = pageNumber;
+            greatestFraction = fraction;
+        }
+    }
+    return visiblePage;
 }
 
 function normalizeGapPx(value: number) {

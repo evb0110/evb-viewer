@@ -3,15 +3,13 @@ import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     DOCUMENTS_STORE,
     DOCUMENT_CHUNKS_STORE,
-    WORKSPACE_RECOVERY_STORE,
-    BROWSER_LIVE_LEASES_STORE,
     BROWSER_TRANSFER_AUTHORITY_STORE,
 } from '@app/platform/browser/browserDocumentConstants';
 import { uniq } from 'es-toolkit/array';
 import { buildRecentFilesFromPersistedRecords } from '@app/platform/browser/buildRecentFilesFromPersistedRecords';
 import {
     collectChunkIndicesByRef,
-    countNonWorkingDependents,
+    countSourceDependents,
     isChunkedRecordMissingChunks,
     shouldRemovePersistedRecord,
     toPersistedDocumentRecord,
@@ -19,7 +17,6 @@ import {
 import {
     loadAllRecordKeysAvailability,
     loadRecordAvailability,
-    runObjectStoresTransaction,BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA,
 } from '@app/platform/browser/browserDocumentIdb';
 import {
     createChunkKey,
@@ -28,149 +25,41 @@ import {
 } from '@app/platform/browser/browserDocumentChunks';
 import {
     pruneRecentFiles,
-    readRecentFilesFromStorage,
     tryHasRecentFilesStorageSnapshot,
     tryReadRecentFilesFromStorage,
     writeRecentFilesToStorage,
-    BROWSER_RECENT_FILES_STORAGE_LOCK_KEY,
     runSerializedRecentFilesStorageMutation,
 } from '@app/platform/browser/browserRecentFilesStore';
+import {
+    admitBrowserMaintenance,
+    hasActivePendingChunkGeneration,
+    isRecentlyCreatedChunkGeneration,
+    liveLeaseProtectsChunk,
+} from '@app/platform/browser/browserDocumentAdmission';
 import type {
     IBrowserDocumentEntry,
     IBrowserPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentTypes';
-import {BROWSER_DOCUMENT_LIVE_LEASE_SCHEMA} from '@app/platform/browser/browserDocumentTypes';
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
-import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import { reclaimOrphanedBrowserDocumentLiveLeases } from '@app/platform/browser/browserDocumentLeaseStore';
 import {BrowserLogger} from '@app/utils/browserLogger';
-import * as v from 'valibot';
-
-const BROWSER_STAGED_CHUNK_GRACE_MS = 10 * 60 * 1_000;
 
 export interface IBrowserDocumentMaintenanceHooks {readonly beforeDestructiveTransaction?: () => Promise<void>;}
 
-function isRecentlyCreatedChunkGeneration(generation: string | undefined) {
-    if (!generation) {
-        return false;
-    }
-    const timestampPrefix = generation.split('-', 1)[0];
-    if (!timestampPrefix) {
-        return false;
-    }
-    const createdAt = Number.parseInt(timestampPrefix, 36);
-    if (!Number.isFinite(createdAt)) {
-        return false;
-    }
-    const age = Date.now() - createdAt;
-    return age >= 0 && age <= BROWSER_STAGED_CHUNK_GRACE_MS;
-}
-
-function hasActivePendingChunkGeneration(record: IBrowserPersistedDocumentRecord) {
-    if (!record.pendingChunkGeneration) {
-        return false;
-    }
-    if (typeof record.pendingChunkUpdatedAt === 'number') {
-        const age = Date.now() - record.pendingChunkUpdatedAt;
-        return age >= 0 && age <= BROWSER_STAGED_CHUNK_GRACE_MS;
-    }
-    return isRecentlyCreatedChunkGeneration(record.pendingChunkGeneration);
-}
-
-interface IBrowserLiveLeaseProtection {
-    leasedRefs: Set<string>;
-    allGenerationsRefs: Set<string>;
-    leasedGenerations: Set<string>;
-}
-
-function getChunkGenerationKey(ref: string, generation: string | undefined) {
-    return `${ref}\0${generation ?? ''}`;
-}
-
-function readLiveLeaseProtection(value: unknown): IBrowserLiveLeaseProtection | null {
-    const parsed = v.safeParse(v.array(BROWSER_DOCUMENT_LIVE_LEASE_SCHEMA), value, {abortEarly: true});
-    if (!parsed.success) {
-        return null;
-    }
-
-    const leasedRefs = new Set<string>();
-    const allGenerationsRefs = new Set<string>();
-    const leasedGenerations = new Set<string>();
-    for (const lease of parsed.output) {
-        if (lease.status === 'dead') {
-            continue;
-        }
-        for (const dependency of lease.protectedDependencies) {
-            leasedRefs.add(dependency.ref);
-            if (dependency.chunkGeneration === undefined) {
-                allGenerationsRefs.add(dependency.ref);
-            } else {
-                leasedGenerations.add(getChunkGenerationKey(
-                    dependency.ref,
-                    dependency.chunkGeneration,
-                ));
-            }
-        }
-    }
-
-    return {
-        leasedRefs,
-        allGenerationsRefs,
-        leasedGenerations,
-    };
-}
-
-function liveLeaseProtectsChunk(
-    protection: IBrowserLiveLeaseProtection,
-    ref: string,
-    generation: string | undefined,
+function isBrokenChunkedRecord(
+    record: IBrowserPersistedDocumentRecord,
+    chunkIndicesByRef: Map<string, Set<number>>,
 ) {
-    return protection.allGenerationsRefs.has(ref)
-        || protection.leasedGenerations.has(getChunkGenerationKey(ref, generation));
-}
-
-// A transfer that has reached a terminal decision no longer needs its backing
-// refs pinned, but the losing participant may still be polling for that
-// decision. Keep the record and its protection until the poll window has
-// closed, then drop both; otherwise every transfer a window ever performed
-// pins its documents for the lifetime of the origin.
-const SETTLED_TRANSFER_RETENTION_MS = 60 * 1_000;
-
-interface IBrowserTransferAuthorityProtection extends IBrowserLiveLeaseProtection {settledIds: Set<string>;}
-
-function readTransferAuthorityProtection(value: unknown): IBrowserTransferAuthorityProtection | null {
-    const parsed = v.safeParse(v.array(BROWSER_TRANSFER_AUTHORITY_RECORD_SCHEMA), value, {abortEarly: true});
-    if (!parsed.success) {
-        return null;
-    }
-    const leasedRefs = new Set<string>();
-    const allGenerationsRefs = new Set<string>();
-    const leasedGenerations = new Set<string>();
-    const settledIds = new Set<string>();
-    const settledBefore = Date.now() - SETTLED_TRANSFER_RETENTION_MS;
-    for (const authority of parsed.output) {
-        if ((authority.state === 'committed' || authority.state === 'aborted')
-            && authority.decidedAt !== undefined
-            && authority.decidedAt <= settledBefore) {
-            settledIds.add(authority.id);
-            continue;
-        }
-        for (const dependency of authority.backingRefs) {
-            leasedRefs.add(dependency.ref);
-            if (dependency.chunkGeneration === undefined) {
-                allGenerationsRefs.add(dependency.ref);
-            } else {
-                leasedGenerations.add(getChunkGenerationKey(dependency.ref, dependency.chunkGeneration));
-            }
-        }
-    }
-    return {
-        leasedRefs,
-        allGenerationsRefs,
-        leasedGenerations,
-        settledIds,
-    };
+    return (
+        record.storageMode === 'chunked'
+        && record.fileSize > 0
+        && (
+            (record.chunkCount ?? 0) <= 0
+            || (record.chunkCount ?? 0) !== Math.ceil(record.fileSize / Math.max(1, record.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE))
+            || isChunkedRecordMissingChunks(record, chunkIndicesByRef)
+        )
+    );
 }
 
 export async function loadBrowserPersistedDocumentRecordsResult(): Promise<IBrowserPersistedDocumentRecordsLoadResult> {
@@ -221,31 +110,6 @@ export async function loadBrowserPersistedDocumentRecordsResult(): Promise<IBrow
     };
 }
 
-export async function loadBrowserPersistedDocumentRecords(): Promise<IBrowserPersistedDocumentRecord[]> {
-    return (await loadBrowserPersistedDocumentRecordsResult()).records;
-}
-
-function isBrokenChunkedRecord(
-    record: IBrowserPersistedDocumentRecord,
-    chunkIndicesByRef: Map<string, Set<number>>,
-) {
-    return (
-        record.storageMode === 'chunked'
-        && record.fileSize > 0
-        && (
-            (record.chunkCount ?? 0) <= 0
-            || (record.chunkCount ?? 0) !== Math.ceil(record.fileSize / Math.max(1, record.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE))
-            || isChunkedRecordMissingChunks(record, chunkIndicesByRef)
-        )
-    );
-}
-
-export function isBrowserRecentFileRef(ref: string) {
-    return readRecentFilesFromStorage().some(
-        (candidate) => candidate.originalPath === ref,
-    );
-}
-
 export async function sweepBrowserDocumentMaintenance(
     entries: Map<string, IBrowserDocumentEntry>,
     hooks: IBrowserDocumentMaintenanceHooks = {},
@@ -253,7 +117,6 @@ export async function sweepBrowserDocumentMaintenance(
     // Retire the leases of owners that no longer exist before reading
     // protection, so a crashed window cannot pin its records forever.
     await reclaimOrphanedBrowserDocumentLiveLeases().catch(() => undefined);
-    const recoveryLeasedRefs = await loadBrowserWorkspaceRecoveryLeasedRefs();
     const {
         available,
         records,
@@ -295,235 +158,118 @@ export async function sweepBrowserDocumentMaintenance(
         ? storedRecentFiles
         : buildRecentFilesFromPersistedRecords(records);
     const recentRefs = new Set<string>(currentRecentFiles.map((file) => file.originalPath));
-    const nonWorkingDependentCounts = countNonWorkingDependents(records);
-    const refsToRemove = records
-        .filter((record) => shouldRemovePersistedRecord(
-            record,
-            recentRefs,
-            nonWorkingDependentCounts,
-        ))
-        .filter(record => !recoveryLeasedRefs.has(record.ref))
-        .filter((record) => !pendingRefs.has(record.ref))
-        .filter(record => !hasActivePendingChunkGeneration(record))
-        .map(record => record.ref);
+    const sourceDependentCounts = countSourceDependents(records);
     const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
-    const brokenChunkRefs = records
-        .filter((record) => isBrokenChunkedRecord(record, chunkIndicesByRef))
-        .filter((record) => !pendingRefs.has(record.ref))
-        .filter(record => !hasActivePendingChunkGeneration(record))
-        .map((record) => record.ref);
-    const refsToRemoveSet = new Set([
-        ...refsToRemove,
-        ...brokenChunkRefs,
-    ]);
-    if (refsToRemoveSet.size === 0 && chunkKeys.length === 0) {
+    if (chunkKeys.length === 0 && !records.some(record => (
+        shouldRemovePersistedRecord(record, recentRefs, sourceDependentCounts)
+        || isBrokenChunkedRecord(record, chunkIndicesByRef)
+    ))) {
         return;
     }
 
     await hooks.beforeDestructiveTransaction?.();
 
-    // Include the recovery journal in the destructive transaction. IndexedDB
-    // serializes this with checkpoint publication, so the lease read and the
-    // corresponding document/chunk deletes cannot race each other.
-    const deletedRefs = await runObjectStoresTransaction<Set<string>>(
-        [
-            WORKSPACE_RECOVERY_STORE,
-            DOCUMENTS_STORE,
-            DOCUMENT_CHUNKS_STORE,
-            BROWSER_LIVE_LEASES_STORE,
-            BROWSER_TRANSFER_AUTHORITY_STORE,
-        ],
-        'readwrite',
-        (transaction, setResult) => {
-            const recoveryStore = transaction.objectStore(WORKSPACE_RECOVERY_STORE);
-            const documentsStore = transaction.objectStore(DOCUMENTS_STORE);
-            const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
-            const liveLeasesStore = transaction.objectStore(BROWSER_LIVE_LEASES_STORE);
-            const transferAuthorityStore = transaction.objectStore(BROWSER_TRANSFER_AUTHORITY_STORE);
-            const recoveriesRead = recoveryStore.getAll();
-            const documentsRead = documentsStore.getAll();
-            const liveLeasesRead = liveLeasesStore.getAll();
-            const transferAuthoritiesRead = transferAuthorityStore.getAll();
-            // Recent-file mutations use this same documents-store transaction
-            // as their cross-window lock. Do not read localStorage until this
-            // request succeeds, otherwise a touch admitted before this
-            // destructive transaction can be hidden by the stale snapshot
-            // captured above.
-            const recentFilesLockRead = documentsStore.get(BROWSER_RECENT_FILES_STORAGE_LOCK_KEY);
-            let recoveryReadComplete = false;
-            let documentsReadComplete = false;
-            let liveLeasesReadComplete = false;
-            let transferAuthoritiesReadComplete = false;
-            let recentFilesLockReadComplete = false;
-            let transactionRecentRefs = recentRefs;
-            const process = () => {
-                if (
-                    !recoveryReadComplete
-                    || !documentsReadComplete
-                    || !liveLeasesReadComplete
-                    || !transferAuthoritiesReadComplete
-                    || !recentFilesLockReadComplete
-                ) {
-                    return;
-                }
-                const recentFilesAtAdmission = tryHasRecentFilesStorageSnapshot()
-                    ? tryReadRecentFilesFromStorage()
-                    : currentRecentFiles;
-                if (recentFilesAtAdmission) {
-                    const {
-                        recentFiles,
-                        evictedRefs,
-                    } = pruneRecentFiles(recentFilesAtAdmission);
-                    let recentFilesForDecision = recentFiles;
-                    if (evictedRefs.length > 0 || recentFiles.length !== recentFilesAtAdmission.length) {
-                        let recentFilesPersisted = false;
-                        try {
-                            recentFilesPersisted = writeRecentFilesToStorage(recentFiles);
-                        } catch (error) {
-                            BrowserLogger.warn(
-                                'browser-document-maintenance',
-                                'Recent Files persistence failed during destructive admission',
-                                error,
-                            );
-                        }
-                        if (!recentFilesPersisted) {
-                            // A failed localStorage write cannot authorize eviction.
-                            recentFilesForDecision = recentFilesAtAdmission;
-                        }
-                    }
-                    transactionRecentRefs = new Set(
-                        recentFilesForDecision.map((file) => file.originalPath),
+    const deletedRefs = await admitBrowserMaintenance('readwrite', (authorities, transaction) => {
+        if (!authorities) {
+            return new Set<string>();
+        }
+        // Recent Files at admission, read after the documents lock: a
+        // touch admitted before this transaction is already visible.
+        const recentFilesAtAdmission = tryHasRecentFilesStorageSnapshot()
+            ? tryReadRecentFilesFromStorage()
+            : currentRecentFiles;
+        let transactionRecentRefs = recentRefs;
+        if (recentFilesAtAdmission) {
+            const {
+                recentFiles,
+                evictedRefs,
+            } = pruneRecentFiles(recentFilesAtAdmission);
+            let recentFilesForDecision = recentFiles;
+            if (evictedRefs.length > 0 || recentFiles.length !== recentFilesAtAdmission.length) {
+                let recentFilesPersisted = false;
+                try {
+                    recentFilesPersisted = writeRecentFilesToStorage(recentFiles);
+                } catch (error) {
+                    BrowserLogger.warn(
+                        'browser-document-maintenance',
+                        'Recent Files persistence failed during destructive admission',
+                        error,
                     );
                 }
-                const leasedRefs = new Set<string>();
-                if (Array.isArray(recoveriesRead.result)) {
-                    for (const record of recoveriesRead.result) {
-                        if (!record || typeof record !== 'object') {
-                            continue;
-                        }
-                        const snapshotRefs = (record as {snapshotRefs?: unknown}).snapshotRefs;
-                        if (!Array.isArray(snapshotRefs)) {
-                            continue;
-                        }
-                        for (const ref of snapshotRefs) {
-                            if (typeof ref === 'string') {
-                                leasedRefs.add(ref);
-                            }
-                        }
-                    }
+                if (!recentFilesPersisted) {
+                    // A failed localStorage write cannot authorize eviction.
+                    recentFilesForDecision = recentFilesAtAdmission;
                 }
-                const liveLeaseProtection = readLiveLeaseProtection(liveLeasesRead.result);
-                if (!liveLeaseProtection) {
-                    // Live lease authority is shared state. A malformed or
-                    // unavailable authority record cannot authorize a delete.
-                    setResult(new Set());
-                    return;
-                }
-                const transferProtection = readTransferAuthorityProtection(transferAuthoritiesRead.result);
-                if (!transferProtection) {
-                    setResult(new Set());
-                    return;
-                }
-                const transactionRecords = Array.isArray(documentsRead.result)
-                    ? documentsRead.result.flatMap((value: unknown) => {
-                        const record = toPersistedDocumentRecord(value);
-                        return record ? [record] : [];
-                    })
-                    : records;
-                const transactionRecordsByRef = new Map(transactionRecords.map(record => [
-                    record.ref,
-                    record,
-                ]));
-                const transactionPendingChunkGenerationsByRef = new Map(
-                    transactionRecords
-                        .filter(hasActivePendingChunkGeneration)
-                        .flatMap(record => record.pendingChunkGeneration
-                            ? [[
-                                record.ref,
-                                record.pendingChunkGeneration,
-                            ] as const]
-                            : []),
-                );
-                const transactionNonWorkingDependentCounts = countNonWorkingDependents(transactionRecords);
-                const transactionBrokenChunkRefs = new Set(
-                    transactionRecords
-                        .filter(record => (
-                            brokenChunkRefs.includes(record.ref)
-                            && isBrokenChunkedRecord(record, chunkIndicesByRef)
-                        ))
-                        .map(record => record.ref),
-                );
-                const transactionRefsToRemove = transactionRecords
-                    .filter(record => shouldRemovePersistedRecord(
-                        record,
-                        transactionRecentRefs,
-                        transactionNonWorkingDependentCounts,
-                    ))
-                    .filter(record => !leasedRefs.has(record.ref))
-                    .filter(record => !liveLeaseProtection.leasedRefs.has(record.ref))
-                    .filter(record => !transferProtection.leasedRefs.has(record.ref))
-                    .filter(record => !transactionPendingChunkGenerationsByRef.has(record.ref))
-                    .filter(record => !pendingRefs.has(record.ref))
-                    .map(record => record.ref);
-                const finalRefs = new Set([
-                    ...transactionRefsToRemove,
-                    ...Array.from(transactionBrokenChunkRefs)
-                        .filter(ref => !leasedRefs.has(ref))
-                        .filter(ref => !liveLeaseProtection.leasedRefs.has(ref))
-                        .filter(ref => !transferProtection.leasedRefs.has(ref)),
-                ]);
-                transferProtection.settledIds.forEach(id => transferAuthorityStore.delete(id));
-                finalRefs.forEach(ref => documentsStore.delete(ref));
-                for (const chunkKey of chunkKeys) {
-                    if (pendingRefs.has(chunkKey.ref)) continue;
-                    if (liveLeaseProtectsChunk(
-                        liveLeaseProtection,
+            }
+            transactionRecentRefs = new Set(
+                recentFilesForDecision.map((file) => file.originalPath),
+            );
+        }
+        const transactionRecordsByRef = new Map(authorities.documents.map(record => [
+            record.ref,
+            record,
+        ]));
+        const transactionPendingChunkGenerationsByRef = new Map(
+            authorities.documents
+                .filter(hasActivePendingChunkGeneration)
+                .flatMap(record => record.pendingChunkGeneration
+                    ? [[
+                        record.ref,
+                        record.pendingChunkGeneration,
+                    ] as const]
+                    : []),
+        );
+        const isUnprotected = (record: IBrowserPersistedDocumentRecord) => !authorities.recoveryLeasedRefs.has(record.ref) && !authorities.liveLeases.leasedRefs.has(record.ref)
+            && !authorities.transfers.leasedRefs.has(record.ref) && !transactionPendingChunkGenerationsByRef.has(record.ref) && !pendingRefs.has(record.ref);
+        const allSourceDependentCounts = countSourceDependents(authorities.documents);
+        // A working copy this sweep deletes keeps nothing, so its source may go in the same pass.
+        const sweptWorkingRefs = new Set(authorities.documents
+            .filter(record => record.kind === 'working' && isUnprotected(record) && shouldRemovePersistedRecord(record, transactionRecentRefs, allSourceDependentCounts))
+            .map(record => record.ref));
+        const transactionSourceDependentCounts = countSourceDependents(authorities.documents.filter(record => !sweptWorkingRefs.has(record.ref)));
+        const finalRefs = new Set<string>();
+        const chunkKeysRead = transaction.objectStore(DOCUMENT_CHUNKS_STORE).getAllKeys();
+        chunkKeysRead.onsuccess = () => {
+            const currentChunkIndices = collectChunkIndicesByRef(chunkKeysRead.result.flatMap(key => {
+                const parsed = typeof key === 'string' ? parseChunkKey(key) : null;
+                return parsed ? [parsed] : [];
+            }));
+            authorities.documents
+                .filter(record => isUnprotected(record) && (shouldRemovePersistedRecord(record, transactionRecentRefs, transactionSourceDependentCounts)
+                    || isBrokenChunkedRecord(record, currentChunkIndices)))
+                .forEach(record => finalRefs.add(record.ref));
+            authorities.transfers.settledIds.forEach(id => transaction.objectStore(BROWSER_TRANSFER_AUTHORITY_STORE).delete(id));
+            finalRefs.forEach(ref => transaction.objectStore(DOCUMENTS_STORE).delete(ref));
+            const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
+            for (const chunkKey of chunkKeys) {
+                if (pendingRefs.has(chunkKey.ref)) continue;
+                if (liveLeaseProtectsChunk(
+                    authorities.liveLeases,
+                    chunkKey.ref,
+                    chunkKey.generation,
+                )) continue;
+                if (liveLeaseProtectsChunk(authorities.transfers, chunkKey.ref, chunkKey.generation)) continue;
+                const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref)
+                    ?? pendingChunkGenerationsByRef.get(chunkKey.ref);
+                if (pendingGeneration === chunkKey.generation) continue;
+                const record = transactionRecordsByRef.get(chunkKey.ref)
+                    ?? recordsByRef.get(chunkKey.ref);
+                const shouldDelete = !record
+                    || finalRefs.has(chunkKey.ref)
+                    || record.storageMode !== 'chunked'
+                    || chunkKey.generation !== (record.chunkGeneration ?? undefined)
+                    || chunkKey.index >= (record.chunkCount ?? 0);
+                if (shouldDelete && !isRecentlyCreatedChunkGeneration(chunkKey.generation)) {
+                    chunksStore.delete(createChunkKey(
                         chunkKey.ref,
+                        chunkKey.index,
                         chunkKey.generation,
-                    )) continue;
-                    if (liveLeaseProtectsChunk(transferProtection, chunkKey.ref, chunkKey.generation)) continue;
-                    const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref)
-                        ?? pendingChunkGenerationsByRef.get(chunkKey.ref);
-                    if (pendingGeneration === chunkKey.generation) continue;
-                    const record = transactionRecordsByRef.get(chunkKey.ref)
-                        ?? recordsByRef.get(chunkKey.ref);
-                    const shouldDelete = !record
-                        || finalRefs.has(chunkKey.ref)
-                        || record.storageMode !== 'chunked'
-                        || chunkKey.generation !== (record.chunkGeneration ?? undefined)
-                        || chunkKey.index >= (record.chunkCount ?? 0);
-                    if (shouldDelete && !isRecentlyCreatedChunkGeneration(chunkKey.generation)) {
-                        chunksStore.delete(createChunkKey(
-                            chunkKey.ref,
-                            chunkKey.index,
-                            chunkKey.generation,
-                        ));
-                    }
+                    ));
                 }
-                setResult(finalRefs);
-            };
-            recoveriesRead.onsuccess = () => {
-                recoveryReadComplete = true;
-                process();
-            };
-            documentsRead.onsuccess = () => {
-                documentsReadComplete = true;
-                process();
-            };
-            liveLeasesRead.onsuccess = () => {
-                liveLeasesReadComplete = true;
-                process();
-            };
-            transferAuthoritiesRead.onsuccess = () => {
-                transferAuthoritiesReadComplete = true;
-                process();
-            };
-            recentFilesLockRead.onsuccess = () => {
-                recentFilesLockReadComplete = true;
-                process();
-            };
-        },
-    );
+            }
+        };
+        return finalRefs;
+    });
     if (!deletedRefs) {
         throw new Error('IndexedDB document delete did not commit.');
     }

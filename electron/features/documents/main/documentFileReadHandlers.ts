@@ -28,7 +28,6 @@ import {
 import {
     assertWithinIpcReadBudget,
     describeRejectedReadPath,
-    isAllowedBinaryReadExtension,
     normalizeNonEmptyPath,
     resolveExistingReadableDocumentOrImagePath,
     resolveReadablePath,
@@ -770,17 +769,7 @@ export function getRangeReadCacheStatsForTests() {
 }
 
 export async function handleFileRead(context: IDocumentsSenderIdContext, filePath: unknown) {
-    const normalizedPath = normalizeNonEmptyPath(filePath);
-    const extension = extname(normalizedPath).toLowerCase();
-
-    if (!isAllowedBinaryReadExtension(extension)) {
-        throw new Error('Invalid file type: only supported document and image files are allowed');
-    }
-
-    const resolvedPath = await resolveReadablePath(normalizedPath, extension, context.senderId);
-    if (!resolvedPath) {
-        throw new Error(describeRejectedReadPath(normalizedPath, context.senderId));
-    }
+    const resolvedPath = await resolveExistingReadableDocumentOrImagePath(filePath, context.senderId);
 
     const originalBacking = resolveOriginalBackedRead(resolvedPath, context.senderId);
     if (originalBacking) {
@@ -791,7 +780,7 @@ export async function handleFileRead(context: IDocumentsSenderIdContext, filePat
     try {
         ({size} = statSync(resolvedPath));
     } catch {
-        throw new Error(`File not found: ${normalizedPath}`);
+        throw new Error(`File not found: ${String(filePath)}`);
     }
 
     assertWithinIpcReadBudget(resolvedPath, size);

@@ -11,6 +11,7 @@ import {
     mkdtempSync,
     realpathSync,
     rmSync,
+    symlinkSync,
     writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
@@ -89,10 +90,28 @@ describe('open path capabilities', () => {
             allowOpenPath,
             requireOpenPath,
         } = await import('@electron/file-access/openPathCapabilities');
-        const canonicalFilePath = realpathSync.native(filePath);
+        expect(allowOpenPath(filePath)).toBe(filePath);
+        expect(requireOpenPath(filePath)).toBe(filePath);
+    });
 
-        expect(allowOpenPath(filePath)).toBe(canonicalFilePath);
-        expect(requireOpenPath(filePath)).toBe(canonicalFilePath);
+    it('compares aliases by identity while returning the requested spelling', async () => {
+        const target = join(tempRoot, 'café.pdf');
+        const requested = join(tempRoot, 'link.pdf');
+        writeFileSync(target, 'document');
+        symlinkSync(target, requested);
+        const canonical = realpathSync.native(target);
+        const {
+            allowOpenPath,
+            requireOpenPath,
+            removeAllowedOpenPath,
+        } = await import('@electron/file-access/openPathCapabilities');
+
+        expect(allowOpenPath(requested, 47)).toBe(requested);
+        expect(requireOpenPath(canonical, 47)).toBe(canonical);
+        expect(requireOpenPath(requested, 47)).toBe(requested);
+        expect(() => requireOpenPath(requested, 48)).toThrow('Path not allowed');
+        removeAllowedOpenPath(canonical);
+        expect(() => requireOpenPath(requested, 47)).toThrow('Path not allowed');
     });
 
     it('clears grants when the owning webContents is destroyed', async () => {

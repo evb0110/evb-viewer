@@ -22,6 +22,7 @@ import type {
     IPdfPageSizeStore,
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
+import {runScanCleanupConversion} from '@evb/scan-cleanup/core/runScanCleanupConversion';
 import type {
     IRunScanCleanupPipelineDependencies,
     IScanCleanupPageRasterSource,
@@ -136,6 +137,78 @@ afterEach(async () => {
 });
 
 describe('runLosslessScanCleanup', () => {
+    it.each([
+        1,
+        1_025,
+    ])('retains accessibility loss from split-pages for a %i-page conversion', async documentPageCount => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-accessibility-test-'));
+        roots.push(root);
+        const sourcePdfPath = join(root, 'source.pdf');
+        const outputPdfPath = join(root, 'output.pdf');
+        await writeFile(sourcePdfPath, '%PDF-lossless-source');
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: documentPageCount,
+            getPage: async pageNumber => pageGeometry(pageNumber),
+            readRange: async (first, end) => Array.from({length: end - first}, (_, index) => pageGeometry(first + index)),
+            forEachChunk: async onChunk => onChunk({
+                pageCount: documentPageCount,
+                chunkIndex: 0,
+                firstPageNumber: 1,
+                offset: 0,
+                byteLength: 0,
+                pages: Array.from({length: documentPageCount}, (_, index) => pageGeometry(index + 1)),
+            }),
+            close: async () => undefined,
+        };
+        const renderRaster: IRunScanCleanupPipelineDependencies['renderPage'] = async (
+            _paths, _log, _pageNumber, _source, outputPath,
+        ) => {await writeFile(outputPath, 'P6\n1 1\n255\n\0\0\0');};
+        const dependencies: IRunScanCleanupPipelineDependencies = {
+            getPageCount: async () => documentPageCount,
+            getPageSizeStore: async () => pageSizeStore,
+            detectSourceDpi: async () => ({
+                detected: true,
+                documentDpi: 300,
+                getPageRaster: () => ({
+                    dpi: 300,
+                    width: 2_550,
+                    height: 3_300,
+                }),
+            }),
+            renderPage: renderRaster,
+            renderPagePpm: renderRaster,
+            runSidecar: async (_binary, manifestPath) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+                for (const page of manifest.pages) await writeFile(page.pageMetadataPath, JSON.stringify(analysisMetadata()));
+            },
+            runCommand: async (_command, args) => {
+                const outputIndex = args.indexOf('--output');
+                if (outputIndex >= 0) await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
+                if (args[0] === '--empty') await writeFile(args.at(-1)!, '%PDF-1.7\n%%EOF\n');
+                return {
+                    exitCode: 0,
+                    stdout: args[0] === 'split-pages' ? JSON.stringify({accessibilityTagsRemoved: true}) : '',
+                    stderr: '',
+                };
+            },
+            getAvailableScratchBytes: async () => null,
+            hashNativeBinary: async () => 'a'.repeat(64),
+        };
+        const summary = await runScanCleanupConversion(
+            {
+                sourcePdfPath,
+                outputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'color',
+                },
+            },
+            paths(root), new AbortController().signal, () => undefined, policy, () => undefined, dependencies,
+        );
+        expect(summary.accessibilityTagsRemoved).toBe(true);
+        expect(await readFile(outputPdfPath, 'utf8')).toContain('%PDF-1.7');
+    });
+
     it('publishes a bounded compact-source budget for a full run above one batch', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-lossless-budget-test-'));
         roots.push(root);
@@ -223,14 +296,14 @@ describe('runLosslessScanCleanup', () => {
                 await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
                 return {
                     exitCode: 0,
-                    stdout: '',
+                    stdout: JSON.stringify({accessibilityTagsRemoved: true}),
                     stderr: '',
                 };
             }),
             getAvailableScratchBytes: vi.fn(async () => null),
             hashNativeBinary: vi.fn(async () => 'a'.repeat(64)),
         };
-        await runLosslessScanCleanup(
+        const summary = await runLosslessScanCleanup(
             {
                 sourcePdfPath,
                 outputPdfPath,
@@ -251,6 +324,7 @@ describe('runLosslessScanCleanup', () => {
             dependencies,
         );
 
+        expect(summary.accessibilityTagsRemoved).toBe(true);
         const report = JSON.parse(await readFile(
             join(root, 'scan-cleanup-representation-report.json'),
             'utf8',

@@ -1,7 +1,7 @@
+import {isSupportedOpenPath} from '@electron/utils/documentFileTypes';
 import type { ILogger } from '@electron/utils/createLogger';
 import { existsSync } from 'fs';
 import {
-    extname,
     isAbsolute,
     resolve,
 } from 'path';
@@ -9,21 +9,6 @@ import { fileURLToPath } from 'url';
 import { uniq } from 'es-toolkit/array';
 import { getErrorMessage } from '@electron/utils/error';
 import { focusWindowForUser } from '@electron/window/focusWindowForUser';
-
-const SUPPORTED_EXTENSIONS = new Set([
-    '.pdf',
-    '.djvu',
-    '.djv',
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.jp2',
-    '.tif',
-    '.tiff',
-    '.bmp',
-    '.webp',
-    '.gif',
-]);
 
 const EXTERNAL_OPEN_SINGLETON_BATCH_WINDOW_MS = 100;
 const EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS = 800;
@@ -78,23 +63,12 @@ type TExternalOpenBatchPhase =
         deadline: number;
     };
 
-function isSupportedExternalOpenPath(filePath: string) {
-    return SUPPORTED_EXTENSIONS.has(extname(filePath.trimEnd()).toLowerCase());
-}
-
 function doesExternalOpenPathExist(filePath: string) {
     try {
         return existsSync(filePath);
     } catch {
         return false;
     }
-}
-
-function normalizeExistingExternalOpenPath(filePath: string) {
-    if (doesExternalOpenPathExist(filePath)) {
-        return filePath;
-    }
-    return filePath.trim();
 }
 
 /**
@@ -112,13 +86,13 @@ export function createMacOpenFileRouter(options: { logger: ILogger; }) {
     let externalOpenManager: IExternalOpenManagerSink | null = null;
 
     function handleOpenFile(filePath: string) {
-        const normalizedPath = normalizeExistingExternalOpenPath(filePath);
+        const normalizedPath = filePath;
         if (!normalizedPath) {
             options.logger.warn('Ignoring empty macOS open-file path');
             return;
         }
 
-        if (!isSupportedExternalOpenPath(normalizedPath)) {
+        if (!isSupportedOpenPath(normalizedPath)) {
             options.logger.warn(`Ignoring unsupported macOS open-file path: ${normalizedPath}`);
             return;
         }
@@ -167,82 +141,24 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     let startupEmptyClaimGraceResolve: (() => void) | null = null;
     let startupEmptyClaimGracePromise: Promise<void> | null = null;
 
-    function normalizeCommandLineArg(arg: string) {
-        let normalized = normalizeExistingExternalOpenPath(arg);
-        if (!normalized || normalized.startsWith('-')) {
-            return null;
-        }
-
-        if (
-            (normalized.startsWith('"') && normalized.endsWith('"'))
-            || (normalized.startsWith('\'') && normalized.endsWith('\''))
-        ) {
-            normalized = normalized.slice(1, -1);
-        }
-
-        if (!normalized) {
-            return null;
-        }
-
-        if (process.platform === 'win32' && normalized.startsWith('/')) {
-            return null;
-        }
-
-        if (normalized.startsWith('file://')) {
-            try {
-                normalized = fileURLToPath(normalized);
-            } catch {
-                return null;
-            }
-        }
-
-        return normalizeExistingExternalOpenPath(normalized);
-    }
-
-    function findJoinedSupportedPath(args: string[], startIndex: number, firstToken: string) {
-        let candidate = firstToken;
-        for (let cursor = startIndex + 1; cursor < args.length && cursor <= startIndex + 7; cursor += 1) {
-            const nextToken = normalizeCommandLineArg(args[cursor] ?? '');
-            if (!nextToken) {
-                break;
-            }
-            candidate = `${candidate} ${nextToken}`;
-            if (isSupportedExternalOpenPath(candidate)) {
-                return {
-                    path: candidate,
-                    endIndex: cursor,
-                };
-            }
-        }
-
-        return null;
-    }
-
     function collectSupportedPathsFromArgs(args: string[]) {
-        const files: string[] = [];
-        for (let i = 0; i < args.length; i += 1) {
-            const normalized = normalizeCommandLineArg(args[i] ?? '');
-            if (!normalized) {
-                continue;
+        return args.flatMap((arg) => {
+            if (!arg || arg.startsWith('-') || (process.platform === 'win32' && arg.startsWith('/'))) {
+                return [];
             }
-
-            if (isSupportedExternalOpenPath(normalized)) {
-                files.push(normalized);
-                continue;
+            if (arg.startsWith('file://')) {
+                try {
+                    arg = fileURLToPath(arg);
+                } catch {
+                    return [];
+                }
             }
-
-            const joinedPath = findJoinedSupportedPath(args, i, normalized);
-            if (joinedPath) {
-                files.push(joinedPath.path);
-                i = joinedPath.endIndex;
-            }
-        }
-        return files;
+            return isSupportedOpenPath(arg) ? [arg] : [];
+        });
     }
 
     function normalizeOpenRequestPaths(paths: string[]) {
         return uniq(paths
-            .map(normalizeExistingExternalOpenPath)
             .filter(path => path.length > 0)
             .map(normalizeExternalOpenPath));
     }
@@ -268,7 +184,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
         const validPaths: string[] = [];
         for (const normalizedPath of normalizedPaths) {
-            if (!isSupportedExternalOpenPath(normalizedPath)) {
+            if (!isSupportedOpenPath(normalizedPath)) {
                 options.logger.warn(`Ignoring unsupported ${source} external open path: ${normalizedPath}`);
                 continue;
             }
@@ -423,12 +339,13 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         for (const path of normalizedFailedPaths) {
             enqueueExternalOpenPath(path);
         }
-        pendingFlushRequested = true;
+        scheduleFlushPendingFiles();
         options.logger.warn(`Requeued ${normalizedFailedPaths.length} failed startup external open path(s)`);
     }
 
-    function queueOpenRequestFromArgs(args: string[]) {
-        const parsedPaths = collectSupportedPathsFromArgs(args);
+    function queueOpenRequestFromArgs(args: string[], workingDirectory: string) {
+        const parsedPaths = collectSupportedPathsFromArgs(args)
+            .map(filePath => resolve(workingDirectory, filePath));
         if (parsedPaths.length > 0) {
             options.logger.info(`Parsed external open paths (${parsedPaths.length}): ${parsedPaths.join(' | ')}`);
         }
@@ -604,9 +521,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             return;
         }
 
-        if (retryPendingFilesTimer) {
-            return;
-        }
+        clearRetryPendingFilesTimer();
 
         if (batchPhase.type === 'idle') {
             const deadline = Date.now() + EXTERNAL_OPEN_MAX_BATCH_WAIT_MS;
@@ -651,7 +566,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
     return {
         clearTimers,
-        isSupportedFile: isSupportedExternalOpenPath,
+        isSupportedFile: isSupportedOpenPath,
         markBootstrapReady() {
             externalOpenBootstrapReady = true;
             if (pendingFlushRequested || pendingExternalOpenPaths.length > 0) {

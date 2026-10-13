@@ -1,3 +1,5 @@
+import {readBuildEnvironment} from './lib/build-environment.mjs';
+
 /** @type {Record<string, string>} */
 const PLATFORM_ALIASES = {
     darwin: 'darwin',
@@ -64,8 +66,9 @@ export function getRequestedNativeRustTarget(
     env = process.env,
     hostTarget = getHostNativeTarget(),
 ) {
-    const platform = normalizeNativeTargetPlatform(env.EVB_NATIVE_TARGET_PLATFORM ?? hostTarget.platform);
-    const arch = normalizeNativeTargetArch(env.EVB_NATIVE_TARGET_ARCH ?? hostTarget.arch);
+    const buildEnv = readBuildEnvironment(env);
+    const platform = normalizeNativeTargetPlatform(buildEnv.EVB_NATIVE_TARGET_PLATFORM ?? hostTarget.platform);
+    const arch = normalizeNativeTargetArch(buildEnv.EVB_NATIVE_TARGET_ARCH ?? hostTarget.arch);
     const platformArch = `${platform}-${arch}`;
     const rustTarget = RUST_TARGET_BY_PLATFORM_ARCH[platformArch];
 

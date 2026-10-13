@@ -2,7 +2,6 @@ import { getErrorMessage } from '@electron/utils/error';
 import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import type { WebContents } from 'electron';
 import { randomUUID } from 'crypto';
-import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { estimateSizes } from '@electron/features/djvu/main/estimateSizes';
 import {
@@ -36,7 +35,8 @@ import {
     requireOpenPath,
     type TOpenPath,
 } from '@electron/file-access/openPathCapabilities';
-import { normalizePossiblyEncodedExistingPath } from '@electron/utils/normalizePossiblyEncodedExistingPath';
+import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { getRecentFiles } from '@electron/recentFiles';
 import type {IPlatformMainSenderContext} from '@contracts/platformFeature';
 import { cancelConversion } from '@electron/features/djvu/main/ddjvuConversion';
@@ -490,28 +490,21 @@ async function runCoalescedPreviewRequest<TResult>(
 function requireDjvuOpenPath(
     path: unknown,
     owner?: WebContents,
-    options: { requireExists?: boolean } = {},
 ): TOpenPath {
-    const rawPath = typeof path === 'string' ? path.trim() : '';
-    const normalizedPath = rawPath
-        ? (normalizePossiblyEncodedExistingPath(rawPath) ?? rawPath)
-        : '';
-    if (!normalizedPath) {
+    const rawPath = typeof path === 'string' ? path : '';
+    if (!rawPath.trim()) {
         throw new Error('Invalid DjVu path');
     }
-    if (!isDjvuPath(normalizedPath)) {
+    if (!isDjvuPath(rawPath)) {
         throw new Error('Invalid DjVu file type');
     }
-    if (options.requireExists !== false && !existsSync(normalizedPath)) {
-        throw new Error(`DjVu file not found: ${normalizedPath}`);
-    }
-    return requireOpenPath(normalizedPath, owner);
+    return requireOpenPath(rawPath, owner);
 }
 
 /**
  * Opening-frame prewarm is intentionally read-only and runs before a Recent
  * item is clicked, so it must not grant the renderer general file access or an
- * active viewing lease. Accept only a canonical path already present in the
+ * active viewing lease. Accept only an identity already present in the
  * application's persisted Recent list; all render operations continue to use
  * `requireDjvuOpenPath` plus `isAllowedDjvuViewingPath`.
  */
@@ -519,16 +512,15 @@ async function requireDjvuPageSourceInfoPath(path: unknown, owner: WebContents) 
     try {
         return requireDjvuOpenPath(path, owner);
     } catch (error) {
-        const rawPath = typeof path === 'string' ? path.trim() : '';
-        const normalizedPath = rawPath
-            ? normalizePossiblyEncodedExistingPath(rawPath)
+        const normalizedPath = typeof path === 'string' && path.trim()
+            ? normalizeExistingPath(path)
             : null;
         if (!normalizedPath || !isDjvuPath(normalizedPath)) {
             throw error;
         }
         const recentFiles = await getRecentFiles();
         const isPersistedRecent = recentFiles.some(file => (
-            normalizePossiblyEncodedExistingPath(String(file.originalPath)) === normalizedPath
+            normalizePathForLookup(String(file.originalPath)) === normalizePathForLookup(normalizedPath)
         ));
         if (!isPersistedRecent) {
             throw error;
@@ -538,8 +530,8 @@ async function requireDjvuPageSourceInfoPath(path: unknown, owner: WebContents) 
 }
 
 function normalizeDjvuReleasePath(path: unknown, owner?: WebContents) {
-    const normalizedPath = typeof path === 'string' ? path.trim() : '';
-    if (!normalizedPath) {
+    const normalizedPath = typeof path === 'string' ? path : '';
+    if (!normalizedPath.trim()) {
         throw new Error('Invalid DjVu path');
     }
     if (!isDjvuPath(normalizedPath)) {

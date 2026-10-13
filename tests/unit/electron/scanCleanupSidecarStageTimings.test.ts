@@ -107,7 +107,7 @@ describe('scan cleanup sidecar stage timings', () => {
         child.stdout.write('{not-json}\n');
         child.stdout.write('{still-not-json}\n');
         await vi.waitFor(() => expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce());
-        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
+        expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_000);
         child.emit('close', 1, null);
         await rejected;
     });
@@ -305,7 +305,7 @@ describe('scan cleanup sidecar stage timings', () => {
             });
 
             await vi.advanceTimersByTimeAsync(10);
-            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_500);
+            expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(child, 1_000);
             expect(failureReturned).toBe(false);
 
             finishTermination();
@@ -336,7 +336,7 @@ describe('scan cleanup sidecar stage timings', () => {
                 return error as Error;
             });
 
-            await vi.advanceTimersByTimeAsync(10 + 3_499);
+            await vi.advanceTimersByTimeAsync(10 + 2_999);
             expect(failureReturned).toBe(false);
             await vi.advanceTimersByTimeAsync(1);
 

@@ -547,6 +547,78 @@ export function scanCleanupRasterRetention(
         }
         return true;
     };
+    // One owner decides whether a released raster is dropped. A page lease
+    // (releaseRaster) keeps it while the document has any pin left. An
+    // eviction (evictRaster) is the owner giving up its own slot, so only
+    // pins held by other owners keep it.
+    const releasePageLease = async (
+        document: IRetainedDocument,
+        pageNumber: number,
+        dpi: number,
+        claimId: string | undefined,
+        evicting: boolean,
+    ) => {
+        const key = createScanCleanupRasterKey(document, pageNumber, dpi);
+        if (claimId !== undefined) {
+            const claims = rasterClaims.get(key);
+            if (!claims?.delete(claimId)) {
+                return;
+            }
+            if (claims.size > 0) {
+                return;
+            }
+            rasterClaims.delete(key);
+        }
+        if (adoptedRasters.has(key)) {
+            return;
+        }
+        const raster = rasters.get(key);
+        if (raster === undefined) {
+            const read = inFlightReads.get(key);
+            if (read !== undefined) {
+                pendingRasterReleases.add(read.token);
+                return;
+            }
+            if (
+                claimId === undefined
+                && documents.get(documentKey(
+                    document.sourcePdfPath,
+                    document.documentRevision,
+                    document.sourceStatIdentity,
+                )) === document
+                && !document.removeWhenIdle
+            ) {
+                const path = stableScanCleanupRasterPath(await document.dir, pageNumber, dpi);
+                await enqueuePathOperation(path, async () => {
+                    if (![...rasters.values()].some(current => current.path === path)) {
+                        await removeQuietly(path);
+                    }
+                });
+            }
+            return;
+        }
+        if (raster.document !== document) {
+            return;
+        }
+        const read = inFlightReads.get(key);
+        if (read?.raster === raster) {
+            pendingRasterReleases.add(read.token);
+            return;
+        }
+        // A page claim is a read/use lease, not a cache eviction request.
+        // Keep the retained raster available while its document is still
+        // owned by another active operation.
+        const ownPins = evicting && claimId !== undefined ? (document.claims.get(claimId) ?? 0) : 0;
+        if (claimId !== undefined && document.pinned - ownPins > 0 && !document.removeWhenIdle) {
+            return;
+        }
+        forget(key, raster);
+        await enqueuePathOperation(raster.path, async () => {
+            if (![...rasters.values()].some(current => current.path === raster.path)) {
+                await removeQuietly(raster.path);
+            }
+        });
+    };
     return {
         openDocument(
             request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath' | 'documentRevision'>,
@@ -575,71 +647,21 @@ export function scanCleanupRasterRetention(
         async stagedRasterPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
             return stableScanCleanupRasterPath(await document.dir, pageNumber, dpi);
         },
-        async releaseRaster(
+        releaseRaster(
             document: IRetainedDocument,
             pageNumber: number,
             dpi: number,
             claimId?: string,
         ) {
-            const key = createScanCleanupRasterKey(document, pageNumber, dpi);
-            if (claimId !== undefined) {
-                const claims = rasterClaims.get(key);
-                if (!claims?.delete(claimId)) {
-                    return;
-                }
-                if (claims.size > 0) {
-                    return;
-                }
-                rasterClaims.delete(key);
-            }
-            if (adoptedRasters.has(key)) {
-                return;
-            }
-            const raster = rasters.get(key);
-            if (raster === undefined) {
-                const read = inFlightReads.get(key);
-                if (read !== undefined) {
-                    pendingRasterReleases.add(read.token);
-                    return;
-                }
-                if (
-                    claimId === undefined
-                    && documents.get(documentKey(
-                        document.sourcePdfPath,
-                        document.documentRevision,
-                        document.sourceStatIdentity,
-                    )) === document
-                    && !document.removeWhenIdle
-                ) {
-                    const path = stableScanCleanupRasterPath(await document.dir, pageNumber, dpi);
-                    await enqueuePathOperation(path, async () => {
-                        if (![...rasters.values()].some(current => current.path === path)) {
-                            await removeQuietly(path);
-                        }
-                    });
-                }
-                return;
-            }
-            if (raster.document !== document) {
-                return;
-            }
-            const read = inFlightReads.get(key);
-            if (read?.raster === raster) {
-                pendingRasterReleases.add(read.token);
-                return;
-            }
-            // A page claim is a read/use lease, not a cache eviction request.
-            // Keep the retained raster available while its document is still
-            // owned by another active operation.
-            if (claimId !== undefined && document.pinned > 0 && !document.removeWhenIdle) {
-                return;
-            }
-            forget(key, raster);
-            await enqueuePathOperation(raster.path, async () => {
-                if (![...rasters.values()].some(current => current.path === raster.path)) {
-                    await removeQuietly(raster.path);
-                }
-            });
+            return releasePageLease(document, pageNumber, dpi, claimId, false);
+        },
+        evictRaster(
+            document: IRetainedDocument,
+            pageNumber: number,
+            dpi: number,
+            claimId?: string,
+        ) {
+            return releasePageLease(document, pageNumber, dpi, claimId, true);
         },
         claimRaster(document, pageNumber, dpi, claimId) {
             if ((document.claims.get(claimId) ?? 0) === 0 || document.removeWhenIdle

@@ -463,7 +463,7 @@ async function runAgentActionTool(
         return options.runCommand(command, windowId);
     }
 
-    const tabId = getOptionalTabId(params);
+    const tabId = getOptionalTabId(actionParams);
     const input = getOptionalActionInput(params);
     const dryRun = getOptionalBoolean(params, 'dryRun');
     const actionCommand: TAgentCommand = {

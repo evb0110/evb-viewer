@@ -903,6 +903,7 @@ export default {
         'completedTitle': 'Scan cleanup complete',
         'completedPartialTitle': 'Selected pages cleaned',
         'openResultFailed': 'The cleaned PDF could not be opened',
+        'outputClosedBeforeSaveAs': 'The cleaned PDF is no longer open, so nothing was saved. Reopen it to save it.',
         'saveAs': 'Save as…',
         'cancel': 'Cancel cleanup',
         'canceling': 'Canceling…',
@@ -977,6 +978,7 @@ export default {
         'summary': '{input} source pages became {output} output pages; {spreads} spreads split, {offcuts} offcuts discarded.',
         'sourceTextOmitted': 'Source text was omitted from outputs of {count} source page(s): {pages}. Search and copy are unavailable on the affected output pages. Run OCR on the cleaned PDF to restore searchable text.',
         'sourceTextOmittedMorePages': '{pages} and {remaining} more',
+        'accessibilityTagsRemoved': 'Accessibility tags were removed because the cleaned pages no longer match the original document structure.',
     },
     'djvu': {
         'sourceTextOmitted': 'Source text was not included. This compact PDF contains page images. Run OCR to add searchable text for search and copy.',

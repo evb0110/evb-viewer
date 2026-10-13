@@ -46,10 +46,7 @@ fn annotation_index_entry(
         object_number,
         generation_number,
         subtype: annotation_subtype_text(annotation),
-        name: annotation
-            .get(b"NM")
-            .ok()
-            .and_then(annotation_string_to_text),
+        name: annotation.get(b"NM").ok().and_then(pdf_string_to_text),
         popup_ref: annotation
             .get(b"Popup")
             .ok()
@@ -189,18 +186,6 @@ fn annotation_subtype_text(annotation: &Dictionary) -> String {
         .map(|name| String::from_utf8_lossy(name).into_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "Unknown".to_string())
-}
-
-fn annotation_string_to_text(object: &Object) -> Option<String> {
-    let bytes = object.as_str().ok()?;
-    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
-        let units = bytes[2..]
-            .chunks_exact(2)
-            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
-            .collect::<Vec<_>>();
-        return String::from_utf16(&units).ok();
-    }
-    Some(String::from_utf8_lossy(bytes).into_owned())
 }
 
 struct AnnotationIndexWriter {

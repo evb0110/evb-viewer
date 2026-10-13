@@ -10,6 +10,10 @@ import {
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
+    findDocumentTabId,
+    saveScanCleanupOutputAs,
+} from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
+import {
     getDocumentOpenCapability,
     getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
@@ -36,21 +40,6 @@ export function resolveScanCleanupEntryViewState(
         ...freshViewState,
         surfaceMode: 'scan-cleanup',
     };
-}
-
-function findDocumentTabId(
-    documentRef: string,
-    documentSessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>,
-) {
-    return Object.entries(documentSessionsByTabId).find(([
-        ,
-        session,
-    ]) => {
-        const identity = session.snapshot.value.identity;
-        return identity.documentRef === documentRef
-            || identity.workingCopyPath === documentRef
-            || identity.originalPath === documentRef;
-    })?.[0] ?? null;
 }
 
 export async function recoverScanCleanupWorkspaceForDocument(
@@ -180,12 +169,8 @@ export const useScanCleanupRunCoordinator = (
                 ? openScanCleanupGeneratedPdf(documentRef, signal, handleOpenInNewTab)
                 : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {activate: false})) && persistCheckpointNow().then(() => true, () => false);
         },
-        saveActiveDocumentAs: async () => activeWorkspace.value?.handleSaveAs() ?? false,
-        openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(
-            documentRef,
-            documentSessionsByTabId.value,
-            activateTab,
-        ),
+        saveCompletedOutputAs: outputPath => saveScanCleanupOutputAs(outputPath, activeWorkspace, documentSessionsByTabId, activateTab, toast, t),
+        openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(documentRef, documentSessionsByTabId.value, activateTab),
         t,
         toast,
     });

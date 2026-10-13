@@ -125,6 +125,7 @@ async function execFileForIdentity(
     file: string,
     argumentsList: readonly string[],
     options: {
+        env?: NodeJS.ProcessEnv;
         timeout: number;
         maxBuffer: number;
         windowsHide?: boolean
@@ -173,6 +174,12 @@ async function readMacProcessIdentity(pid: number): Promise<IManagedProcessIdent
             '-p',
             String(pid),
         ], {
+            // ps localizes lstart under the person's locale (a Russian locale prints
+            // "понедельник, 12 октября 2026 г."); the C locale keeps the parsed form.
+            env: {
+                ...process.env,
+                LC_ALL: 'C',
+            },
             timeout: 1_000,
             maxBuffer: 16 * 1024,
         });

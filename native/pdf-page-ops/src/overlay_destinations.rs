@@ -1,6 +1,6 @@
 use super::*;
 use crate::internal_destinations::resolve_destination;
-use crate::link_rebinding::page_index_by_id;
+use crate::split_navigation::page_index_by_id;
 
 /// The source document's destinations as source page indices. Built from the
 /// structural probe, which reads dictionaries and no stream bodies.

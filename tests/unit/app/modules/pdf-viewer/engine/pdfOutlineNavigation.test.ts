@@ -67,6 +67,34 @@ describe('navigateToBookmarkDestination', () => {
         })});
     });
 
+    it('keeps the vertical position of a bookmark that has only a page ratio', () => {
+        const emitGoToPage = vi.fn();
+        navigateToBookmarkDestination({
+            item: createBookmark({
+                pageIndex: requirePageIndex(0),
+                pageYRatio: 0.25,
+            }),
+            pdfDocument: null,
+            navigationRequestId: 1,
+            isBookmarkNavigationRequestCurrent: () => true,
+            emitGoToPage,
+        });
+        expect(emitGoToPage).toHaveBeenCalledWith(1, {navigationRequest: expect.objectContaining({
+            target: {
+                kind: 'rect',
+                page: 1,
+                rect: {
+                    left: 0.5,
+                    top: 0.25,
+                    width: 0,
+                    height: 0,
+                },
+            },
+            alignment: 'page-top',
+            source: 'bookmark',
+        })});
+    });
+
     it('does not emit stale or invalid requests', () => {
         const emitGoToPage = vi.fn();
         const common = {

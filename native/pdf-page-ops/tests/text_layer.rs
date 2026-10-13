@@ -1586,6 +1586,12 @@ fn page_content(pdf: &Path) -> String {
     String::from_utf8_lossy(&document.get_page_content(page_id)).into_owned()
 }
 
+fn page_content_stream_count(pdf: &Path) -> usize {
+    let document = Document::load(pdf).unwrap();
+    let page_id = *document.get_pages().get(&1).unwrap();
+    document.get_page_contents(page_id).len()
+}
+
 #[test]
 fn replaces_previous_ocr_text_and_keeps_the_page_ink() {
     let source = path("ocr-source", "pdf");
@@ -1696,6 +1702,143 @@ fn places_words_in_the_displayed_orientation_of_a_rotated_page() {
     for file in [source, input, output] {
         let _ = fs::remove_file(file);
     }
+}
+
+#[test]
+fn keeps_the_ink_of_a_scale_that_an_old_ocr_stream_only_sets() {
+    let source = path("state-only-source", "pdf");
+    let input = path("state-only-input", "pdf");
+    let output = path("state-only-output", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    // The first stream's hidden text is the only thing it paints. It scales
+    // the second stream's red square to 20 by 20 points, so the square must
+    // still cover 400 pixels once the old text is gone.
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![
+            b"q 2 0 0 2 0 0 cm BT /F1 12 Tf 3 Tr 10 20 Td (old OCR) Tj ET".to_vec(),
+            b"1 0 0 rg 0 0 10 10 re f Q".to_vec(),
+        ],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let text = pdftotext_all(&output, &[]);
+    assert!(text.contains("Recognized"), "{text}");
+    assert!(!text.contains("old OCR"), "{text}");
+    let before = red_pixels(&input).len();
+    let after = red_pixels(&output).len();
+    assert_eq!(before, 400);
+    assert_eq!(after, before, "the square changed size");
+
+    for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}
+
+#[test]
+fn keeps_the_spacing_a_removed_hidden_quote_show_sets_for_later_text() {
+    let source = path("quote-spacing-source", "pdf");
+    let input = path("quote-spacing-input", "pdf");
+    let output = path("quote-spacing-output", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    // The hidden `"` sets word and character spacing that the red text after
+    // it paints with. Replacing the OCR must leave that text where it was.
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![
+            b"BT /F1 12 Tf 3 Tr 0 0 Td 10 5 (old OCR) \" ET".to_vec(),
+            b"1 0 0 rg BT /F1 12 Tf 0 Tr 10 40 Td (A A) Tj ET".to_vec(),
+        ],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let text = pdftotext_all(&output, &[]);
+    assert!(text.contains("Recognized"), "{text}");
+    assert!(!text.contains("old OCR"), "{text}");
+    let before = red_pixels(&input);
+    assert!(!before.is_empty());
+    assert_eq!(red_pixels(&output), before, "visible text moved");
+
+    for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}
+
+#[test]
+fn places_words_where_the_page_leaves_a_transform_open() {
+    let source = path("open-transform-source", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 200, 120],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    // The page ends with a scale it never restores, as a placed image leaves it.
+    // The second page holds an extra Q, which a reader ignores, after the scale.
+    for (label, content) in [
+        ("open-transform", &b"200 0 0 120 0 0 cm 0 0 1 1 re f"[..]),
+        ("unbalanced-restore", &b"2 0 0 2 0 0 cm Q 0 0 1 1 re f"[..]),
+    ] {
+        let input = path(label, "pdf");
+        let output = path(&format!("{label}-output"), "pdf");
+        save_ocr_page(
+            &input,
+            [0, 0, 200, 120],
+            None,
+            vec![content.to_vec()],
+            Dictionary::new(),
+        );
+
+        let result = run_ocr_text_layer(&input, &output, &source);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+
+        let bbox = pdftotext_all(&output, &["-bbox"]);
+        let x = bbox_word_x(&bbox, "Recognized");
+        assert!(
+            (x - 10.0).abs() < 1.0,
+            "{label}: word moved to x={x}: {bbox}"
+        );
+
+        for file in [input, output] {
+            let _ = fs::remove_file(file);
+        }
+    }
+    let _ = fs::remove_file(source);
 }
 
 /// One page whose resources hold a Form XObject `/Fm0` with `form_content`
@@ -2000,6 +2143,114 @@ fn keeps_page_content_that_only_mentions_the_ocr_marker() {
 }
 
 #[test]
+fn keeps_page_ink_in_a_stream_that_an_evb_layer_shares() {
+    let source = path("shared-layer-source", "pdf");
+    let input = path("shared-layer-input", "pdf");
+    let output = path("shared-layer-output", "pdf");
+    save_ocr_page(
+        &source,
+        [0, 0, 400, 240],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    // qpdf --coalesce-contents joins a page's streams and keeps the layer's
+    // comment lines, so one stream holds the page's ink and a whole layer. The
+    // stream does not begin and end with the layer's markers, so it is not one.
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![b"1 0 0 rg 0 0 10 10 re f\n% EVB_VIEWER_OCR_LAYER_BEGIN\nq\n2 0 0 2 0 0 cm\nBT /F1 12 Tf 3 Tr 10 20 Td (old OCR) Tj ET\nQ\n% EVB_VIEWER_OCR_LAYER_END\n".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+
+    let result = run_ocr_text_layer(&input, &output, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let text = pdftotext_all(&output, &[]);
+    assert!(text.contains("Recognized"), "{text}");
+    assert!(!text.contains("old OCR"), "{text}");
+    let before = red_pixels(&input);
+    assert_eq!(before.len(), 100);
+    assert_eq!(red_pixels(&output), before, "page ink changed");
+
+    for file in [source, input, output] {
+        let _ = fs::remove_file(file);
+    }
+}
+
+#[test]
+fn replacing_a_written_layer_removes_it_whole_and_keeps_the_page_ink() {
+    let source = path("written-layer-source", "pdf");
+    let input = path("written-layer-input", "pdf");
+    let written = path("written-layer-written", "pdf");
+    let replaced = path("written-layer-replaced", "pdf");
+    // The raster is twice the page's size, so the layer maps it at one half.
+    // A scale the layer left open would shrink the ink that follows it.
+    save_ocr_page(
+        &source,
+        [0, 0, 400, 240],
+        None,
+        vec![b"BT /F1 12 Tf 3 Tr 10 60 Td (Recognized) Tj ET".to_vec()],
+        dictionary! { "Font" => dictionary! { "F1" => helvetica() } },
+    );
+    save_ocr_page(
+        &input,
+        [0, 0, 200, 120],
+        None,
+        vec![b"1 0 0 rg 0 0 10 10 re f".to_vec()],
+        Dictionary::new(),
+    );
+    let before = red_pixels(&input);
+    assert_eq!(before.len(), 100);
+
+    // The layer is written in front of the page's content, so a graphics state
+    // it leaves open would move the ink that follows it.
+    let result = run_ocr_text_layer(&input, &written, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        red_pixels(&written),
+        before,
+        "the written layer moved the page ink"
+    );
+
+    // Replacing the layer removes it whole: the page keeps two streams, the new
+    // layer and the ink, and the ink stays where it was.
+    let result = run_ocr_text_layer(&written, &replaced, &source);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(
+        red_pixels(&replaced),
+        before,
+        "replacing the layer moved the page ink"
+    );
+    assert_eq!(
+        pdftotext_all(&replaced, &[]).matches("Recognized").count(),
+        1
+    );
+    assert_eq!(
+        page_content_stream_count(&replaced),
+        2,
+        "the replaced layer left a stream behind"
+    );
+
+    for file in [source, input, written, replaced] {
+        let _ = fs::remove_file(file);
+    }
+}
+
+#[test]
 fn overlay_links_target_output_pages_without_copying_source_page_trees() {
     for action in [false, true] {
         let source = path("link-source", "pdf");
@@ -2271,7 +2522,7 @@ fn overlay_rebinds_a_link_a_preserved_page_retains_to_its_output_page() {
     save_retained_link_source(&source);
     write(
         &split_instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":0.5,"translateX":10,"translateY":20}}]}]}"#,
+        r#"{"catalog":"assembly","pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":0.5,"translateX":10,"translateY":20}}]}]}"#,
     )
     .unwrap();
     run_split_pages(&source, &split, &split_instructions);
@@ -2882,7 +3133,7 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
                 );
             }
         }
-        // An ownership cycle has no terminal half. Refuse before publication.
+        // A repeated ownership link stops traversal without losing note text.
         for owner in [
             root,
             document
@@ -2897,8 +3148,56 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
             document.save(&source).unwrap();
             write(&output, b"existing output").unwrap();
             let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
-            assert!(!result.status.success());
-            assert_eq!(fs::read(&output).unwrap(), b"existing output");
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let compact = Command::new(qpdf_path())
+                .arg(&output)
+                .arg(&inspected)
+                .output()
+                .unwrap();
+            assert!(
+                compact.status.success(),
+                "{}",
+                String::from_utf8_lossy(&compact.stderr)
+            );
+            // Notes count only where a person sees them: in an output page's /Annots, owned by that page.
+            let saved = Document::load(&inspected).unwrap();
+            let mut notes = Vec::new();
+            for page in saved.get_pages().into_values() {
+                let Ok((_, annots)) = saved
+                    .get_dictionary(page)
+                    .unwrap()
+                    .get(b"Annots")
+                    .and_then(|annots| saved.dereference(annots))
+                else {
+                    continue;
+                };
+                for annot in annots.as_array().unwrap() {
+                    let annotation = match annot {
+                        Object::Reference(id) => saved.get_dictionary(*id).unwrap(),
+                        Object::Dictionary(annotation) => annotation,
+                        _ => continue,
+                    };
+                    if let Ok(contents) = annotation.get(b"Contents").and_then(Object::as_str) {
+                        assert_eq!(
+                            annotation.get(b"P").and_then(Object::as_reference).ok(),
+                            Some(page),
+                            "{}",
+                            String::from_utf8_lossy(contents)
+                        );
+                        notes.push(contents);
+                    }
+                }
+            }
+            for contents in ["Root note", "Reply note", "Seam note", "Legacy seam note"] {
+                assert!(
+                    notes.contains(&contents.as_bytes()),
+                    "{contents}: {notes:?}"
+                );
+            }
         }
         document.get_dictionary_mut(root).unwrap().remove(b"IRT");
         let mut deep_owner = root;
@@ -4184,7 +4483,7 @@ fn overlay_destinations_choose_the_source_region_independently_of_link_ownership
 }
 
 #[test]
-fn overlay_refuses_ambiguous_destinations_before_publishing() {
+fn overlay_selects_the_first_surviving_destination_output() {
     for destination in [
         vec!["Fit".into()],
         vec!["XYZ".into(), Object::Null, Object::Null, Object::Null],
@@ -4211,9 +4510,32 @@ fn overlay_refuses_ambiguous_destinations_before_publishing() {
         write(&output, b"existing output").unwrap();
         write(&instructions, plan).unwrap();
         let result = run_overlay_text(&input, &source, &output, &instructions);
-        assert!(!result.status.success());
-        assert!(String::from_utf8_lossy(&result.stderr).contains("internal destination"));
-        assert_eq!(fs::read(&output).unwrap(), b"existing output");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let saved = Document::load(&output).unwrap();
+        let first = saved.get_pages()[&1];
+        let annotation = saved
+            .get_dictionary(
+                saved
+                    .get_dictionary(first)
+                    .unwrap()
+                    .get(b"Annots")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()[0]
+                    .as_reference()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            annotation.get(b"Dest").unwrap().as_array().unwrap()[0]
+                .as_reference()
+                .unwrap(),
+            first
+        );
         assert!(atomic_output_siblings(&output).is_empty());
         for file in [source, input, output, instructions] {
             remove_file(file).unwrap();
@@ -4709,7 +5031,7 @@ fn overlay_leaves_a_foreign_note_where_it_is_on_any_output_page() {
 /// A retained destination that the output refuses leaves the output's bytes
 /// as they were. The copy and the rebinding publish together, so a refused
 /// rebinding cannot leave the copied pages behind. The refused link names a
-/// page that two preserved halves both show, which is ambiguous.
+/// page that two preserved halves show, but has an unsupported destination mode.
 #[test]
 fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
     let source = path("retained-refusal-source", "pdf");
@@ -4725,7 +5047,7 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
     let link = document.add_object(dictionary! {
         "Type" => "Annot", "Subtype" => "Link", "P" => first_page,
         "Rect" => vec![20.into(), 20.into(), 40.into(), 40.into()],
-        "Dest" => vec![first_page.into(), "Fit".into()],
+        "Dest" => vec![first_page.into(), "UnsupportedDestination".into()],
     });
     document
         .get_dictionary_mut(first_page)
@@ -4734,7 +5056,7 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
     document.save(&source).unwrap();
     write(
         &split_instructions,
-        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
+        r#"{"catalog":"assembly","pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}},{"cropRect":{"x":0,"y":0,"width":100,"height":120},"contentTransform":{"scale":1,"translateX":-100,"translateY":0}}]}]}"#,
     )
     .unwrap();
     run_split_pages(&source, &split, &split_instructions);
@@ -4768,7 +5090,7 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
         assert!(!refused.status.success());
         let stderr = String::from_utf8_lossy(&refused.stderr);
         assert!(
-            stderr.contains("ambiguous internal destination"),
+            stderr.contains("cannot resolve an internal destination"),
             "unexpected failure: {stderr}"
         );
         assert!(atomic_output_siblings(&output).is_empty());
@@ -4801,6 +5123,339 @@ fn overlay_text_refused_retained_destination_leaves_existing_output_bytes() {
         instructions,
         output,
     ] {
+        let _ = remove_file(file);
+    }
+}
+/// The note shapes that review34 found losing their replies in the qpdf
+/// interleave: identical bodies, indirect /M, /Contents and /NM, an /AP stream.
+#[derive(Clone, Copy)]
+enum NoteShape {
+    Single,
+    Identical,
+    IndirectModified,
+    IndirectContents,
+    IndirectName,
+    Appearance,
+}
+
+/// A page with one Text note per root, each with a reply and a popup. A
+/// two-root shape puts both roots on the page, so the interleave copies each
+/// one; the reply and popup are direct objects in every shape.
+fn save_note_thread_source(path: &Path, shape: NoteShape) {
+    let mut document = save_single_page(path, Vec::new(), Dictionary::new());
+    let page_id = document.get_pages()[&1];
+    let root_count = match shape {
+        NoteShape::Single | NoteShape::Appearance => 1,
+        _ => 2,
+    };
+    let mut annotations = Vec::new();
+    for index in 0..root_count {
+        let contents = match shape {
+            NoteShape::IndirectContents => Object::Reference(
+                document.add_object(Object::string_literal(format!("different body {index}"))),
+            ),
+            _ => Object::string_literal("same note"),
+        };
+        let root_id = document.new_object_id();
+        let mut root = dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id,
+            "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
+            "Contents" => contents,
+        };
+        match shape {
+            NoteShape::IndirectModified => root.set(
+                "M",
+                document.add_object(Object::string_literal(format!("D:2026101100000{index}Z"))),
+            ),
+            NoteShape::IndirectName => root.set(
+                "NM",
+                document.add_object(Object::string_literal(format!("unique-{index}"))),
+            ),
+            NoteShape::Appearance => {
+                let normal = document.add_object(Stream::new(
+                    dictionary! {
+                        "Type" => "XObject", "Subtype" => "Form",
+                        "BBox" => vec![0.into(), 0.into(), 4.into(), 4.into()],
+                    },
+                    b"0 0 1 rg 0 0 4 4 re f".to_vec(),
+                ));
+                root.set("AP", dictionary! {"N" => normal});
+            }
+            NoteShape::Single | NoteShape::Identical | NoteShape::IndirectContents => {}
+        }
+        let reply_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Text", "P" => page_id, "IRT" => root_id,
+            "Rect" => vec![45.into(), 45.into(), 55.into(), 55.into()],
+            "Contents" => Object::string_literal(format!("reply-{index}")),
+        });
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot", "Subtype" => "Popup", "P" => page_id, "Parent" => root_id,
+            "Rect" => vec![30.into(), 60.into(), 80.into(), 100.into()],
+        });
+        root.set("Popup", popup_id);
+        document.set_object(root_id, root);
+        annotations.extend([root_id, reply_id, popup_id]);
+    }
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        annotations
+            .into_iter()
+            .map(Object::Reference)
+            .collect::<Vec<_>>(),
+    );
+    document.save(path).unwrap();
+}
+
+/// The compact cleanup of one preserved source page, assembled as the
+/// scan-cleanup product does it: split-pages, then the qpdf interleave with the
+/// split as the primary input, then the overlay that rebinds retained links.
+/// A raster page follows the preserved page when `with_raster` is set. When
+/// `copied_text_page` is set, that raster page also has its source page's text
+/// and annotations copied over it, as a text layer does.
+fn assemble_compact_cleanup(
+    source: &Path,
+    label: &str,
+    with_raster: bool,
+    copied_text_page: bool,
+) -> std::path::PathBuf {
+    let split_instructions = path(&format!("{label}-split"), "json");
+    write(
+        &split_instructions,
+        r#"{"catalog":"assembly","pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120},"contentTransform":{"scale":1,"translateX":0,"translateY":0}}]}]}"#,
+    )
+    .unwrap();
+    let split = path(&format!("{label}-split-output"), "pdf");
+    run_split_pages(source, &split, &split_instructions);
+    let raster = path(&format!("{label}-raster"), "pdf");
+    save_empty_pages(&raster, 1);
+    let assembled = path(&format!("{label}-assembled"), "pdf");
+    let mut interleave = Command::new(qpdf_path());
+    interleave
+        .arg(&split)
+        .args(["--coalesce-contents", "--pages", ".", "1"]);
+    if with_raster {
+        interleave.arg(&raster).arg("1");
+    }
+    let interleave = interleave.arg("--").arg(&assembled).output().unwrap();
+    assert!(
+        interleave.status.success(),
+        "{}",
+        String::from_utf8_lossy(&interleave.stderr)
+    );
+    let instructions = path(&format!("{label}-instructions"), "json");
+    let copied_page = if copied_text_page {
+        r#",{"sourcePageIndex":1,"outputPageIndex":1,"matrix":[1,0,0,1,0,0]}"#
+    } else {
+        ""
+    };
+    write(
+        &instructions,
+        format!(
+            r#"{{"pages":[{{"sourcePageIndex":0,"outputPageIndex":0,"matrix":[1,0,0,1,0,0],"linkOnly":true}}{copied_page}]}}"#
+        ),
+    )
+    .unwrap();
+    let output = path(&format!("{label}-output"), "pdf");
+    let result = run_overlay_text(&assembled, source, &output, &instructions);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let check = Command::new(qpdf_path())
+        .arg("--check")
+        .arg(&output)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stdout)
+    );
+    let expected_pages = if with_raster { 2 } else { 1 };
+    assert_eq!(
+        Document::load(&output).unwrap().get_pages().len(),
+        expected_pages,
+        "the assembled cleanup has no page beyond its plan"
+    );
+    output
+}
+
+/// Each note with its page and the contents of its replies, read the way a reader does.
+fn note_threads(pdf: &Path, label: &str) -> Vec<(u64, String, Vec<String>)> {
+    let parsed = path(&format!("{label}-threads"), "jsonl");
+    let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+        .args(["parse-annotations", "--input"])
+        .arg(pdf)
+        .arg("--output")
+        .arg(&parsed)
+        .args(["--modified-at", "D:20261011000000Z"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let entries = fs::read_to_string(&parsed)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .flat_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["entries"]
+                .as_array()
+                .unwrap()
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    let _ = remove_file(&parsed);
+    let mut threads = entries
+        .iter()
+        .filter(|entry| entry["kind"] == "note")
+        .map(|note| {
+            let replies = note["replies"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|reply| reply["contents"].as_str().unwrap_or("").to_string())
+                .collect::<Vec<_>>();
+            (
+                note["pageIndex"].as_u64().unwrap(),
+                note["contents"].as_str().unwrap_or("").to_string(),
+                replies,
+            )
+        })
+        .collect::<Vec<_>>();
+    threads.sort();
+    threads
+}
+
+/// Every note of the source keeps its own replies in the assembled cleanup.
+fn assert_compact_cleanup_keeps_note_replies(label: &str, shape: NoteShape, with_raster: bool) {
+    let source = path(&format!("{label}-source"), "pdf");
+    save_note_thread_source(&source, shape);
+    let source_threads = note_threads(&source, &format!("{label}-source"));
+    assert!(
+        source_threads
+            .iter()
+            .all(|(_, _, replies)| replies.len() == 1),
+        "the source gives each note one reply: {source_threads:?}"
+    );
+    let output = assemble_compact_cleanup(&source, label, with_raster, false);
+    assert_eq!(note_threads(&output, label), source_threads);
+}
+
+#[test]
+fn compact_cleanup_keeps_a_note_reply_through_the_interleave() {
+    assert_compact_cleanup_keeps_note_replies("reply-single", NoteShape::Single, true);
+}
+
+#[test]
+fn compact_cleanup_keeps_each_reply_of_identical_notes() {
+    assert_compact_cleanup_keeps_note_replies("reply-identical", NoteShape::Identical, true);
+}
+
+#[test]
+fn compact_cleanup_keeps_replies_of_notes_with_indirect_modification_dates() {
+    assert_compact_cleanup_keeps_note_replies(
+        "reply-indirect-m",
+        NoteShape::IndirectModified,
+        true,
+    );
+}
+
+#[test]
+fn compact_cleanup_keeps_replies_of_notes_with_indirect_contents() {
+    assert_compact_cleanup_keeps_note_replies(
+        "reply-indirect-contents",
+        NoteShape::IndirectContents,
+        true,
+    );
+}
+
+#[test]
+fn compact_cleanup_keeps_replies_of_notes_with_indirect_names() {
+    assert_compact_cleanup_keeps_note_replies("reply-indirect-nm", NoteShape::IndirectName, true);
+}
+
+#[test]
+fn compact_cleanup_keeps_the_reply_of_a_note_with_an_appearance() {
+    assert_compact_cleanup_keeps_note_replies("reply-appearance", NoteShape::Appearance, true);
+}
+
+#[test]
+fn all_preserved_compact_cleanup_keeps_each_note_reply() {
+    assert_compact_cleanup_keeps_note_replies("reply-all-preserved", NoteShape::Identical, false);
+}
+
+/// Two pages each hold a note with the same body. The reply on page 1 names the
+/// page-2 note as its root, so it must not be attached to page 1's own note.
+/// Cross-page threads are otherwise unchanged by this fix.
+fn save_cross_page_thread_source(path: &Path) {
+    let mut document = save_pages(path, (0..2).map(|_| None), Dictionary::new());
+    let pages = document.get_pages();
+    let (first_page, second_page) = (pages[&1], pages[&2]);
+    let unrelated = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => first_page,
+        "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
+        "Contents" => Object::string_literal("same body"),
+    });
+    let target = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => second_page,
+        "Rect" => vec![48.into(), 48.into(), 52.into(), 52.into()],
+        "Contents" => Object::string_literal("same body"),
+    });
+    let reply = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "Text", "P" => first_page, "IRT" => target,
+        "Rect" => vec![45.into(), 45.into(), 55.into(), 55.into()],
+        "Contents" => Object::string_literal("reply intended for page 2"),
+    });
+    document
+        .get_dictionary_mut(first_page)
+        .unwrap()
+        .set("Annots", vec![unrelated.into(), reply.into()]);
+    document
+        .get_dictionary_mut(second_page)
+        .unwrap()
+        .set("Annots", vec![target.into()]);
+    document.save(path).unwrap();
+}
+
+#[test]
+fn compact_cleanup_does_not_attach_a_cross_page_reply_to_a_same_body_note() {
+    let source = path("cross-page-source", "pdf");
+    save_cross_page_thread_source(&source);
+    let output = assemble_compact_cleanup(&source, "cross-page", true, true);
+    let threads = note_threads(&output, "cross-page");
+    let page_one_replies = threads
+        .iter()
+        .filter(|(page, _, _)| *page == 0)
+        .flat_map(|(_, _, replies)| replies)
+        .collect::<Vec<_>>();
+    assert!(
+        page_one_replies.is_empty(),
+        "a reply for the page-2 note attached to page 1's same-body note: {threads:?}"
+    );
+}
+
+#[test]
+fn lossless_split_keeps_each_note_reply() {
+    let source = path("reply-lossless-source", "pdf");
+    save_note_thread_source(&source, NoteShape::Identical);
+    let instructions = path("reply-lossless-instructions", "json");
+    write(
+        &instructions,
+        r#"{"pages":[{"sourcePageIndex":0,"rotationQuarterTurns":0,"outputs":[{"cropRect":{"x":0,"y":0,"width":200,"height":120}}]}]}"#,
+    )
+    .unwrap();
+    let output = path("reply-lossless-output", "pdf");
+    run_split_pages(&source, &output, &instructions);
+
+    let source_threads = note_threads(&source, "reply-lossless-source");
+    assert_eq!(source_threads.len(), 2);
+    assert_eq!(note_threads(&output, "reply-lossless"), source_threads);
+
+    for file in [source, instructions, output] {
         let _ = remove_file(file);
     }
 }

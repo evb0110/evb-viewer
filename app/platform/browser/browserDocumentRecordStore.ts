@@ -23,11 +23,10 @@ import {
 } from '@app/platform/browser/browserDocumentChunkStorage';
 import {
     cleanupBrowserEvictedRecentRefs,
-    isBrowserRecentFileRef,
-    loadBrowserPersistedDocumentRecords,
     loadBrowserPersistedDocumentRecordsResult,
     sweepBrowserDocumentMaintenance,
 } from '@app/platform/browser/browserDocumentMaintenance';
+import { removeBrowserDetachedRecordIfUnretained } from '@app/platform/browser/browserDocumentAdmission';
 import {
     createBrowserDocumentRevisionInfo,
     getBrowserDocumentEntryContentRevision,
@@ -47,27 +46,14 @@ import {
 } from '@contracts/documentMutationErrors';
 import { parseDocumentRef } from '@contracts/documentRef';
 
-async function ensureFileHandleReadPermission(handle: FileSystemFileHandle) {
+async function assertFileHandleReadPermission(handle: FileSystemFileHandle) {
     interface IFileSystemHandlePermissionDescriptor {mode: 'read';}
 
-    const permissionHandle = handle as FileSystemFileHandle & {
-        queryPermission?: (descriptor?: IFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
-        requestPermission?: (descriptor?: IFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;
-    };
+    const permissionHandle = handle as FileSystemFileHandle & {queryPermission?: (descriptor?: IFileSystemHandlePermissionDescriptor) => Promise<PermissionState>;};
     const descriptor: IFileSystemHandlePermissionDescriptor = { mode: 'read' };
 
-    if (typeof permissionHandle.queryPermission === 'function') {
-        const currentPermission = await permissionHandle.queryPermission(descriptor);
-        if (currentPermission === 'granted') {
-            return;
-        }
-    }
-
-    if (typeof permissionHandle.requestPermission === 'function') {
-        const requestedPermission = await permissionHandle.requestPermission(descriptor);
-        if (requestedPermission === 'granted') {
-            return;
-        }
+    if (permissionHandle.queryPermission && await permissionHandle.queryPermission(descriptor) !== 'granted') {
+        throw new DOMException('Browser read permission was not granted. Save again to restore file permission.', 'NotAllowedError');
     }
 }
 
@@ -76,7 +62,7 @@ async function readFileHandleBytes(
     offset?: number,
     length?: number,
 ) {
-    await ensureFileHandleReadPermission(handle);
+    await assertFileHandleReadPermission(handle);
     const file = await handle.getFile();
     if (typeof offset === 'number' && typeof length === 'number') {
         const start = Math.max(0, offset);
@@ -98,7 +84,7 @@ async function readFileHandleBytes(
 }
 
 export async function readFileHandleMetadata(handle: FileSystemFileHandle) {
-    await ensureFileHandleReadPermission(handle);
+    await assertFileHandleReadPermission(handle);
     const file = await handle.getFile();
     return {
         size: file.size,
@@ -126,7 +112,7 @@ export class BrowserDocumentRecordStore {
         cleanupEvictedRecentRefs: (refs) => cleanupBrowserEvictedRecentRefs(
             refs,
             async (ref) => {
-                await this.cleanupDetachedPersistedRecord(ref, { allowDurable: true });
+                await this.cleanupDetachedPersistedRecord(ref);
             },
         ),
     });
@@ -420,15 +406,14 @@ export class BrowserDocumentRecordStore {
     }
 
     public async remove(ref: string) {
-        await this.runRefMutation(ref, () => this.removeUnlocked(ref));
+        await this.runRefMutation(ref, () => this.removeDocumentRecordUnlocked(ref));
+        // Recent-file cleanup re-enters this ref's mutation queue, so it runs
+        // after the queue is released. A ref that was in Recent Files would
+        // otherwise wait on the queue entry that is waiting for it.
+        await this.removeRecentFile(ref);
     }
 
     protected onDocumentRemoved(_ref: string) {}
-
-    private async removeUnlocked(ref: string) {
-        await this.removeDocumentRecordUnlocked(ref);
-        await this.removeRecentFile(ref);
-    }
 
     /** Removes a document record while its caller owns the mutation queue. */
     protected async removeDocumentRecordUnlocked(ref: string) {
@@ -451,49 +436,31 @@ export class BrowserDocumentRecordStore {
     }
 
     public async cleanupDetachedDocument(ref: string) {
-        return this.cleanupDetachedPersistedRecord(ref, { allowDurable: true });
+        return this.cleanupDetachedPersistedRecord(ref);
     }
 
-    private async cleanupDetachedPersistedRecord(
-        ref: string,
-        options?: { allowDurable?: boolean },
-    ) {
-        return this.runRefMutation(ref, () => this.cleanupDetachedPersistedRecordUnlocked(ref, options));
+    private async cleanupDetachedPersistedRecord(ref: string) {
+        return this.runRefMutation(ref, () => this.cleanupDetachedPersistedRecordUnlocked(ref));
     }
 
-    private async cleanupDetachedPersistedRecordUnlocked(
-        ref: string,
-        options?: { allowDurable?: boolean },
-    ) {
+    private async cleanupDetachedPersistedRecordUnlocked(ref: string) {
         await this.ensureMaintenance();
         const entry = await this.ensureEntry(ref);
         if (!entry) {
             return false;
         }
 
-        if (entry.kind === 'working') {
-            await this.removeUnlocked(ref);
-            return true;
-        }
-
-        if (isBrowserRecentFileRef(ref)) {
+        const removal = await removeBrowserDetachedRecordIfUnretained(ref, this.entries);
+        if (removal === 'retained') {
             return false;
         }
-
-        const records = await loadBrowserPersistedDocumentRecords();
-        const hasDependents = records.some((record) => (
-            record.ref !== ref
-            && record.sourceRef === ref
-        ));
-        if (hasDependents) {
-            return false;
+        this.onDocumentRemoved(ref);
+        this.dropLoadedEntry(ref);
+        // Only a row this admission deleted may have its chunks cleared.
+        if (removal === 'deleted') {
+            await clearPendingBrowserDocumentChunks(entry);
+            await clearBrowserDocumentExternalChunkStorage(entry);
         }
-
-        if (entry.retention !== 'transient' && options?.allowDurable !== true) {
-            return false;
-        }
-
-        await this.removeUnlocked(ref);
         return true;
     }
 

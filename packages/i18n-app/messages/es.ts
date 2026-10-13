@@ -444,6 +444,7 @@ export default {
         'completedTitle': 'Limpieza del escaneo completada',
         'completedPartialTitle': 'Páginas seleccionadas limpiadas',
         'openResultFailed': 'El PDF limpio no se pudo abrir',
+        'outputClosedBeforeSaveAs': 'El PDF limpio ya no está abierto, así que no se guardó nada. Vuelva a abrirlo para guardarlo.',
         'saveAs': 'Guardar como…',
         'cancel': 'Cancelar limpieza',
         'canceling': 'Cancelando…',
@@ -518,6 +519,7 @@ export default {
         'summary': '{input} páginas de origen se convirtieron en {output} páginas de salida; se dividieron {spreads} páginas dobles y se descartaron {offcuts} recortes.',
         'sourceTextOmitted': 'Se omitió el texto original en la salida de {count} página(s) de origen: {pages}. La búsqueda y la copia no están disponibles en las páginas de salida afectadas. Ejecute OCR en el PDF limpio para recuperar el texto buscable.',
         'sourceTextOmittedMorePages': '{pages} y {remaining} más',
+        'accessibilityTagsRemoved': 'Se eliminaron las etiquetas de accesibilidad porque las páginas limpiadas ya no coinciden con la estructura original del documento.',
     },
     'app': {
         'title': 'EVB Viewer',

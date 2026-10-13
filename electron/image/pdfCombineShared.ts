@@ -1,3 +1,6 @@
+import {
+    getInputFileExtension, isImagePath, isDjvuPath,
+} from '@electron/utils/documentFileTypes';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
     createManagedScratchTempDir,
@@ -8,10 +11,7 @@ import {
     stat,
     writeFile,
 } from 'fs/promises';
-import {
-    extname,
-    join,
-} from 'path';
+import {join} from 'path';
 import { createRequire } from 'node:module';
 import { readTiffFrameDimensions } from '@pdf-core/iterateDecodedTiffFrames';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
@@ -23,6 +23,9 @@ import {
     createPdfCombineOutputTooLargeError,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 } from '@contracts/pdfCombineOutputPolicy';
+export {
+    isImagePath, PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
+} from '@electron/utils/documentFileTypes';
 
 export interface ICreateCombinedPdfProgress {
     processed: number;
@@ -61,21 +64,6 @@ interface IImageDecoderBitmap {
     width: number;
 }
 
-export const PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS = [
-    '.png',
-    '.jpg',
-    '.jpeg',
-    '.jp2',
-    '.tif',
-    '.tiff',
-    '.bmp',
-    '.webp',
-    '.gif',
-] as const;
-
-const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
-    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
-);
 const DEFAULT_RESOURCE_LIMITS: IPdfCombineResourceLimits = {
     maxInputBytes: 512 * 1024 * 1024,
     maxPages: 500,
@@ -453,22 +441,13 @@ function throwIfAborted(signal: AbortSignal | undefined) {
     }
 }
 
-export function isImagePath(filePath: string) {
-    return SUPPORTED_IMAGE_EXTENSION_SET.has(extname(filePath).toLowerCase());
-}
-
-function isDjvuPath(filePath: string) {
-    const extension = extname(filePath).toLowerCase();
-    return extension === '.djvu' || extension === '.djv';
-}
-
 async function preflightImageInput(
     sourcePath: string,
     currentPageCount: number,
     limits: IPdfCombineResourceLimits,
     signal?: AbortSignal,
 ) {
-    const extension = extname(sourcePath).toLowerCase();
+    const extension = getInputFileExtension(sourcePath);
     await assertInputByteLimit(sourcePath, limits);
     throwIfAborted(signal);
 
@@ -522,7 +501,7 @@ async function preflightCombineInputs(
     let imagePageCount = 0;
     for (const sourcePath of inputPaths) {
         throwIfAborted(signal);
-        const extension = extname(sourcePath).toLowerCase();
+        const extension = getInputFileExtension(sourcePath);
         if (extension === '.pdf' || isDjvuPath(sourcePath)) {
             await assertInputByteLimit(sourcePath, limits);
             continue;
@@ -540,7 +519,7 @@ async function preflightCombineInputs(
 }
 
 function needsElectronImageNormalization(sourcePath: string) {
-    const extension = extname(sourcePath).toLowerCase();
+    const extension = getInputFileExtension(sourcePath);
     return extension === '.bmp' || extension === '.gif' || extension === '.webp';
 }
 
@@ -641,7 +620,7 @@ export async function createCombinedPdf(
             },
         };
         const hasDocumentInput = normalizedPaths.some((sourcePath) => {
-            const extension = extname(sourcePath).toLowerCase();
+            const extension = getInputFileExtension(sourcePath);
             return extension === '.pdf' || isDjvuPath(sourcePath);
         });
         const nativeOutput = hasDocumentInput

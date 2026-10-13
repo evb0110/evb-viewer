@@ -5,10 +5,8 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    createShutdownCoordinator,
-    createShutdownPhaseRunners,
-} from '@electron/bootstrap/shutdown';
+import { createShutdownCoordinator } from '@electron/bootstrap/shutdown';
+import { createShutdownPhaseRunners } from '@electron/bootstrap/createShutdownPhaseRunners';
 import type { IShutdownContext } from '@electron/bootstrap/shutdown';
 import { EventEmitter } from 'node:events';
 import {
@@ -17,6 +15,7 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+    beginMainOperationShutdown,
     drainCriticalMainOperations,
     registerMainOperation,
     resetMainOperationLifecycleForTests,
@@ -354,20 +353,30 @@ describe('shutdown coordinator', () => {
     ])('retains recovery state across retryable failure for %s', async request => {
         let attempt = 0;
         const deleteRecoveryArtifacts = vi.fn();
-        const cleanup = vi.fn(async (context: IShutdownContext) => {
+        const cleanup = vi.fn((context: IShutdownContext) => {
             if (!context.preserveRecoveryState) {
                 deleteRecoveryArtifacts();
             }
         });
+        const phases = createShutdownPhaseRunners(createLogger(), {
+            createPreservationSteps: context => [{
+                label: 'renderer-save-flush',
+                run: () => {
+                    attempt += 1;
+                    if (attempt === 1) {
+                        context.preserveRecoveryState = true;
+                        context.retryablePreservationFailure = true;
+                    }
+                },
+            }],
+            createBestEffortCleanupSteps: context => [{
+                label: 'working-copies',
+                run: () => cleanup(context),
+            }],
+        });
         const fixture = createCoordinator({
-            runBestEffortCleanupSteps: cleanup,
-            runPreservationSteps: async context => {
-                attempt += 1;
-                if (attempt === 1) {
-                    context.preserveRecoveryState = true;
-                    context.retryablePreservationFailure = true;
-                }
-            },
+            runBestEffortCleanupSteps: phases.runBestEffortCleanupSteps,
+            runPreservationSteps: phases.runPreservationSteps,
         });
 
         if (request === 'Quit') {
@@ -379,7 +388,8 @@ describe('shutdown coordinator', () => {
             expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
         expect(fixture.app.quit).not.toHaveBeenCalled();
-        expect(cleanup).toHaveBeenCalledOnce();
+        // A held Quit leaves services alone; a system shutdown still runs its cleanup.
+        expect(cleanup).toHaveBeenCalledTimes(request === 'Quit' ? 0 : 1);
 
         if (request === 'repeated system shutdown') {
             fixture.coordinator.requestSystemShutdown();
@@ -389,24 +399,31 @@ describe('shutdown coordinator', () => {
         await vi.waitFor(() => {
             expect(fixture.app.quit).toHaveBeenCalledOnce();
         });
-        expect(cleanup).toHaveBeenCalledTimes(2);
+        expect(cleanup).toHaveBeenCalledTimes(request === 'Quit' ? 1 : 2);
         expect(fixture.app.exit).not.toHaveBeenCalled();
         expect(deleteRecoveryArtifacts).toHaveBeenCalledTimes(request === 'Quit' ? 1 : 0);
     });
 
-    it('holds graceful quit when assistant preservation times out while cleanup still runs', async () => {
+    it('holds graceful quit without shutting services down when assistant preservation times out', async () => {
         vi.useFakeTimers();
-        const logger = createLogger();
         const cleanup = vi.fn();
-        const phases = createShutdownPhaseRunners(logger, {
-            createPreservationSteps: context => [{
-                label: 'assistant-history-preservation',
-                timeoutMs: 1,
-                onFailure: () => {
-                    context.retryablePreservationFailure = true;
+        const phases = createShutdownPhaseRunners(createLogger(), {
+            createPreservationSteps: context => [
+                {
+                    label: 'assistant-history-preservation',
+                    timeoutMs: 1,
+                    onFailure: () => {
+                        context.retryablePreservationFailure = true;
+                    },
+                    run: () => new Promise<void>(() => undefined),
                 },
-                run: () => new Promise<void>(() => undefined),
-            }],
+                {
+                    label: 'main-operation-shutdown',
+                    run: () => {
+                        beginMainOperationShutdown('Main process is shutting down');
+                    },
+                },
+            ],
             createBestEffortCleanupSteps: () => [{
                 label: 'safe-cleanup',
                 run: cleanup,
@@ -420,21 +437,33 @@ describe('shutdown coordinator', () => {
         fixture.coordinator.requestGracefulQuit();
         await vi.advanceTimersByTimeAsync(1);
         await vi.waitFor(() => {
-            expect(cleanup).toHaveBeenCalledOnce();
+            expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
 
         expect(fixture.app.quit).not.toHaveBeenCalled();
-        expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
+        expect(cleanup).not.toHaveBeenCalled();
+        // The windows stay open, so their next save must still be admitted.
+        expect(() => registerMainOperation({kind: 'critical-write'}).complete()).not.toThrow();
     });
 
-    it('does not force exit while retryable preservation cleanup is pending', async () => {
+    it('does not arm a forced exit while a held quit waits for its retry', async () => {
         vi.useFakeTimers();
-        const cleanup = createDeferred();
+        const cleanup = vi.fn();
+        const phases = createShutdownPhaseRunners(createLogger(), {
+            createPreservationSteps: context => [{
+                label: 'renderer-save-flush',
+                run: () => {
+                    context.retryablePreservationFailure = true;
+                },
+            }],
+            createBestEffortCleanupSteps: () => [{
+                label: 'safe-cleanup',
+                run: cleanup,
+            }],
+        });
         const fixture = createCoordinator({
-            runBestEffortCleanupSteps: () => cleanup.promise,
-            runPreservationSteps: async context => {
-                context.retryablePreservationFailure = true;
-            },
+            runBestEffortCleanupSteps: phases.runBestEffortCleanupSteps,
+            runPreservationSteps: phases.runPreservationSteps,
         });
 
         fixture.coordinator.requestGracefulQuit();
@@ -444,45 +473,49 @@ describe('shutdown coordinator', () => {
         await vi.advanceTimersByTimeAsync(23_000);
 
         expect(fixture.app.exit).not.toHaveBeenCalled();
-        cleanup.resolve();
-        await fixture.coordinator.performCleanup();
         expect(fixture.app.quit).not.toHaveBeenCalled();
+        expect(cleanup).not.toHaveBeenCalled();
     });
 
-    it('serializes repeated quit requests behind retryable cleanup', async () => {
-        const cleanup = createDeferred();
+    it('serializes repeated quit requests behind a held quit retry', async () => {
         let cleanupCalls = 0;
         let preservationAttempts = 0;
+        const phases = createShutdownPhaseRunners(createLogger(), {
+            createPreservationSteps: context => [{
+                label: 'renderer-save-flush',
+                run: () => {
+                    preservationAttempts += 1;
+                    if (preservationAttempts === 1) {
+                        context.retryablePreservationFailure = true;
+                    }
+                },
+            }],
+            createBestEffortCleanupSteps: () => [{
+                label: 'safe-cleanup',
+                run: () => {
+                    cleanupCalls += 1;
+                },
+            }],
+        });
         const fixture = createCoordinator({
-            runBestEffortCleanupSteps: async () => {
-                cleanupCalls += 1;
-                if (cleanupCalls === 1) {
-                    await cleanup.promise;
-                }
-            },
-            runPreservationSteps: async context => {
-                preservationAttempts += 1;
-                if (preservationAttempts === 1) {
-                    context.retryablePreservationFailure = true;
-                }
-            },
+            runBestEffortCleanupSteps: phases.runBestEffortCleanupSteps,
+            runPreservationSteps: phases.runPreservationSteps,
         });
 
         fixture.coordinator.requestGracefulQuit();
         await vi.waitFor(() => {
-            expect(cleanupCalls).toBe(1);
+            expect(preservationAttempts).toBe(1);
             expect(fixture.coordinator.isGracefulQuitInProgress()).toBe(false);
         });
         fixture.coordinator.requestGracefulQuit();
         fixture.coordinator.requestGracefulQuit();
         expect(preservationAttempts).toBe(1);
 
-        cleanup.resolve();
         await vi.waitFor(() => {
             expect(fixture.app.quit).toHaveBeenCalledOnce();
         });
-        expect(cleanupCalls).toBe(2);
         expect(preservationAttempts).toBe(2);
+        expect(cleanupCalls).toBe(1);
         expect(fixture.app.exit).not.toHaveBeenCalled();
     });
 
@@ -595,6 +628,46 @@ describe('shutdown coordinator', () => {
         expect(fixture.app.quit).not.toHaveBeenCalled();
     });
 
+    it('runs the checkpoint flush and cleanup a held quit skipped when a fatal error follows', async () => {
+        const checkpointFlush = vi.fn();
+        const cleanup = vi.fn();
+        const phases = createShutdownPhaseRunners(createLogger(), {
+            createPreservationSteps: context => [
+                {
+                    label: 'renderer-save-flush',
+                    run: () => {
+                        context.retryablePreservationFailure = true;
+                    },
+                },
+                {
+                    label: 'workspace-checkpoint-flush',
+                    run: checkpointFlush,
+                },
+            ],
+            createBestEffortCleanupSteps: () => [{
+                label: 'services',
+                run: cleanup,
+            }],
+        });
+        const fixture = createCoordinator({
+            runBestEffortCleanupSteps: phases.runBestEffortCleanupSteps,
+            runPreservationSteps: phases.runPreservationSteps,
+        });
+
+        fixture.coordinator.requestGracefulQuit();
+        await fixture.coordinator.performCleanup();
+        expect(checkpointFlush).not.toHaveBeenCalled();
+        expect(cleanup).not.toHaveBeenCalled();
+
+        fixture.coordinator.requestFatalShutdown('fatal after held quit');
+        await vi.waitFor(() => {
+            expect(fixture.app.exit).toHaveBeenCalledWith(1);
+        });
+        expect(checkpointFlush).toHaveBeenCalledOnce();
+        expect(cleanup).toHaveBeenCalledOnce();
+        expect(fixture.app.quit).not.toHaveBeenCalled();
+    });
+
     it('forces a fatal shutdown when preservation never settles', async () => {
         vi.useFakeTimers();
         const fixture = createCoordinator({runPreservationSteps: () => new Promise<void>(() => undefined)});
@@ -650,9 +723,9 @@ describe('main process termination signals', () => {
             powerMonitor: new EventEmitter(),
             protocol: {registerSchemesAsPrivileged: vi.fn()},
         }));
-        vi.doMock('@electron/bootstrap/shutdown', () => ({
+        vi.doMock('@electron/bootstrap/shutdown', async () => ({
+            ...await vi.importActual<Record<string, unknown>>('@electron/bootstrap/shutdown'),
             createShutdownCoordinator: stubs.createCoordinator,
-            createShutdownPhaseRunners,
         }));
         vi.doMock('@electron/bootstrap/runInitSequence', () => ({runInitSequence: () => new Promise<void>(() => undefined)}));
         vi.doMock('@electron/utils/createLogger', () => ({

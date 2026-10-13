@@ -16,6 +16,30 @@ import {
     MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
+import {
+    DB_NAME,
+    DOCUMENTS_STORE,
+    DOCUMENT_CHUNKS_STORE,
+    WORKSPACE_RECOVERY_STORE,
+} from '@app/platform/browser/browserDocumentConstants';
+import {
+    loadRecordAvailability,
+    mutateBrowserTransferAuthority,
+    persistRecord,
+    runObjectStoresTransaction,
+    type IBrowserTransferAuthorityRecord,
+} from '@app/platform/browser/browserDocumentIdb';
+import {toPersistedDocumentRecord} from '@app/platform/browser/browserDocumentRecords';
+import {createChunkKey} from '@app/platform/browser/browserDocumentChunks';
+import {sweepBrowserDocumentMaintenance} from '@app/platform/browser/browserDocumentMaintenance';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {saveBrowserWorkspaceRecovery} from '@app/platform/browser/browserWorkspaceRecoveryStore';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireTabId} from '@contracts/windowTabs';
 
 const PDF_SOURCE_OPTIONS = {
     mimeType: 'application/pdf',
@@ -23,8 +47,96 @@ const PDF_SOURCE_OPTIONS = {
     saveKind: 'pdf',
 } as const;
 
+type TFakeDatabase = NonNullable<ReturnType<FakeIndexedDbFactory['getDatabase']>>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// Reads of the authority store fail: readonly transactions and joint
+// transactions that include it. Single-store writes still commit, so the record
+// stays intact and only the cleanup's admission read is unavailable.
+function failAuthorityReads(database: TFakeDatabase, authorityStore: string) {
+    const transaction = database.transaction.bind(database);
+    return vi.spyOn(database, 'transaction').mockImplementation((names, mode, options) => {
+        const storeNames = typeof names === 'string' ? [names] : Array.from(names);
+        if (storeNames.includes(authorityStore) && (mode === 'readonly' || storeNames.length > 1)) {
+            throw new Error(`Temporary ${authorityStore} read failure`);
+        }
+        return transaction(names, mode, options);
+    });
+}
+
+function createRecoveryCheckpoint(ref: string): IWorkspaceCheckpoint {
+    return {
+        version: 1,
+        capturedAt: requireEpochMs(1),
+        activePaneId: requirePaneId('pane-1'),
+        activeTabId: requireTabId('tab-1'),
+        layout: {
+            type: 'leaf',
+            paneId: requirePaneId('pane-1'),
+        },
+        panes: [{
+            paneId: requirePaneId('pane-1'),
+            tabIds: [requireTabId('tab-1')],
+            activeTabId: requireTabId('tab-1'),
+        }],
+        tabs: [{
+            tabId: requireTabId('tab-1'),
+            paneId: requirePaneId('pane-1'),
+            fileName: 'recovered.pdf',
+            sourceRef: requireDocumentRef(ref),
+            workingCopyRef: requireDocumentRef(ref),
+            requiresSaveAsOnFirstSave: true,
+            isDirty: true,
+            isDjvu: false,
+            currentPage: requirePageNumber(1),
+            zoom: 1,
+            zoomMode: 'custom',
+        }],
+    };
+}
+
+// A pending transfer pins its backing ref until it decides. The payload is the
+// smallest incoming transfer the schema accepts.
+function createPendingTransferAuthority(transferId: string, ref: string): IBrowserTransferAuthorityRecord {
+    return {
+        id: `transfer:${transferId}`,
+        transferId,
+        nonce: `nonce-${transferId}`,
+        sourceWindowId: 1,
+        sourceInstanceNonce: 'source',
+        targetWindowId: 2,
+        targetInstanceNonce: 'target',
+        generation: 1,
+        state: 'pending',
+        targetReady: false,
+        deadlineAt: Date.now() + 60_000,
+        payload: {
+            transferId,
+            sourceWindowId: 1,
+            targetWindowId: 2,
+            tab: {
+                fileName: 'transferred.pdf',
+                originalPath: requireDocumentRef(ref),
+                originalBackend: 'browser',
+                isDirty: true,
+                isDjvu: false,
+            },
+            payload: {kind: 'empty'},
+        },
+        backingRefs: [{ref}],
+        createdAt: Date.now(),
+    };
+}
+
+// Lease owners are per module graph; a store from an earlier test speaks for its
+// own owner, so a test that publishes a lease takes a fresh graph.
+async function createFreshBrowserDocumentStore() {
+    vi.resetModules();
+    const {BrowserDocumentStore: FreshBrowserDocumentStore} = await import('@app/platform/browserDocumentStore');
+    return new FreshBrowserDocumentStore();
 }
 
 function createStoredPdf(
@@ -596,6 +708,22 @@ describe('BrowserDocumentStore', () => {
         await expect(rehydratedStore.exists(ref)).resolves.toBe(false);
     });
 
+    it('keeps a source that a live lease holds when Recent Files are cleared', async () => {
+        const bytes = Uint8Array.of(65, 84, 38, 84);
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument('open.djvu', bytes, {
+            mimeType: 'image/vnd.djvu',
+            kind: 'source',
+        });
+        await store.touchRecentFile(ref);
+        await store.createLiveLease('open-djvu-tab', [{ref}]);
+
+        await store.clearRecentFiles();
+
+        await expect(store.exists(ref)).resolves.toBe(true);
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+    });
+
     it('evicts old recent blobs once the persisted recent-file budget is exceeded', async () => {
         const firstHandle = createFileSystemFileHandle({name: 'first.pdf'});
         const secondHandle = createFileSystemFileHandle({name: 'second.pdf'});
@@ -693,6 +821,21 @@ describe('BrowserDocumentStore', () => {
         await expect(store.exists(sourceRef)).resolves.toBe(false);
     });
 
+    it('removes a handle-backed source that is in Recent Files', async () => {
+        const handle = createFileSystemFileHandle({
+            name: 'saved.pdf',
+            getFile: vi.fn(async () => new File([Uint8Array.of(7, 8)], 'saved.pdf')),
+        });
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'saved.pdf', Uint8Array.of(7, 8), {saveHandle: handle});
+        await store.assignSaveTarget(sourceRef, 'saved.pdf', 'pdf', handle);
+        await store.touchRecentFile(sourceRef);
+
+        await store.remove(sourceRef);
+
+        await expect(store.exists(sourceRef)).resolves.toBe(false);
+    });
+
     it('keeps a source while a working copy still depends on it', async () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument(
@@ -709,6 +852,314 @@ describe('BrowserDocumentStore', () => {
 
         await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
         await expect(store.exists(sourceRef)).resolves.toBe(true);
+    });
+
+    it('keeps a recovery snapshot that the recovery journal names through detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'restored.pdf', Uint8Array.of(1));
+        const snapshotRef = await store.createStoredDocument('restored.recovery.pdf', Uint8Array.of(2, 3), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'durable',
+            saveKind: 'pdf',
+            sourceRef,
+        });
+        await saveBrowserWorkspaceRecovery('window:crashed', 0, createRecoveryCheckpoint(snapshotRef), [requireDocumentRef(snapshotRef)]);
+
+        await expect(store.cleanupDetachedDocument(snapshotRef)).resolves.toBe(false);
+        await expect(store.read(snapshotRef)).resolves.toEqual(Uint8Array.of(2, 3));
+    });
+
+    it('keeps a working copy that an in-flight transfer backs through detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'transferred.pdf', Uint8Array.of(4));
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        await mutateBrowserTransferAuthority('in-flight', () => createPendingTransferAuthority('in-flight', workingRef));
+
+        await expect(store.cleanupDetachedDocument(workingRef)).resolves.toBe(false);
+        await expect(store.exists(workingRef)).resolves.toBe(true);
+    });
+
+    it('keeps a working copy readable while another owner holds its live lease', async () => {
+        const store = await createFreshBrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'leased-working.pdf', Uint8Array.of(5));
+        const workingRef = await store.cloneStoredDocument(sourceRef, {
+            kind: 'working',
+            sourceRef,
+        });
+        const lease = await store.createLiveLease('window:reader', [{ref: workingRef}]);
+        const cleaner = new BrowserDocumentStore();
+
+        await expect(cleaner.cleanupDetachedDocument(workingRef)).resolves.toBe(false);
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(5));
+        await store.releaseLiveLease('window:reader', lease.generation);
+        await expect(cleaner.cleanupDetachedDocument(workingRef)).resolves.toBe(true);
+    });
+
+    it('keeps the save source of a working dependent with its own bytes', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'own-bytes-dependent.pdf', Uint8Array.of(6));
+        const dependentRef = await store.cloneStoredDocument(sourceRef, {
+            fileName: 'own-bytes-dependent.pdf',
+            kind: 'working',
+            sourceRef,
+            saveKind: 'pdf',
+        });
+
+        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
+        await expect(store.getSaveTarget(sourceRef)).resolves.toMatchObject({saveName: 'own-bytes-dependent.pdf'});
+        await expect(store.read(dependentRef)).resolves.toEqual(Uint8Array.of(6));
+    });
+
+    it('sweeps a non-recent source in the same pass as its unprotected source-proxy working copy', async () => {
+        const first = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(first, 'same-pass-proxy.pdf', Uint8Array.of(13), {retention: 'transient'});
+        const workingRef = await first.cloneAsWorkingCopy(sourceRef);
+
+        const second = new BrowserDocumentStore();
+        await expect(second.exists(sourceRef)).resolves.toBe(false);
+        await expect(second.exists(workingRef)).resolves.toBe(false);
+    });
+
+    it('keeps a source that a leased source-proxy working copy reads through the sweep', async () => {
+        const first = await createFreshBrowserDocumentStore();
+        const sourceRef = await createStoredPdf(first, 'swept-proxy.pdf', Uint8Array.of(7), {retention: 'transient'});
+        const workingRef = await first.cloneAsWorkingCopy(sourceRef);
+        await first.createLiveLease('window:open', [{ref: workingRef}]);
+
+        const second = new BrowserDocumentStore();
+        await expect(second.exists(sourceRef)).resolves.toBe(true);
+        await expect(second.read(workingRef)).resolves.toEqual(Uint8Array.of(7));
+    });
+
+    it('keeps a non-recent source while its leased working dependent carries its own bytes', async () => {
+        const first = await createFreshBrowserDocumentStore();
+        const sourceRef = await createStoredPdf(first, 'swept-own-bytes.pdf', Uint8Array.of(8), {retention: 'transient'});
+        const workingRef = await first.cloneStoredDocument(sourceRef, {
+            fileName: 'swept-own-bytes.pdf',
+            kind: 'working',
+            sourceRef,
+            saveKind: 'pdf',
+        });
+
+        await first.createLiveLease('window:own-bytes', [{ref: workingRef}]);
+        const second = new BrowserDocumentStore();
+        await expect(second.exists(sourceRef)).resolves.toBe(true);
+        await expect(second.read(workingRef)).resolves.toEqual(Uint8Array.of(8));
+    });
+
+    it.each([
+        'new generation',
+        'same generation',
+    ])(
+        'keeps repaired chunks committed after the sweep inventory: %s', async repair => {
+            const store = new BrowserDocumentStore();
+            const bytes = Uint8Array.of(10, 11, 12);
+            const ref = await createStoredPdf(store, 'repaired.pdf', bytes, {storageMode: 'chunked'});
+            await store.touchRecentFile(ref);
+            const record = toPersistedDocumentRecord((await loadRecordAvailability(ref)).value)!;
+            await runObjectStoresTransaction([DOCUMENT_CHUNKS_STORE], 'readwrite', (tx, set) => {
+                tx.objectStore(DOCUMENT_CHUNKS_STORE).delete(createChunkKey(ref, 0, record.chunkGeneration));
+                set(true);
+            });
+            await sweepBrowserDocumentMaintenance(new Map(), {beforeDestructiveTransaction: async () => {
+                const generation = repair === 'new generation' ? 'old-repair-generation' : record.chunkGeneration;
+                await runObjectStoresTransaction([
+                    DOCUMENTS_STORE,
+                    DOCUMENT_CHUNKS_STORE,
+                ], 'readwrite', (tx, set) => {
+                    tx.objectStore(DOCUMENTS_STORE).put({
+                        ...record,
+                        chunkGeneration: generation,
+                    });
+                    tx.objectStore(DOCUMENT_CHUNKS_STORE).put({
+                        key: createChunkKey(ref, 0, generation),
+                        ref,
+                        index: 0,
+                        generation,
+                        data: bytes,
+                    });
+                    set(true);
+                });
+            }});
+            store.unload(ref);
+            await expect(store.read(ref)).resolves.toEqual(bytes);
+        },
+    );
+
+    it('keeps a broken record while its pending generation is being written', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await createStoredPdf(store, 'pending-repair.pdf', Uint8Array.of(10), {storageMode: 'chunked'});
+        await store.touchRecentFile(ref);
+        const record = toPersistedDocumentRecord((await loadRecordAvailability(ref)).value)!;
+        await runObjectStoresTransaction([DOCUMENT_CHUNKS_STORE], 'readwrite', (tx, set) => {
+            tx.objectStore(DOCUMENT_CHUNKS_STORE).delete(createChunkKey(ref, 0, record.chunkGeneration));
+            set(true);
+        });
+        await sweepBrowserDocumentMaintenance(new Map(), {beforeDestructiveTransaction: async () => {
+            await persistRecord({
+                ...record,
+                pendingChunkGeneration: 'repairing',
+                pendingChunkUpdatedAt: Date.now(),
+            });
+        }});
+        expect((await loadRecordAvailability(ref)).value).toMatchObject({pendingChunkGeneration: 'repairing'});
+    });
+
+    it('keeps a source whose pending chunk generation is still being written during detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await createStoredPdf(store, 'pending-chunks.pdf', Uint8Array.of(9));
+        const record = toPersistedDocumentRecord((await loadRecordAvailability(ref)).value);
+        await persistRecord({
+            ...record!,
+            pendingChunkGeneration: 'pending-generation',
+            pendingChunkUpdatedAt: Date.now(),
+        });
+
+        await expect(store.cleanupDetachedDocument(ref)).resolves.toBe(false);
+        await expect(store.exists(ref)).resolves.toBe(true);
+    });
+
+    it('keeps a source that has a pending load in this store during detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await createStoredPdf(store, 'pending-load.pdf', Uint8Array.of(10));
+        (await store.requireEntry(ref)).pendingLoad = Promise.resolve();
+
+        await expect(store.cleanupDetachedDocument(ref)).resolves.toBe(false);
+        await expect(store.exists(ref)).resolves.toBe(true);
+    });
+
+    it('keeps a source that an in-flight transfer backs through detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await createStoredPdf(store, 'transfer-source.pdf', Uint8Array.of(11));
+        await mutateBrowserTransferAuthority('source-in-flight', () => createPendingTransferAuthority('source-in-flight', sourceRef));
+
+        await expect(store.cleanupDetachedDocument(sourceRef)).resolves.toBe(false);
+        await expect(store.exists(sourceRef)).resolves.toBe(true);
+    });
+
+    it('refuses a sweep whose document row cannot be decoded and logs the refusal', async () => {
+        const first = new BrowserDocumentStore();
+        const orphanRef = await first.createStoredDocument('refused-orphan.pdf', Uint8Array.of(12), {
+            mimeType: 'application/pdf',
+            kind: 'working',
+            retention: 'transient',
+            saveKind: 'pdf',
+        });
+        await runObjectStoresTransaction([DOCUMENTS_STORE], 'readwrite', (transaction, setResult) => {
+            transaction.objectStore(DOCUMENTS_STORE).put({
+                ref: 'browser://documents/undecodable.pdf',
+                kind: 'unknown',
+            });
+            setResult(true);
+        });
+        const warn = vi.spyOn(BrowserLogger, 'warn');
+
+        try {
+            const second = new BrowserDocumentStore();
+            await expect(second.exists(orphanRef)).resolves.toBe(true);
+            expect(warn.mock.calls.some(([scope]) => scope === 'browser-document-maintenance')).toBe(true);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    it('keeps a source when its dependent working copy cannot be read during detached cleanup', async () => {
+        const store = new BrowserDocumentStore();
+        const bytes = Uint8Array.of(1, 2, 3);
+        const sourceRef = await createStoredPdf(store, 'dependent-read.pdf', bytes);
+        await store.touchRecentFile(sourceRef);
+        await store.cloneAsWorkingCopy(sourceRef);
+        const database = indexedDbFactory.getDatabase(DB_NAME)!;
+
+        const readsFail = failAuthorityReads(database, DOCUMENTS_STORE);
+        try {
+            await store.clearRecentFiles();
+        } finally {
+            readsFail.mockRestore();
+        }
+
+        await expect(store.read(sourceRef)).resolves.toEqual(bytes);
+    });
+
+    it('keeps a source that a recovery checkpoint leases when the recovery store cannot be read', async () => {
+        const store = new BrowserDocumentStore();
+        const bytes = Uint8Array.of(4, 5, 6);
+        const ref = await createStoredPdf(store, 'recovery-read.pdf', bytes);
+        await store.touchRecentFile(ref);
+        await saveBrowserWorkspaceRecovery('window:crashed', 0, createRecoveryCheckpoint(ref), [requireDocumentRef(ref)]);
+        const database = indexedDbFactory.getDatabase(DB_NAME)!;
+
+        const readsFail = failAuthorityReads(database, WORKSPACE_RECOVERY_STORE);
+        try {
+            await store.clearRecentFiles();
+        } finally {
+            readsFail.mockRestore();
+        }
+
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+    });
+
+    it('keeps a source whose lease is committed before its detached delete starts', async () => {
+        // A fresh module graph gives this store its own lease owner; earlier tests
+        // leave the shared module speaking for theirs.
+        vi.resetModules();
+        const {BrowserDocumentStore: FreshBrowserDocumentStore} = await import('@app/platform/browserDocumentStore');
+        const idb = await import('@app/platform/browser/browserDocumentIdb');
+        const store = new FreshBrowserDocumentStore();
+        const bytes = Uint8Array.of(7, 8);
+        const ref = await createStoredPdf(store, 'lease-race.pdf', bytes);
+
+        let reachDestructiveStep!: () => void;
+        const destructiveStepReached = new Promise<void>(resolve => {
+            reachDestructiveStep = resolve;
+        });
+        let releaseDestructiveStep!: () => void;
+        const destructiveStepReleased = new Promise<void>(resolve => {
+            releaseDestructiveStep = resolve;
+        });
+        let holdArmed = true;
+        // Pauses the first destructive step for this source, before its delete.
+        const holdDestructiveStep = async () => {
+            if (!holdArmed) {
+                return;
+            }
+            holdArmed = false;
+            reachDestructiveStep();
+            await destructiveStepReleased;
+        };
+        const originalDeleteRecord = idb.deleteRecord;
+        const originalTransaction = idb.runObjectStoresTransaction;
+        const deleteSpy = vi.spyOn(idb, 'deleteRecord').mockImplementation(async candidate => {
+            if (candidate === ref) {
+                await holdDestructiveStep();
+            }
+            return originalDeleteRecord(candidate);
+        });
+        const transactionSpy = vi.spyOn(idb, 'runObjectStoresTransaction').mockImplementation(async (
+            storeNames,
+            mode,
+            run,
+        ) => {
+            if (mode === 'readwrite' && storeNames.includes(DOCUMENTS_STORE)) {
+                await holdDestructiveStep();
+            }
+            return originalTransaction(storeNames, mode, run);
+        });
+        let removed: boolean;
+        try {
+            const cleanup = store.cleanupDetachedDocument(ref);
+            await destructiveStepReached;
+            await store.createLiveLease('window:new', [{ref}]);
+            releaseDestructiveStep();
+            removed = await cleanup;
+        } finally {
+            deleteSpy.mockRestore();
+            transactionSpy.mockRestore();
+        }
+
+        expect(removed).toBe(false);
+        await expect(store.read(ref)).resolves.toEqual(bytes);
     });
 
     it('serializes dependent creation against detached-source cleanup', async () => {
