@@ -18,6 +18,7 @@ import type * as BrowserDocumentRepository from '../../../app/platform/browser/b
 import type * as BrowserDocumentMaintenance from '../../../app/platform/browser/browserDocumentMaintenance';
 import {
     chromium,
+    type Browser,
     type Page,
 } from 'playwright';
 import {
@@ -413,10 +414,15 @@ describe('browser document IndexedDB migration in Chromium', () => {
         }
     }, 30_000);
 
-    it('migrates inline bytes into compact metadata and preserves document reads through maintenance and reopen', async () => {
-        const browser = await chromium.launch({headless: true});
-        try {
-            const page = await browser.newPage();
+    describe('inline payload migration', () => {
+        let browser: Browser | undefined;
+        let page: Page;
+
+        beforeAll(async () => {
+            // Stop at a committed legacy fixture. Migration and reopen remain in
+            // the test; browser startup, seeding and bundle loading are setup.
+            browser = await chromium.launch({headless: true});
+            page = await browser.newPage();
             await page.goto(origin);
             await page.evaluate(async fixture => {
                 await new Promise<void>((resolveSeed, rejectSeed) => {
@@ -532,6 +538,13 @@ describe('browser document IndexedDB migration in Chromium', () => {
             await page.addScriptTag({path: bundlePath});
             await page.addScriptTag({path: documentBundlePath});
             await page.addScriptTag({path: maintenanceBundlePath});
+        });
+
+        afterAll(async () => {
+            await browser?.close();
+        });
+
+        it('migrates inline bytes into compact metadata and preserves document reads through maintenance and reopen', async () => {
             const result = await page.evaluate(async (fixture) => {
                 const idb = Reflect.get(globalThis, 'EvbBrowserDocumentIdb') as typeof BrowserDocumentIdb;
                 const documents = Reflect.get(globalThis, 'EvbBrowserDocuments') as typeof BrowserDocumentRepository;
@@ -672,9 +685,7 @@ describe('browser document IndexedDB migration in Chromium', () => {
                 metadataOnly: true,
                 pdfHash: '210e73efa60299815141db447fe0a7caf99a205d86a7c514b13a7f7c4b94b955',
             }));
-        } finally {
-            await browser.close();
-        }
+        });
     });
 
     it.each([
