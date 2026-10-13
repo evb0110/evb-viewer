@@ -665,7 +665,7 @@ pub(crate) fn parse_text_box_entry(
     if !crate::free_text_frame::border_is_editable(document, dict) {
         return Err("FreeText border style is not representable by the editor".to_string());
     }
-    let frame = crate::free_text_frame::free_text_frame(document, dict, rect).editor;
+    let frame = crate::free_text_frame::free_text_frame(document, dict, rect);
     let rotation = read_optional_integer(document, dict, b"Rotate")?.unwrap_or(0);
     let rotation = rotation.rem_euclid(360);
     if !matches!(rotation, 0 | 90 | 180 | 270) {
@@ -692,7 +692,7 @@ pub(crate) fn parse_text_box_entry(
         rotation,
         font_size,
         color,
-        frame,
+        frame: frame.editor(page_rotation - rotation),
     })
 }
 
@@ -1309,8 +1309,7 @@ fn parse_default_appearance(
     let da = crate::free_text_frame::default_appearance(document, dict)
         .ok_or_else(|| "FreeText /DA must be a PDF string".to_string())?;
     let font_size = da
-        .size
-        .filter(|value| value.is_finite() && *value > 0.0 && *value <= 512.0)
+        .font_size()
         .ok_or_else(|| "FreeText /DA has no supported font size".to_string())?;
     let color = da
         .fill

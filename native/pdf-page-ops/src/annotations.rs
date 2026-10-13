@@ -1104,15 +1104,11 @@ pub(crate) fn build_text_box_appearance(
     existing: Option<&ExistingTextBox>,
 ) -> Result<(ObjectId, f64)> {
     let [x1, y1, x2, y2] = editor.rect;
+    let source = PdfRect { x1, y1, x2, y2 };
     // A framed box fits its text inside the frame, which it draws first.
-    let upright = editor.rotation == 0 && page_rotation % 360 == 0;
-    let frame = existing
-        .and_then(|existing| existing.2.as_ref())
-        .filter(|_| upright);
-    let text = frame.map(|frame| frame.text);
-    let text = text.filter(|text| text.width() > 0.0 && text.height() > 0.0);
-    let source = text.unwrap_or(PdfRect { x1, y1, x2, y2 });
+    let frame = existing.and_then(|existing| existing.2.as_ref());
     let geometry = text_box_font::geometry(source, i64::from(editor.rotation), page_rotation)?;
+    let geometry = FreeTextFrame::fit(frame, geometry);
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     let text = |width, size| layout(&editor.text, width, size);
     let (size, lines) = fit_text_box(editor.font_size, &geometry, &FONTS, text);

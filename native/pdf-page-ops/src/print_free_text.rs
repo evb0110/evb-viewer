@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::annotations::line_origin;
-use crate::free_text_frame::{colour, default_appearance, free_text_frame};
+use crate::free_text_frame::{colour, default_appearance, free_text_frame, FreeTextFrame};
 use crate::text_box_font::{layout_simple, layout_with_fonts};
 
 /// Synthesize foreign FreeText in PDF space; an empty text area retains its colors.
@@ -14,13 +14,13 @@ pub(super) fn missing_free_text_appearance(
     let rect =
         read_box(document, annotation, b"Rect")?.ok_or("Invalid FreeText print rectangle")?;
     let da = default_appearance(document, annotation).unwrap_or_default();
+    let size = da.font_size().unwrap_or(12.0);
     let font_name = da.font.unwrap_or_else(|| b"Helv".to_vec());
-    let size = da
-        .size
-        .filter(|v| v.is_finite() && *v > 0.0 && *v <= 512.0)
-        .unwrap_or(12.0);
     let color = da.fill.unwrap_or_else(|| vec![0.0]);
     let frame = free_text_frame(document, annotation, rect);
+    let page_rotation = resolve_page_rotation(document, page_id)?;
+    let geometry = print_text_geometry(document, annotation, rect, page_rotation);
+    let geometry = geometry.map(|geometry| FreeTextFrame::fit(Some(&frame), geometry));
     let mut content = frame.content;
     let text = annotation
         .get(b"Contents")
@@ -30,8 +30,7 @@ pub(super) fn missing_free_text_appearance(
     let font_resources = free_text_fonts(document, annotation, page_id)?;
     let mut resources = Dictionary::new();
     let color = colour(&color, true);
-    let page_rotation = resolve_page_rotation(document, page_id)?;
-    if let Ok(geometry) = print_text_geometry(document, annotation, frame.text, page_rotation) {
+    if let Ok(geometry) = geometry {
         if let Some((font, advances)) = font_resources.iter().find_map(|fonts| {
             let font = fonts.get(&font_name).ok()?;
             crate::text_box_font::simple_font_advances(document, font, &text)

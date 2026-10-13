@@ -4,6 +4,7 @@
 //! it is drawn.
 
 use super::*;
+use crate::text_box_font::Geometry;
 
 /// A colour's fill or stroke operator, by its component count.
 pub(crate) fn colour(components: &[f64], fill: bool) -> String {
@@ -25,6 +26,14 @@ pub(crate) struct DefaultAppearance {
     pub(crate) size: Option<f64>,
     pub(crate) fill: Option<Vec<f64>>,
     pub(crate) stroke: Option<Vec<f64>>,
+}
+
+impl DefaultAppearance {
+    /// The size, where EVB can draw text at it.
+    pub(crate) fn font_size(&self) -> Option<f64> {
+        self.size
+            .filter(|v| v.is_finite() && *v > 0.0 && *v <= 512.0)
+    }
 }
 
 pub(crate) fn default_appearance(
@@ -88,7 +97,8 @@ pub(crate) fn border_is_editable(document: &impl PdfObjectSource, dict: &Diction
 }
 
 /// The frame as the editor draws it: /RD's top, right, bottom and left insets
-/// from /Rect, the solid border inside them and the background under it.
+/// on the box's own sides, the solid border inside them and the background
+/// under it.
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TextBoxFrame {
@@ -99,17 +109,27 @@ pub(crate) struct TextBoxFrame {
 }
 
 /// What a FreeText draws around its text at `rect`, in page space. /C fills
-/// the box less /RD. A declared /BS or /Border width strokes that box in the
-/// DA's stroking colour, or else its text colour; a FreeText that declares no
-/// border draws none. The text fits inside the stroke.
+/// the box less /RD. A declared /BS or /Border width strokes that box with
+/// mitred corners, as PDF joins lines by default, in the DA's stroking colour
+/// or else its text colour; a FreeText that declares no border draws none.
+/// The text fits inside the stroke, on whichever sides the box is turned to.
 pub(crate) struct FreeTextFrame {
     pub(crate) content: String,
-    pub(crate) text: PdfRect,
     pub(crate) border: Option<Vec<f64>>,
-    pub(crate) editor: Option<TextBoxFrame>,
     /// /C repeats the text colour: EVB once wrote a label's colour there, and
     /// as a fill it would hide the text, so it is no background.
     pub(crate) stale_fill: bool,
+    /// /RD's left, bottom, right and top in page space, and the border width.
+    rd: [f64; 4],
+    width: f64,
+    background: Option<Vec<f64>>,
+}
+
+/// Page-space left, bottom, right and top values on the sides of a box turned
+/// counterclockwise by `turn` degrees, in the same order.
+fn box_sides(sides: [f64; 4], turn: i64) -> [f64; 4] {
+    let quarter = turn.rem_euclid(360) as usize / 90;
+    [0, 1, 2, 3].map(|side| sides[(side + quarter) % 4])
 }
 
 impl FreeTextFrame {
@@ -128,6 +148,56 @@ impl FreeTextFrame {
             annotation.remove(b"C");
         }
     }
+
+    /// The box the text fits: `geometry`'s box less /RD and the border.
+    pub(crate) fn fit(frame: Option<&Self>, geometry: Geometry) -> Geometry {
+        let Some(frame) = frame else {
+            return geometry;
+        };
+        let [a, b, c, d, e, f] = geometry.matrix;
+        let turn = (b.atan2(a).to_degrees().round() as i64).rem_euclid(360);
+        let [left, bottom, right, top] = box_sides(frame.rd.map(|rd| rd + frame.width), turn);
+        let (width, height) = (
+            geometry.width - left - right,
+            geometry.height - bottom - top,
+        );
+        if width <= 0.0 || height <= 0.0 {
+            return geometry;
+        }
+        let matrix = [
+            a,
+            b,
+            c,
+            d,
+            e + a * left + c * bottom,
+            f + b * left + d * bottom,
+        ];
+        let area = PdfRect {
+            x1: 0.0,
+            y1: 0.0,
+            x2: width,
+            y2: height,
+        };
+        let bounds = crate::split_pages::PdfMatrix::from_values(matrix).bounds(area);
+        Geometry {
+            bounds,
+            width,
+            height,
+            matrix,
+        }
+    }
+
+    /// The frame as the editor draws it on a box turned by `turn` degrees.
+    pub(crate) fn editor(&self, turn: i64) -> Option<TextBoxFrame> {
+        let [left, bottom, right, top] = box_sides(self.rd, turn);
+        let hex = |colour: &Vec<f64>| pdf_color_to_hex(Some(colour), "#000000");
+        (!self.content.is_empty() || self.rd.iter().any(|rd| *rd > 0.0)).then(|| TextBoxFrame {
+            insets: [top, right, bottom, left],
+            border_width: self.width,
+            border_color: self.border.as_ref().map(hex),
+            background: self.background.as_ref().map(hex),
+        })
+    }
 }
 
 pub(crate) fn free_text_frame(
@@ -137,7 +207,6 @@ pub(crate) fn free_text_frame(
 ) -> FreeTextFrame {
     let mut frame = annotation.clone();
     frame.set("Rect", rect_object(rect));
-    frame.remove(b"IC");
     let inner = annotation_inner_rect(document, &frame).unwrap_or(rect);
     let da = default_appearance(document, annotation).unwrap_or_default();
     let background = (|| -> Option<Vec<f64>> {
@@ -152,9 +221,10 @@ pub(crate) fn free_text_frame(
     let stale_fill =
         background.is_some() && background.as_ref().map(hex) == da.fill.as_ref().map(hex);
     let background = background.filter(|_| !stale_fill);
+    let (x, y, w, h) = (inner.x1, inner.y1, inner.width(), inner.height());
     let mut content = String::new();
     if let Some(background) = &background {
-        let area = format_operands(&[inner.x1, inner.y1, inner.width(), inner.height()]);
+        let area = format_operands(&[x, y, w, h]);
         content.push_str(&format!("q {} {area} re f Q\n", colour(background, true)));
     }
     let width = shape_stroke_width(document, annotation).filter(|w| w.is_finite() && *w > 0.0);
@@ -168,31 +238,20 @@ pub(crate) fn free_text_frame(
                 .map(number_object)
                 .collect::<Vec<_>>(),
         );
+        frame.remove(b"IC");
         content.extend(synthesized_shape_content(document, &frame, b"Square"));
     }
-    let inset = width.unwrap_or(0.0);
-    let insets = [
-        rect.y2 - inner.y2,
-        rect.x2 - inner.x2,
-        inner.y1 - rect.y1,
-        inner.x1 - rect.x1,
-    ];
-    let drawn = !content.is_empty() || insets.iter().any(|inset| *inset > 0.0);
     FreeTextFrame {
         content,
-        text: PdfRect {
-            x1: inner.x1 + inset,
-            y1: inner.y1 + inset,
-            x2: inner.x2 - inset,
-            y2: inner.y2 - inset,
-        },
-        editor: drawn.then(|| TextBoxFrame {
-            insets,
-            border_width: inset,
-            border_color: border.as_ref().map(hex),
-            background: background.as_ref().map(hex),
-        }),
         border,
         stale_fill,
+        rd: [
+            inner.x1 - rect.x1,
+            inner.y1 - rect.y1,
+            rect.x2 - inner.x2,
+            rect.y2 - inner.y2,
+        ],
+        width: width.unwrap_or(0.0),
+        background,
     }
 }

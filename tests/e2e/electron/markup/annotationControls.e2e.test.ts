@@ -1254,6 +1254,16 @@ describe('Electron E2E - annotation controls', () => {
             'bordered hand-written',
             'bordered-handwritten.pdf',
         ],
+        // Boxes EVB wrote turned by 90 and 180 degrees, to which another program
+        // later gave a border, a fill and /RD: the frame turns with the text.
+        [
+            'turned 90 degrees and bordered',
+            'turned-90-bordered.pdf',
+        ],
+        [
+            'turned 180 degrees and bordered',
+            'turned-180-bordered.pdf',
+        ],
     ])('keeps a %s foreign label whole when only its color changes', async (_label, fixture) => {
         const evidence = mkdtempSync(join(tmpdir(), 'evb-foreign-label-'));
         onTestFinished(() => rmSync(evidence, {
@@ -1296,7 +1306,12 @@ describe('Electron E2E - annotation controls', () => {
             expect.soft(freeText.lookup(PDFName.of('DA'), PDFString).decodeText(), 'the border keeps its colour').toMatch(/ RG$/u);
         }
         const normal = pdf.context.lookup(freeText.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
-        const drawnSizes = new Set(Array.from(Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1')
+        const appearance = Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1');
+        if (Number(borderWidth ?? 0) > 0) {
+            // Its frame keeps PDF's mitred corners, turned or not.
+            expect.soft(appearance, 'the saved label draws its frame').toContain(`${borderWidth} w 1 J 0 j`);
+        }
+        const drawnSizes = new Set(Array.from(appearance
             .matchAll(/\/TextFont\d+ ([\d.]+) Tf/gu), match => Number(match[1])));
         const recordedSize = Number(/([\d.]+) Tf/u.exec(freeText.lookup(PDFName.of('DA'), PDFString).decodeText())?.[1]);
         expect.soft([...drawnSizes], 'the label draws at the size its DA records').toEqual([recordedSize]);

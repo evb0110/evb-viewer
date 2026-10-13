@@ -3162,6 +3162,46 @@ fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
             assert_approximately(text.rect.width, expected.width);
             assert_approximately(text.rect.height, expected.height);
             let id = get_page_annots(&document, page_id).unwrap()[0].as_reference().unwrap();
+            // Another program gives the turned box a border, a fill and /RD. A
+            // colour edit keeps them, with mitred corners, and fits the text
+            // inside on whichever sides the box faces.
+            let dict = document.get_dictionary_mut(id).unwrap();
+            dict.set("BS", dictionary! {"W" => 3});
+            dict.set("C", vec![1.into(), 1.into(), 0.85.into()]);
+            dict.set("RD", vec![1.into(), 2.into(), 3.into(), 4.into()]);
+            let recolour = TextBoxMutation {
+                page_index: 0, stable_key: "rotated-text".to_string(), annotation_id: None,
+                text: "Привет שלום".to_string(), rect: [60.0, 25.0, 140.0, 75.0], rotation,
+                font_size: 10.0, color: [200, 0, 0], author: None, created_at: None, modified_at: None,
+            };
+            let recolour = NativeMutationsFile { text_boxes: vec![recolour], ..Default::default() };
+            apply_native_mutations(&mut document, &recolour, "D:20260908000000Z").unwrap();
+            let dict = document.get_dictionary(id).unwrap();
+            let normal = dict.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
+            let content = String::from_utf8(document.get_object(normal).unwrap().as_stream().unwrap().content.clone()).unwrap();
+            // /RD and the border apply to /Rect's own left, bottom, right and top.
+            let r = parse_rect(dict.get(b"Rect").unwrap()).unwrap();
+            let (x, y, w, h) = (r.x1 + 1.0, r.y1 + 2.0, r.width() - 4.0, r.height() - 6.0);
+            let fill = format!("q 1 1 0.85 rg {} re f Q\n", format_operands(&[x, y, w, h]));
+            let stroke = format_operands(&[x + 1.5, y + 1.5, w - 3.0, h - 3.0]);
+            assert!(content.starts_with(&fill), "{content}");
+            assert!(content.contains(&format!("0 0 0 RG 3 w 1 J 0 j\n{stroke} re S\n")), "{content}");
+            let numbers = |line: &str| line.split_whitespace().filter_map(|n| n.parse().ok()).collect::<Vec<f64>>();
+            let lines: Vec<&str> = content.lines().collect();
+            let at = lines.iter().position(|line| line.ends_with(" re W n")).unwrap();
+            let (matrix, clip) = (numbers(lines[at - 1]), numbers(lines[at]));
+            let matrix = crate::split_pages::PdfMatrix::from_values(matrix.try_into().unwrap());
+            let text_box = matrix.bounds(PdfRect { x1: 0.0, y1: 0.0, x2: clip[2], y2: clip[3] });
+            let inside = [(text_box.x1, x + 3.0), (text_box.y1, y + 3.0), (text_box.x2, x + w - 3.0), (text_box.y2, y + h - 3.0)];
+            for (actual, expected) in inside {
+                assert_approximately(actual, expected);
+            }
+            let parsed = collect_parsed_annotations(&document, "D:20260908000000Z").unwrap();
+            let text = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::TextBox(value) => Some(value), _ => None }).unwrap();
+            let [top, right, bottom, left] = text.frame.as_ref().unwrap().insets;
+            let (width, height) = if page_rotation % 180 == 0 { (80.0, 50.0) } else { (50.0, 80.0) };
+            assert_approximately(clip[2], width - left - right - 6.0);
+            assert_approximately(clip[3], height - top - bottom - 6.0);
             let dict = document.get_dictionary_mut(id).unwrap();
             // An external viewer moved the visible annotation, leaving EVB's
             // private geometry stale. It must never override that external edit.
