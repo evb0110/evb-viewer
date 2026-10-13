@@ -36,6 +36,12 @@ class MockSidecarProcess extends EventEmitter {
     readonly kill = vi.fn();
 }
 
+// Each test re-imports after resetModules; transform the graphs once at
+// collection so a loaded host does not spend a test's budget on it.
+await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+await import('@electron/native-tools/runNativeCommand');
+await import('@electron/utils/nativeTerminationProof');
+
 describe('scan cleanup sidecar abort window', () => {
     beforeEach(() => {
         vi.resetModules();
