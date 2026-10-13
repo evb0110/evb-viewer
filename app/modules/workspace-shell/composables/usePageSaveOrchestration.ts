@@ -1,6 +1,7 @@
 import type {
     ComputedRef, Ref, ShallowRef,
 } from 'vue';
+import {crashCheckpointBeforeSaveKey} from '@app/modules/workspace-shell/composables/useAppShellResilience';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type {
     IPdfBookmarkEntry, IPdfPageLabelRange,
@@ -72,6 +73,7 @@ interface IPageSaveOrchestrationDeps {
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     const {t} = useTypedI18n();
+    const persistCrashCheckpoint = inject(crashCheckpointBeforeSaveKey, null);
     const getSourcePdfData = createPdfSourceDataReader({
         pdfData: deps.pdfData,
         workingCopyPath: deps.workingCopyPath,
@@ -132,6 +134,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             viewer: deps.pdfViewerRef,
             commitEditorsForSave: async () => {
                 await deps.pdfViewerRef.value?.commitPdfEditorsForSave?.();
+                // The committed edits reach the crash checkpoint before the Save writes; a failed write leaves the Save to run.
+                await persistCrashCheckpoint?.().catch(() => undefined);
             },
             runSaveTransaction: request => deps.pdfViewerRef.value?.runSaveTransaction(request)
                 ?? Promise.reject(new Error('Missing PDF viewer save transaction')),

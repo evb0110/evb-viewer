@@ -1,4 +1,7 @@
-import type { Ref } from 'vue';
+import type {
+    InjectionKey,
+    Ref,
+} from 'vue';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 import { tryOnScopeDispose } from '@vueuse/core';
@@ -18,6 +21,9 @@ interface IAppShellResilienceOptions {
 // The renderer's shutdown flush shares a 2.5 s budget with the other save-flush
 // handlers, so this write must return well inside it.
 const SHUTDOWN_CHECKPOINT_WRITE_TIMEOUT_MS = 1_000;
+
+/** Writes the crash checkpoint now, for a Save to call before it changes any file. */
+export const crashCheckpointBeforeSaveKey: InjectionKey<() => Promise<void>> = Symbol('crashCheckpointBeforeSave');
 
 export const useAppShellResilience = (options: IAppShellResilienceOptions) => {
     const crashCheckpoint = useWorkspaceCrashCheckpoint({
@@ -44,5 +50,8 @@ export const useAppShellResilience = (options: IAppShellResilienceOptions) => {
         }
         return {};
     }));
+    // A Save the app does not live to finish is rolled back at the next start, together with the edits it was writing;
+    // the checkpoint a Save writes first holds those edits, so they reopen unsaved instead of being lost.
+    provide(crashCheckpointBeforeSaveKey, () => crashCheckpoint.persistCheckpointNow(true));
     return crashCheckpoint;
 };

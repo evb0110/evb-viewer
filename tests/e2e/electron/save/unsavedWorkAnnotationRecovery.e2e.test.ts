@@ -1,6 +1,6 @@
 import {encode} from 'fast-png';
 import {
-    copyFileSync, readFileSync, mkdtempSync, rmSync, writeFileSync,
+    appendFileSync, copyFileSync, existsSync, readFileSync, readdirSync, mkdtempSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {
     activateMenuItemAsUser, clickAsUser, clickFoundAsUser,
@@ -174,6 +174,76 @@ describe('checkpointed annotation recovery', () => {
         await expect.poll(() => readPdfTextAnnotationRecords(sourcePath), {timeout: 30_000})
             .toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
     }, 180_000);
+
+    // The main-process hook lets Save run to the cut, then holds it there until the kill.
+    it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
+        'displaced',
+        'published',
+    ] as const)('recovers the PDF and the edit when the app dies in Save at the %s original', async (cut) => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-save-crash-'));
+        const sourcePath = join(outputDirectory, 'save-crash.pdf');
+        copyFileSync(await createMultiPageTextFixturePdf(`save-crash-${cut}-${Date.now()}.pdf`, 3), sourcePath);
+        const sourceBytes = readFileSync(sourcePath);
+        const held = join(outputDirectory, 'save-held');
+        const hook = join(outputDirectory, 'hold-save.cjs');
+        writeFileSync(hook, `const fs = require('node:fs'), fsp = require('node:fs/promises');
+if (process.type === 'browser') {
+    const target = ${JSON.stringify(sourcePath)}, held = ${JSON.stringify(held)}, cut = ${JSON.stringify(cut)};
+    const hold = () => { fs.writeFileSync(held, ''); return new Promise(() => {}); };
+    const {rename, link} = fsp;
+    fsp.rename = async (from, to) => { await rename(from, to); if (cut === 'displaced' && from === target && String(to).includes('.evb-transition-')) await hold(); };
+    fsp.link = async (from, to) => { await link(from, to); if (cut === 'published' && to === target) await hold(); };
+}`);
+        const sessionName = `e2e-save-crash-${cut}-${Date.now()}`;
+        session = await startElectronE2ESession(sessionName, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+            extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`},
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        const marker = `Save crash ${cut} ${Date.now()}`;
+        await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.31,
+        });
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+        await clickVisibleToolbarButton(session.page, 'Save');
+        await expect.poll(() => existsSync(held), {timeout: 60_000}).toBe(true);
+
+        const crashed = session;
+        const electronPid = getSessionInfo(crashed.name)?.electronPid;
+        if (typeof electronPid !== 'number') throw new Error('The Electron main pid was missing');
+        process.kill(electronPid, 'SIGKILL');
+        await crashed.browser.disconnect().catch(() => undefined);
+        await stopSingleSession(crashed.name, {
+            preserveWorkspaceCheckpoint: true,
+            crashElectronBeforeStop: true,
+        });
+        session = null;
+        // At the displaced cut the PDF is gone until the restart puts it back; at the published one another program changes it.
+        if (cut === 'published') appendFileSync(sourcePath, '\n% external change after crash\n');
+        const onDiskBeforeRestart = cut === 'published' ? readFileSync(sourcePath) : null;
+
+        session = await startElectronE2ESession(sessionName, {clean: false});
+        await waitForPdfLoaded(session.page, 60_000);
+        await session.page.waitForFunction((text: string) => Array.from(
+            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]'),
+        ).some(entity => entity.textContent?.trim() === text), {timeout: 60_000}, marker);
+        await session.page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {visible: true});
+        if (cut === 'displaced') {
+            expect(readFileSync(sourcePath)).toEqual(sourceBytes);
+            expect(readdirSync(outputDirectory).filter(name => name.startsWith('save-crash'))).toEqual(['save-crash.pdf']);
+            return;
+        }
+        await session.page.waitForFunction(() => document.body.textContent?.includes('during the save or later'), {timeout: 30_000});
+        expect(readFileSync(sourcePath)).toEqual(onDiskBeforeRestart);
+        expect(readFileSync(join(outputDirectory, 'save-crash (original).pdf'))).toEqual(sourceBytes);
+        expect(readdirSync(outputDirectory).filter(name => name.startsWith('save-crash')).sort()).toEqual([
+            'save-crash (original).pdf',
+            'save-crash.pdf',
+        ]);
+    }, 240_000);
 
     it('restores committed FreeText through restart and Save As', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-annotation-recovery-'));
