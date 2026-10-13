@@ -19,7 +19,9 @@ import {
     mkdir,
     readdir,
     readFile,
+    rename,
     rm,
+    stat,
     truncate,
     writeFile,
 } from 'node:fs/promises';
@@ -102,6 +104,9 @@ import { startTrustedWheelFling } from '@tests/e2e/electron/helpers/startTrusted
 import { delay } from 'es-toolkit/promise';
 import { readElectronWindowMetrics } from '@scripts/electron-run/resizeElectronWindow';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import {
+    getNativeToolPathCandidates,resolveNativeToolPath,
+} from '@electron/native-tools/resolveNativeToolPath';
 import { waitForFunctionInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { enablePdfDiagnosticSession } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
@@ -117,7 +122,6 @@ import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudg
 import { getActiveWorkspaceWorkingCopyPath } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import { getWorkingCopyDerivedPath } from '@electron/file-access/workingCopyDirectory';
 import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {getDjvuNativeToolPaths} from '@electron/features/djvu/main/nativeToolPaths';
 
@@ -6700,6 +6704,60 @@ describe('Electron E2E - Document Output', () => {
             await session.page.waitForSelector('.tab.is-dirty', {visible: true});
         }
     });
+
+    it('crpart3ne prints single Auto when the native layout tool is unavailable', async () => {
+        const fixturePath = await createMultiPageTextFixturePdf(`crpart3ne-print-${Date.now()}.pdf`, 1);
+        const printDirectory = resolve(process.cwd(), '.devkit', 'tmp', `crpart3ne-print-${Date.now()}`);
+        const printedPath = join(printDirectory, 'printed.pdf');
+        await mkdir(printDirectory, {recursive: true});
+        onTestFinished(() => rm(printDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-crpart3ne-print-${Date.now()}`,
+            extraEnv: {
+                EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+                EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printedPath,
+            },
+        });
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        const binary = process.platform === 'win32' ? 'evb-pdf-page-ops.exe' : 'evb-pdf-page-ops';
+        const paths = getNativeToolPathCandidates({
+            binaryName: binary,
+            crateName: 'pdf-page-ops',
+            currentDir: resolve('electron'),
+            isPackaged: false,
+        });
+        const moved: string[] = [];
+        try {
+            for (const path of paths) {
+                await rename(path, `${path}.crpart3ne-away`).then(() => moved.push(path), () => undefined);
+            }
+            expect(moved.length).toBeGreaterThan(0);
+            expect((await Promise.all(paths.map(path => stat(path).then(() => true, () => false)))).some(Boolean)).toBe(false);
+            await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label="Print"]'))
+                .find(button => !button.disabled && button.checkVisibility()), null, {description: 'Open print dialog'});
+            const submit = await session.page.waitForSelector('::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Print..."][not(@disabled)])', {
+                timeout: 15_000,
+                visible: true,
+            });
+            await clickAsUser(session.page, submit!);
+            await expect.poll(async () => {
+                try { return (await PDFDocument.load(await readFile(printedPath))).getPageCount(); } catch { return null; }
+            }, {timeout: 30_000}).toBe(1);
+            const {stdout} = await execFileAsync(resolve('resources', 'poppler', resolvePlatformArchTag(), 'bin', process.platform === 'win32' ? 'pdftotext.exe' : 'pdftotext'), [
+                printedPath,
+                '-',
+            ]);
+            expect(stdout).toContain('Page 1 sample text');
+        } finally {
+            for (const path of moved) await rename(`${path}.crpart3ne-away`, path);
+        }
+    }, 90_000);
 
     it('prints a typed page range of a PDF through the print dialog', async () => {
         const fixturePath = await createMultiPageTextFixturePdf(`viewer-smoke-print-range-${Date.now()}.pdf`, 4);

@@ -18,6 +18,7 @@ export async function buildPrintablePdfPath(options: {
 }) {
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
+        if (options.printOptions.viewMode === 'single' && options.printOptions.orientation === 'auto') return;
         throw new Error('Native print layout is unavailable');
     }
     await runNativeToolCommand(binaryPath, [
