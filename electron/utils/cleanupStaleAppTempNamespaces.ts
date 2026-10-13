@@ -5,7 +5,10 @@ import {
     rm,
 } from 'fs/promises';
 import {join} from 'path';
-import {tmpdir} from 'os';
+import {
+    tmpdir,
+    uptime,
+} from 'os';
 import {
     APP_TEMP_DIR_NAME,
     getAppStateDir,
@@ -21,6 +24,7 @@ import {
     SAFE_NAMESPACE_PATTERN,
     getAppTempDir,
     getAppTempDirPath,
+    getRetiredAppTempDirPath,
 } from '@electron/utils/appTempDir';
 import {getWorkingCopyJournalPath} from '@electron/file-access/workingCopyDirectory';
 import {
@@ -87,12 +91,15 @@ async function readAppTempNamespaceOwner(namespacePath: string) {
     }
 }
 
-function isAppTempNamespaceOwnerAlive(pid: number) {
-    if (pid === process.pid) {
-        return true;
+// A namespace outlives a reboot and its owner's pid can be reused, so only an
+// owner that started since the last boot can still be alive. This profile's
+// own retired namespace has no live owner: this process holds the profile.
+function isAppTempNamespaceOwnerAlive(namespacePath: string, owner: IAppTempNamespaceOwner) {
+    if (namespacePath === getRetiredAppTempDirPath() || owner.startedAt < Date.now() - uptime() * 1000) {
+        return false;
     }
     try {
-        process.kill(pid, 0);
+        process.kill(owner.pid, 0);
         return true;
     } catch (error) {
         return isErrnoException(error) && error.code === 'EPERM';
@@ -158,7 +165,7 @@ export async function cleanupStaleAppTempNamespaces(
             if (!owner || getAppTempNamespaceDirectoryName(owner.namespace) !== entry.name) {
                 continue;
             }
-            if (isAppTempNamespaceOwnerAlive(owner.pid)) {
+            if (isAppTempNamespaceOwnerAlive(namespacePath, owner)) {
                 continue;
             }
             // Its export records go back first, whatever its age: one that

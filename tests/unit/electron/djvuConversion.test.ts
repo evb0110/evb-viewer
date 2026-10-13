@@ -188,7 +188,10 @@ vi.mock('fs/promises', () => ({
     unlink: mocks.unlink,
     writeFile: mocks.writeFile,
 }));
-vi.mock('os', () => ({tmpdir: () => '/tmp'}));
+vi.mock('os', async importOriginal => ({
+    ...await importOriginal<Record<string, unknown>>(),
+    tmpdir: () => '/tmp',
+}));
 vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfileSnapshot: () => ({
     logicalCpus: 5,
     totalRamBytes: 16 * 1024 * 1024 * 1024,

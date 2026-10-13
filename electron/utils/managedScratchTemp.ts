@@ -15,6 +15,7 @@ import {
     join,
     resolve,
 } from 'path';
+import { uptime } from 'os';
 import { createLogger } from '@electron/utils/createLogger';
 import {
     fsyncDirectory,
@@ -80,17 +81,10 @@ async function readManagedScratchMarker(directoryPath: string) {
     }
 }
 
-function isProcessAlive(pid: number) {
-    if (pid === process.pid) {
-        return true;
-    }
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        return !isErrnoException(error) || error.code !== 'ESRCH';
-    }
-}
+// A scope is live only in the process that made it, since the last boot: a
+// reused pid is not its owner. In a shared root another process's scope stays
+// until the 24-hour floor, long after the one command that used it.
+const bootedAt = Date.now() - uptime() * 1000;
 
 export async function createManagedScratchTempDir(
     prefix: TManagedScratchPrefix,
@@ -311,9 +305,9 @@ export async function settlePublishedTarget(
     }
     const backup = await readFileIdentity(backupPath);
     if (backup === null) {
-        // No copy was made, or it already went back. Only a replaced target, or
-        // one gone after a publication, still needs it.
-        if (owned || (current === null && published !== null)) {
+        // No copy was made, or it already went back: a target is replaced only
+        // after its backup exists, so only the export's own file still needs it.
+        if (owned) {
             throw new Error(`Backup is missing: ${backupPath}`);
         }
         return null;
@@ -455,7 +449,7 @@ export async function sweepStaleManagedScratchTempDirs(
                 continue;
             }
             const marker = await readManagedScratchMarker(scratchPath);
-            if (!marker || !entry.startsWith(marker.prefix) || isProcessAlive(marker.pid)) {
+            if (!marker || !entry.startsWith(marker.prefix) || (marker.pid === process.pid && marker.createdAt >= bootedAt)) {
                 continue;
             }
             // An unsettled record keeps its scratch whatever its age.

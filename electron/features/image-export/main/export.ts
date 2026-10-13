@@ -700,12 +700,6 @@ export async function getPdfPageCount(
     return pageCount;
 }
 
-function assertExportPageCount(pageCount: number) {
-    if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
-        throw new Error('PDF export source has no pages');
-    }
-}
-
 function emitExportProgress(options: IExportPdfOptions, progress: IImageExportProgressUpdate) {
     const total = Math.max(1, Math.trunc(progress.total));
     const processed = clamp(Math.trunc(progress.processed), 0, total);
@@ -972,7 +966,6 @@ async function planExportRender(preparedSourcePdf: string, options: IExportPdfOp
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
     });
-    assertExportPageCount(pageCount);
 
     return {
         pageCount,

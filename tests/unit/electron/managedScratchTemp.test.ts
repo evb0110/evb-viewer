@@ -17,8 +17,10 @@ import {
     mkdir,
     readFile,
     readdir,
+    rename,
     writeFile,
 } from 'fs/promises';
+import { spawn } from 'child_process';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -34,10 +36,13 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger
 
 const {
     createManagedScratchTempDir,
+    recordManagedScratchBackup,
+    recordManagedScratchPublish,
     removeManagedScratchTempDir,
     sweepStaleManagedScratchTempDirs,
     usingManagedScratchScope,
 } = await import('@electron/utils/managedScratchTemp');
+const {readFileIdentity} = await import('@electron/utils/fileIdentity');
 
 describe('managed scratch temp cleanup', () => {
     beforeEach(() => {
@@ -90,6 +95,49 @@ describe('managed scratch temp cleanup', () => {
         expect(existsSync(unmarkedManagedPath)).toBe(true);
         expect(existsSync(unrelatedPath)).toBe(true);
         expect(mocks.logger.info).toHaveBeenCalledWith('Cleaned up 1 stale managed scratch directory');
+    });
+
+    it('puts back an original whose record names a pid an unrelated live process now holds', async () => {
+        // Records survive a reboot, and a pid is reused: a live process with
+        // the recorded pid is not the export that wrote the record.
+        const unrelated = spawn(process.execPath, [
+            '-e',
+            'setInterval(() => {}, 1000);',
+        ], {stdio: 'ignore'});
+        try {
+            const target = join(mocks.appTempDir, 'page.png');
+            const backup = join(mocks.appTempDir, '.0000000000000001.tmp');
+            await writeFile(target, 'original');
+            await writeFile(backup, 'original');
+            const scratchPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
+            await recordManagedScratchBackup(scratchPath, backup, target, (await readFileIdentity(target))!);
+            await writeFile(join(mocks.appTempDir, 'staged'), 'exported');
+            await recordManagedScratchPublish(scratchPath, target, (await readFileIdentity(join(mocks.appTempDir, 'staged')))!);
+            await rename(join(mocks.appTempDir, 'staged'), target);
+            await writeFile(join(scratchPath, '.evb-managed-scratch.json'), `${JSON.stringify({
+                createdAt: Date.now(),
+                pid: unrelated.pid,
+                prefix: 'pdfExport-',
+            })}\n`, 'utf8');
+            const previousRun = await createManagedScratchTempDir('qpdfOutput-', mocks.appTempDir);
+            await writeFile(join(previousRun, '.evb-managed-scratch.json'), `${JSON.stringify({
+                createdAt: 0,
+                pid: process.pid,
+                prefix: 'qpdfOutput-',
+            })}\n`, 'utf8');
+            const thisRun = await createManagedScratchTempDir('pdf-page-ops-', mocks.appTempDir);
+
+            await expect(sweepStaleManagedScratchTempDirs(mocks.appTempDir, 0)).resolves.toBe(2);
+
+            expect(unrelated.exitCode).toBeNull();
+            await expect(readFile(target, 'utf8')).resolves.toBe('original');
+            expect(existsSync(backup)).toBe(false);
+            expect(existsSync(scratchPath)).toBe(false);
+            expect(existsSync(previousRun), 'this pid before the last boot is another run').toBe(false);
+            expect(existsSync(thisRun)).toBe(true);
+        } finally {
+            unrelated.kill('SIGKILL');
+        }
     });
 
     it('leaves fresh marked scratch dirs inside the TTL window', async () => {

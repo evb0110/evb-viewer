@@ -202,7 +202,8 @@ describe('app temp directory namespace', () => {
                 namespace: createAppTempNamespace('/profiles/active'),
                 userDataPath: '/profiles/active',
                 pid: process.pid,
-                startedAt: 0,
+                // A live owner started since the last boot.
+                startedAt: Date.now(),
             })}\n`);
             writeFileSync(join(recoveryPath, '.evb-app-temp-owner.json'), `${JSON.stringify({
                 namespace: createAppTempNamespace(recoveryUserDataPath),
