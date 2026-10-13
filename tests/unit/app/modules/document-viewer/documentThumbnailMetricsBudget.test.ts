@@ -13,6 +13,7 @@ import {
 import {
     countDocumentThumbnailCalls,
     createDocumentThumbnailSourceHarness,
+    documentThumbnailRow,
     installDocumentThumbnailListEnvironment,
     mountDocumentThumbnailList,
     restoreDocumentThumbnailListEnvironment,
@@ -59,14 +60,132 @@ describe('document thumbnail retained surfaces', () => {
         expect(harness.renderCalls.length).toBeGreaterThan(callsBeforeDeactivation);
     });
 
-    it('keeps completed pixels on a return journey without asking for page geometry', async () => {
+    it('keeps completed pixels on a return journey, measuring only the document\'s slot shape', async () => {
         const harness = createDocumentThumbnailSourceHarness(5000, '/budget.pdf');
         const {host} = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
         const target = await scrollToRenderedPage(harness, host, 10_000);
         await scrollAwayAndBack(host, 10_000);
         expect(countDocumentThumbnailCalls(harness.renderCalls, target)).toBe(1);
-        expect(harness.metricsCalls).toEqual([]);
+        // The first, middle and last pages give the slot shape, once; the
+        // journey itself asks for no page's geometry.
+        expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([
+            1,
+            2500,
+            5000,
+        ]);
+    });
+
+    it('shapes the slots like the source\'s pages and again when a reload turns them', async () => {
+        const frameAspect = (host: HTMLElement) => host
+            .querySelector<HTMLElement>('[data-thumbnail-page="1"] .document-thumbnail-list__frame')
+            ?.style.aspectRatio ?? '';
+        const spreads = createDocumentThumbnailSourceHarness(12, '/book.pdf', {
+            widthPoints: 793,
+            heightPoints: 566,
+        });
+        const {
+            host,
+            setSource,
+        } = mountDocumentThumbnailList(spreads.source, true, () => 'revision');
+        await settleDocumentThumbnailList();
+        expect(parseFloat(frameAspect(host))).toBeCloseTo(793 / 566, 3);
+
+        // Every page turned by a page operation: the same document reloads.
+        const turned = createDocumentThumbnailSourceHarness(12, '/book.pdf', {
+            widthPoints: 566,
+            heightPoints: 793,
+        });
+        setSource(turned.source);
+        await settleDocumentThumbnailList();
+        expect(parseFloat(frameAspect(host))).toBeCloseTo(566 / 793, 3);
+    });
+
+    it('keeps the current page in view when a later-measured slot shape moves it', async () => {
+        const spreads = createDocumentThumbnailSourceHarness(12, '/spreads.pdf', {
+            widthPoints: 793,
+            heightPoints: 566,
+        });
+        const {
+            host,
+            setCurrentPage,
+            setSource,
+        } = mountDocumentThumbnailList(spreads.source);
+        await settleDocumentThumbnailList();
+
+        // A portrait book opened at page 4 whose page sizes arrive late: it is
+        // first laid out in the spread book's short slots.
+        let reportSizes!: () => void;
+        const sizesReported = new Promise<void>((resolve) => {
+            reportSizes = resolve;
+        });
+        const portrait = createDocumentThumbnailSourceHarness(12, '/portrait.pdf');
+        setCurrentPage(4);
+        setSource({
+            ...portrait.source,
+            getPageMetrics: async (pageNumber, signal) => {
+                await sizesReported;
+                return portrait.source.getPageMetrics(pageNumber, signal);
+            },
+        });
+        await settleDocumentThumbnailList();
+        reportSizes();
+        await settleDocumentThumbnailList();
+
+        const rail = host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+        const row = documentThumbnailRow(host, 4)!;
+        const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
+        const bottom = top + parseFloat(row.style.height);
+        expect(parseFloat(host.querySelector<HTMLElement>('[data-thumbnail-page="4"] .document-thumbnail-list__frame')!
+            .style.aspectRatio)).toBeCloseTo(500 / 700, 3);
+        expect(top, `page 4 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`)
+            .toBeGreaterThanOrEqual(rail.scrollTop);
+        expect(bottom).toBeLessThanOrEqual(rail.scrollTop + 600);
+    });
+
+    it('keeps a visible current page in view when a reload turns every page', async () => {
+        const wide = createDocumentThumbnailSourceHarness(8, '/turned.pdf', {
+            widthPoints: 1000,
+            heightPoints: 500,
+        });
+        const {
+            host,
+            setCurrentPage,
+            setSource,
+        } = mountDocumentThumbnailList(wide.source, true, () => 'revision');
+        await settleDocumentThumbnailList();
+        setCurrentPage(3);
+        await settleDocumentThumbnailList();
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        setSource(createDocumentThumbnailSourceHarness(8, '/turned.pdf', {
+            widthPoints: 500,
+            heightPoints: 700,
+        }).source);
+        await settleDocumentThumbnailList();
+
+        const rail = host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!;
+        const row = documentThumbnailRow(host, 3)!;
+        const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)?.[1]);
+        const bottom = top + parseFloat(row.style.height);
+        expect(top, `page 3 spans ${String(top)}..${String(bottom)}, the rail shows ${String(rail.scrollTop)}+600`)
+            .toBeGreaterThanOrEqual(rail.scrollTop);
+        expect(bottom).toBeLessThanOrEqual(rail.scrollTop + 600);
+    });
+
+    it('keeps the rail where the user left it when a reload keeps the pages\' shape', async () => {
+        const {
+            host,
+            setSource,
+        } = mountDocumentThumbnailList(createDocumentThumbnailSourceHarness(40, '/same.pdf').source, true, () => 'revision');
+        await settleDocumentThumbnailList();
+        await scrollDocumentThumbnailRail(host, 4_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        setSource(createDocumentThumbnailSourceHarness(40, '/same.pdf').source);
+        await settleDocumentThumbnailList();
+
+        expect(host.querySelector<HTMLElement>('[data-document-thumbnail-rail]')!.scrollTop).toBe(4_000);
     });
 
     it('starts a replacement document from an empty budget instead of stacking documents', async () => {

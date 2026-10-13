@@ -2862,7 +2862,13 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                             })
                         : undefined;
                     const skeleton = page?.querySelector<HTMLElement>('.document-page-skeleton');
-                    const showsSkeleton = Boolean(skeleton && window.getComputedStyle(skeleton).display !== 'none');
+                    const skeletonStyle = skeleton ? window.getComputedStyle(skeleton) : null;
+                    // A skeleton still holding back its reveal is a bare page to the reader.
+                    const showsSkeleton = Boolean(
+                        skeletonStyle
+                        && skeletonStyle.display !== 'none'
+                        && Number.parseFloat(skeletonStyle.opacity) > 0.01,
+                    );
                     const rendered = page?.classList.contains('page_container--rendered') === true;
                     probe.frames.push({
                         bare: page !== undefined && !rendered && !showsSkeleton,

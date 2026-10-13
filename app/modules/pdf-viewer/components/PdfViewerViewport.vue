@@ -34,6 +34,7 @@
                     :key="pageItem.key"
                     :page="pageItem.page"
                     :show-skeleton="shouldRenderPageSkeleton(pageItem.page)"
+                    :defer-skeleton="deferPageSkeleton"
                     :render-failed="isPageRenderFailed(pageItem.page)"
                     :render-error-label="pageRenderErrorLabel"
                     :spread-single="isSpreadSingle(pageItem.page)"
@@ -54,6 +55,7 @@
                 v-else
                 :page="item.page"
                 :show-skeleton="shouldRenderPageSkeleton(item.page)"
+                :defer-skeleton="deferPageSkeleton"
                 :render-failed="isPageRenderFailed(item.page)"
                 :render-error-label="pageRenderErrorLabel"
                 :spread-single="isSpreadSingle(item.page)"
@@ -208,6 +210,12 @@ const groupedVirtualPageItems = computed(() => groupPdfVirtualPageItems(
 function shouldRenderPageSkeleton(page: TPageNumber) {
     return shouldShowSkeleton(page);
 }
+
+// While a navigation runs, only its destination row shows a skeleton.
+const deferPageSkeleton = computed(() => {
+    const visual = chassisAuthority?.openSurface.viewportSession.value.visual;
+    return visual?.kind === 'page' && visual.presentation === 'skeleton' && visual.deferSkeleton === true;
+});
 
 function getEffectivePagePlaceholderStyle(page: TPageNumber) {
     return page === openingPageFramePage && openingPageFrameStyle
