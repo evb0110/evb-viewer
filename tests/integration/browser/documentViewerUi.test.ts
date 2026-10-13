@@ -639,10 +639,23 @@ describe('browser document lifecycle UI', () => {
                 expect(observation.hover, `${observation.label} hover`).toBe(0);
                 expect(observation.click, `${observation.label} click`).toBe(0);
             }
-            const dimensions = await icon.evaluate((image) => {
+            // Resolve and measure in one browser task: a locator's element
+            // handle can be retired by annotation-layer replacement before
+            // its later evaluate call runs.
+            const readDimensions = () => page.evaluate(() => {
+                const image = Array.from(document.querySelectorAll<HTMLImageElement>(
+                    '.page_container--rendered .annotation-layer .fileAttachmentAnnotation img',
+                )).find(candidate => {
+                    const layer = candidate.closest<HTMLElement>('.annotation-layer');
+                    const bounds = layer?.getBoundingClientRect();
+                    return candidate.isConnected && layer?.isConnected
+                        && bounds && bounds.width > 0 && bounds.height > 0
+                        && getComputedStyle(layer).visibility !== 'hidden';
+                });
+                if (!image) return null;
                 const rect = image.getBoundingClientRect();
                 return {
-                    naturalWidth: (image as HTMLImageElement).naturalWidth,
+                    naturalWidth: image.naturalWidth,
                     width: rect.width,
                     height: rect.height,
                     imageStyle: image.getAttribute('style'),
@@ -651,6 +664,13 @@ describe('browser document lifecycle UI', () => {
                     scaleFactor: getComputedStyle(image).getPropertyValue('--total-scale-factor'),
                 };
             });
+            let dimensions!: NonNullable<Awaited<ReturnType<typeof readDimensions>>>;
+            await expect.poll(async () => {
+                const current = await readDimensions();
+                if (!current) return false;
+                dimensions = current;
+                return true;
+            }).toBe(true);
             const bytes = await response.body();
             const observation = {
                 url: new URL(response.url()).pathname,
