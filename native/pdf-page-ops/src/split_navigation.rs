@@ -147,6 +147,7 @@ pub(crate) fn rebind_retained_destinations(
     )?;
     let output = incremental.get_prev_documents();
     let pages = output_plan_pages(output, instructions)?;
+    let remap = split_destination_mapper(output, &pages);
     let mut rebound = Vec::new();
     for page in pages.iter().filter(|page| page.2.link_only) {
         let Ok(annots) = output.get_dictionary(page.1)?.get(b"Annots") else {
@@ -172,16 +173,12 @@ pub(crate) fn rebind_retained_destinations(
                     *first = Object::Reference(source_key(index)?);
                 }
                 annotation.set("Dest", array);
-                remap_split_navigation(
-                    output,
-                    &mut annotation,
-                    b"Dest",
-                    &split_destination_mapper(output, &pages),
-                )?;
+                remap_split_navigation(output, &mut annotation, b"Dest", &remap)?;
             }
             rebound.push((annotation_id, annotation));
         }
     }
+    drop(remap);
     let restored = restore_source_catalog(&mut incremental, source_path, instructions, qpdf_path)?;
     if rebound.is_empty() && !restored {
         return Ok(());
@@ -291,12 +288,13 @@ fn restore_source_catalog(
         .zip(&output_pages)
         .map(|(mapped, output)| (mapped.1, output.1, &identity, output.3))
         .collect::<Vec<_>>();
+    let remap = split_destination_mapper(&navigation, &identity_pages);
     let catalog = crate::text_layer::clone_object_graph(
         &navigation,
         &mut output.new_document,
         &Object::Dictionary(catalog),
         &mut identities,
-        &identity_pages,
+        (&identity_pages, &remap),
         &|_, _| Ok(()),
         0,
     )?;

@@ -118,28 +118,26 @@ fn append_overlay_pages(
             ))
         })
         .collect::<Result<_>>()?;
+    let remap = crate::split_navigation::split_destination_mapper(source, &pages);
     let mut copied = HashMap::new();
-    for &(source_page_id, target_page_id, instruction, _) in &pages {
-        if instruction.link_only {
-            continue;
-        }
+    for &(source_id, target_id, instruction, _) in pages.iter().filter(|p| !p.2.link_only) {
         // The new-document object map already owns materialization.
-        if let Some(base) = base.filter(|_| !target.has_object(target_page_id)) {
-            prepare_overlay_page(base, target, target_page_id)?;
+        if let Some(base) = base.filter(|_| !target.has_object(target_id)) {
+            prepare_overlay_page(base, target, target_id)?;
         }
         append_source_annotations(
             target,
             source,
-            target_page_id,
-            source_page_id,
+            target_id,
+            source_id,
             instruction,
-            &pages,
+            (&pages, &remap),
         )?;
         let skipped = append_text_layer(
             target,
             source,
-            target_page_id,
-            source_page_id,
+            target_id,
+            source_id,
             instruction.matrix,
             instruction.filter_to_output_page,
             instruction.normalize_greek_micro_sign,

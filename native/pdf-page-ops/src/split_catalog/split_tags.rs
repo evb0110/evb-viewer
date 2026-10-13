@@ -59,7 +59,7 @@ pub(super) fn split_tags(
                 target,
                 root,
                 &mut identities,
-                &[],
+                (&[], &|_| Ok(None)),
                 &|_, _| Ok(()),
                 0,
             )?;
