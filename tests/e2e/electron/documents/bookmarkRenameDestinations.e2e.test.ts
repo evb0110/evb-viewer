@@ -2,9 +2,11 @@ import {
     PDFDocument, PDFName, PDFString, PDFHexString, PDFArray, PDFDict, PDFNumber, PDFNull, PDFRef, degrees, type PDFPage,
 } from 'pdf-lib';
 import {
-    copyFile, mkdtemp, readFile, realpath, writeFile,
+    copyFile, mkdtemp, open, readFile, realpath, stat, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
+import {execFileSync} from 'node:child_process';
+import {electronFileLogDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {join} from 'node:path';
 import {
     describe, expect, it, onTestFinished,
@@ -14,7 +16,7 @@ import {
     goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbar, saveViaWindowHandle, waitForPdfLoaded, waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    createOutlinePageLabelFixturePdf, fixtureBookmark, readPdfMetadataWithQpdf,
+    createOutlinePageLabelFixturePdf, fixtureBookmark, readPdfMetadataWithQpdf, resolveNativeLargePdfFixtureAvailability,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
@@ -27,9 +29,116 @@ import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageI
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import type {Page} from 'puppeteer-core';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    readNativePdfCatalog, resolveNativePageOpsPath,
+} from '@electron/features/page-ops/public/nativePageOpsPath';
 
 describe('Electron E2E - bookmark destination round trip', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-bookmark-rename-${Date.now()}`});
+
+    // The same catalog must be visible below and above the native eager-load
+    // ceiling. Reuse the large-file lane's sparse size rather than a 2 GB book.
+    it.each([
+        'small',
+        'large',
+    ])('reads labels and named outline targets from a %s catalog', async (size) => {
+        const fixture = await createOutlinePageLabelFixturePdf(`catalog-${size}-${Date.now()}.pdf`, []);
+        await writeOutlineFixture(fixture, (pdf, pages) => {
+            pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter-three': [
+                pages[2]!.ref,
+                PDFName.of('FitH'),
+                null,
+            ]}));
+            return [
+                {
+                    Title: PDFString.of('First'),
+                    Dest: [
+                        pages[0]!.ref,
+                        PDFName.of('Fit'),
+                    ],
+                },
+                {
+                    Title: PDFString.of('Named chapter'),
+                    Dest: PDFString.of('chapter-three'),
+                },
+            ];
+        });
+        if (size === 'large') {
+            const oversized = resolveNativeLargePdfFixtureAvailability(4);
+            if (!oversized.path) throw new Error(oversized.reason);
+            const targetBytes = (await stat(oversized.path)).size;
+            const source = await readFile(fixture);
+            const startXref = [...source.toString('latin1').matchAll(/startxref\s+(\d+)\s+%%EOF/gu)].at(-1)?.[1];
+            if (startXref === undefined) throw new Error('Catalog fixture has no cross-reference trailer');
+            const trailer = Buffer.from(`\nstartxref\n${startXref}\n%%EOF\n`, 'ascii');
+            if (process.platform === 'win32') {
+                execFileSync('fsutil.exe', [
+                    'sparse',
+                    'setflag',
+                    fixture,
+                ]);
+            }
+            const handle = await open(fixture, 'r+');
+            try {
+                await handle.truncate(targetBytes);
+                await handle.write(trailer, 0, trailer.length, targetBytes - trailer.length);
+            } finally {
+                await handle.close();
+            }
+            expect((await stat(fixture)).size).toBeGreaterThan(512 * 1024 * 1024);
+        }
+        const session = sessions.getSession();
+        const {page} = session;
+        const logPath = join(electronFileLogDir(session.name), 'app.ndjson');
+        const initialLog = (await readFile(logPath, 'utf8')).length;
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 30_000}).toBe('front-i');
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await findBookmarkRow(page, 'First');
+        await activateBookmark(page, 'Named chapter');
+        await waitForToolbarCurrentPage(page, 3);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('chapter-1');
+        expect(await page.$eval('.page_container[data-page="3"]', node => node.textContent)).toContain('Metadata matrix page 3');
+        await activateBookmark(page, 'First');
+        await waitForToolbarCurrentPage(page, 1);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('front-i');
+        const log = (await readFile(logPath, 'utf8')).slice(initialLog);
+        expect(log).not.toContain('Large incremental PDF input requires');
+        expect(log.split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(entry =>
+            entry.msg === 'IPC handler rejected' && (entry.data?.channel === 'pdf:pageLabels:read' || entry.data?.channel === 'page-ops:read-outline')))
+            .toEqual([]);
+        const nativePath = resolveNativePageOpsPath();
+        if (!nativePath) throw new Error('Native catalog reader is unavailable');
+        expect(await readNativePdfCatalog(nativePath, fixture, {commandLabel: 'E2E combine catalog read'})).toMatchObject({
+            pageLabels: [
+                {
+                    pageIndex: 0,
+                    style: 'r',
+                    prefix: 'front-',
+                },
+                {
+                    pageIndex: 2,
+                    style: 'D',
+                    prefix: 'chapter-',
+                },
+            ],
+            bookmarks: [
+                {
+                    title: 'First',
+                    pageIndex: 0,
+                },
+                {
+                    title: 'Named chapter',
+                    pageIndex: 2,
+                },
+            ],
+        });
+        console.info('CATALOG_READ ' + JSON.stringify({
+            size,
+            indicator: await readToolbarPageIndicator(page),
+        }));
+    }, 180_000);
 
     it('saves a rotated-page bookmark in displayed crop coordinates and reopens at its top', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`rotated-bookmark-${Date.now()}.pdf`, []);

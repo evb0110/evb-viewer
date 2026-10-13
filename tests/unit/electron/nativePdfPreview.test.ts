@@ -25,7 +25,10 @@ vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({
 vi.mock('@electron/features/documents/main/documentFileReadHandlers', () => ({resolveOriginalBackedReadTransport: mocks.resolveOriginalBackedReadTransport}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('@electron/native-tools/buildPopplerEnv', () => ({buildPopplerEnv: () => undefined}));
-vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({pdfinfo: '/tools/pdfinfo'})}));
+vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
+    pdfinfo: '/tools/pdfinfo',
+    qpdf: '/tools/qpdf',
+})}));
 
 describe('native PDF metadata parsing', () => {
     it('converts bounded native catalog page-label ranges to renderer ranges', () => {
@@ -77,6 +80,8 @@ describe('native PDF metadata parsing', () => {
             'read-document-catalog',
             '--input',
             '/tmp/a.pdf',
+            '--qpdf',
+            '/tools/qpdf',
         ], expect.anything());
     });
 

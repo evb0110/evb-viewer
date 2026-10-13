@@ -1,5 +1,6 @@
 import { isRecord } from '@contracts/runtimeGuards';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { QPDF_TIMEOUT_MS } from '@electron/pdf/pdfPageCount';
 import { createLogger } from '@electron/utils/createLogger';
 
@@ -26,6 +27,8 @@ async function readCatalogJson(
         operation,
         '--input',
         inputPath,
+        '--qpdf',
+        getPdfNativeToolPaths().qpdf,
     ], {
         timeoutMs: QPDF_TIMEOUT_MS,
         maxStdoutBytes: PDF_CATALOG_MAX_BYTES,
