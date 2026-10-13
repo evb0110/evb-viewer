@@ -158,22 +158,14 @@ describe('scan cleanup run coordinator', () => {
             outputPdfPath: string;
         }>();
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(() => pendingStart.promise),
             cancel: vi.fn(),
             getJobState: vi.fn(),
             subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const request = {
@@ -393,12 +385,7 @@ describe('scan cleanup run coordinator', () => {
             updatedAtMs: requireEpochMs(Date.now()),
         };
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('reconciled-job', '/managed/reconciled.pdf')),
             cancel: vi.fn(),
             getJobState: vi.fn(async () => reconciledState),
@@ -407,10 +394,7 @@ describe('scan cleanup run coordinator', () => {
             }),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
 
@@ -517,12 +501,7 @@ describe('scan cleanup run coordinator', () => {
     it('resets the run guard and cancels when a subscription cannot be reconciled', async () => {
         const cancel = vi.fn(async () => true);
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(async () => null),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('unobserved-job', '/managed/unobserved.pdf')),
             cancel,
             getJobState: vi.fn(async () => null),
@@ -531,10 +510,7 @@ describe('scan cleanup run coordinator', () => {
             }),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
 
@@ -567,12 +543,7 @@ describe('scan cleanup run coordinator', () => {
             return true;
         });
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(async () => null),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('terminal-during-abandon', '/managed/terminal-during-abandon.pdf')),
             cancel,
             getJobState: vi.fn(async () => null),
@@ -581,10 +552,7 @@ describe('scan cleanup run coordinator', () => {
             }),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         terminalState.mark = () => {
@@ -615,12 +583,7 @@ describe('scan cleanup run coordinator', () => {
         const onJobState = vi.fn(() => () => undefined);
         const toastAdd = vi.fn();
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => {
                 throw new Error('scan cleanup bridge failed');
             }),
@@ -629,10 +592,7 @@ describe('scan cleanup run coordinator', () => {
             subscribeJob: vi.fn(),
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState,
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const dependencies = {
@@ -715,22 +675,14 @@ describe('scan cleanup run coordinator', () => {
     it('falls back to a coordinator toast when a thrown start error has no open owning surface', async () => {
         const toastAdd = vi.fn();
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(),
             cancel: vi.fn(),
             getJobState: vi.fn(),
             subscribeJob: vi.fn(),
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
@@ -762,22 +714,14 @@ describe('scan cleanup run coordinator', () => {
     it('uses a non-navigating toast when the owning cleanup workspace is open', async () => {
         const toastAdd = vi.fn();
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(),
             cancel: vi.fn(),
             getJobState: vi.fn(),
             subscribeJob: vi.fn(),
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(() => () => undefined),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
@@ -854,25 +798,17 @@ describe('scan cleanup run coordinator', () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         let nextJob = 0;
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult(`job-${++nextJob}`, '/managed/book — cleaned.pdf')),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
             subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => { listener = () => undefined; };
             }),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => true);
         const saveCompletedOutputAs = vi.fn(async () => true);
@@ -1336,25 +1272,17 @@ describe('scan cleanup run coordinator', () => {
     it('makes partial-scope completion explicit in the result toast', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('job-partial', '/managed/job-partial.pdf')),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
             subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
             }),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const toastAdd = vi.fn();
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
@@ -1471,25 +1399,17 @@ describe('scan cleanup run coordinator', () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         const openGate = Promise.withResolvers<boolean>();
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('job-open-gate', '/managed/job-open-gate.pdf')),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
             subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
             }),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(() => openGate.promise);
         const toastAdd = vi.fn();
@@ -1551,25 +1471,17 @@ describe('scan cleanup run coordinator', () => {
     it('contains generated-document open failures and reports them', async () => {
         let listener: (state: TScanCleanupJobState) => void = () => undefined;
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult('job-open-failure', '/managed/job-open-failure.pdf')),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
             subscribeJob: vi.fn(async (jobId: TJobId) => runningJobState(jobId)),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
             }),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => {
             throw new Error('Invalid or non-existent file');
@@ -1640,12 +1552,7 @@ describe('scan cleanup run coordinator', () => {
         };
         const subscribeJob = vi.fn(async () => completed);
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => {
                 listener(completed);
                 return startResult('job-instant', '/managed/instant.pdf');
@@ -1655,13 +1562,10 @@ describe('scan cleanup run coordinator', () => {
             subscribeJob,
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
             }),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const openGeneratedPdf = vi.fn(async () => true);
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
@@ -1695,25 +1599,17 @@ describe('scan cleanup run coordinator', () => {
         let nextJobId = 'job-0';
         const openGeneratedPdf = vi.fn(async () => true);
         capability.value = {
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(async () => startResult(nextJobId)),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
             subscribeJob: vi.fn(async () => null),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
-            onPreviewRaw: vi.fn(() => () => undefined),
             onJobState: vi.fn(callback => {
                 listener = callback;
                 return () => undefined;
             }),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
@@ -1787,13 +1683,7 @@ describe('scan cleanup run coordinator', () => {
         let secondCleanup: (() => void) | null = null;
         const onJobState = vi.fn(() => () => undefined);
         capability.value = {
-            onPreviewRaw: vi.fn(() => () => undefined),
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(),
             cancel: vi.fn(),
             getJobState: vi.fn(),
@@ -1801,8 +1691,6 @@ describe('scan cleanup run coordinator', () => {
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs: vi.fn(),
             onJobState,
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         try {
             secondCleanup = coordinator.installScanCleanupRunCoordinator(dependencies);
@@ -1818,13 +1706,7 @@ describe('scan cleanup run coordinator', () => {
         const unsubscribe = vi.fn();
         const pruneGeneratedOutputs = vi.fn(async () => 3);
         capability.value = {
-            onPreviewRaw: vi.fn(() => () => undefined),
-            preview: vi.fn(),
-            cancelPreview: vi.fn(),
-            detectAll: vi.fn(),
-            cancelDetection: vi.fn(),
-            getDetectionJobState: vi.fn(),
-            subscribeDetectionJob: vi.fn(),
+            ...stubCapability(() => undefined, () => 'unused-job'),
             start: vi.fn(),
             cancel: vi.fn(),
             getJobState: vi.fn(),
@@ -1832,8 +1714,6 @@ describe('scan cleanup run coordinator', () => {
             reconnectJob: vi.fn(),
             pruneGeneratedOutputs,
             onJobState: vi.fn(() => unsubscribe),
-            onDetectionJobState: vi.fn(() => () => undefined),
-            onSettingsChanged: vi.fn(() => () => undefined),
         };
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const firstCleanup = coordinator.installScanCleanupRunCoordinator({
