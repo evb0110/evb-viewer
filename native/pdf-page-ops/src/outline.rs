@@ -7,7 +7,7 @@ use evb_native_support::pdf_catalog::{
 use lopdf::dictionary;
 
 mod actions;
-mod names;
+pub(crate) mod names;
 use actions::kept_bookmark_action;
 pub(crate) use actions::{bookmark_action_object, bookmark_name_object};
 use names::{find_named_destination, named_dest_object, pdf_name_or_string, read_named_dest};
@@ -228,7 +228,6 @@ pub(crate) fn read_pdf_outline(
     keep_names: bool,
 ) -> Result<Vec<BookmarkEntry>> {
     let catalog = document.dictionary(document.root_id()?)?;
-    let _page_resolver = PageTreeResolver::new(document)?;
     let Ok(outlines_object) = catalog.get(b"Outlines") else {
         return Ok(Vec::new());
     };

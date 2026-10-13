@@ -193,7 +193,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         },
         "page-sizes" => Operation::PageSizes { metadata_only },
         "read-catalog" => Operation::ReadCatalog,
-        "read-document-catalog" => Operation::ReadDocumentCatalog,
+        "read-document-catalog" => Operation::ReadDocumentCatalog(mutations_file),
         "print-layout" if pages_file.is_some() => {
             return Err("--pages-file is not valid for print-layout".into());
         }
@@ -211,7 +211,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             | Operation::PdfConformance
             | Operation::AppendAdmission
             | Operation::ReadCatalog
-            | Operation::ReadDocumentCatalog
+            | Operation::ReadDocumentCatalog(..)
     );
     if prints_result && output_path.is_some() {
         return Err(format!("{command} prints its result on stdout and takes no --output").into());

@@ -21,9 +21,9 @@ import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {decodePageSourceReferences} from '@contracts/pageOpsPlatformFeature';
+import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
+import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
-import {isRecord} from '@contracts/runtimeGuards';
 
 const PAGE_METADATA_REMAP_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -75,88 +75,45 @@ export async function resolvePageMetadataSourceTargets(
         || needsResolution(item.items)
     ));
     if (!metadata || !needsResolution(metadata.bookmarks ?? [])) return metadata;
-    const result = await runNativeToolCommand(getPdfNativeToolPaths().qpdf, [
-        '--json',
-        '--json-key=pages',
-        '--json-key=qpdf',
-        sourcePath,
-    ], {
-        ...options,
-        timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
-        maxStdoutBytes: 64 * 1024 * 1024,
-        rejectOnStdoutTruncation: true,
-        commandLabel: 'qpdf(source-page-identities)',
-    });
-    const catalog: unknown = JSON.parse(result.stdout);
-    const indices = new Map(decodePageSourceReferences(catalog).map((reference, index) => [
-        `${reference.num} ${reference.gen} R`,
-        index,
-    ]));
-    const objects: Record<string, unknown> = isRecord(catalog) && Array.isArray(catalog.qpdf) && isRecord(catalog.qpdf[1])
-        ? catalog.qpdf[1] : {};
-    const dereference = (value: unknown): unknown => {
-        const visited = new Set<string>();
-        while (typeof value === 'string') {
-            const object = objects[`obj:${value}`];
-            if (!isRecord(object)) break;
-            if (visited.has(value)) return undefined;
-            visited.add(value);
-            value = object.value;
+    const binaryPath = resolveNativePageOpsPath();
+    if (!binaryPath) throw new Error('Native bookmark target resolution is unavailable');
+    return usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
+        const mutationsPath = join(tempDir, 'targets.json');
+        const bookmarks: IPdfBookmarkEntry[] = [];
+        const chunks = splitPdfNativeMutationSetIntoBoundedChunks({bookmarks: {
+            totalPages: await getPdfPageCount(sourcePath, options),
+            untitledLabel: metadata.untitledBookmarkLabel,
+            items: metadata.bookmarks?.slice() ?? [],
+        }});
+        for (const chunk of chunks) {
+            await writeFile(mutationsPath, JSON.stringify(chunk), 'utf8');
+            const result = await runNativeToolCommand(binaryPath, [
+                'read-document-catalog',
+                '--input',
+                sourcePath,
+                '--mutations-file',
+                mutationsPath,
+                '--qpdf',
+                getPdfNativeToolPaths().qpdf,
+            ], {
+                ...options,
+                timeoutMs: PAGE_METADATA_REMAP_TIMEOUT_MS,
+                maxStdoutBytes: 64 * 1024 * 1024,
+                rejectOnStdoutTruncation: true,
+                commandLabel: 'evb-pdf-page-ops(source-bookmark-targets)',
+            });
+            const resolved = decodeMetadataSnapshot({
+                ...JSON.parse(result.stdout),
+                untitledBookmarkLabel: metadata.untitledBookmarkLabel,
+            });
+            if (!resolved.bookmarks) throw new Error('Native bookmark target resolution returned no bookmarks');
+            bookmarks.push(...resolved.bookmarks);
         }
-        return value;
-    };
-    const trailer = isRecord(objects.trailer) ? objects.trailer.value : null;
-    const root = isRecord(trailer) ? dereference(trailer['/Root']) : null;
-    const destinations = new Map<string, unknown>();
-    const legacy = isRecord(root) ? dereference(root['/Dests']) : null;
-    if (isRecord(legacy)) for (const [
-        name,
-        value,
-    ] of Object.entries(legacy)) destinations.set(name.slice(1), value);
-    const names = isRecord(root) ? dereference(root['/Names']) : null;
-    const pending = isRecord(names) ? [names['/Dests']] : [];
-    const visited = new Set<object>();
-    while (pending.length) {
-        const node = dereference(pending.pop());
-        if (!isRecord(node) || visited.has(node)) continue;
-        visited.add(node);
-        const entries = dereference(node['/Names']);
-        if (Array.isArray(entries)) for (let i = 0; i + 1 < entries.length; i += 2) {
-            const key = dereference(entries[i]);
-            if (typeof key === 'string' && key.startsWith('u:') && !destinations.has(key.slice(2))) destinations.set(key.slice(2), entries[i + 1]);
-        }
-        const kids = dereference(node['/Kids']);
-        if (Array.isArray(kids)) for (const kid of kids) pending.push(kid);
-    }
-    const namedTarget = (name: string): unknown => {
-        let destination = dereference(destinations.get(name));
-        if (isRecord(destination)) destination = dereference(destination['/D']);
-        return Array.isArray(destination) ? destination[0] : undefined;
-    };
-    const resolve = (items: readonly IPdfBookmarkEntry[]): IPdfBookmarkEntry[] => items.flatMap(item => {
-        const children = resolve(item.items);
-        const target = item.originalDestination?.sourceTarget;
-        const reference = item.namedDest !== null ? namedTarget(item.namedDest)
-            : item.pageIndex === null && target && typeof target === 'object' ? `${target.num} ${target.gen} R` : undefined;
-        if (reference === undefined) return [{
-            ...item,
-            items: children,
-        }];
-        const index = typeof reference === 'string' ? indices.get(reference) : undefined;
-        return index === undefined ? children : [{
-            ...item,
-            pageIndex: requirePageIndex(index),
-            ...(item.originalDestination ? {originalDestination: {
-                ...item.originalDestination,
-                sourceTarget: index,
-            }} : {}),
-            items: children,
-        }];
+        return {
+            ...metadata,
+            bookmarks,
+        };
     });
-    return {
-        ...metadata,
-        bookmarks: resolve(metadata.bookmarks ?? []),
-    };
 }
 
 function remapKnownPageLabels(

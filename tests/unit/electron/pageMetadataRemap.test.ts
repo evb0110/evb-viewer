@@ -96,14 +96,26 @@ describe('page metadata remap', () => {
             bookmarks: [pending],
             untitledBookmarkLabel: 'Untitled',
         };
-        mocks.runNativeToolCommand.mockResolvedValue({
-            stdout: JSON.stringify({pages: [
-                {object: '7 0 R'},
-                {object: '4 0 R'},
-            ]}),
+        mocks.runNativeToolCommand.mockImplementation(async (_binary, args) => ({
+            stdout: args[0] === '--show-npages' ? '2' : JSON.stringify({bookmarks: [{
+                ...pending,
+                pageIndex: 1,
+                originalDestination: {
+                    ...pending.originalDestination,
+                    sourceTarget: 1,
+                },
+                items: [{
+                    ...child,
+                    pageIndex: 0,
+                    originalDestination: {
+                        ...child.originalDestination,
+                        sourceTarget: 0,
+                    },
+                }],
+            }]}),
             stderr: '',
             exitCode: 0,
-        });
+        }));
         const source = await resolvePageMetadataSourceTargets(metadata, '/source.pdf', {
             signal: new AbortController().signal,
             cancelGroup: 'test',
@@ -126,31 +138,14 @@ describe('page metadata remap', () => {
     });
 
     it('resolves an accepted name from the source catalog before deleting its page', async () => {
-        mocks.runNativeToolCommand.mockResolvedValue({
-            stdout: JSON.stringify({
-                pages: [
-                    {object: '6 0 R'},
-                    {object: '7 0 R'},
-                    {object: '8 0 R'},
-                ],
-                qpdf: [
-                    {jsonversion: 2},
-                    {
-                        'obj:1 0 R': {value: {
-                            '/Type': '/Catalog',
-                            '/Dests': {'/chapter-two': [
-                                '8 0 R',
-                                '/FitH',
-                                null,
-                            ]},
-                        }},
-                        trailer: {value: {'/Root': '1 0 R'}},
-                    },
-                ],
-            }),
+        mocks.runNativeToolCommand.mockImplementation(async (_binary, args) => ({
+            stdout: args[0] === '--show-npages' ? '3' : JSON.stringify({bookmarks: [{
+                ...bookmark('Removed', 2, [bookmark('Child', 0)]),
+                namedDest: 'chapter-two',
+            }]}),
             stderr: '',
             exitCode: 0,
-        });
+        }));
         const source = await resolvePageMetadataSourceTargets({
             bookmarks: [{
                 ...bookmark('Removed', null, [bookmark('Child', 0)]),

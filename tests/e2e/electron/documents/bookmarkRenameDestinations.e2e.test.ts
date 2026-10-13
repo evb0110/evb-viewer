@@ -484,6 +484,44 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.screenshot({path: join(evidence, 'reopened.png')});
     }, 90_000);
 
+    it.each([
+        'unknown target',
+        'large object dump',
+    ])('crpart3ne keeps bookmarks through page deletion with %s', async scenario => {
+        const fixture = await createOutlinePageLabelFixturePdf(`crpart3ne-bookmark-${Date.now()}.pdf`, [fixtureBookmark('Kept', 0)]);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        const invalidTarget = pdf.context.register(pdf.context.obj({Type: PDFName.of('Other')}));
+        const target = scenario === 'unknown target' ? invalidTarget : pdf.getPages()[0]!.ref;
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({'chapter': [
+            target,
+            PDFName.of('Fit'),
+        ]}));
+        const outline = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+        outline.set(PDFName.of('Dest'), PDFString.of('chapter'));
+        if (scenario === 'large object dump') {
+            // Public generated input: 70 MB of valid unused dictionaries.
+            const payload = PDFString.of('X'.repeat(14_000));
+            for (let i = 0; i < 5_000; i += 1) pdf.context.register(pdf.context.obj({Noise: payload}));
+        }
+        await writeFile(fixture, await pdf.save({useObjectStreams: false}));
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await findBookmarkRow(page, 'Kept');
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete unrelated page'});
+        await waitForFunctionInPage(page, () => document.querySelector('[data-thumbnail-page="4"]') === null, {timeout: 30_000});
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await findBookmarkRow(page, 'Kept');
+        await saveViaVisibleToolbar(page, 60_000, fixture);
+        expect((await readOutlineTargets(fixture)).map(item => item.title)).toContain('Kept');
+        expect((await PDFDocument.load(await readFile(fixture))).getPageCount()).toBe(3);
+    }, 90_000);
+
     it('review-b6yh removes an accepted named destination when its page is deleted', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`named-replacement-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);
         const pdf = await PDFDocument.load(await readFile(fixture));

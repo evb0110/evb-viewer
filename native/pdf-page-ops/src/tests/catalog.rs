@@ -1797,3 +1797,49 @@ fn saved_go_to_r_keeps_an_indirect_file_specification() {
         assert_eq!(targets[1].2, None);
     }
 }
+
+#[test]
+fn accepted_named_and_pending_targets_resolve_without_dropping_unknown_entries() {
+    use evb_native_support::pdf_catalog::BookmarkSourceTarget;
+    let (mut document, page_id) = create_test_document();
+    let root_id = document
+        .trailer
+        .get(b"Root")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let destination = Object::Array(vec![
+        Object::Reference(page_id),
+        Object::Name(b"Fit".to_vec()),
+    ]);
+    document.get_dictionary_mut(root_id).unwrap().set("Names", dictionary! {
+        "Dests" => dictionary! { "Names" => vec![Object::String(vec![0xe9], StringFormat::Hexadecimal), destination] }
+    });
+    let mut items: Vec<BookmarkEntry> = serde_json::from_value(serde_json::json!([
+        {"title":"Accepted name", "pageIndex":null, "namedDest":"é", "items":[]},
+        {"title":"Pending", "pageIndex":null, "originalDestination":{"kind":"Fit", "sourceTarget":{"num":page_id.0,"gen":page_id.1},"coordinates":[]},"items":[]},
+        {"title":"Unknown", "pageIndex":null, "namedDest":"missing", "items":[]},
+        {"title":"Missing ref", "pageIndex":null, "originalDestination":{"kind":"Fit","sourceTarget":{"num":9999,"gen":0},"coordinates":[]},"items":[]}
+    ])).unwrap();
+    let unknown = items[2..].to_vec();
+    crate::outline::names::resolve_bookmark_source_targets(&document, &mut items).unwrap();
+    assert_eq!(items[0].page_index, Some(0));
+    assert_eq!(items[0].named_dest.as_deref(), Some("é"));
+    assert_eq!(items[1].page_index, Some(0));
+    assert_eq!(
+        items[1]
+            .original_destination
+            .as_ref()
+            .unwrap()
+            .source_target,
+        BookmarkSourceTarget::PageIndex(0)
+    );
+    assert_eq!(items[2..], unknown);
+    document
+        .get_dictionary_mut(root_id)
+        .unwrap()
+        .set("Names", Object::Reference((9999, 0)));
+    let mut unreadable = unknown.clone();
+    crate::outline::names::resolve_bookmark_source_targets(&document, &mut unreadable).unwrap();
+    assert_eq!(unreadable, unknown);
+}

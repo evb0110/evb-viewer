@@ -1906,15 +1906,14 @@ mod tests {
             load_dictionary_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
         assert_eq!(stream_len(&structural), 0);
         assert_eq!(qpdf_calls(), 1);
-        drop(structural);
+        read_pdf_combine_catalog(&AppendedRevision::new(&structural)).unwrap();
         let mut geometry = Vec::new();
         write_page_geometry(&input_path, 1, Some(&qpdf_path), &mut geometry).unwrap();
         assert!(String::from_utf8(geometry)
             .unwrap()
             .contains(r#""width":200.0"#));
-        write_pdf_combine_catalog(&input_path, Some(&qpdf_path), &mut Vec::new()).unwrap();
         write_annotation_name_index_path(&input_path, &index_path, Some(&qpdf_path)).unwrap();
-        assert_eq!(qpdf_calls(), 4);
+        assert_eq!(qpdf_calls(), 3);
 
         // Page-size metadata and a parse of a page without notes or stamps read
         // the same view and print what an eager load (no qpdf) prints.
@@ -1924,7 +1923,7 @@ mod tests {
         write_annotation_parse_path(&input_path, parse, "D:20261009120000Z", Some(&qpdf_path))
             .unwrap();
         write_annotation_parse_path(&input_path, eager_parse, "D:20261009120000Z", None).unwrap();
-        assert_eq!(qpdf_calls(), 6);
+        assert_eq!(qpdf_calls(), 5);
         assert_eq!(
             std::fs::read(sizes).unwrap(),
             std::fs::read(eager_sizes).unwrap()
@@ -1936,7 +1935,7 @@ mod tests {
 
         // An encrypted file stays eager, so it keeps its error classification.
         assert!(load_dictionary_incremental_pdf_path(&encrypted_path, Some(&qpdf_path)).is_err());
-        assert_eq!(qpdf_calls(), 6);
+        assert_eq!(qpdf_calls(), 5);
     }
 
     /// zlib of one PNG-predicted four-byte row, and of two Columns-2 rows

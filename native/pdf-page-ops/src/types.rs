@@ -741,7 +741,7 @@ pub(crate) enum Operation {
         metadata_only: bool,
     },
     ReadCatalog,
-    ReadDocumentCatalog,
+    ReadDocumentCatalog(Option<PathBuf>),
     PrintLayout {
         view_mode: PrintViewMode,
         orientation: PrintOrientation,
