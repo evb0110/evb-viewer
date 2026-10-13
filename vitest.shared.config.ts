@@ -83,6 +83,9 @@ function createUnitTestProject(
                 ...exclude,
             ],
             globals: false,
+            ...(name === vitestProjectNames.browserIntegration
+                ? {expect: {poll: {timeout: 15_000}}}
+                : {}),
             ...(processCss ? {css: true} : {}),
             setupFiles: setupFiles ?? unitTestSetupFiles,
         },
