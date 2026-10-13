@@ -1725,7 +1725,7 @@ export default {
             'save': 'Impossibile salvare il file',
             'originalSavedOtherKept': 'Il PDF è stato modificato altrove durante il salvataggio. La versione presente sul disco subito prima del tuo salvataggio è stata conservata accanto come {path}. Le modifiche sono ancora aperte qui; usa «Salva con nome» per conservarle.',
             'recoveryKeptOriginalTitle': 'È stata conservata una versione accanto a questo PDF',
-            'recoveryKeptOriginal': 'Un altro programma ha modificato questo PDF mentre EVB Viewer lo salvava, quindi la versione di subito prima del salvataggio è stata conservata accanto come {path}. Confronta i due file e tieni quello che ti serve: se questo PDF è corretto, elimina {path}. Questo avviso ricompare a ogni apertura di questo PDF finché non chiudi questo avviso.',
+            'recoveryKeptOriginal': 'Un altro programma ha modificato questo PDF dopo che EVB Viewer aveva iniziato a salvarlo, durante il salvataggio o in seguito, quindi la versione di subito prima del salvataggio è stata conservata accanto come {path}. Confronta i due file e tieni quello che ti serve: se questo PDF è corretto, elimina {path}. Questo avviso ricompare a ogni apertura di questo PDF finché non chiudi questo avviso.',
             'browserStorageTitle': 'Lo spazio di archiviazione del browser non è disponibile',
             'browserStorageDescription': '“{name}” è aperto in memoria, ma non riapparirà dopo il ricaricamento.',
         },

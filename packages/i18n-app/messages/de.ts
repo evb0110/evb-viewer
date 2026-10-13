@@ -1725,7 +1725,7 @@ export default {
             'save': 'Datei konnte nicht gespeichert werden',
             'originalSavedOtherKept': 'Die PDF-Datei wurde während des Speicherns anderweitig geändert. Die Fassung, die direkt vor Ihrem Speichern auf dem Datenträger war, wurde daneben als {path} aufbewahrt. Ihre Änderungen sind hier noch geöffnet; verwenden Sie „Speichern unter“, um sie zu behalten.',
             'recoveryKeptOriginalTitle': 'Eine Fassung wurde neben dieser PDF aufbewahrt',
-            'recoveryKeptOriginal': 'Ein anderes Programm hat diese PDF geändert, während EVB Viewer sie speicherte; daher wurde die Fassung von direkt vor dem Speichern daneben als {path} aufbewahrt. Vergleichen Sie die beiden Dateien und behalten Sie die gewünschte: Ist diese PDF richtig, löschen Sie {path}. Dieser Hinweis erscheint bei jedem Öffnen dieser PDF erneut, bis Sie diesen Hinweis schließen.',
+            'recoveryKeptOriginal': 'Ein anderes Programm hat diese PDF geändert, nachdem EVB Viewer mit dem Speichern begonnen hatte, währenddessen oder später; daher wurde die Fassung von direkt vor dem Speichern daneben als {path} aufbewahrt. Vergleichen Sie die beiden Dateien und behalten Sie die gewünschte: Ist diese PDF richtig, löschen Sie {path}. Dieser Hinweis erscheint bei jedem Öffnen dieser PDF erneut, bis Sie diesen Hinweis schließen.',
             'browserStorageTitle': 'Browserspeicher ist nicht verfügbar',
             'browserStorageDescription': '„{name}“ ist im Arbeitsspeicher geöffnet, erscheint nach dem Neuladen aber nicht wieder.',
         },

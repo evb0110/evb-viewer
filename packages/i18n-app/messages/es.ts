@@ -1725,7 +1725,7 @@ export default {
             'save': 'No se pudo guardar el archivo',
             'originalSavedOtherKept': 'El PDF cambió en otro programa mientras se guardaba. La versión que estaba en el disco justo antes de su guardado se conservó junto a él como {path}. Sus cambios siguen abiertos aquí; use «Guardar como» para conservarlos.',
             'recoveryKeptOriginalTitle': 'Se conservó una versión junto a este PDF',
-            'recoveryKeptOriginal': 'Otro programa modificó este PDF mientras EVB Viewer lo guardaba, así que la versión de justo antes de ese guardado se conservó junto a él como {path}. Compara los dos archivos y quédate con el que quieras: si este PDF es el correcto, elimina {path}. Este aviso vuelve cada vez que abres este PDF hasta que cierres este aviso.',
+            'recoveryKeptOriginal': 'Otro programa modificó este PDF después de que EVB Viewer empezara a guardarlo, durante el guardado o más tarde, así que la versión de justo antes de ese guardado se conservó junto a él como {path}. Compara los dos archivos y quédate con el que quieras: si este PDF es el correcto, elimina {path}. Este aviso vuelve cada vez que abres este PDF hasta que cierres este aviso.',
             'browserStorageTitle': 'El almacenamiento del navegador no está disponible',
             'browserStorageDescription': '“{name}” está abierto en memoria, pero no volverá a aparecer tras recargar.',
         },

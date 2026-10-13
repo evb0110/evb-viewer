@@ -1725,7 +1725,7 @@ export default {
             'save': 'Kan bestand niet opslaan',
             'originalSavedOtherKept': 'De pdf is elders gewijzigd tijdens het opslaan. De versie die vlak voor uw opslag op schijf stond, is ernaast bewaard als {path}. Uw wijzigingen zijn hier nog open; gebruik ‘Opslaan als’ om ze te bewaren.',
             'recoveryKeptOriginalTitle': 'Er is een versie naast deze pdf bewaard',
-            'recoveryKeptOriginal': 'Een ander programma heeft deze pdf gewijzigd terwijl EVB Viewer hem opsloeg, daarom is de versie van vlak voor het opslaan ernaast bewaard als {path}. Vergelijk de twee bestanden en houd het bestand dat u wilt: is deze pdf juist, verwijder dan {path}. Deze melding komt bij elke opening van deze pdf terug totdat u deze melding sluit.',
+            'recoveryKeptOriginal': 'Een ander programma heeft deze pdf gewijzigd nadat EVB Viewer hem begon op te slaan, tijdens het opslaan of later, daarom is de versie van vlak voor het opslaan ernaast bewaard als {path}. Vergelijk de twee bestanden en houd het bestand dat u wilt: is deze pdf juist, verwijder dan {path}. Deze melding komt bij elke opening van deze pdf terug totdat u deze melding sluit.',
             'browserStorageTitle': 'Browseropslag is niet beschikbaar',
             'browserStorageDescription': '‘{name}’ is in het geheugen geopend, maar verschijnt niet opnieuw na herladen.',
         },

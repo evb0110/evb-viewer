@@ -474,7 +474,7 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.toasts).toHaveLength(1);
         const notice = mocks.toasts[0]!;
         expect(notice.title).toBe('A version was kept beside this PDF');
-        expect(notice.description).toBe('Another program changed this PDF while EVB Viewer was saving it, so the version from just '
+        expect(notice.description).toBe('Another program changed this PDF after EVB Viewer began saving it, during the save or later, so the version from just '
             + 'before that save was kept next to it as /documents/book (original).pdf. Compare the two files and keep the one you '
             + 'want: if this PDF is right, delete /documents/book (original).pdf. This notice comes back each time you open this '
             + 'PDF until you dismiss it.');

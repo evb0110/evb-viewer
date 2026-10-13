@@ -1736,7 +1736,7 @@ export default {
             'save': 'Falha ao salvar arquivo',
             'originalSavedOtherKept': 'O PDF foi alterado em outro programa durante o salvamento. A versão que estava no disco logo antes do seu salvamento foi mantida ao lado como {path}. Suas alterações continuam abertas aqui; use “Salvar Como” para mantê-las.',
             'recoveryKeptOriginalTitle': 'Uma versão foi mantida ao lado deste PDF',
-            'recoveryKeptOriginal': 'Outro programa alterou este PDF enquanto o EVB Viewer o salvava, por isso a versão de logo antes desse salvamento foi mantida ao lado como {path}. Compare os dois arquivos e fique com o que quiser: se este PDF estiver certo, exclua {path}. Este aviso volta sempre que você abrir este PDF, até que você feche este aviso.',
+            'recoveryKeptOriginal': 'Outro programa alterou este PDF depois que o EVB Viewer começou a salvá-lo, durante o salvamento ou mais tarde, por isso a versão de logo antes desse salvamento foi mantida ao lado como {path}. Compare os dois arquivos e fique com o que quiser: se este PDF estiver certo, exclua {path}. Este aviso volta sempre que você abrir este PDF, até que você feche este aviso.',
             'browserStorageTitle': 'O armazenamento do navegador não está disponível',
             'browserStorageDescription': '“{name}” está aberto na memória, mas não reaparecerá após recarregar.',
         },
