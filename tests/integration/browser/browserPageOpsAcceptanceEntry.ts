@@ -234,7 +234,11 @@ async function createCatalogPartsFixture(broken: 'page labels' | 'outline') {
     (document.context.lookup(outlineItem) as PDFDict).set(PDFName.of('Parent'), outlines);
     document.catalog.set(PDFName.of('Outlines'), broken === 'outline' ? PDFNumber.of(5) : outlines);
     document.catalog.set(PDFName.of('PageLabels'), document.context.obj(broken === 'page labels'
-        ? {Nums: []}
+        // An empty number tree is recoverable; a visible scalar label is not.
+        ? {Nums: [
+            0,
+            PDFNumber.of(5),
+        ]}
         : {Nums: [
             0,
             {S: PDFName.of('r')},

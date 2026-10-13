@@ -612,7 +612,14 @@ describe('browser document lifecycle UI', () => {
                     exact: true,
                 }).click();
                 await reopened.locator('.tool-button[data-tool="select"]').click();
-                await reopened.mouse.click(100, 200);
+                const selectTool = reopened.locator('.tool-button[data-tool="select"]');
+                await expect.poll(() => selectTool.getAttribute('aria-pressed')).toBe('true');
+                // The sidebar toolbar occupies (100, 200); deselect on blank PDF space.
+                await reopened.locator('.page_container[data-page="1"]').first().click({position: {
+                    x: 12,
+                    y: 12,
+                }});
+                await expect.poll(() => selectTool.getAttribute('aria-pressed')).toBe('true');
                 await expect.poll(() => savedHighlight.getAttribute('class')).not.toContain('is-selected');
                 await hit.click();
                 await expect.poll(() => savedHighlight.getAttribute('class')).toContain('is-selected');
