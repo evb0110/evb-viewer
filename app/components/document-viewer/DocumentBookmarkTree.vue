@@ -268,7 +268,7 @@ watch(visibleRows, async (rows, previousRows) => {
         ?? previousRows.slice(index + 1).find(survives)
         ?? previousRows.slice(0, index).findLast(survives);
     await nextTick();
-    if (row && (document.activeElement === element || (!element.isConnected && document.activeElement === document.body))) {
+    if (row && !element.isConnected && document.activeElement === document.body) {
         await focusRow(row.item.id);
     }
 });
