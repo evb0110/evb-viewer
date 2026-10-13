@@ -2367,6 +2367,72 @@ fn split_pages_keeps_text_from_cyclic_annotation_threads() {
 }
 
 #[test]
+fn split_pages_keeps_choice_options_when_widgets_are_pruned_or_duplicated() {
+    for field_type in ["Ch", "Btn"] {
+        for inherited in [false, true] {
+            let mut source = review_catalog_source();
+            let field = source.new_object_id();
+            let parent = source.new_object_id();
+            let mut kids = Vec::new();
+            for page in source.get_pages().values() {
+                let widget = source
+                    .add_object(dictionary! {"Subtype" => "Widget", "Parent" => field,
+                    "P" => *page, "Rect" => vec![10.into(), 20.into(), 26.into(), 36.into()]});
+                source
+                    .get_dictionary_mut(*page)
+                    .unwrap()
+                    .set("Annots", vec![Object::Reference(widget)]);
+                kids.push(Object::Reference(widget));
+            }
+            let options = vec![
+                Object::string_literal("A"),
+                Object::string_literal("B"),
+                Object::string_literal("C"),
+            ];
+            let mut dictionary = dictionary! {"T" => Object::string_literal("choice"), "Opt" => options.clone(), "Kids" => kids};
+            let root = if inherited {
+                dictionary.set("Parent", parent);
+                source.set_object(
+                    parent,
+                    dictionary! {"FT" => field_type, "Kids" => vec![Object::Reference(field)]},
+                );
+                parent
+            } else {
+                dictionary.set("FT", field_type);
+                field
+            };
+            source.set_object(field, dictionary);
+            source.catalog_mut().unwrap().set(
+                "AcroForm",
+                dictionary! {"Fields" => vec![Object::Reference(root)]},
+            );
+            for order in [&[2, 0][..], &[0, 1, 0, 2][..]] {
+                let split = review_split(&mut source, order, false, false);
+                let choices = split
+                    .objects
+                    .values()
+                    .filter_map(|object| object.as_dict().ok())
+                    .filter_map(|field| field.get(b"Opt").ok())
+                    .collect::<Vec<_>>();
+                let expected = if field_type == "Ch" {
+                    options.clone()
+                } else {
+                    (0..3)
+                        .flat_map(|index| {
+                            vec![
+                                options[index].clone();
+                                order.iter().filter(|page| **page == index).count()
+                            ]
+                        })
+                        .collect()
+                };
+                assert_eq!(choices, vec![&Object::Array(expected)]);
+            }
+        }
+    }
+}
+
+#[test]
 fn split_pages_removed_reply_target_keeps_text_without_an_unlisted_clone() {
     let mut source = review_catalog_source();
     let target = source.add_object(dictionary! {
