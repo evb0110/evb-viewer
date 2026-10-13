@@ -1,5 +1,5 @@
 import type { Ref } from 'vue';
-import {cloneDeep} from 'es-toolkit';
+import {cloneDeep} from 'es-toolkit/object';
 import type { TPageSelection } from '@pdf-core/pdfPageSelection';
 import {
     pageSelectionCount,
