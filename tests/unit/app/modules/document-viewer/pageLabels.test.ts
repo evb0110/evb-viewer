@@ -379,8 +379,9 @@ describe('document page labels', () => {
     });
 
     it('reads an imported start value from a label too long to scan, and shows it bounded', () => {
-        // 1,000,000,000 in letter style is "L" repeated 38,461,539 times.
-        const label = 'L'.repeat(38_461_539);
+        // This exceeds the former scan/display cap and the typed start bound.
+        // Huge formula starts have separate coverage without a 38 MB input.
+        const label = 'L'.repeat(262_144);
         const ranges = derivePageLabelRangesFromLabels([label], 1);
         const shown = formatPageLabelForDisplay(ranges[0]!);
 
@@ -388,7 +389,7 @@ describe('document page labels', () => {
             startPage: 1,
             style: 'A',
             prefix: '',
-            startNumber: 1_000_000_000,
+            startNumber: 6_815_730,
         }]);
         expect(shown.length).toBeLessThan(300);
         expect(shown.endsWith('…')).toBe(true);

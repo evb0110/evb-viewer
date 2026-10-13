@@ -160,6 +160,9 @@ async function resolveTargetWindows(
     return targets;
 }
 
+// Warm the complete handoff graph at collection; each case still reloads it.
+await import('@app/platform/browser-api/browserWorkingCopyService');
+
 describe('browserWindowTabsCapability', () => {
     beforeEach(() => {
         vi.resetModules();
