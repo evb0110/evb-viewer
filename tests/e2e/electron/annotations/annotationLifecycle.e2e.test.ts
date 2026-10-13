@@ -1153,28 +1153,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         sessionName: () => `e2e-annotation-lifecycle-${Date.now()}`,
     });
 
-    it('places a new note over an imported highlight without moving the highlight', async () => {
-        const {page} = sessionFixture.getSession();
-        const fixture = await createCanonicalAnnotationSurfaceFixturePdf(`note-over-highlight-${Date.now()}.pdf`);
-        onTestFinished(() => rmSync(fixture, {force: true}));
-        await openPdfInApp(page, fixture);
-        await waitForPdfLoaded(page);
-        await waitForViewerInteractive(page);
-        await clickAnnotationTool(page, 'Note');
-        const markup = '.editor-pane.is-active .page_container [data-annotation-kind="text-markup"]';
-        const original = await page.$eval(markup, element => element.getBoundingClientRect().toJSON());
-        await clickAsUser(page, markup);
-        const input = 'textarea.note-window__textarea';
-        await page.waitForSelector(input, {
-            visible: true,
-            timeout: 2_000,
-        });
-        await page.keyboard.type('Note over foreign highlight');
-        expect(await page.$eval(input, element => (element as HTMLTextAreaElement).value)).toBe('Note over foreign highlight');
-        expect(await page.$$eval('.editor-pane.is-active .page_container [data-annotation-kind="note"]', elements => elements.length)).toBe(2);
-        expect(await page.$eval(markup, element => element.getBoundingClientRect().toJSON())).toEqual(original);
-    });
-
     it('creates every shape, draw preset and markup with matching styles, undo, save and hard reopen', async () => {
         const session = sessionFixture.getSession();
         const {page} = session;

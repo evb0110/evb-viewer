@@ -304,7 +304,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             'rectangle',
             'note',
         ],
-    ] as const)('respects the armed %s gesture over an existing %s', async (armedTool, targetKind) => {
+    ] as const)('moves with armed %s over an existing %s without creating', async (armedTool, targetKind) => {
         const application = shallowRef(new AnnotationApplication('overlapping-placement'));
         const scope = effectScope();
         const surface = scope.run(() => usePdfAnnotationEditorSurface({
@@ -361,11 +361,12 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             pointerId: 41,
         }));
         await nextTick();
-        expect(host.querySelectorAll('[data-annotation-kind]')).toHaveLength(armedTool === 'note' && targetKind === 'note' ? 1 : 2);
-        const original = surface.getEntitiesForPage(0).find(entity => entity.identity.id === existing.identity.id)!;
-        const rect = original.kind === 'text-box' ? original.rect : original.kind === 'note' ? original.position : null;
-        expect(rect?.left).toBeCloseTo(armedTool === 'note' && targetKind === 'note' ? 0.3 : 0.2);
-        expect(rect?.top).toBeCloseTo(armedTool === 'note' && targetKind === 'note' ? 0.3 : 0.2);
+        expect(surface.getEntitiesForPage(0)).toHaveLength(1);
+        expect(surface.selectedIds.value).toEqual(new Set([existing.identity.id]));
+        const moved = surface.getEntitiesForPage(0)[0]!;
+        const rect = moved.kind === 'text-box' ? moved.rect : moved.kind === 'note' ? moved.position : null;
+        expect(rect?.left).toBeCloseTo(0.3);
+        expect(rect?.top).toBeCloseTo(0.3);
     });
 
     it('consumes a stationary placement click after focus without hit-testing the new empty draft', async () => {
