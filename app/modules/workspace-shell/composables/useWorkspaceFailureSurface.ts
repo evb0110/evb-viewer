@@ -35,6 +35,9 @@ import {
  */
 type TWorkspaceFailureDomain = 'save' | 'annotation';
 
+// Another program holds the file, or its folder cannot be written: Save As can still keep the changes elsewhere.
+const HELD_OR_DENIED_MESSAGE = /EACCES|EPERM|EBUSY|permission denied|access (?:is )?denied|os error (?:5|13)/iu;
+
 export type TWorkspaceSaveFailureReason =
     | 'validation-rejected'
     | 'note-persistence-failed'
@@ -78,14 +81,7 @@ export const useWorkspaceFailureSurface = () => {
     const lastReportedOperationIds = new Map<TWorkspaceFailureDomain, string>();
 
     function isDuplicateFailure(domain: TWorkspaceFailureDomain, operationId: string) {
-        if (lastReportedOperationIds.get(domain) === operationId) {
-            BrowserLogger.debug('workspace', 'Suppressed duplicate workspace failure toast', {
-                domain,
-                operationId,
-            });
-            return true;
-        }
-        return false;
+        return lastReportedOperationIds.get(domain) === operationId;
     }
 
     function clearSaveFailure() {
@@ -101,7 +97,7 @@ export const useWorkspaceFailureSurface = () => {
                 : t('errors.save.originalChanged');
         }
         const message = persistence?.message ?? '';
-        if (/EACCES|EPERM|EBUSY|permission denied|access (?:is )?denied|os error (?:5|13)/iu.test(message)) {
+        if (HELD_OR_DENIED_MESSAGE.test(message)) {
             return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : 'errors.save.permissionDenied');
         }
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
@@ -156,7 +152,7 @@ export const useWorkspaceFailureSurface = () => {
             failure: receipt,
             title: t('errors.file.save'),
             description,
-            ...(diagnostics?.reason === 'original-changed' && saveAs ? {actions: [{
+            ...(saveAs && (diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? '')) ? {actions: [{
                 label: t('toolbar.saveAs'),
                 onClick: saveAs,
             }]} : {}),

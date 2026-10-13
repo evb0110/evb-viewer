@@ -1134,7 +1134,7 @@ syncBuiltinESMExports();
             expect(outcome).toBe('refused');
             expect(await isSaveButtonEnabled(page)).toBe(true);
             const text = await page.evaluate(() => document.body.textContent ?? '');
-            expect(text).toContain('The PDF changed elsewhere while it was being saved. The file as it was just before this save was kept next to it as');
+            expect(text).toContain('The PDF changed elsewhere while it was being saved. The version that was on disk just before your save was kept next to it as');
             expect(text).toContain('Your changes are still open here; use Save As to keep them.');
             const keptPath = pdfPath.replace(/\.pdf$/u, ' (original).pdf');
             await expect(readFile(keptPath)).resolves.toEqual(beforeSave);

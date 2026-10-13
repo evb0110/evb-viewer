@@ -313,6 +313,46 @@ describe('useWorkspaceFailureSurface', () => {
         expect(text).not.toMatch(/\{\w+\}/u);
     });
 
+    it.each([
+        [
+            'folder cannot be written',
+            'EACCES: permission denied, link \'/documents/.0f1e2d3c4b5a6978.tmp\' -> \'/documents/report.pdf\'',
+            'errors.save.permissionDenied',
+        ],
+        [
+            'file is in use by another program',
+            'EBUSY: resource busy or locked, rename \'/documents/report.pdf.bak\' -> \'/documents/report.pdf\'',
+            'errors.save.fileBusy',
+        ],
+    ])('says the %s and offers Save As', (_case, message, description) => {
+        const surface = useWorkspaceFailureSurface();
+        let destination = '';
+        surface.reportSaveFailure('refused-write', 'persist-rejected', undefined, undefined, {
+            channel: 'native',
+            operation: 'mutation',
+            phase: 'stage-working-copy',
+            reason: 'write-failed',
+            message,
+            cause: new Error(message),
+        }, () => {destination = 'saved-as.pdf';});
+
+        expect(surface.saveFailurePresentation.value?.description).toBe(description);
+        const toast = toastAddMock.mock.calls[0]?.[0];
+        expect(toast.actions.map((action: {label: string}) => action.label)).toEqual([
+            'toolbar.saveAs',
+            'errors.runtime.copy',
+        ]);
+        toast.actions[0].onClick();
+        expect(destination).toBe('saved-as.pdf');
+    });
+
+    it.each(LOCALE_CODES)('says the folder cannot be written and names Save As in %s', locale => {
+        const messages = LOCALE_MESSAGES[locale];
+        const text = formatTranslationLeaf(messages.errors.save.permissionDenied, {}, locale);
+        expect(text).toContain(messages.toolbar.saveAs.replace(/(?:…|\.\.\.)$/u, ''));
+        expect(text).not.toMatch(/\{\w+\}/u);
+    });
+
     it('keeps a genuine write failure separate from a changed original', () => {
         const surface = useWorkspaceFailureSurface();
         surface.reportSaveFailure('write-failed', 'persist-rejected', undefined, undefined, {

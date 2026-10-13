@@ -606,8 +606,6 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         const operationId = `save-${saveOperations}`;
         failureSurface.clearSaveFailure();
         const startedAtMs = nowMs();
-        const expectedOriginalPath = queuedTarget.expectedOriginalPath;
-        const expectedWorkingPath = queuedTarget.expectedWorkingPath;
         let saveSucceeded = false;
 
         /**
@@ -619,15 +617,8 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
          * has written, the revision moves by design and cannot be compared.
          */
         function ownsCurrentDocument(expectedRevisionToken?: TDocumentRevisionToken | null) {
-            if (
-                deps.document.sessionKey.value !== queuedTarget.expectedDocumentSessionKey
-                || deps.document.originalPath.value !== expectedOriginalPath
-                || deps.document.workingCopyPath.value !== expectedWorkingPath
-            ) {
-                return false;
-            }
-            return expectedRevisionToken === undefined
-                || deps.document.revisionToken.value === expectedRevisionToken;
+            return queuedTargetIsCurrent()
+                && (expectedRevisionToken === undefined || deps.document.revisionToken.value === expectedRevisionToken);
         }
 
         function reportSaveFailureIfCurrent(
@@ -663,14 +654,15 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 options.detail,
                 options.failure,
                 options.diagnostics,
-                options.diagnostics?.reason === 'original-changed' ? () => {
+                // The failure surface offers Save As where it can keep the changes elsewhere.
+                () => {
                     if (ownsCurrentDocument()) {
                         void save({
                             kind: 'save-as',
                             optimizeLossless: deps.optimizePdfOnSaveAs?.value === true,
                         });
                     }
-                } : undefined,
+                },
             );
         }
 
