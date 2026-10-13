@@ -613,6 +613,12 @@ describe('Move Tab to New Window view state', () => {
         {description: 'fast transferred tab'});
         await waitForToolbarCurrentPage(target, 5);
         await waitForPdfLoaded(target);
+        // A painted incoming page is provisional until the source finalizes.
+        // Read its restored zoom once the visible control becomes available.
+        await target.waitForSelector('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)', {
+            visible: true,
+            timeout: 30_000,
+        });
         expect(await readView(target)).toMatchObject({
             page: 5,
             zoomText: '80%',
@@ -622,12 +628,16 @@ describe('Move Tab to New Window view state', () => {
         {description: 'slow transferred tab'});
         await waitForToolbarCurrentPage(target, 12);
         await waitForPdfLoaded(target, 120_000);
+        await waitForFunctionInPage(slowSource, () => !Array.from(document.querySelectorAll('.tab-label'))
+            .some(tab => tab.textContent?.trim() === 'slow-transfer.pdf'), {timeout: 120_000});
+        await target.waitForSelector('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)', {
+            visible: true,
+            timeout: 120_000,
+        });
         expect(await readView(target)).toMatchObject({
             page: 12,
             zoomText: '110%',
         });
-        await waitForFunctionInPage(slowSource, () => !Array.from(document.querySelectorAll('.tab-label'))
-            .some(tab => tab.textContent?.trim() === 'slow-transfer.pdf'), {timeout: 120_000});
 
         expect(await target.$$eval('.tab-label', tabs => tabs.map(tab => tab.textContent?.trim())))
             .toEqual(expect.arrayContaining([
