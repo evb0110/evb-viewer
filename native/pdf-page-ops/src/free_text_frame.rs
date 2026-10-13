@@ -8,13 +8,17 @@ use crate::text_box_font::Geometry;
 
 /// A colour's fill or stroke operator, by its component count.
 pub(crate) fn colour(components: &[f64], fill: bool) -> String {
-    let operator = ["G", "RG", "K"][components.len() / 2];
-    let operator = if fill {
-        operator.to_lowercase()
-    } else {
-        operator.to_string()
-    };
+    let operator = ["G", "RG", "K", "g", "rg", "k"][components.len() / 2 + 3 * usize::from(fill)];
     format!("{} {operator}", format_operands(components))
+}
+
+/// A dictionary entry, resolved.
+fn entry<'a>(
+    document: &'a impl PdfObjectSource,
+    dict: &'a Dictionary,
+    key: &[u8],
+) -> Option<&'a Object> {
+    document.resolved(dict.get(key).ok()?).ok()
 }
 
 /// What a DA says, read token by token as the writer patches it: the font and
@@ -40,12 +44,7 @@ pub(crate) fn default_appearance(
     document: &impl PdfObjectSource,
     annotation: &Dictionary,
 ) -> Option<DefaultAppearance> {
-    let da = document
-        .resolved(annotation.get(b"DA").ok()?)
-        .ok()?
-        .as_str()
-        .ok()?;
-    let da = String::from_utf8_lossy(da);
+    let da = String::from_utf8_lossy(entry(document, annotation, b"DA")?.as_str().ok()?);
     let tokens: Vec<&str> = da.split_whitespace().collect();
     let mut found = DefaultAppearance::default();
     for (index, token) in tokens.iter().enumerate() {
@@ -77,23 +76,16 @@ pub(crate) fn default_appearance(
 /// The editor draws a solid border: one in another style, dashed or cloudy
 /// keeps the appearance its producer drew.
 pub(crate) fn border_is_editable(document: &impl PdfObjectSource, dict: &Dictionary) -> bool {
-    let name = |dict: &Dictionary, key: &[u8]| {
-        let value = document.resolved(dict.get(key).ok()?).ok()?;
-        value.as_name().ok().map(<[u8]>::to_vec)
-    };
-    let entry = |key: &[u8]| document.resolved(dict.get(key).ok()?).ok();
-    let style = entry(b"BS").and_then(|style| style.as_dict().ok());
-    let border = entry(b"Border").and_then(|border| border.as_array().ok());
+    let name = |dict, key| Some(entry(document, dict, key)?.as_name().ok()?.to_vec());
+    let style = entry(document, dict, b"BS").and_then(|style| style.as_dict().ok());
+    let border = entry(document, dict, b"Border").and_then(|border| border.as_array().ok());
     let dash = border.and_then(|border| document.resolved(border.get(3)?).ok());
-    let effect = entry(b"BE").and_then(|effect| effect.as_dict().ok());
-    let intensity = effect.and_then(|effect| document.resolved(effect.get(b"I").ok()?).ok());
+    let effect = entry(document, dict, b"BE").and_then(|effect| effect.as_dict().ok());
+    let intensity = effect.and_then(|effect| object_to_f64(entry(document, effect, b"I")?).ok());
+    let cloudy = effect.is_some_and(|effect| name(effect, b"S").as_deref() == Some(b"C"));
     style.is_none_or(|style| name(style, b"S").is_none_or(|style| style == b"S"))
         && (style.is_some() || dash.is_none_or(|dash| dash.as_array().is_ok_and(Vec::is_empty)))
-        && !(effect.is_some_and(|effect| name(effect, b"S").as_deref() == Some(b"C"))
-            && intensity
-                .and_then(|value| object_to_f64(value).ok())
-                .unwrap_or(0.0)
-                > 0.0)
+        && !(cloudy && intensity.unwrap_or(0.0) > 0.0)
 }
 
 /// The frame as the editor draws it: /RD's top, right, bottom and left insets
@@ -116,8 +108,8 @@ pub(crate) struct TextBoxFrame {
 pub(crate) struct FreeTextFrame {
     pub(crate) content: String,
     pub(crate) border: Option<Vec<f64>>,
-    /// /C repeats the text colour of a box EVB saved: EVB once wrote a label's
-    /// colour there, and as a fill it would hide the text, so it is no background.
+    /// /C is no fill: the text colour EVB once wrote on a box it saved, or a
+    /// colour its producer's own appearance does not paint. Save drops it.
     pub(crate) stale_fill: bool,
     /// /RD's left, bottom, right and top in page space, and the border width.
     rd: [f64; 4],
@@ -172,13 +164,9 @@ impl FreeTextFrame {
             e + a * left + c * bottom,
             f + b * left + d * bottom,
         ];
-        let area = PdfRect {
-            x1: 0.0,
-            y1: 0.0,
-            x2: width,
-            y2: height,
-        };
-        let bounds = crate::split_pages::PdfMatrix::from_values(matrix).bounds(area);
+        let (x1, y1, x2, y2) = (0.0, 0.0, width, height);
+        let bounds =
+            crate::split_pages::PdfMatrix::from_values(matrix).bounds(PdfRect { x1, y1, x2, y2 });
         Geometry {
             bounds,
             width,
@@ -200,6 +188,20 @@ impl FreeTextFrame {
     }
 }
 
+/// Whether a label's normal appearance can paint a fill: a filled path, a
+/// shading or a form. One that is absent or unread is unknown, so it can.
+fn appearance_fills(document: &impl PdfObjectSource, annotation: &Dictionary) -> bool {
+    let ap = entry(document, annotation, b"AP").and_then(|ap| ap.as_dict().ok());
+    let normal = ap.and_then(|ap| entry(document, ap, b"N")?.as_stream().ok());
+    let limit = MAX_STAMP_APPEARANCE_STREAM_BYTES;
+    let bytes = normal.and_then(|n| plain_stream_with_limit(n, limit).ok());
+    let content = bytes.and_then(|bytes| lopdf::content::Content::decode(&bytes).ok());
+    let fills = |o: &lopdf::content::Operation| {
+        ["f", "F", "f*", "B", "B*", "b", "b*", "sh", "Do"].contains(&o.operator.as_str())
+    };
+    content.is_none_or(|c| c.operations.iter().any(fills))
+}
+
 pub(crate) fn free_text_frame(
     document: &impl PdfObjectSource,
     annotation: &Dictionary,
@@ -209,19 +211,20 @@ pub(crate) fn free_text_frame(
     frame.set("Rect", rect_object(rect));
     let inner = annotation_inner_rect(document, &frame).unwrap_or(rect);
     let da = default_appearance(document, annotation).unwrap_or_default();
-    let background = (|| -> Option<Vec<f64>> {
-        let values = document.resolved(annotation.get(b"C").ok()?).ok()?;
-        let values = values.as_array().ok()?.iter();
-        values
-            .map(|v| object_to_f64(document.resolved(v).ok()?).ok())
-            .collect()
-    })()
-    .filter(|v| matches!(v.len(), 1 | 3 | 4) && v.iter().all(|n| (0.0..=1.0).contains(n)));
+    let number = |value| object_to_f64(document.resolved(value).ok()?).ok();
+    let values = entry(document, annotation, b"C").and_then(|c| c.as_array().ok());
+    let background: Option<Vec<f64>> = values.and_then(|c| c.iter().map(number).collect());
+    let background = background
+        .filter(|v| matches!(v.len(), 1 | 3 | 4) && v.iter().all(|n| (0.0..=1.0).contains(n)));
     let hex = |colour: &Vec<f64>| pdf_color_to_hex(Some(colour), "#000000");
-    // Only a box EVB saved, which carries its private geometry, can hold /C in
-    // the text colour that EVB once wrote there; a producer's /C is its fill.
-    let evb = crate::text_box_font::editor_geometry(annotation).is_some();
-    let stale_fill = evb && background.as_ref().map(hex) == da.fill.as_ref().map(hex);
+    // A box EVB saved, which carries its private geometry, may hold /C in the
+    // text colour EVB once wrote there. A producer's /C is its fill where its
+    // own appearance paints one, or where it drew none (review-b8f).
+    let stale_fill = background.is_some()
+        && match crate::text_box_font::editor_geometry(annotation) {
+            Some(_) => background.as_ref().map(hex) == da.fill.as_ref().map(hex),
+            None => !appearance_fills(document, annotation),
+        };
     let background = background.filter(|_| !stale_fill);
     let (x, y, w, h) = (inner.x1, inner.y1, inner.width(), inner.height());
     let mut content = String::new();
@@ -232,14 +235,8 @@ pub(crate) fn free_text_frame(
     let width = shape_stroke_width(document, annotation).filter(|w| w.is_finite() && *w > 0.0);
     let border = width.map(|_| da.stroke.or(da.fill).unwrap_or_else(|| vec![0.0]));
     if let Some(colour) = &border {
-        frame.set(
-            "C",
-            colour
-                .iter()
-                .copied()
-                .map(number_object)
-                .collect::<Vec<_>>(),
-        );
+        let components: Vec<_> = colour.iter().map(|c| number_object(*c)).collect();
+        frame.set("C", components);
         frame.remove(b"IC");
         content.extend(synthesized_shape_content(document, &frame, b"Square"));
     }

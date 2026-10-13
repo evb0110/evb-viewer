@@ -1318,6 +1318,54 @@ describe('Electron E2E - annotation controls', () => {
         expect.soft((await renderedTextBoxInk(readFileSync(saved), true)).outside, 'the saved label keeps its whole glyph').toBe(0);
     });
 
+    it('keeps a foreign label unfilled where its own appearance paints no fill', async () => {
+        // verify13w / review-b8f: /C [0 0 0] beside an appearance that strokes a
+        // 2 pt black border and paints no fill. The label shows white, and
+        // after a text and colour edit its saved file gains no fill.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-unfilled-label-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const saved = join(evidence, 'saved.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext/unfilled-black-c.pdf'), saved);
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const frameFill = (page: Page) => page.$eval(box, element => getComputedStyle(element.querySelector('.pdf-annotation-editor-text-box__frame')!).backgroundColor);
+        const openLabel = async (page: Page) => {
+            await openPdfInApp(page, saved);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await clickAnnotationTool(page, 'Select');
+            await clickVisibleAnnotationControl(page, box);
+        };
+        const {page} = sessionFixture.getSession();
+        await openLabel(page);
+        expect.soft(await frameFill(page), 'the label shows no fill its appearance never painted').toBe('rgba(0, 0, 0, 0)');
+        await clickAsUser(page, box, {count: 2});
+        await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]');
+        await selectAllFocusedAnnotationText(page);
+        await page.keyboard.type('Edited label', {delay: 4});
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        try {
+            await page.keyboard.press('Enter');
+        } finally {
+            await page.keyboard.up(modifier);
+        }
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active .annotation-style-editor .swatch[aria-label="#f59e0b"]');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const pdf = await PDFDocument.load(readFileSync(saved));
+        const label = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
+        const normal = pdf.context.lookup(label.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
+        const appearance = Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1');
+        expect.soft(label.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText(), 'the edit is saved').toBe('Edited label');
+        expect.soft(appearance, 'the saved label draws its border and no fill').toMatch(/ 2 w 1 J 0 j\n/u);
+        expect.soft(appearance, 'the saved label draws its border and no fill').not.toMatch(/ re f\b/u);
+        const restarted = await sessionFixture.restart({hard: true});
+        await openLabel(restarted.page);
+        expect.soft(await frameFill(restarted.page), 'the reopened label is still unfilled').toBe('rgba(0, 0, 0, 0)');
+    });
+
     it('turns a foreign label\'s frame with its box through Save and reopen', async () => {
         // review-b7s: /RD [1 2 7 12] gives a 300 x 40 pt label a different inset
         // on every side. A box turned clockwise by a quarter faces the next side.

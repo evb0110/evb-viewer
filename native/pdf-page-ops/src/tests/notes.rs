@@ -2169,7 +2169,8 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
             "Subtype" => "Form",
             "BBox" => vec![0.into(), 0.into(), 10.into(), 10.into()],
         },
-        b"q old appearance Q".to_vec(),
+        // Its producer paints the /C fill in its own appearance.
+        b"q 0.2 0.3 0.4 rg 0 0 10 10 re f Q".to_vec(),
     ));
     let popup_id = document.add_object(dictionary! {
         "Type" => "Annot",
@@ -2311,6 +2312,44 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     assert!(matches!(&entries[0], PdfAnnotationParseEntry::TextBox(label) if label.read_only), "{:?}", entries[0]);
     let refused = apply_native_mutations(&mut dashed, &edit, "D:20260831140000Z").unwrap_err().to_string();
     assert!(refused.contains("is read-only: its border style is not editable"), "{refused}");
+    // verify13w: a producer's black /C whose own appearance strokes a black
+    // border and paints no fill is no background. The editor shows a white
+    // label, and edits, reopened and edited again, never add a fill (review-b8f).
+    let mut unfilled = loaded.clone();
+    let stroked = unfilled.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 140.into(), 55.into()]},
+        b"q 2 w 0 0 0 RG 1 1 138 53 re S BT /Helv 12 Tf 0 0 0 rg 8 13 Td (foreign text) Tj ET Q".to_vec(),
+    ));
+    let label = unfilled.get_dictionary_mut(foreign_id).unwrap();
+    label.set("C", vec![0.into(), 0.into(), 0.into()]);
+    label.set("DA", Object::string_literal("/Helv 12 Tf 0 g"));
+    label.set("BS", dictionary! {"W" => 2, "S" => "S"});
+    label.remove(b"Border");
+    label.remove(b"EVBTextGeometry");
+    label.get_mut(b"AP").unwrap().as_dict_mut().unwrap().set("N", stroked);
+    let frame_of = |document: &Document| {
+        let entries = collect_parsed_annotations(document, "D:20260831130000Z").unwrap();
+        let PdfAnnotationParseEntry::TextBox(label) = &entries[0] else { panic!("{:?}", entries[0]) };
+        let frame = label.frame.clone().unwrap();
+        (frame.border_width, frame.border_color, frame.background)
+    };
+    assert_eq!(frame_of(&unfilled), (2.0, Some("#000000".to_string()), None));
+    for (text, color) in [("edited once", [245, 158, 11]), ("edited twice", [34, 197, 94])] {
+        let edit = TextBoxMutation {
+            page_index: 0, stable_key: "foreign-text-box".to_string(),
+            annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: text.to_string(),
+            rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 12.0, color,
+            author: None, created_at: None, modified_at: None,
+        };
+        let edit = NativeMutationsFile { text_boxes: vec![edit], ..NativeMutationsFile::default() };
+        apply_native_mutations(&mut unfilled, &edit, "D:20260831140000Z").unwrap();
+        let label = unfilled.get_dictionary(foreign_id).unwrap();
+        assert!(label.get(b"C").is_err(), "the /C its appearance never painted goes");
+        let normal = label.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
+        let content = String::from_utf8(unfilled.get_object(normal).unwrap().as_stream().unwrap().content.clone()).unwrap();
+        assert!(!content.contains(" re f") && content.contains("0 G 2 w 1 J 0 j"), "{content}");
+        assert_eq!(frame_of(&unfilled), (2.0, Some("#000000".to_string()), None), "it reopens unfilled");
+    }
 }
 
 #[test]
