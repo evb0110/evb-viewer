@@ -1847,7 +1847,7 @@ describe('[crpart3core] replacement lifecycle', () => {
                 for (const key of Reflect.ownKeys(component.provides ?? {})) {
                     if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') slot = component.provides[key] as IReplacementSessionSlot;
                 }
-                component = component.parent;
+                component = component.parent ?? undefined;
             }
             if (!slot) {
                 const seen = new Set<IPageLabelProbeVNode>();

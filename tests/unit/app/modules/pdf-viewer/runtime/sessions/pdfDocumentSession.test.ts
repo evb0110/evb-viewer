@@ -1712,6 +1712,7 @@ describe('PdfDocumentSession range loading', () => {
                 return cancellation.promise;
             }
             if (transition.reason === 'source-replaced') replacing.resolve(undefined);
+            return undefined;
         });
         try {
             view.present();
