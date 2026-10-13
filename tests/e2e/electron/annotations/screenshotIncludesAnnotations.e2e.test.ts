@@ -1,5 +1,5 @@
 import {
-    copyFile, mkdtemp, readFile, writeFile,
+    copyFile, mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -87,6 +87,10 @@ describe('Electron E2E - screenshot annotation output', () => {
 
     it('keeps text readable under an opaque imported Highlight after recolour and reopen', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-opaque-highlight-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
         const path = join(directory, 'imported.pdf');
         const pdf = await PDFDocument.create();
         const sheet = pdf.addPage([
@@ -200,6 +204,10 @@ describe('Electron E2E - screenshot annotation output', () => {
 
     it('copies the visible annotation colour into the screenshot clipboard image', async () => {
         const evidenceDirectory = await mkdtemp(join(tmpdir(), 'evb-screenshot-annotations-'));
+        onTestFinished(() => rm(evidenceDirectory, {
+            recursive: true,
+            force: true,
+        }));
         const generated = await createMultiPageTextFixturePdf(`screenshot-annotation-${Date.now()}.pdf`, 1);
         const path = join(evidenceDirectory, `annotated-source-${Date.now()}.pdf`);
         await copyFile(generated, path);
