@@ -49,6 +49,11 @@ concerns its DA color and background. Its text, "ABC", lies inside the border:
 a 140 x 60 pt box with 0.3 em side padding, at the DA's 20 pt in red, shaped
 independently with HarfBuzz in DejaVu Sans and drawn from a GID-stable subset
 of that font keeping A, B and C (add_collapsed_text.py, semtext round 9).
+reference.pdf is written whole, holding only its live page content: each ABC
+glyph is drawn with "<gid> Tj", and the page content that round 8's
+realignment replaced is gone, so the Auto print test, which lists the glyph
+codes of every stream in the file, reads the page once (normalize_reference.py,
+semtext round 10). Its rendered pixels are unchanged.
 The fourth line, a TAB b, uses independent four-space DejaVu tab placement.
 This guards against reading a preferred/partial font's space advance in the
 units of another font that actually paints the text.
