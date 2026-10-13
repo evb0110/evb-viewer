@@ -54,7 +54,6 @@ import {
     type TWorkingCopyContentBackupMode,
 } from '@electron/file-access/workingCopyJournal';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
-import {isErrnoException} from '@contracts/runtimeGuards';
 
 const log = createLogger('documentRevisionStore');
 const revisionListeners = new Set<(event: IDocumentRevisionChangedEvent) => void>();
@@ -72,11 +71,7 @@ const runContentTransitionSerially = createKeyedSerialQueue();
 // for that transition nor rolls it back or deletes its backup.
 function repairEndedTransition(workingCopyPath: string, originalPath: string | undefined) {
     const key = getRevisionQueueKey(workingCopyPath);
-    // A file another program holds open must not fail a read: the journal keeps naming it for a later read,
-    // save or close to finish, and a save still refuses until then.
-    const repair = () => runContentTransitionSerially(key, () => recoverWorkingCopyTransition(workingCopyPath).then(() => undefined, (error: unknown) => {
-        if (!isErrnoException(error) || error.code !== 'EBUSY') throw error;
-    }));
+    const repair = () => runContentTransitionSerially(key, () => recoverWorkingCopyTransition(workingCopyPath).then(() => undefined));
     if (!runContentTransitionSerially.isIdle(key)) {
         return Promise.resolve();
     }

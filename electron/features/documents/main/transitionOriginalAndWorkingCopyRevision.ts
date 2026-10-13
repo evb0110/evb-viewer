@@ -5,11 +5,10 @@ import {
     createOriginalTransitionBackupPath,
     recordWorkingCopyJournalOriginal,
     recoverWorkingCopyTransition,
+    restoreTransitionOriginal,
     type IWorkingCopyJournal,
 } from '@electron/file-access/workingCopyJournal';
-import {
-    captureIntendedContentFingerprint, restoreOriginal,
-} from '@electron/file-access/workingCopyJournalOriginal';
+import {captureIntendedContentFingerprint} from '@electron/file-access/workingCopyJournalOriginal';
 import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
@@ -118,7 +117,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             try {
                 if (!committed && journal?.original
                     && (journal.original.state === 'prepared' || journal.original.state === 'published')) {
-                    await restoreOriginal(journal.original);
+                    await restoreTransitionOriginal(journal, journal.original);
                     await recordWorkingCopyJournalOriginal(journal, {
                         ...journal.original,
                         state: 'restored',

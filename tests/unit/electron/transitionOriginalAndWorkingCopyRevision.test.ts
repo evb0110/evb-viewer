@@ -1,3 +1,4 @@
+import {existsSync} from 'node:fs';
 import {
     appendFile,
     link,
@@ -1633,6 +1634,50 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it('names the file as it was before a failed save when another program edits the PDF before the rollback restores it', async () => {
+        const fs = await import('node:fs/promises');
+        const paths = {
+            original: '',
+            working: '',
+        };
+        let armed = false;
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            rename: async (...args: Parameters<typeof fs.rename>) => {
+                if (armed && String(args[1]) === paths.working) {
+                    armed = false;
+                    // Another program edits the saved PDF, then the working-copy sync fails and the save rolls back.
+                    writeExternally(paths.original);
+                    throw Object.assign(new Error('Injected EIO while syncing the working copy'), {code: 'EIO'});
+                }
+                await fs.rename(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-restore-race');
+            paths.original = originalPath;
+            paths.working = workingCopyPath;
+            const before = await readdir(tempRoot);
+            armed = true;
+
+            const keptFilePath = join(tempRoot, 'original (original).pdf');
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 67))).resolves.toMatchObject({
+                applied: false,
+                reason: 'original-changed',
+                keptFilePath,
+            });
+            // The refusal names the file as it is on disk when it is shown, not after a later read.
+            await expect(readFile(keptFilePath, 'utf8')).resolves.toBe('old-original');
+            expect((await readFile(originalPath)).subarray(262144, 262152).toString()).toBe('EXTERNAL');
+            expect((await readdir(tempRoot)).filter(name => !before.includes(name))).toEqual(['original (original).pdf']);
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+    });
+
     it.each([
         'publication',
         'working-copy sync',
@@ -1935,7 +1980,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
-    it('keeps reads working while another program holds a saved backup, and close removes it once released', async () => {
+    it('keeps reads and edits working while another program holds a saved backup, refuses saves until it is released, and removes it', async () => {
         const fs = await import('node:fs/promises');
         let holding = false;
         let originalDirectory = '';
@@ -1944,7 +1989,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             // Windows refuses to delete a file another program holds without delete sharing.
             rm: async (...args: Parameters<typeof fs.rm>) => {
                 const path = String(args[0]);
-                if (holding && dirname(path) === originalDirectory && path.includes('.evb-transition-')) {
+                if (holding && dirname(path) === originalDirectory && path.includes('.evb-transition-') && existsSync(path)) {
                     throw Object.assign(new Error('EBUSY: resource busy or locked'), {code: 'EBUSY'});
                 }
                 return fs.rm(...args);
@@ -1959,11 +2004,26 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             originalDirectory = dirname(originalPath);
             holding = true;
             await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 67))).resolves.toMatchObject({applied: true});
-            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            const {
+                getWorkingCopyRevision, transitionWorkingCopyContentRevision,
+            } = await import('@electron/file-access/documentRevisionStore');
             await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({contentRevision: 2});
-            expect((await readdir(originalDirectory)).filter(name => !before.includes(name))).toHaveLength(1);
+            const held = (await readdir(originalDirectory)).filter(name => !before.includes(name));
+            expect(held).toHaveLength(1);
+
+            // An edit such as a page rotation does not need the held file.
+            await expect(transitionWorkingCopyContentRevision(workingCopyPath, 'page-ops', async () => {
+                await writeFile(workingCopyPath, 'edited while held');
+            }, 7)).resolves.toBeTruthy();
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('edited while held');
+            await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({contentRevision: 3});
+            // A save would forget the held file, so it is refused with the file-in-use error until the hold ends.
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 68))).rejects.toMatchObject({code: 'EBUSY'});
+            expect((await readdir(originalDirectory)).filter(name => !before.includes(name))).toEqual(held);
 
             holding = false;
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 69))).resolves.toMatchObject({applied: true});
+            expect((await readdir(originalDirectory)).sort()).toEqual([...before].sort());
             const {cleanupWorkingCopy} = await import('@electron/file-access/workingCopyCleanup');
             await cleanupWorkingCopy(workingCopyPath, 7);
             expect((await readdir(originalDirectory)).sort()).toEqual([...before].sort());
