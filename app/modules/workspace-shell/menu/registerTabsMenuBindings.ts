@@ -1,3 +1,4 @@
+import { useEventListener } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { Ref } from 'vue';
 import type { TPaneDirection } from '@contracts/editorPanes';
@@ -8,6 +9,7 @@ import type { ISettingsCapability } from '@contracts/settingsPlatformFeature';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
 import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
+import { isMacClientPlatform } from '@app/utils/clientPlatform';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 // Menu items that run a command on the active tab's workspace:
@@ -52,11 +54,6 @@ const WORKSPACE_MENU_COMMANDS: ReadonlyArray<readonly [string, keyof IWorkspaceE
         'onMenuRedo',
         'handleRedo',
         'redo',
-    ],
-    [
-        'onMenuSelectAll',
-        'handleSelectAll',
-        'select-all',
     ],
     [
         'onMenuExportDocx',
@@ -319,7 +316,38 @@ export function registerTabsMenuBindings(
             });
     };
 
+    const handleSelectAllKeyDown = (event: KeyboardEvent) => {
+        if (!(isMacClientPlatform() ? event.metaKey : event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'a') {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const element = document.activeElement;
+        const annotationFocused = element instanceof HTMLElement
+            && !element.isContentEditable
+            && !(element instanceof HTMLInputElement)
+            && !(element instanceof HTMLTextAreaElement)
+            && !(element instanceof HTMLSelectElement)
+            && Boolean(element.closest('.pdf-annotation-editor-layer'));
+        if (annotationFocused) {
+            runMenuAction('select-all', () => runWorkspaceMenuCommand(deps, 'handleSelectAll'));
+        } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+            element.select();
+        } else {
+            const editable = element instanceof HTMLElement && element.isContentEditable
+                ? element.closest<HTMLElement>('[contenteditable="true"], [contenteditable=""]') ?? element
+                : document.body;
+            window.getSelection()?.selectAllChildren(editable);
+        }
+    };
+
     const cleanups = [
+        useEventListener(
+            typeof window === 'undefined' ? undefined : window,
+            'keydown',
+            handleSelectAllKeyDown,
+            { capture: true },
+        ),
         documentMenu?.onMenuOpenPdf?.(() => {
             runMenuAction('open-pdf', () => deps.handleFallbackToolbarOpenFile());
         }),

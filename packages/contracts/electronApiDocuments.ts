@@ -571,7 +571,6 @@ export interface IDocumentsMenuCapability {
     onMenuToggleAssistant: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuUndo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuRedo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
-    onMenuSelectAll: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuDeletePages: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuExtractPages: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuRotateCw: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;

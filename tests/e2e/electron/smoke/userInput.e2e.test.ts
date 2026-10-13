@@ -1,5 +1,13 @@
+import type * as electronRunLaunchConfig from '@scripts/electron-run/electronRunLaunchConfig';
+import {join} from 'node:path';
+import {findFreePort} from '@scripts/electron-run/electronRunProcessTree';
+import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
-    describe, expect, it,
+    openDocumentSidebarTab, openPdfInApp, waitForViewerInteractive,
+} from '@tests/e2e/electron/helpers/viewerCore';
+import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import {
+    describe, expect, it, vi,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
@@ -7,7 +15,95 @@ import {
     clickAsUser, clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 
-const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-user-input-${Date.now()}`});
+// This branch defaults Linux E2E to a mapped window on private Xvfb.
+// The diagnosis specifically requires an unmapped hidden window.
+vi.mock('@scripts/electron-run/electronRunLaunchConfig', async (importOriginal) => {
+    const original = await importOriginal<typeof electronRunLaunchConfig>();
+    return {
+        ...original,
+        buildElectronE2EAutomationEnv:(env:NodeJS.ProcessEnv)=>({
+            ...original.buildElectronE2EAutomationEnv(env),
+            EVB_AUTOMATION_HIDE_WINDOW:'1',
+        }),
+    };
+});
+
+interface IInspectorResult {
+    result?: { value?: unknown };
+    exceptionDetails?: unknown;
+}
+
+interface IInspectorResponse {
+    id: number;
+    result: IInspectorResult;
+    error?: unknown;
+}
+
+async function connectMain(port: number) {
+    const response = await fetch(`http://127.0.0.1:${port}/json/list`);
+    const targets = await response.json() as Array<{ webSocketDebuggerUrl: string }>;
+    const target = targets[0];
+    if (!response.ok || !target) {
+        throw new Error('The task-owned Electron main inspector is unavailable');
+    }
+    const socket = new WebSocket(target.webSocketDebuggerUrl);
+    await new Promise<void>((resolve, reject) => {
+        socket.onopen = () => resolve();
+        socket.onerror = reject;
+    });
+    let requestId = 0;
+    const pending = new Map<number, {
+        resolve: (value: IInspectorResult) => void;
+        reject: (error: unknown) => void;
+    }>();
+    socket.onmessage = ({ data }) => {
+        const message = JSON.parse(String(data)) as IInspectorResponse;
+        const callback = pending.get(message.id);
+        if (!callback) {
+            return;
+        }
+        pending.delete(message.id);
+        if (message.error) {
+            callback.reject(message.error);
+        } else {
+            callback.resolve(message.result);
+        }
+    };
+    return {
+        async evaluate(expression: string) {
+            const id = ++requestId;
+            const result = await new Promise<IInspectorResult>((resolve, reject) => {
+                pending.set(id, {
+                    resolve,
+                    reject,
+                });
+                socket.send(JSON.stringify({
+                    id,
+                    method: 'Runtime.evaluate',
+                    params: {
+                        expression,
+                        awaitPromise: true,
+                        returnByValue: true,
+                    },
+                }));
+            });
+            if (result.exceptionDetails) {
+                throw new Error(JSON.stringify(result.exceptionDetails));
+            }
+            return result.result?.value;
+        },
+        close: () => socket.close(),
+    };
+}
+
+const inspectorPort = await findFreePort();
+const sessions = createElectronE2ESessionFixture({
+    sessionName: () => `e2e-user-input-${Date.now()}`,
+    extraEnv: {
+        EVB_APP_STATE_DIR: join(process.cwd(), '.devkit/selectall-regression/app-state'),
+        EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: `--inspect=127.0.0.1:${inspectorPort}`,
+    },
+});
 
 // These are pointer fixtures inside the real hidden window. The helper is the
 // subject: DOM setup supplies the layout, and only trusted input can record
@@ -200,5 +296,97 @@ describe('trusted pointer harness', () => {
             width: 1800,
             height: 1344,
         });
+    });
+});
+
+describe('Select All input ordering', () => {
+    it('keeps typing after a menu Select All in the focused page-label field', async () => {
+        const { page } = sessions.getSession();
+        await openPdfInApp(page, await createMultiPageTextFixturePdf('select-all-ordering.pdf', 2));
+        await waitForViewerInteractive(page);
+        await openDocumentSidebarTab(page, 'Pages');
+        const scope = '.workspace-host[data-workspace-active="true"]';
+        const disclosure = `${scope} .pdf-sidebar-pages-disclosure`;
+        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+            await clickAsUser(page, disclosure);
+        }
+        await clickAsUser(page, '#page-label-prefix-input');
+        // Seed a collapsed caret, so the actual menu action must select the old value.
+        await page.$eval('#page-label-prefix-input', (element) => {
+            const input = element as HTMLInputElement;
+            input.value = 'Accepted-';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.setSelectionRange(input.value.length, input.value.length);
+        });
+
+        if (process.platform === 'darwin') {
+            // AppKit translates Control+A to line navigation on macOS. Keep
+            // that native edit command available rather than treating it as Cmd+A.
+            await page.keyboard.down('Control');
+            await page.keyboard.press('a', { commands: ['MoveToBeginningOfLine'] });
+            await page.keyboard.up('Control');
+            const selection = await page.$eval('#page-label-prefix-input', (element) => {
+                const input = element as HTMLInputElement;
+                return [
+                    input.selectionStart,
+                    input.selectionEnd,
+                ];
+            });
+            expect(selection).toEqual([
+                0,
+                0,
+            ]);
+            await page.$eval('#page-label-prefix-input', (element) => {
+                const input = element as HTMLInputElement;
+                input.setSelectionRange(input.value.length, input.value.length);
+            });
+        }
+
+        const main = await connectMain(inspectorPort);
+        try {
+            await main.evaluate(`(() => {
+                if (process.cwd() !== ${JSON.stringify(process.cwd())}) throw new Error('Wrong Electron inspector');
+                const { BrowserWindow, Menu } = process.getBuiltinModule('module')
+                    .createRequire(process.cwd() + '/package.json')('electron');
+                const window = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.getURL().includes('/electron'));
+                if (!window || window.isVisible()) throw new Error('Expected a task-owned hidden app window');
+                const find = menu => {
+                    for (const item of menu.items) {
+                        if (item.accelerator === 'CmdOrCtrl+A') return item;
+                        const nested = item.submenu && find(item.submenu);
+                        if (nested) return nested;
+                    }
+                };
+                const item = find(Menu.getApplicationMenu());
+                if (!item?.enabled || !item.visible) throw new Error('Select All unavailable');
+                const contents = window.webContents;
+                // One main-process tick. This bypasses only OS routing, and reaches
+                // the real menu handler before queueing the following trusted keys.
+                item.click({ triggeredByAccelerator: true }, window, contents);
+                const send = character => {
+                    contents.sendInputEvent({ type: 'keyDown', keyCode: character });
+                    contents.sendInputEvent({ type: 'char', keyCode: character });
+                    contents.sendInputEvent({ type: 'keyUp', keyCode: character });
+                };
+                send('L');
+                // Queue subsequent keys now, at a fast person's typing pace.
+                // The leading key is already in flight while the old focus probe awaits.
+                return new Promise(resolve => {
+                    for (const [index, character] of [...'ate-'].entries()) {
+                        setTimeout(() => {
+                            send(character);
+                            if (index === 3) resolve(true);
+                        }, (index + 1) * 5);
+                    }
+                });
+            })()`);
+            await page.waitForFunction(() => (
+                (document.querySelector('#page-label-prefix-input') as HTMLInputElement)?.value === 'Late-'
+            ), { timeout: 10_000 });
+            await clickAsUser(page, `${scope} .pdf-sidebar-pages-primary-button`);
+            await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText).toBe('Late-1');
+        } finally {
+            main.close();
+        }
     });
 });
