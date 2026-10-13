@@ -29,6 +29,7 @@ import {
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {runtimeConfig} from '@electron/runtimeConfig';
 import {fsyncDirectorySync} from '@electron/utils/fsyncPath';
+import {getOwnStartTime} from '@electron/utils/processIdentity';
 
 export const APP_TEMP_NAMESPACE_OWNER_FILE = '.evb-app-temp-owner.json';
 export const SAFE_NAMESPACE_PATTERN = /^[a-z\d][a-z\d-]{0,63}$/u;
@@ -54,6 +55,7 @@ export function initializeAppTempNamespace(userDataPath: string) {
     initializedAppTempUserDataPath = userDataPath;
     initializedAppTempNamespaceStartedAt = Date.now();
     ownerMarkerWritten = false;
+    void getOwnStartTime();
     return namespace;
 }
 
@@ -124,7 +126,7 @@ export function getManagedAppTempRoots() {
     ];
 }
 
-function writeAppTempNamespaceOwner(tempDir: string) {
+function writeAppTempNamespaceOwner(tempDir: string, startTime: string | null) {
     const namespace = initializedAppTempNamespace;
     const userDataPath = initializedAppTempUserDataPath;
     if (!namespace || !userDataPath || ownerMarkerWritten || namespace !== getAppTempNamespace()) {
@@ -136,6 +138,7 @@ function writeAppTempNamespaceOwner(tempDir: string) {
         namespace,
         userDataPath,
         pid: process.pid,
+        startTime,
         startedAt: initializedAppTempNamespaceStartedAt,
     })}\n`;
     let markerFd: number | null = null;
@@ -192,6 +195,8 @@ export function getAppTempDir() {
         throw new Error(`App temp directory must not be a symbolic link: ${tempDir}`);
     }
     chmodSync(tempDir, 0o700);
-    writeAppTempNamespaceOwner(tempDir);
+    // Until this process's start time is read, the namespace has no owner, and
+    // other profiles' starts leave it alone.
+    void getOwnStartTime().then(startTime => writeAppTempNamespaceOwner(tempDir, startTime)).catch(() => undefined);
     return tempDir;
 }

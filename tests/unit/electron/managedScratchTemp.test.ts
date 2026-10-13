@@ -99,7 +99,7 @@ describe('managed scratch temp cleanup', () => {
 
     it('puts back an original whose record names a pid an unrelated live process now holds', async () => {
         // Records survive a reboot, and a pid is reused: a live process with
-        // the recorded pid is not the export that wrote the record.
+        // the recorded pid but another start time is not the export that wrote the record.
         const unrelated = spawn(process.execPath, [
             '-e',
             'setInterval(() => {}, 1000);',
@@ -115,14 +115,14 @@ describe('managed scratch temp cleanup', () => {
             await recordManagedScratchPublish(scratchPath, target, (await readFileIdentity(join(mocks.appTempDir, 'staged')))!);
             await rename(join(mocks.appTempDir, 'staged'), target);
             await writeFile(join(scratchPath, '.evb-managed-scratch.json'), `${JSON.stringify({
-                createdAt: Date.now(),
                 pid: unrelated.pid,
+                startTime: 'an earlier run',
                 prefix: 'pdfExport-',
             })}\n`, 'utf8');
             const previousRun = await createManagedScratchTempDir('qpdfOutput-', mocks.appTempDir);
             await writeFile(join(previousRun, '.evb-managed-scratch.json'), `${JSON.stringify({
-                createdAt: 0,
                 pid: process.pid,
+                startTime: 'an earlier run',
                 prefix: 'qpdfOutput-',
             })}\n`, 'utf8');
             const thisRun = await createManagedScratchTempDir('pdf-page-ops-', mocks.appTempDir);
@@ -133,7 +133,7 @@ describe('managed scratch temp cleanup', () => {
             await expect(readFile(target, 'utf8')).resolves.toBe('original');
             expect(existsSync(backup)).toBe(false);
             expect(existsSync(scratchPath)).toBe(false);
-            expect(existsSync(previousRun), 'this pid before the last boot is another run').toBe(false);
+            expect(existsSync(previousRun), 'this pid with another start time is another run').toBe(false);
             expect(existsSync(thisRun)).toBe(true);
         } finally {
             unrelated.kill('SIGKILL');

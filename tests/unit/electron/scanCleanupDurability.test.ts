@@ -34,9 +34,9 @@ import {
     registerManagedProcess,
     reapOrphanedManagedProcesses,
     MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX,
-    type IManagedProcessIdentity,
     type IManagedProcessRegistryEntry,
 } from '@electron/native-tools/managedProcessRegistry';
+import type {IProcessIdentity} from '@electron/utils/processIdentity';
 import { terminateProcessTree } from '@electron/utils/processTree';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 
@@ -211,7 +211,7 @@ describe('scan-cleanup durability', () => {
             `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}test.json`,
         );
         await writeFile(entryPath, JSON.stringify(entry), 'utf8');
-        const identity = (pid: number): IManagedProcessIdentity => ({
+        const identity = (pid: number): IProcessIdentity => ({
             executablePath: pid === 4242 ? '/native/evb-scan-cleanup' : '/electron',
             arguments: pid === 4242
                 ? [
@@ -274,7 +274,45 @@ describe('scan-cleanup durability', () => {
         await expect(access(entryPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
-    it('on Windows reaps a tool started at its recorded spawn time and spares a reused pid', async () => {
+    it('on Linux reaps a tool an older build recorded by bare start ticks, only at those ticks', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
+        await mkdir(registryDirectory);
+        const writeEntry = async (pid: number) => {
+            const entryPath = join(registryDirectory, `${MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX}${String(pid)}.json`);
+            // Builds before the boot id recorded only the ticks since boot.
+            await writeFile(entryPath, JSON.stringify({
+                version: 1,
+                pid,
+                ownerPid: 4241,
+                binaryPath: '/native/tesseract',
+                processStartTime: '180000000',
+                ownerStartTime: '170000000',
+            }), 'utf8');
+            return entryPath;
+        };
+        const orphanEntryPath = await writeEntry(4242);
+        const reusedEntryPath = await writeEntry(4343);
+        const terminate = vi.fn(async () => true);
+
+        await expect(reapOrphanedManagedProcesses(namespacePath, {
+            isProcessAlive: pid => pid !== 4241,
+            readProcessIdentity: async pid => ({
+                executablePath: '/native/tesseract',
+                arguments: ['/native/tesseract'],
+                startTime: `70d4911d-53e3-441e-b385-a64a34cae556:${pid === 4242 ? '180000000' : '180000001'}`,
+            }),
+            terminateProcessTree: terminate,
+            platform: 'linux',
+        })).resolves.toBe(1);
+
+        expect(terminate).toHaveBeenCalledOnce();
+        expect(terminate).toHaveBeenCalledWith(4242, expect.anything());
+        await expect(access(orphanEntryPath)).rejects.toMatchObject({code: 'ENOENT'});
+        await expect(access(reusedEntryPath)).resolves.toBeUndefined();
+    });
+
+    it('on Windows reaps a tool at its exact recorded creation time and spares a pid reused 100 ns later', async () => {
         const namespacePath = await createTemporaryDirectory();
         const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
         await mkdir(registryDirectory);
@@ -285,9 +323,9 @@ describe('scan-cleanup durability', () => {
                 pid,
                 ownerPid: 4241,
                 binaryPath: '/native/qpdf.exe',
-                // Registration records the clock right after spawn returns.
-                processStartTime: '2026-10-01T10:00:00.000Z',
-                ownerStartTime: '2026-10-01T09:00:00.000Z',
+                // Registration records the creation time Get-Process reports, to 100 ns.
+                processStartTime: '2026-10-01T09:59:59.8123456Z',
+                ownerStartTime: '2026-10-01T09:00:00.0000000Z',
             };
             await writeFile(entryPath, JSON.stringify(entry), 'utf8');
             return entryPath;
@@ -301,9 +339,8 @@ describe('scan-cleanup durability', () => {
             readProcessIdentity: async pid => ({
                 executablePath: '/native/QPDF.EXE',
                 arguments: ['/native/qpdf.exe'],
-                // PowerShell reports the creation time, which precedes the
-                // recorded spawn time; pid 4343 now belongs to a later process.
-                startTime: pid === 4242 ? '2026-10-01T09:59:59.8123456Z' : '2026-10-01T11:00:00.0000000Z',
+                // pid 4343 now belongs to a process created 100 ns later.
+                startTime: pid === 4242 ? '2026-10-01T09:59:59.8123456Z' : '2026-10-01T09:59:59.8123457Z',
             }),
             terminateProcessTree: terminate,
             platform: 'win32',
@@ -404,7 +441,7 @@ describe('scan-cleanup durability', () => {
         await writeEntry(2_147_483_643, 2_147_483_646, otherProfileScratch);
         const options = {
             isProcessAlive: (pid: number) => pid === process.pid,
-            readProcessIdentity: async (): Promise<IManagedProcessIdentity> => ({
+            readProcessIdentity: async (): Promise<IProcessIdentity> => ({
                 executablePath: '/electron',
                 arguments: ['electron'],
                 startTime: 'live-owner',
@@ -538,7 +575,7 @@ describe('scan-cleanup durability', () => {
 
             expect(JSON.parse(await readFile(registration!.entryPath, 'utf8'))).toMatchObject({
                 pid: child.pid,
-                processStartTime: expect.stringMatching(/^\d+$/u),
+                processStartTime: expect.stringMatching(/^[\da-f-]+:\d+$/u),
             });
         } finally {
             child.kill();

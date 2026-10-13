@@ -11,6 +11,7 @@ import {
     utimesSync,
     writeFileSync,
 } from 'node:fs';
+import {createServer} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
@@ -44,6 +45,7 @@ const {
     recordManagedScratchPublish,
 } = await import('@electron/utils/managedScratchTemp');
 const {readFileIdentity} = await import('@electron/utils/fileIdentity');
+const {getOwnStartTime} = await import('@electron/utils/processIdentity');
 
 describe('app temp directory namespace', () => {
     afterEach(() => {
@@ -100,7 +102,7 @@ describe('app temp directory namespace', () => {
             .toBe(join('/var/tmp', `evb-viewer-${namespace}`));
     });
 
-    it.runIf(process.platform !== 'win32')('replaces an owner-marker symlink without writing through to its target', () => {
+    it.runIf(process.platform !== 'win32')('replaces an owner-marker symlink without writing through to its target', async () => {
         const previousUserDataPath = mocks.paths.userData ?? '/profiles/default';
         const previousNamespace = process.env.EVB_APP_TEMP_NAMESPACE;
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-marker-'));
@@ -118,6 +120,8 @@ describe('app temp directory namespace', () => {
             symlinkSync(markerTarget, markerPath);
 
             getAppTempDir();
+            // The owner is written once this process's start time is read.
+            await getOwnStartTime();
 
             expect(readFileSync(markerTarget, 'utf8')).toBe('do not overwrite\n');
             expect(lstatSync(markerPath).isSymbolicLink()).toBe(false);
@@ -176,6 +180,8 @@ describe('app temp directory namespace', () => {
             mocks.paths.userData = '/profiles/current';
             initializeAppTempNamespace('/profiles/current');
             getAppTempDir();
+            // The owner is written once this process's start time is read.
+            const ownStartTime = await getOwnStartTime();
             expect(JSON.parse(readFileSync(join(
                 getAppTempDirPath(),
                 '.evb-app-temp-owner.json',
@@ -183,6 +189,7 @@ describe('app temp directory namespace', () => {
                 namespace: createAppTempNamespace('/profiles/current'),
                 userDataPath: '/profiles/current',
                 pid: process.pid,
+                startTime: ownStartTime,
             });
 
             mkdirSync(deadPath, {recursive: true});
@@ -202,7 +209,8 @@ describe('app temp directory namespace', () => {
                 namespace: createAppTempNamespace('/profiles/active'),
                 userDataPath: '/profiles/active',
                 pid: process.pid,
-                // A live owner started since the last boot.
+                // A live owner: this process, with its creation time.
+                startTime: ownStartTime,
                 startedAt: Date.now(),
             })}\n`);
             writeFileSync(join(recoveryPath, '.evb-app-temp-owner.json'), `${JSON.stringify({
@@ -305,7 +313,7 @@ describe('app temp directory namespace', () => {
         }
     });
 
-    it('puts back the original a dead namespace\'s export replaced before removing it, and keeps one it cannot', async () => {
+    it('puts back the original a dead namespace\'s export replaced before removing it, and keeps one it cannot or whose owner runs', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-export-'));
         const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
         const outDir = join(tempRoot, 'out');
@@ -313,6 +321,13 @@ describe('app temp directory namespace', () => {
             '-e',
             'process.exit(0);',
         ], {stdio: 'ignore'});
+        const unrelated = spawn(process.execPath, [
+            '-e',
+            'setInterval(() => {}, 1000);',
+        ], {stdio: 'ignore'});
+        const lock = createServer();
+        // A socket path must fit sun_path (104 bytes on macOS), which a deep task temp root does not.
+        const socketRoot = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'evb-sock-'));
         try {
             await new Promise<void>(resolve => deadOwner.once('exit', () => resolve()));
             vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
@@ -322,7 +337,7 @@ describe('app temp directory namespace', () => {
             mocks.paths.userData = '/profiles/current';
             initializeAppTempNamespace('/profiles/current');
             mkdirSync(outDir);
-            const exportInto = async (profile: string, name: string) => {
+            const exportInto = async (profile: string, name: string, owner: Record<string, unknown> = {pid: deadOwner.pid}) => {
                 const namespacePath = getAppTempDirPathForUserData(profile, tempRoot);
                 const target = join(outDir, name);
                 const backup = join(outDir, `.${name.length.toString(16).padStart(16, '0')}.tmp`);
@@ -341,7 +356,7 @@ describe('app temp directory namespace', () => {
                 writeFileSync(join(namespacePath, '.evb-app-temp-owner.json'), `${JSON.stringify({
                     namespace: createAppTempNamespace(profile),
                     userDataPath: profile,
-                    pid: deadOwner.pid,
+                    ...owner,
                     startedAt: 0,
                 })}\n`);
                 utimesSync(namespacePath, staleDate, staleDate);
@@ -354,15 +369,44 @@ describe('app temp directory namespace', () => {
             const settled = await exportInto('/profiles/settled', 'page 1.png');
             const unsettled = await exportInto('/profiles/unsettled', 'page 22.png');
             rmSync(unsettled.backup);
+            // Its owner still runs; the clock puts its recorded start before the boot.
+            const live = await exportInto('/profiles/live', 'page 333.png', {
+                pid: process.pid,
+                startTime: await getOwnStartTime(),
+            });
+            // An older version recorded no start time, and a live process now has
+            // its pid: the profile's single-instance lock decides. A free one
+            // ends the run; a held one (a listening SingletonSocket) keeps it.
+            const olderEnded = await exportInto(join(tempRoot, 'older-ended'), 'page 4444.png', {pid: unrelated.pid});
+            const heldProfile = join(tempRoot, 'older-held');
+            const olderHeld = process.platform === 'win32' ? null : await exportInto(heldProfile, 'page 55555.png', {pid: unrelated.pid});
+            if (olderHeld) {
+                await new Promise<void>((resolve, reject) => lock.once('error', reject).listen(join(socketRoot, 'l'), resolve));
+                mkdirSync(heldProfile, {recursive: true});
+                symlinkSync(join(socketRoot, 'l'), join(heldProfile, 'SingletonSocket'));
+            }
 
-            await expect(cleanupStaleAppTempNamespaces({maxAgeMs: 60_000})).resolves.toBe(1);
+            await expect(cleanupStaleAppTempNamespaces({maxAgeMs: 60_000})).resolves.toBe(2);
 
             expect(readFileSync(settled.target, 'utf8')).toBe('original');
             expect(existsSync(settled.backup)).toBe(false);
             expect(existsSync(settled.namespacePath)).toBe(false);
             expect(readFileSync(unsettled.target, 'utf8')).toBe('exported');
             expect(existsSync(unsettled.namespacePath), 'its record still names a published file').toBe(true);
+            expect(readFileSync(live.target, 'utf8')).toBe('exported');
+            expect(existsSync(live.backup)).toBe(true);
+            expect(readFileSync(olderEnded.target, 'utf8')).toBe('original');
+            expect(existsSync(olderEnded.namespacePath)).toBe(false);
+            if (olderHeld) {
+                expect(readFileSync(olderHeld.target, 'utf8')).toBe('exported');
+            }
         } finally {
+            unrelated.kill('SIGKILL');
+            lock.close();
+            rmSync(socketRoot, {
+                force: true,
+                recursive: true,
+            });
             mocks.paths.userData = '/profiles/default';
             rmSync(tempRoot, {
                 force: true,

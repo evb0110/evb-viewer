@@ -15,8 +15,11 @@ import {
     join,
     resolve,
 } from 'path';
-import { uptime } from 'os';
 import { createLogger } from '@electron/utils/createLogger';
+import {
+    getOwnStartTime,
+    isRecordedProcessRunning,
+} from '@electron/utils/processIdentity';
 import {
     fsyncDirectory,
     fsyncFile,
@@ -55,13 +58,9 @@ const MANAGED_SCRATCH_SWEEP_MAX_ENTRIES = 200;
 
 export type TManagedScratchPrefix = typeof MANAGED_SCRATCH_PREFIXES[number];
 
-function isManagedScratchDirectoryName(entryName: string) {
-    return MANAGED_SCRATCH_PREFIXES.some(prefix => entryName.startsWith(prefix));
-}
-
 const managedScratchMarkerSchema = v.object({
-    createdAt: v.pipe(v.number(), v.finite(), v.minValue(0)),
     pid: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    startTime: v.optional(v.nullable(v.string())),
     prefix: v.picklist(MANAGED_SCRATCH_PREFIXES),
 });
 
@@ -78,11 +77,6 @@ async function readManagedScratchMarker(directoryPath: string) {
     }
 }
 
-// A scope is live only in the process that made it, since the last boot: a
-// reused pid is not its owner. In a shared root another process's scope stays
-// until the 24-hour floor, long after the one command that used it.
-const bootedAt = Date.now() - uptime() * 1000;
-
 export async function createManagedScratchTempDir(
     prefix: TManagedScratchPrefix,
     rootPath: string,
@@ -95,8 +89,8 @@ export async function createManagedScratchTempDir(
     const tempDir = await mkdtemp(join(rootPath, prefix));
     try {
         await writeFile(join(tempDir, MANAGED_SCRATCH_MARKER_FILE), `${JSON.stringify({
-            createdAt: Date.now(),
             pid: process.pid,
+            startTime: await getOwnStartTime(),
             prefix,
         })}\n`, 'utf8');
     } catch (error) {
@@ -392,6 +386,7 @@ export async function sweepStaleManagedScratchTempDirs(
     tempDir: string,
     maxAgeMs = MANAGED_SCRATCH_STALE_MAX_AGE_MS,
     maxEntries = MANAGED_SCRATCH_SWEEP_MAX_ENTRIES,
+    profile?: string,
 ) {
     const now = Date.now();
     let deletedCount = 0;
@@ -403,7 +398,7 @@ export async function sweepStaleManagedScratchTempDirs(
         return 0;
     }
 
-    const managedEntries = entries.filter(entry => isManagedScratchDirectoryName(entry)
+    const managedEntries = entries.filter(entry => MANAGED_SCRATCH_PREFIXES.some(prefix => entry.startsWith(prefix))
         && !entry.startsWith('native-command-'));
     for (const entry of managedEntries.slice(0, maxEntries)) {
         const scratchPath = join(tempDir, entry);
@@ -413,7 +408,8 @@ export async function sweepStaleManagedScratchTempDirs(
                 continue;
             }
             const marker = await readManagedScratchMarker(scratchPath);
-            if (!marker || !entry.startsWith(marker.prefix) || (marker.pid === process.pid && marker.createdAt >= bootedAt)) {
+            // A scope is live while the run that made it does: its pid with its start time.
+            if (!marker || !entry.startsWith(marker.prefix) || await isRecordedProcessRunning(marker.pid, marker.startTime, profile)) {
                 continue;
             }
             // An unsettled record keeps its scratch whatever its age.
@@ -425,11 +421,7 @@ export async function sweepStaleManagedScratchTempDirs(
             // timestamps can retain a fractional millisecond. Compare both
             // clocks at the same precision so a zero-age sweep does not treat
             // a same-millisecond directory timestamp as slightly in the future.
-            const lastTouchedAt = Math.floor(Math.max(
-                marker.createdAt,
-                scratchStat.mtimeMs,
-                scratchStat.ctimeMs,
-            ));
+            const lastTouchedAt = Math.floor(Math.max(scratchStat.mtimeMs, scratchStat.ctimeMs));
             if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
                 continue;
             }

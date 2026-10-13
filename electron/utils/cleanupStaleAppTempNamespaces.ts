@@ -5,20 +5,14 @@ import {
     rm,
 } from 'fs/promises';
 import {join} from 'path';
-import {
-    tmpdir,
-    uptime,
-} from 'os';
+import {tmpdir} from 'os';
 import {
     APP_TEMP_DIR_NAME,
     getAppStateDir,
     getAppTempNamespaceDirectoryName,
     getAppTempUserId,
 } from '@node-runtime/appTempNamespace';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     APP_TEMP_NAMESPACE_OWNER_FILE,
     SAFE_NAMESPACE_PATTERN,
@@ -28,9 +22,14 @@ import {
 } from '@electron/utils/appTempDir';
 import {getWorkingCopyJournalPath} from '@electron/file-access/workingCopyDirectory';
 import {
+    OWN_PROFILE,
+    isRecordedProcessRunning,
+} from '@electron/utils/processIdentity';
+import {
     MANAGED_SCRATCH_RECORD_FILE,
     sweepStaleManagedScratchTempDirs,
 } from '@electron/utils/managedScratchTemp';
+import * as v from 'valibot';
 
 // The startup owner of the profile namespaces: this profile's own scratch, and
 // the namespaces of profiles that are gone, in the state folder and in the OS
@@ -39,40 +38,18 @@ import {
 const APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const APP_TEMP_NAMESPACE_SCAN_LIMIT = 512;
 
-interface IAppTempNamespaceOwner {
-    namespace: string;
-    userDataPath: string;
-    pid: number;
-    startedAt: number;
-}
+const appTempNamespaceOwnerSchema = v.object({
+    namespace: v.pipe(v.string(), v.regex(SAFE_NAMESPACE_PATTERN)),
+    userDataPath: v.pipe(v.string(), v.check(path => path.trim().length > 0)),
+    pid: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    // Absent from older versions; null when the owner could not read its own.
+    startTime: v.optional(v.nullable(v.string())),
+    startedAt: v.pipe(v.number(), v.finite(), v.minValue(0)),
+});
 
-function parseAppTempNamespaceOwner(value: unknown): IAppTempNamespaceOwner | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (
-        typeof value.namespace !== 'string'
-        || !SAFE_NAMESPACE_PATTERN.test(value.namespace)
-        || typeof value.userDataPath !== 'string'
-        || value.userDataPath.trim().length === 0
-        || typeof value.pid !== 'number'
-        || !Number.isInteger(value.pid)
-        || value.pid <= 0
-        || typeof value.startedAt !== 'number'
-        || !Number.isFinite(value.startedAt)
-        || value.startedAt < 0
-    ) {
-        return null;
-    }
-    return {
-        namespace: value.namespace,
-        userDataPath: value.userDataPath,
-        pid: value.pid,
-        startedAt: value.startedAt,
-    };
-}
+type TAppTempNamespaceOwner = v.InferOutput<typeof appTempNamespaceOwnerSchema>;
 
-async function hasWorkspaceRecoveryCheckpoint(owner: IAppTempNamespaceOwner) {
+async function hasWorkspaceRecoveryCheckpoint(owner: TAppTempNamespaceOwner) {
     const records = await readdir(join(owner.userDataPath, 'workspace-recovery')).catch(() => []);
     return records.some(name => name.endsWith('.json'))
         || (await lstat(join(owner.userDataPath, 'workspace-checkpoint.json'))).isFile();
@@ -85,25 +62,18 @@ async function readAppTempNamespaceOwner(namespacePath: string) {
         if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
             return null;
         }
-        return parseAppTempNamespaceOwner(JSON.parse(await readFile(markerPath, 'utf8')));
+        return v.parse(appTempNamespaceOwnerSchema, JSON.parse(await readFile(markerPath, 'utf8')));
     } catch {
         return null;
     }
 }
 
-// A namespace outlives a reboot and its owner's pid can be reused, so only an
-// owner that started since the last boot can still be alive. This profile's
-// own retired namespace has no live owner: this process holds the profile.
-function isAppTempNamespaceOwnerAlive(namespacePath: string, owner: IAppTempNamespaceOwner) {
-    if (namespacePath === getRetiredAppTempDirPath() || owner.startedAt < Date.now() - uptime() * 1000) {
-        return false;
-    }
-    try {
-        process.kill(owner.pid, 0);
-        return true;
-    } catch (error) {
-        return isErrnoException(error) && error.code === 'EPERM';
-    }
+// A namespace outlives a reboot and its owner's pid can be reused, so its owner
+// is alive only while its pid runs with the start time it recorded; when that
+// cannot be proven, its profile's lock decides. This profile's own retired
+// namespace has no live owner: this process holds the profile.
+function getNamespaceProfile(namespacePath: string, owner: TAppTempNamespaceOwner) {
+    return namespacePath === getRetiredAppTempDirPath() ? OWN_PROFILE : owner.userDataPath;
 }
 
 export interface ICleanupStaleAppTempNamespacesOptions {
@@ -127,7 +97,7 @@ export async function cleanupStaleAppTempNamespaces(
         ? requestedMaxEntries
         : APP_TEMP_NAMESPACE_SCAN_LIMIT;
     // This profile's own scratch: the records of a run that ended go back.
-    await sweepStaleManagedScratchTempDirs(getAppTempDir());
+    await sweepStaleManagedScratchTempDirs(getAppTempDir(), undefined, undefined, OWN_PROFILE);
     const currentNamespacePath = getAppTempDirPath();
     const entries = (await Promise.all([...new Set([
         getAppStateDir(),
@@ -165,14 +135,15 @@ export async function cleanupStaleAppTempNamespaces(
             if (!owner || getAppTempNamespaceDirectoryName(owner.namespace) !== entry.name) {
                 continue;
             }
-            if (isAppTempNamespaceOwnerAlive(namespacePath, owner)) {
+            const profile = getNamespaceProfile(namespacePath, owner);
+            if (profile !== OWN_PROFILE && await isRecordedProcessRunning(owner.pid, owner.startTime, profile)) {
                 continue;
             }
             // Its export records go back first, whatever its age: one that
             // cannot be settled yet keeps the namespace, and the original it
             // names, for a later start. So does a save journal not yet finished:
             // the working-copy sweep finishes it, as for its own folders.
-            await sweepStaleManagedScratchTempDirs(namespacePath);
+            await sweepStaleManagedScratchTempDirs(namespacePath, undefined, undefined, profile);
             const scopes = await readdir(namespacePath);
             if ((await Promise.all(scopes.flatMap(scope => [
                 join(namespacePath, scope, MANAGED_SCRATCH_RECORD_FILE),

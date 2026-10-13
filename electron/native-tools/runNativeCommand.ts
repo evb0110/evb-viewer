@@ -339,13 +339,12 @@ export async function runNativeCommand(
     let unregistration: Promise<void> | null = null;
     const unregister = () => {
         if (registration === null) return Promise.resolve();
-        unregistration ??= registration.then(child => child?.unregister()).then(() => undefined);
+        unregistration ??= registration.then(child => child?.unregister()).then(() => undefined, (error: unknown) => options.log?.('warn', `Could not remove a managed process record: ${getErrorMessage(error)}`));
         return unregistration;
     };
     let scratchCleanup: Promise<void> | null = null;
     const cleanupScratchIfProven = () => {
         scratchCleanup ??= (async () => {
-            await Promise.resolve(registration);
             const processTreeGone = terminationProof !== null
                 ? await terminationProof
                 : processId === null || (childClosed && !isProcessTreeAlive(processId));
@@ -355,7 +354,7 @@ export async function runNativeCommand(
                     options.log?.('warn', `Could not remove managed native scratch directory "${scratchPath}"`);
                     return;
                 }
-                await unregister();
+                void unregister();
             } catch (error) {
                 options.log?.('warn', `Could not remove managed native scratch directory "${scratchPath}": ${getErrorMessage(error)}`);
             }

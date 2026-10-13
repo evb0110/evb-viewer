@@ -2,7 +2,6 @@ import {randomUUID} from 'node:crypto';
 import {
     mkdir,
     readFile,
-    readlink,
     readdir,
     unlink,
     writeFile,
@@ -11,27 +10,26 @@ import {
     isAbsolute,
     join, resolve,
 } from 'node:path';
-import {promisify} from 'node:util';
 import {removeManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
+import {
+    getOwnStartTime,
+    isProcessAlive as isLiveProcess,
+    readProcessIdentity,
+    readProcessStartTime,
+    startTimesMatch,
+    type IProcessIdentity,
+} from '@electron/utils/processIdentity';
 import {
     isProcessTreeAlive,
     terminateProcessTree,
 } from '@electron/utils/processTree';
+import * as v from 'valibot';
 
 // Keep the marker path stable so newer builds can reap children recorded by older builds.
 export const MANAGED_PROCESS_REGISTRY_DIRECTORY = '.evb-scan-cleanup-sidecars';
 export const MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX = 'sidecar-';
 const MANAGED_PROCESS_REGISTRY_VERSION = 1;
 const MANAGED_PROCESS_REAP_GRACE_MS = 1_500;
-// Covers spawn latency and the gap between process creation and Node's
-// uptime origin, which is far below the time a pid takes to be reused.
-const WINDOWS_START_TIME_TOLERANCE_MS = 5_000;
-
-export interface IManagedProcessIdentity {
-    executablePath: string;
-    arguments: readonly string[];
-    startTime: string;
-}
 
 export interface IManagedProcessRegistryEntry {
     version: 1;
@@ -52,7 +50,7 @@ export interface IManagedProcessRegistration {
 export interface IManagedProcessRecoveryOptions {
     log?: (level: 'debug' | 'warn', message: string) => void;
     isProcessAlive?: (pid: number) => boolean;
-    readProcessIdentity?: (pid: number) => Promise<IManagedProcessIdentity | null>;
+    readProcessIdentity?: (pid: number) => Promise<IProcessIdentity | null>;
     terminateProcessTree?: typeof terminateProcessTree;
     platform?: NodeJS.Platform;
 }
@@ -61,248 +59,24 @@ function isNotFound(error: unknown) {
     return error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
-}
+const positivePidSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
+const nonEmptyStringSchema = v.pipe(v.string(), v.minLength(1));
+
+// An entry proves its child by the child's start time, or by the manifest its command names.
+const managedProcessRegistryEntrySchema = v.pipe(v.object({
+    version: v.literal(MANAGED_PROCESS_REGISTRY_VERSION),
+    pid: positivePidSchema,
+    ownerPid: positivePidSchema,
+    binaryPath: nonEmptyStringSchema,
+    manifestPath: v.exactOptional(nonEmptyStringSchema),
+    scratchPath: v.exactOptional(v.pipe(nonEmptyStringSchema, v.check(isAbsolute))),
+    processStartTime: v.exactOptional(v.string()),
+    ownerStartTime: v.exactOptional(v.string()),
+}), v.check(entry => entry.manifestPath !== undefined || entry.processStartTime !== undefined));
 
 function parseEntry(value: unknown): IManagedProcessRegistryEntry | null {
-    if (!isRecord(value)
-        || value.version !== MANAGED_PROCESS_REGISTRY_VERSION
-        || typeof value.pid !== 'number'
-        || !Number.isSafeInteger(value.pid)
-        || value.pid <= 0
-        || typeof value.ownerPid !== 'number'
-        || !Number.isSafeInteger(value.ownerPid)
-        || value.ownerPid <= 0
-        || typeof value.binaryPath !== 'string'
-        || value.binaryPath.length === 0
-        || (value.scratchPath !== undefined && (typeof value.scratchPath !== 'string'
-            || value.scratchPath.length === 0
-            || !isAbsolute(value.scratchPath)))
-        || (value.manifestPath !== undefined && (typeof value.manifestPath !== 'string' || value.manifestPath.length === 0))
-        || (value.manifestPath === undefined && typeof value.processStartTime !== 'string')
-        || (value.processStartTime !== undefined && typeof value.processStartTime !== 'string')
-        || (value.ownerStartTime !== undefined && typeof value.ownerStartTime !== 'string')) {
-        return null;
-    }
-    return {
-        version: 1,
-        pid: value.pid,
-        ownerPid: value.ownerPid,
-        binaryPath: value.binaryPath,
-        ...(value.scratchPath === undefined ? {} : {scratchPath: value.scratchPath}),
-        ...(value.manifestPath === undefined ? {} : {manifestPath: value.manifestPath}),
-        ...(value.processStartTime === undefined ? {} : {processStartTime: value.processStartTime}),
-        ...(value.ownerStartTime === undefined ? {} : {ownerStartTime: value.ownerStartTime}),
-    };
-}
-
-function parseProcStartTime(stat: string) {
-    const commandEnd = stat.lastIndexOf(')');
-    if (commandEnd < 0) {
-        return null;
-    }
-    const fields = stat.slice(commandEnd + 2).trim().split(/\s+/u);
-    // The slice starts at field 3 (state), while starttime is field 22.
-    return fields[19] ?? null;
-}
-
-function normalizeProcessStartTime(value: string) {
-    const normalized = value.trim().replace(/\s+/gu, ' ');
-    return normalized.length > 0 ? normalized : null;
-}
-
-function parseCommandLine(commandLine: string) {
-    return (commandLine.match(/"[^"]*"|'[^']*'|\S+/gu) ?? [])
-        .map(argument => argument.length >= 2
-            && ((argument.startsWith('"') && argument.endsWith('"'))
-                || (argument.startsWith('\'') && argument.endsWith('\'')))
-            ? argument.slice(1, -1)
-            : argument);
-}
-
-async function execFileForIdentity(
-    file: string,
-    argumentsList: readonly string[],
-    options: {
-        env?: NodeJS.ProcessEnv;
-        timeout: number;
-        maxBuffer: number;
-        windowsHide?: boolean
-    },
-) {
-    // Keep the child-process inspection lazy. The normal Linux path uses
-    // /proc, and loading child_process during module evaluation would make
-    // feature tests that replace spawn need to provide unrelated APIs.
-    const {execFile} = await import('node:child_process');
-    return promisify(execFile)(file, [...argumentsList], options);
-}
-
-// starttime is set at fork and kept through exec until the parent reaps the
-// process. cmdline is still empty while Node's spawn returns mid-exec, and
-// cmdline and exe are gone once the child exits.
-async function readLinuxStartTime(pid: number) {
-    return parseProcStartTime(await readFile(`/proc/${String(pid)}/stat`, 'utf8'));
-}
-
-async function readLinuxProcessIdentity(pid: number): Promise<IManagedProcessIdentity | null> {
-    try {
-        const [
-            commandLine,
-            executablePath,
-            startTime,
-        ] = await Promise.all([
-            readFile(`/proc/${String(pid)}/cmdline`),
-            readlink(`/proc/${String(pid)}/exe`),
-            readLinuxStartTime(pid),
-        ]);
-        const argumentsList = commandLine.toString('utf8').split('\0').filter(Boolean);
-        if (argumentsList.length === 0 || startTime === null) {
-            return null;
-        }
-        return {
-            executablePath: resolve(executablePath),
-            arguments: argumentsList,
-            startTime,
-        };
-    } catch {
-        return null;
-    }
-}
-
-// ps keeps lstart for an exiting or zombie child but shows its command as
-// "(name)" or "<defunct>", so only the start time is read for those.
-async function readMacProcess(pid: number) {
-    try {
-        const {stdout} = await execFileForIdentity('/bin/ps', [
-            '-o',
-            'lstart=',
-            '-o',
-            'command=',
-            '-p',
-            String(pid),
-        ], {
-            // ps localizes lstart under the person's locale (a Russian locale prints
-            // "понедельник, 12 октября 2026 г."); the C locale keeps the parsed form.
-            env: {
-                ...process.env,
-                LC_ALL: 'C',
-            },
-            timeout: 1_000,
-            maxBuffer: 16 * 1024,
-        });
-        const match = /^(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*(.*)$/u.exec(String(stdout).trim());
-        if (match === null) return null;
-        return {
-            startTime: normalizeProcessStartTime(match[1]!),
-            arguments: parseCommandLine(match[2]!),
-        };
-    } catch {
-        return null;
-    }
-}
-
-async function readMacProcessIdentity(pid: number): Promise<IManagedProcessIdentity | null> {
-    const observed = await readMacProcess(pid);
-    const executablePath = observed?.arguments[0];
-    if (observed === null || observed.startTime === null || executablePath === undefined || !isAbsolute(executablePath)) {
-        return null;
-    }
-    return {
-        executablePath: resolve(executablePath),
-        arguments: observed.arguments,
-        startTime: observed.startTime,
-    };
-}
-
-async function readWindowsProcessIdentity(pid: number): Promise<IManagedProcessIdentity | null> {
-    const command = [
-        `$process = Get-Process -Id ${String(pid)} -ErrorAction Stop`,
-        `$native = Get-CimInstance Win32_Process -Filter "ProcessId = ${String(pid)}" -ErrorAction Stop`,
-        '@($process.StartTime.ToUniversalTime().ToString(\'o\'), $native.ExecutablePath, $native.CommandLine) -join "`n"',
-    ].join('; ');
-    for (const executable of [
-        'pwsh.exe',
-        'powershell.exe',
-    ]) {
-        try {
-            const {stdout} = await execFileForIdentity(executable, [
-                '-NoProfile',
-                '-NonInteractive',
-                '-Command',
-                command,
-            ], {
-                timeout: 2_000,
-                windowsHide: true,
-                maxBuffer: 16 * 1024,
-            });
-            const lines = String(stdout).trim().split(/\r?\n/u);
-            const startTime = normalizeProcessStartTime(lines.shift() ?? '');
-            const executablePath = lines.shift()?.trim();
-            const argumentsList = parseCommandLine(lines.join(' '));
-            if (startTime === null || executablePath === undefined || !isAbsolute(executablePath)) {
-                return null;
-            }
-            return {
-                executablePath: resolve(executablePath),
-                arguments: argumentsList,
-                startTime,
-            };
-        } catch {
-            // A machine may have only Windows PowerShell or only pwsh. Try
-            // the other host before failing closed.
-        }
-    }
-    return null;
-}
-
-async function readProcessIdentity(pid: number, platform: NodeJS.Platform) {
-    if (platform === 'linux') {
-        return readLinuxProcessIdentity(pid);
-    }
-    if (platform === 'darwin') {
-        return readMacProcessIdentity(pid);
-    }
-    if (platform === 'win32') {
-        return readWindowsProcessIdentity(pid);
-    }
-    return null;
-}
-
-// Windows has no in-process way to read a process's start time, and asking
-// PowerShell costs about a second for every command while usually finding a
-// short command already gone (#930). A child is created inside the spawn call
-// that has just returned, and this process started uptime() ago, so the clock
-// bounds both start times. The owner's is taken at module load, close to its
-// creation, so a later sleep or clock correction cannot skew it. The reaper
-// compares Windows start times within WINDOWS_START_TIME_TOLERANCE_MS; its one
-// PowerShell read per live entry runs at startup, off any command's path.
-const ownerStartedAtOnWindows = Date.now() - process.uptime() * 1_000;
-
-async function readRegistrationStartTime(pid: number) {
-    if (process.platform === 'win32') {
-        return new Date(pid === process.pid ? ownerStartedAtOnWindows : Date.now()).toISOString();
-    }
-    if (process.platform === 'darwin') {
-        return (await readMacProcess(pid))?.startTime ?? null;
-    }
-    return process.platform === 'linux' ? readLinuxStartTime(pid).catch(() => null) : null;
-}
-
-let ownerStartTimePromise: Promise<string | null> | null = null;
-
-function getOwnerStartTime() {
-    ownerStartTimePromise ??= readRegistrationStartTime(process.pid);
-    return ownerStartTimePromise;
-}
-
-function defaultIsProcessAlive(pid: number) {
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch (error) {
-        return !(error instanceof Error && (error as NodeJS.ErrnoException).code === 'ESRCH');
-    }
+    const result = v.safeParse(managedProcessRegistryEntrySchema, value);
+    return result.success ? result.output : null;
 }
 
 function normalizeIdentityPath(path: string, platform: NodeJS.Platform) {
@@ -310,17 +84,9 @@ function normalizeIdentityPath(path: string, platform: NodeJS.Platform) {
     return platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
-function startTimesMatch(recorded: string, observed: string, platform: NodeJS.Platform) {
-    if (platform !== 'win32') {
-        return recorded === observed;
-    }
-    const difference = Math.abs(Date.parse(recorded) - Date.parse(observed));
-    return difference <= WINDOWS_START_TIME_TOLERANCE_MS;
-}
-
 function processIdentityMatches(
     entry: IManagedProcessRegistryEntry,
-    identity: IManagedProcessIdentity,
+    identity: IProcessIdentity,
     platform: NodeJS.Platform,
 ) {
     const manifestIndex = identity.arguments.indexOf('--manifest');
@@ -350,14 +116,14 @@ export async function registerManagedProcess(
         scratchPath?: string;
     },
 ): Promise<IManagedProcessRegistration | null> {
-    const processStartTime = await readRegistrationStartTime(input.pid);
+    const processStartTime = await readProcessStartTime(input.pid);
     // Checked after the read: if the child had been reaped before it, the read
     // may name a process that reused the pid. A child that is gone needs no entry.
     if (input.hasExited()) return null;
-    if (processStartTime === null) {
+    if (!processStartTime || processStartTime === 'denied') {
         throw new Error(`Could not prove identity for managed process pid ${String(input.pid)}`);
     }
-    const ownerStartTime = await getOwnerStartTime();
+    const ownerStartTime = await getOwnStartTime();
     const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
     await mkdir(registryDirectory, {recursive: true});
     const entryPath = join(
@@ -446,7 +212,7 @@ export async function reapOrphanedManagedProcesses(
 ) {
     const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
     const log = options.log ?? (() => undefined);
-    const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
+    const isProcessAlive = options.isProcessAlive ?? isLiveProcess;
     const platform = options.platform ?? process.platform;
     const readIdentity = options.readProcessIdentity ?? ((pid: number) => readProcessIdentity(pid, platform));
     const terminate = options.terminateProcessTree ?? terminateProcessTree;
