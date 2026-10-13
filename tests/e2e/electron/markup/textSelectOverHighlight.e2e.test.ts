@@ -523,6 +523,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
             await page.keyboard.press('C');
             await page.keyboard.up('Control');
         }
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Hello');
         const copied = await page.evaluate(() => navigator.clipboard.readText());
         console.log(`STACKED_HIGHLIGHT_SELECTION ${JSON.stringify({
             stackedTargets,

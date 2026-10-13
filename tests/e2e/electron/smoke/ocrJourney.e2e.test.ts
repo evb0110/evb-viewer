@@ -839,6 +839,12 @@ if (process.versions.electron && process.type === 'browser') {
         expect(await page.$$eval('[role="dialog"]',dialogs=>dialogs.some(dialog=>(dialog as HTMLElement).checkVisibility()))).toBe(false);
         await clickAsUser(page,'#page-label-prefix-input');
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+A'});
+        // Menu activation acknowledges the request before selection reaches the field.
+        await waitForFunctionInPage(page, () => {
+            const input = document.activeElement;
+            return input instanceof HTMLInputElement && input.id === 'page-label-prefix-input'
+                && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+        });
         await page.keyboard.type('Late-');
         await clickAsUser(page,`${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
         await expect.poll(async()=>(await readToolbarPageIndicator(page)).primaryText,{timeout:15_000}).toBe('Late-1');

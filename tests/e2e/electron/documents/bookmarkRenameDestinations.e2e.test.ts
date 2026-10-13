@@ -20,7 +20,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
-    activateMenuItemAsUser, clickAsUser, clickFoundAsUser,
+    clickAsUser, clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     startElectronE2ESession, type IElectronE2ESession,
@@ -912,9 +912,7 @@ async function renameBookmarkAsUser(page: Page, title: string, nextTitle: string
     await page.waitForSelector('.bookmarks-context-menu .pdf-context-menu__action', {visible: true});
     await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
     await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
-    await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+A'});
-    // The menu command runs after the accelerator returns; typing before the
-    // selection lands would keep the old title's first character.
+    // The bookmark editor selects its title when it opens.
     await waitForFunctionInPage(page, () => {
         const input = document.activeElement;
         return input instanceof HTMLInputElement && input.selectionStart === 0 && input.selectionEnd === input.value.length;
