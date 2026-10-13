@@ -36,7 +36,6 @@ import {
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     clickVisibleToolbarButton,
@@ -51,6 +50,7 @@ import {
     waitForActiveDocumentSource,
     waitForPdfLoaded,
     waitForViewerInteractive,
+    setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
@@ -144,22 +144,6 @@ interface IRecentOpenTransitionResult {
         skeletonVisible: boolean;
     } | null;
     visibleTextAtDeadline: string;
-}
-
-async function setRememberPlaceAsUser(session: IElectronE2ESession, enabled: boolean) {
-    const previousTabId = await session.page.$eval('.editor-pane.is-active .tab.is-active', element => (element as HTMLElement).dataset.tabId!);
-    await clickAsUser(session.page, 'button[aria-label="Settings"]');
-    await session.page.waitForSelector('#settings-remember-document-view', {visible: true});
-    const checked = await session.page.$eval('#settings-remember-document-view', element => element.getAttribute('aria-checked') === 'true');
-    if (checked !== enabled) {
-        await clickAsUser(session.page, '#settings-remember-document-view');
-    }
-    await waitForFunctionInPage(session.page, async (expected: boolean) => {
-        const api = (window as IE2EWindow).electronAPI;
-        return (await api?.settings.get())?.rememberDocumentView === expected;
-    }, {timeout: RECENT_ROW_TIMEOUT_MS}, enabled);
-    await clickAsUser(session.page, '.editor-pane.is-active .start-rail nav[aria-label="Start"] button');
-    await clickAsUser(session.page, `.tab[data-tab-id="${previousTabId}"]`);
 }
 
 async function waitForOpenCheckpoint(session: IElectronE2ESession, sourcePath: string, page: number, zoom: string) {

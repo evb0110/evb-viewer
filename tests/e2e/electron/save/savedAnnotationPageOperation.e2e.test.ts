@@ -1,5 +1,9 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import {
+    mkdtemp, readFile, rm,
+} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { Page } from 'puppeteer-core';
 import {
     PDFArray,
@@ -77,11 +81,13 @@ it('materializes edits, deletion and a moved saved note before deleting an earli
         'saved-annotation-page-operation.pdf',
         8,
     );
-    let session = await startElectronE2ESession('e2e-saved-annotation-page-operation', {
-        initialOpenPaths: [path],
-        extraEnv: {EVB_APP_STATE_DIR: resolve('.devkit/tmp/pageopdone-regression-state')},
-    });
+    const stateDirectory = await mkdtemp(join(tmpdir(), 'saved-annotation-page-operation-'));
+    let session: IElectronE2ESession | undefined;
     try {
+        session = await startElectronE2ESession('e2e-saved-annotation-page-operation', {
+            initialOpenPaths: [path],
+            extraEnv: {EVB_APP_STATE_DIR: join(stateDirectory, 'initial')},
+        });
         const page = session.page;
         await waitForViewerInteractive(page);
         await goToPageViaToolbar(page, 5);
@@ -171,7 +177,7 @@ it('materializes edits, deletion and a moved saved note before deleting an earli
         await session.stop();
         session = await startElectronE2ESession('e2e-saved-annotation-page-operation-reopen', {
             initialOpenPaths: [path],
-            extraEnv: {EVB_APP_STATE_DIR: resolve('.devkit/tmp/pageopdone-regression-reopen-state')},
+            extraEnv: {EVB_APP_STATE_DIR: join(stateDirectory, 'reopen')},
         });
         await waitForViewerInteractive(session.page);
         await clickAsUser(session.page, '.page-controls .page-controls-item:nth-child(1) button');
@@ -198,6 +204,10 @@ it('materializes edits, deletion and a moved saved note before deleting an earli
         ]));
         expect(await readAnnotations(path)).toEqual(saved);
     } finally {
-        await session.stop();
+        await session?.stop();
+        await rm(stateDirectory, {
+            recursive: true,
+            force: true,
+        });
     }
 }, 120_000);

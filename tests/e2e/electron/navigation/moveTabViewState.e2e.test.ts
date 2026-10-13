@@ -4,6 +4,7 @@ import {
 import {readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
+    delimiter,
     join, resolve,
 } from 'node:path';
 import {deflateSync} from 'node:zlib';
@@ -24,6 +25,7 @@ import {
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage, waitForViewerInteractive,
+    setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     installPageEvaluationShims, waitForFunctionInPage,
@@ -875,13 +877,7 @@ describe('Move Tab to New Window view state', () => {
 
     it('keeps the moved view over the place Recent remembers for its document', async () => {
         const session = sessions.getSession();
-        await openSettingsView(session.page, 'en');
-        await session.page.waitForSelector('#settings-remember-document-view', {visible: true});
-        await clickAsUser(session.page, '#settings-remember-document-view');
-        await waitForFunctionInPage(session.page, async () => (
-            (await (window as IE2EWindow).electronAPI?.settings.get())?.rememberDocumentView === true
-        ), {timeout: 15_000});
-        await clickAsUser(session.page, '.editor-pane.is-active .start-rail nav[aria-label="Start"] button');
+        await setRememberPlaceAsUser(session, true);
         const appTempDirectory = electronAppTempDirPath(session.name);
         mkdirSync(appTempDirectory, {recursive: true});
         outputDirectory = realpathSync(mkdtempSync(join(appTempDirectory, 'tab-view-transfer-recent-')));
@@ -1159,7 +1155,12 @@ describe('Settings changes reach every open window', () => {
             extraEnv: {
                 EVB_E2E_OPEN_DIALOG_PATH: replacementDialogPath,
                 HOME: isolatedHome,
-                PATH: '/usr/bin:/bin',
+                PATH: process.platform === 'win32'
+                    ? [
+                        join(process.env.SystemRoot ?? 'C:\\Windows', 'System32'),
+                        process.env.SystemRoot ?? 'C:\\Windows',
+                    ].join(delimiter)
+                    : '/usr/bin:/bin',
                 SHELL: join(isolatedHome, 'no-shell'),
                 CODEX_CLI_PATH: join(isolatedHome, 'no-codex'),
             },

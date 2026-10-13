@@ -589,6 +589,22 @@ export async function openDjvuInApp(page: Page, djvuPath: string, timeoutMs = DE
     await openPathInApp(page, djvuPath, waitForDjvuLoaded, timeoutMs);
 }
 
+export async function setRememberPlaceAsUser(session: IElectronE2ESession, enabled: boolean) {
+    const previousTabId = await session.page.$eval('.editor-pane.is-active .tab.is-active', element => (element as HTMLElement).dataset.tabId!);
+    await clickAsUser(session.page, 'button[aria-label="Settings"]');
+    await session.page.waitForSelector('#settings-remember-document-view', {visible: true});
+    const checked = await session.page.$eval('#settings-remember-document-view', element => element.getAttribute('aria-checked') === 'true');
+    if (checked !== enabled) {
+        await clickAsUser(session.page, '#settings-remember-document-view');
+    }
+    await waitForFunctionInPage(session.page, async (expected: boolean) => {
+        const api = (window as IE2EWindow).electronAPI;
+        return (await api?.settings.get())?.rememberDocumentView === expected;
+    }, {timeout: 15_000}, enabled);
+    await clickAsUser(session.page, '.editor-pane.is-active .start-rail nav[aria-label="Start"] button');
+    await clickAsUser(session.page, `.tab[data-tab-id="${previousTabId}"]`);
+}
+
 export async function setTabMemoryPolicyForE2E(
     page: Page,
     policy: 'conservative' | 'aggressive',

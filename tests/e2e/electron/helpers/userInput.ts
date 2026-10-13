@@ -292,7 +292,12 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
         });
         // Wheel acknowledgement can precede scrolling. Wait for its effect,
         // then for the target's box to stop moving before aiming again.
-        await (await waitForTargetProbe(page, target, readTargetAtRest, deadline, beforeWheel)).dispose();
+        try {
+            await (await waitForTargetProbe(page, target, readTargetAtRest, deadline, beforeWheel)).dispose();
+        } catch (error) {
+            const reason = await evaluateTargetProbe(page, target, describeObstruction).catch(() => 'page unavailable');
+            throw new Error(`A person could not scroll ${describeTarget(target)} into view: wheel did not move or settle the target; ${reason}`, {cause: error});
+        }
     }
 }
 

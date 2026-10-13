@@ -1,5 +1,9 @@
 import type * as electronRunLaunchConfig from '@scripts/electron-run/electronRunLaunchConfig';
 import {join} from 'node:path';
+import {
+    mkdtemp, rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {findFreePort} from '@scripts/electron-run/electronRunProcessTree';
 import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
@@ -7,7 +11,7 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {
-    describe, expect, it, vi,
+    afterAll, describe, expect, it, vi,
 } from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
@@ -97,6 +101,11 @@ async function connectMain(port: number) {
 }
 
 const inspectorPort = await findFreePort();
+const stateDirectory = await mkdtemp(join(tmpdir(), 'select-all-state-'));
+afterAll(() => rm(stateDirectory, {
+    recursive: true,
+    force: true,
+}));
 
 
 // These are pointer fixtures inside the real hidden window. The helper is the
@@ -298,7 +307,7 @@ describe('Select All input ordering', () => {
     const sessions = createElectronE2ESessionFixture({
         sessionName: () => `e2e-select-all-ordering-${Date.now()}`,
         extraEnv: {
-            EVB_APP_STATE_DIR: join(process.cwd(), '.devkit/selectall-regression/app-state'),
+            EVB_APP_STATE_DIR: stateDirectory,
             EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: `--inspect=127.0.0.1:${inspectorPort}`,
         },
     });

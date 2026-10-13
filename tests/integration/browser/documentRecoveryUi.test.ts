@@ -11,7 +11,7 @@ import {
     describe, expect, it,
 } from 'vitest';
 import {
-    lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
+    openPdfFromChooser, readRecoveries, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -52,20 +52,7 @@ describe('browser document lifecycle UI', () => {
         const context = await lifecycle.browser.newContext();
         try {
             const page = await context.newPage();
-            await page.addInitScript(() => {
-                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                Reflect.set(window, 'showSaveFilePicker', undefined);
-                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-            });
-            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
-            await waitForOpenFileReady(page);
-            keepFileChooserInterceptionEnabled(page);
-            const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
-            await (await chooser).setFiles({
+            await openPdfFromChooser(page, {
                 name: 'note-over-highlight.pdf',
                 mimeType: 'application/pdf',
                 buffer: Buffer.from(await pdf.save()),
@@ -137,20 +124,7 @@ describe('browser document lifecycle UI', () => {
                     body: body.replace(marker, `${marker} ${hold}`),
                 });
             });
-            await page.addInitScript(() => {
-                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                Reflect.set(window, 'showSaveFilePicker', undefined);
-                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-            });
-            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
-            await waitForOpenFileReady(page);
-            keepFileChooserInterceptionEnabled(page);
-            const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
-            await (await chooser).setFiles({
+            await openPdfFromChooser(page, {
                 name: 'pending-layers-note.pdf',
                 mimeType: 'application/pdf',
                 buffer: Buffer.from(await pdf.save()),
@@ -210,20 +184,7 @@ describe('browser document lifecycle UI', () => {
         try {
             const page = await context.newPage();
             problems = collectConsoleProblems(page);
-            await page.addInitScript(() => {
-                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                Reflect.set(window, 'showSaveFilePicker', undefined);
-                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-            });
-            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
-            await waitForOpenFileReady(page);
-            keepFileChooserInterceptionEnabled(page);
-            const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
-            await (await chooser).setFiles({
+            await openPdfFromChooser(page, {
                 name: 'recovery-reading.pdf',
                 mimeType: 'application/pdf',
                 buffer: source,
@@ -248,45 +209,16 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
 
-            async function readRecovery() {
-                const tab = await page.evaluate(async () => {
-                    const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                        const request = indexedDB.open('evb-viewer-browser-documents');
-                        request.onsuccess = () => resolveDb(request.result);
-                        request.onerror = () => rejectDb(request.error);
-                    });
-                    try {
-                        const records = await new Promise<Array<{checkpoint: {tabs: Array<{
-                            isDirty: boolean;
-                            currentPage: number | null;
-                            zoom: number | null;
-                            workingCopyRef: string | null;
-                            annotationRecovery?: {payload?: {drafts: Array<{text: string}>}}
-                        }>}}>>((resolveRows, rejectRows) => {
-                            const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
-                            request.onsuccess = () => resolveRows(request.result);
-                            request.onerror = () => rejectRows(request.error);
-                        });
-                        const tab = records.flatMap(record => record.checkpoint.tabs).find(candidate => candidate.isDirty);
-                        return tab;
-                    } finally {db.close();}
-                });
-                return {
-                    tab,
-                    bytes: tab?.workingCopyRef ? await readPersistedDocumentBytes(page, tab.workingCopyRef) : [],
+            const readRecovery = async () => (await readRecoveries(page)).find(record => record.tab)
+                ?? {
+                    tab: undefined,
+                    bytes: [],
+                    notes: new Set<string>(),
                 };
-            }
-            async function savedNoteTexts(recovery: Awaited<ReturnType<typeof readRecovery>>) {
-                if (!recovery.bytes.length) return [];
-                const saved = await PDFDocument.load(Uint8Array.from(recovery.bytes));
-                const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
-                return Array.from({length: annots?.size() ?? 0}, (_, index) =>
-                    annots!.lookup(index, PDFDict).lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText());
-            }
             let initial: Awaited<ReturnType<typeof readRecovery>> | undefined;
             await expect.poll(async () => {
                 const recovery = await readRecovery();
-                const texts = await savedNoteTexts(recovery);
+                const texts = Array.from(recovery.notes);
                 if (!texts.includes(acceptedText)) return false;
                 initial = recovery;
                 return true;
@@ -331,7 +263,7 @@ describe('browser document lifecycle UI', () => {
             }).click();
             const draft = 'Protected newer draft after reading';
             await input.fill(draft);
-            await expect.poll(async () => savedNoteTexts(await readRecovery()), {timeout: 15_000}).toContain(draft);
+            await expect.poll(async () => Array.from((await readRecovery()).notes), {timeout: 15_000}).toContain(draft);
             const edited = await readRecovery();
             expect(edited.tab?.workingCopyRef).not.toBe(initial!.tab?.workingCopyRef);
             observations.push({
@@ -456,26 +388,6 @@ describe('browser document lifecycle UI', () => {
                         name: 'Write annotation note',
                         exact: true,
                     });
-                    async function readCheckpoint() {
-                        return page.evaluate(async () => {
-                            const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                                const request = indexedDB.open('evb-viewer-browser-documents');
-                                request.onsuccess = () => resolveDb(request.result);
-                                request.onerror = () => rejectDb(request.error);
-                            });
-                            try {
-                                return await new Promise<Array<{checkpoint: {tabs: Array<{
-                                    isDirty: boolean;
-                                    workingCopyRef: string | null;
-                                    annotationRecovery?: {payload?: {drafts: Array<{text: string}>}}
-                                }>}}>>((resolveRows, rejectRows) => {
-                                    const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
-                                    request.onsuccess = () => resolveRows(request.result);
-                                    request.onerror = () => rejectRows(request.error);
-                                });
-                            } finally {db.close();}
-                        });
-                    }
                     if (retained) {
                         await input.fill('Previously accepted text');
                         await page.getByRole('button', {
@@ -483,26 +395,14 @@ describe('browser document lifecycle UI', () => {
                             exact: true,
                         }).click();
                         await expect.poll(async () => {
-                            const refs = (await readCheckpoint()).flatMap(record => record.checkpoint.tabs
-                                .filter(tab => tab.isDirty && tab.workingCopyRef)
-                                .map(tab => tab.workingCopyRef!));
-                            const copies = await Promise.all(refs.map(ref => readPersistedDocumentBytes(page, ref)));
-                            for (const copy of copies) {
-                                if (!copy.length) continue;
-                                const saved = await PDFDocument.load(Uint8Array.from(copy));
-                                const annots = saved.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
-                                for (let index = 0; index < (annots?.size() ?? 0); index += 1) {
-                                    const annotation = annots!.lookup(index, PDFDict);
-                                    if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
-                                    const text = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText();
-                                    if (text === 'Previously accepted text') {
-                                        observations.push({
-                                            retained,
-                                            retainedSavedText: text,
-                                        });
-                                        writeFileSync(resolve(evidenceDir, 'retained-before-failure.pdf'), Uint8Array.from(copy));
-                                        return true;
-                                    }
+                            for (const recovery of await readRecoveries(page, '/Text')) {
+                                if (recovery.notes.has('Previously accepted text')) {
+                                    observations.push({
+                                        retained,
+                                        retainedSavedText: 'Previously accepted text',
+                                    });
+                                    writeFileSync(resolve(evidenceDir, 'retained-before-failure.pdf'), Uint8Array.from(recovery.bytes));
+                                    return true;
                                 }
                             }
                             return false;
@@ -518,7 +418,7 @@ describe('browser document lifecycle UI', () => {
                     await page.waitForFunction(() => document.querySelector('.app-toast-failure')?.textContent?.includes('1108 sustained note update rejection'));
                     await page.screenshot({path: resolve(evidenceDir, `failure-${String(retained)}.png`)});
                     await expect.poll(async () => {
-                        const records = await readCheckpoint();
+                        const records = await readRecoveries(page);
                         observations.push({
                             retained,
                             records,

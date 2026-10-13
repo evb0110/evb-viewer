@@ -14,7 +14,7 @@ import {
 } from 'node:path';
 import {build} from 'esbuild';
 import {chromium} from 'playwright';
-import {clickCenter} from './documentLifecycleTestHelpers';
+import {clickCenter} from './clickCenter';
 import {
     PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
 } from 'pdf-lib';

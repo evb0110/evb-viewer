@@ -21,6 +21,7 @@ import {
     join,
 } from 'node:path';
 import {promisify} from 'node:util';
+import {pathToFileURL} from 'node:url';
 import {
     afterEach,
     describe,
@@ -1072,8 +1073,6 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         pdf.catalog.set(PDFName.of('RefreshRacePadding'), PDFString.of('A'.repeat(1024 * 1024)));
         const beforeSave = Buffer.from(await pdf.save({useObjectStreams: false}));
         await writeFile(pdfPath, beforeSave);
-        const mainPath = join(process.cwd(), 'dist-electron', 'main.js');
-        const main = await readFile(mainPath);
         const seamPath = createFixturePath(`save-refresh-seam-${Date.now()}.mjs`);
         const workingPathFile = `${seamPath}.working`;
         const externalProof = `${seamPath}.external`;
@@ -1107,14 +1106,11 @@ fs.stat = async (path, ...args) => {
 };
 syncBuiltinESMExports();
 `);
-        await writeFile(mainPath, Buffer.concat([
-            Buffer.from(`import ${JSON.stringify(`file://${seamPath}`)};\n`),
-            main,
-        ]));
         try {
             session = await startElectronE2ESession(`e2e-save-refresh-race-${Date.now()}`, {
                 clean: true,
                 initialOpenPaths: [pdfPath],
+                extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(pathToFileURL(seamPath).href)}`},
             });
             const {page} = session;
             await waitForOpenedPdf(page, pdfPath);
@@ -1146,8 +1142,11 @@ syncBuiltinESMExports();
         } finally {
             await session?.stop();
             session = null;
-            await writeFile(mainPath, main);
-            await rm(seamPath, {force: true});
+            await Promise.all([
+                seamPath,
+                workingPathFile,
+                externalProof,
+            ].map(path => rm(path, {force: true})));
         }
     }, E2E_TIMEOUT_MS);
 
@@ -1156,8 +1155,6 @@ syncBuiltinESMExports();
         const pdf = await PDFDocument.load(await readFile(GENERATED_TEXT_FIXTURE));
         pdf.catalog.set(PDFName.of('RefreshRacePadding'), PDFString.of('A'.repeat(1024 * 1024)));
         await writeFile(pdfPath, await pdf.save({useObjectStreams: false}));
-        const mainPath = join(process.cwd(), 'dist-electron', 'main.js');
-        const main = await readFile(mainPath);
         const seamPath = createFixturePath(`save-after-commit-seam-${Date.now()}.mjs`);
         const workingPathFile = `${seamPath}.working`;
         const externalProof = `${seamPath}.external`;
@@ -1192,14 +1189,11 @@ fs.rename = async (source, destination) => {
 };
 syncBuiltinESMExports();
 `);
-        await writeFile(mainPath, Buffer.concat([
-            Buffer.from(`import ${JSON.stringify(`file://${seamPath}`)};\n`),
-            main,
-        ]));
         try {
             session = await startElectronE2ESession(`e2e-save-after-commit-race-${Date.now()}`, {
                 clean: true,
                 initialOpenPaths: [pdfPath],
+                extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(pathToFileURL(seamPath).href)}`},
             });
             const {page} = session;
             await waitForOpenedPdf(page, pdfPath);
@@ -1234,8 +1228,11 @@ syncBuiltinESMExports();
         } finally {
             await session?.stop();
             session = null;
-            await writeFile(mainPath, main);
-            await rm(seamPath, {force: true});
+            await Promise.all([
+                seamPath,
+                workingPathFile,
+                externalProof,
+            ].map(path => rm(path, {force: true})));
         }
     }, E2E_TIMEOUT_MS);
 

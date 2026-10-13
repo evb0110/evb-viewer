@@ -34,7 +34,6 @@ import {
 } from '@tests/e2e/electron/helpers/userInput';
 import { createMixedPageSizeTextFixturePdf } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     goToPageViaToolbar,
@@ -43,6 +42,7 @@ import {
     readHeldShell,
     waitForPdfLoaded,
     waitForToolbarCurrentPage,
+    setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
     evaluateInPage,
@@ -66,9 +66,7 @@ const sha256 = (path: string) => createHash('sha256').update(readFileSync(path))
 // page shell on the rect the drawn page takes. Fit Width fits the widest
 // turned page, 900 wide, not the current page's 820.
 async function expectQuarterTurnedFitWidthReopenOnDrawnRect(session: IElectronE2ESession, label: string) {
-    await evaluateInPage(session.page, async () => {
-        await (window as IE2EWindow).electronAPI!.settings.save({rememberDocumentView: true});
-    });
+    await setRememberPlaceAsUser(session, true);
     const fixturePath = await createMixedPageSizeTextFixturePdf(`recent-fallback-${label}-${Date.now()}.pdf`);
     const fixtureDocumentRef = requireDocumentRef(fixturePath);
     const sourceHash = sha256(fixturePath);

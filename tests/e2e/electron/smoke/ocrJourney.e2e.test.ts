@@ -125,6 +125,46 @@ async function waitForBookmarkRow(page: Page, title: string) {
         .some(row => row.checkVisibility() && row.textContent?.trim() === expected), {timeout: 30_000}, title);
 }
 
+async function acceptBookmarkAndPageLabel(page: Page) {
+    await openDocumentSidebarTab(page, 'Bookmarks');
+    await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
+    await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
+    await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
+    await page.keyboard.type(ACCEPTED_BOOKMARK);
+    await page.keyboard.press('Enter');
+    await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+
+    await openDocumentSidebarTab(page, 'Pages');
+    const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
+    if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+        await clickAsUser(page, disclosure);
+    }
+    await clickAsUser(page, '#page-label-prefix-input');
+    await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
+    await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
+    await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
+        .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+}
+
+async function completeOcrFromMenu(page: Page) {
+    await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
+    const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
+        item.textContent?.trim() === 'OCR'
+        && !item.hasAttribute('data-disabled')
+        && item.getAttribute('aria-disabled') !== 'true'
+        && item.checkVisibility()
+    )), {timeout: 30_000});
+    await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
+    await page.waitForSelector('[role="dialog"]', {visible: true});
+    await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+    await waitForFunctionInPage(page, () => (
+        document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
+    ), {timeout: OCR_TIMEOUT_MS});
+    await clickVisibleButton(page, '[role="dialog"]', 'Close');
+    await page.waitForSelector('[role="dialog"]', {hidden: true});
+    await waitForViewerInteractive(page, 90_000);
+}
+
 async function waitForTextLayerWord(page: Page) {
     await waitForFunctionInPage(page, (host: string, word: string) => (
         document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
@@ -621,41 +661,9 @@ if (process.versions.electron && process.type === 'browser') {
             700,
         ]);
 
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
-        await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
-        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
-        await page.keyboard.type(ACCEPTED_BOOKMARK);
-        await page.keyboard.press('Enter');
-        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+        await acceptBookmarkAndPageLabel(page);
 
-        await openDocumentSidebarTab(page, 'Pages');
-        const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
-            await clickAsUser(page, disclosure);
-        }
-        await clickAsUser(page, '#page-label-prefix-input');
-        await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
-        await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
-        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
-            .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
-
-        await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
-        const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
-            item.textContent?.trim() === 'OCR'
-            && !item.hasAttribute('data-disabled')
-            && item.getAttribute('aria-disabled') !== 'true'
-            && item.checkVisibility()
-        )), {timeout: 30_000});
-        await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
-        await page.waitForSelector('[role="dialog"]', {visible: true});
-        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-        await waitForFunctionInPage(page, () => (
-            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-        ), {timeout: OCR_TIMEOUT_MS});
-        await clickVisibleButton(page, '[role="dialog"]', 'Close');
-        await page.waitForSelector('[role="dialog"]', {hidden: true});
-        await waitForViewerInteractive(page, 90_000);
+        await completeOcrFromMenu(page);
 
         await waitForTextLayerWord(page);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
@@ -795,24 +803,7 @@ if (process.versions.electron && process.type === 'browser') {
             700,
         ]);
 
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
-        await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
-        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
-        await page.keyboard.type(ACCEPTED_BOOKMARK);
-        await page.keyboard.press('Enter');
-        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
-
-        await openDocumentSidebarTab(page, 'Pages');
-        const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
-            await clickAsUser(page, disclosure);
-        }
-        await clickAsUser(page, '#page-label-prefix-input');
-        await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
-        await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
-        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
-            .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+        await acceptBookmarkAndPageLabel(page);
 
         const running=callWorkspaceCommand(page,'runAgentAction',[
             'ocr.start',
@@ -862,6 +853,7 @@ if (process.versions.electron && process.type === 'browser') {
         const displayed=(await readToolbarPageIndicator(page)).primaryText;
         await saveViaVisibleToolbar(page,90_000,sourcePath);
         const labels=(await readPdfCatalogWithPdfjs(sourcePath)).pageLabels;
+        await mkdir(join(process.cwd(), '.devkit/core3-r3'), {recursive: true});
         await copyFile(sourcePath,join(process.cwd(),'.devkit/core3-r3/late-ocr-saved.pdf'));
         await page.screenshot({path:join(process.cwd(),'.devkit/core3-r3/late-ocr.png')});
         await clickVisibleButton(page,'body','Close Tab');
@@ -894,41 +886,9 @@ if (process.versions.electron && process.type === 'browser') {
             700,
         ]);
 
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
-        await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
-        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
-        await page.keyboard.type(ACCEPTED_BOOKMARK);
-        await page.keyboard.press('Enter');
-        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+        await acceptBookmarkAndPageLabel(page);
 
-        await openDocumentSidebarTab(page, 'Pages');
-        const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
-            await clickAsUser(page, disclosure);
-        }
-        await clickAsUser(page, '#page-label-prefix-input');
-        await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
-        await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
-        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
-            .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
-
-        await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
-        const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
-            item.textContent?.trim() === 'OCR'
-            && !item.hasAttribute('data-disabled')
-            && item.getAttribute('aria-disabled') !== 'true'
-            && item.checkVisibility()
-        )), {timeout: 30_000});
-        await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
-        await page.waitForSelector('[role="dialog"]', {visible: true});
-        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-        await waitForFunctionInPage(page, () => (
-            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-        ), {timeout: OCR_TIMEOUT_MS});
-        await clickVisibleButton(page, '[role="dialog"]', 'Close');
-        await page.waitForSelector('[role="dialog"]', {hidden: true});
-        await waitForViewerInteractive(page, 90_000);
+        await completeOcrFromMenu(page);
 
         await waitForTextLayerWord(page);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
@@ -944,6 +904,7 @@ if (process.versions.electron && process.type === 'browser') {
         await waitForViewerInteractive(page, 90_000);
         const afterUndo = (await readToolbarPageIndicator(page)).primaryText;
         const rows = await page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.filter(row => (row as HTMLElement).checkVisibility()).map(row => row.textContent?.trim()));
+        await mkdir(join(process.cwd(), '.devkit/core3-r3'), {recursive: true});
         await page.screenshot({path: join(process.cwd(), '.devkit/core3-r3/undo-ocr.png')});
         console.info('REVIEW_UNDO '+JSON.stringify({
             afterUndo,
@@ -984,41 +945,9 @@ if (process.versions.electron && process.type === 'browser') {
             700,
         ]);
 
-        await openDocumentSidebarTab(page, 'Bookmarks');
-        await clickAsUser(page, `${ACTIVE_HOST} .document-bookmarks-toolbar__actions button`);
-        await clickVisibleButton(page, ACTIVE_HOST, 'Add first bookmark');
-        await page.waitForSelector('.pdf-bookmark-item-input', {visible: true});
-        await page.keyboard.type(ACCEPTED_BOOKMARK);
-        await page.keyboard.press('Enter');
-        await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
+        await acceptBookmarkAndPageLabel(page);
 
-        await openDocumentSidebarTab(page, 'Pages');
-        const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
-            await clickAsUser(page, disclosure);
-        }
-        await clickAsUser(page, '#page-label-prefix-input');
-        await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
-        await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
-        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
-            .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
-
-        await clickVisibleButton(page, '#editor-global-toolbar-host', 'More tools');
-        const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
-            item.textContent?.trim() === 'OCR'
-            && !item.hasAttribute('data-disabled')
-            && item.getAttribute('aria-disabled') !== 'true'
-            && item.checkVisibility()
-        )), {timeout: 30_000});
-        await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
-        await page.waitForSelector('[role="dialog"]', {visible: true});
-        await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-        await waitForFunctionInPage(page, () => (
-            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-        ), {timeout: OCR_TIMEOUT_MS});
-        await clickVisibleButton(page, '[role="dialog"]', 'Close');
-        await page.waitForSelector('[role="dialog"]', {hidden: true});
-        await waitForViewerInteractive(page, 90_000);
+        await completeOcrFromMenu(page);
 
         await waitForTextLayerWord(page);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);

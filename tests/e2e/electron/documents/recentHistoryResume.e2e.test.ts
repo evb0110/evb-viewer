@@ -6,8 +6,6 @@ import {
     it,
     onTestFinished,
 } from 'vitest';
-import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
-import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     createMultiPageTextFixturePdf,
@@ -26,6 +24,7 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
     waitForToolbarCurrentPage,
+    setRememberPlaceAsUser,
 } from '@tests/e2e/electron/helpers/viewerCore';
 
 import {
@@ -233,13 +232,7 @@ async function runResumeAfterHistoryMutation(mutation: THistoryMutation) {
 describe('recent history and retained PDF tabs', () => {
     it('preserves the reading page after Save changes and close', async () => {
         const session = sessionFixture.getSession();
-        await clickAsUser(session.page, 'button[aria-label="Settings"]');
-        await session.page.waitForSelector('#settings-remember-document-view', {visible: true});
-        await clickAsUser(session.page, '#settings-remember-document-view');
-        await waitForFunctionInPage(session.page, async () => (
-            (await (window as IE2EWindow).electronAPI?.settings.get())?.rememberDocumentView === true
-        ), {timeout: 15_000});
-        await clickAsUser(session.page, '.editor-pane.is-active .start-rail nav[aria-label="Start"] button');
+        await setRememberPlaceAsUser(session, true);
         const path = await createMultiPageTextFixturePdf(`recent-dirty-save-close-${Date.now()}.pdf`, 40);
         onTestFinished(() => rmSync(path, {force: true}));
         await openPdfInApp(session.page, path);

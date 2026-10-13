@@ -7,9 +7,7 @@ import {
 import {
     basename, resolve,
 } from 'node:path';
-import {
-    PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
-} from 'pdf-lib';
+import {PDFDocument} from 'pdf-lib';
 import {chromium} from 'playwright';
 import type {
     Page, Download,
@@ -19,7 +17,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, freezeWindow, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts,
+    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, freezeWindow, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -33,38 +31,14 @@ describe('browser document lifecycle UI', () => {
                 width: 1600,
                 height: 900,
             }});
-            await page.addInitScript(() => {
-                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                Reflect.set(window, 'showSaveFilePicker', undefined);
-                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-            });
-            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
-            await waitForOpenFileReady(page);
-            keepFileChooserInterceptionEnabled(page);
-            const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().click();
             const fixture = resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf');
-            await (await chooser).setFiles(fixture);
+            await openPdfFromChooser(page, fixture);
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
-            await page.getByRole('button', {
-                name: 'Place a sticky note on the page.',
-                exact: true,
-            }).click();
-            const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
-            if (!bounds) throw new Error('The first PDF page is not visible');
-            await page.mouse.click(bounds.x + 200, bounds.y + 200);
             const text = 'Accepted note survives information routes';
-            await page.getByRole('textbox', {
-                name: 'Write annotation note',
-                exact: true,
-            }).fill(text);
-            await page.getByRole('button', {
-                name: 'Minimize note',
-                exact: true,
-            }).click();
+            await addNote(page, text, {
+                x: 200,
+                y: 200,
+            });
             await page.getByRole('button', {
                 name: 'Open Note',
                 exact: true,
@@ -102,14 +76,7 @@ describe('browser document lifecycle UI', () => {
                     await download.saveAs(path);
                     const bytes = readFileSync(path);
                     const pdf = await PDFDocument.load(bytes);
-                    for (const pdfPage of pdf.getPages()) {
-                        const annotations = pdfPage.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
-                        for (let i = 0; i < (annotations?.size() ?? 0); i += 1) {
-                            const annotation = annotations!.lookup(i, PDFDict);
-                            const contents = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString);
-                            if (contents) savedContents.push(contents.decodeText());
-                        }
-                    }
+                    savedContents.push(...noteTexts(pdf));
                     console.info('SAVE_AS_BYTES', JSON.stringify({
                         view,
                         path,
@@ -903,13 +870,7 @@ it.each([
         const creator = page;
         activePage = page;
         observations.push({problems: collectConsoleProblems(page)});
-        await page.addInitScript(()=>{Reflect.set(window,'__allowRendererFileOpenForAutomation',()=>true);Reflect.set(window,'showSaveFilePicker',undefined);window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode','input');});
-        await page.goto(lifecycle.origin,{waitUntil:'domcontentloaded'});await waitForOpenFileReady(page);keepFileChooserInterceptionEnabled(page);
-        const chooser=page.waitForEvent('filechooser');await page.getByRole('button',{
-            name:'Open File',
-            exact:true,
-        }).first().click();
-        await (await chooser).setFiles({
+        await openPdfFromChooser(page, {
             name:'review-saved.pdf',
             mimeType:'application/pdf',
             buffer:readFileSync(resolve(process.cwd(),'tests/fixtures/electron/generated-text.pdf')),

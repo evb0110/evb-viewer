@@ -11,11 +11,13 @@ import {
 } from 'pdf-lib';
 import {chromium} from 'playwright';
 import type {
-    Browser, BrowserContext, Page,
+    Browser, BrowserContext, Page, FileChooser,
 } from 'playwright';
 import {
     afterAll, beforeAll, expect,
 } from 'vitest';
+
+export {clickCenter} from './clickCenter';
 
 let devServer: ChildProcess | null = null;
 
@@ -126,6 +128,23 @@ export function keepFileChooserInterceptionEnabled(page: Page) {
     page.on('filechooser', () => {});
 }
 
+export async function openPdfFromChooser(page: Page, fixture: Parameters<FileChooser['setFiles']>[0]) {
+    await page.addInitScript(() => {
+        Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+        Reflect.set(window, 'showSaveFilePicker', undefined);
+        window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+    });
+    await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+    await waitForOpenFileReady(page);
+    keepFileChooserInterceptionEnabled(page);
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', {
+        name: 'Open File',
+        exact: true,
+    }).first().click();
+    await (await chooser).setFiles(fixture);
+}
+
 // Headless pages ignore Page.setWebLifecycleState: they stay visible and keep
 // running. A window is frozen instead by pausing its script, which returns
 // only once the page has paused. Until the returned resume runs, none of its
@@ -218,15 +237,19 @@ export async function addNote(page: Page, text: string, position: {
     }).click();
 }
 
-export function noteTexts(document: PDFDocument) {
-    const annots = document.getPage(0).node.lookupMaybe(PDFName.of('Annots'), PDFArray);
-    return new Set(Array.from({length: annots?.size() ?? 0}, (_, index) =>
-        annots!.lookup(index, PDFDict).lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())
-        .filter((text): text is string => text !== undefined));
+export function noteTexts(document: PDFDocument, subtype?: '/Text') {
+    return new Set(document.getPages().flatMap(page => {
+        const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
+        return Array.from({length: annots?.size() ?? 0}, (_, index) => {
+            const annotation = annots!.lookup(index, PDFDict);
+            if (subtype && annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== subtype) return undefined;
+            return annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText();
+        }).filter((text): text is string => text !== undefined);
+    }));
 }
 
 // Each recovery record's owner and the notes in its recovery bytes.
-export async function readRecoveries(page: Page) {
+export async function readRecoveries(page: Page, subtype?: '/Text') {
     const records = await page.evaluate(async () => {
         const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
             const request = indexedDB.open('evb-viewer-browser-documents');
@@ -238,7 +261,10 @@ export async function readRecoveries(page: Page) {
                 ownerId: string;
                 checkpoint: {tabs: Array<{
                     isDirty: boolean;
-                    workingCopyRef: string | null
+                    workingCopyRef: string | null;
+                    currentPage: number | null;
+                    zoom: number | null;
+                    annotationRecovery?: {payload?: {drafts: Array<{text: string}>}}
                 }>}
             }>>((resolveRows, rejectRows) => {
                 const request = db.transaction('workspace-recovery', 'readonly').objectStore('workspace-recovery').getAll();
@@ -247,18 +273,23 @@ export async function readRecoveries(page: Page) {
             });
             return rows.map(row => ({
                 ownerId: row.ownerId,
-                ref: row.checkpoint.tabs.find(tab => tab.isDirty)?.workingCopyRef ?? null,
+                checkpoint: row.checkpoint,
+                tab: row.checkpoint.tabs.find(tab => tab.isDirty),
             }));
         } finally {
             db.close();
         }
     });
-    return Promise.all(records.map(async record => ({
-        ownerId: record.ownerId,
-        notes: record.ref
-            ? noteTexts(await PDFDocument.load(Uint8Array.from(await readPersistedDocumentBytes(page, record.ref))))
-            : new Set<string>(),
-    })));
+    return Promise.all(records.map(async record => {
+        const bytes = record.tab?.workingCopyRef
+            ? await readPersistedDocumentBytes(page, record.tab.workingCopyRef)
+            : [];
+        return {
+            ...record,
+            bytes,
+            notes: record.tab?.workingCopyRef ? noteTexts(await PDFDocument.load(Uint8Array.from(bytes)), subtype) : new Set<string>(),
+        };
+    }));
 }
 
 // The lease owners whose lock a window holds, and those a window waits for.
@@ -278,14 +309,6 @@ export function readLeaseOwnerLocks(page: Page) {
             pending: owners(pending),
         };
     });
-}
-
-export async function clickCenter(page: Page, selector: string, button: 'left' | 'right' = 'left') {
-    const box = await page.locator(selector).first().boundingBox();
-    if (!box) {
-        throw new Error(`${selector} has no visible box`);
-    }
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {button});
 }
 
 export function paneSelector(paneId: string) {
