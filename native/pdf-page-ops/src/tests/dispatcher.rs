@@ -24,3 +24,29 @@ fn save_mutations_preserves_geometry_updates_in_both_dispatch_modes() {
         assert_eq!(mutations.geometry_updates.len(), 1);
     }
 }
+
+#[test]
+fn rejects_page_selection_for_print_layout() {
+    let result = crate::cli::parse_args(
+        [
+            "print-layout",
+            "--input",
+            "input.pdf",
+            "--output",
+            "print.pdf",
+            "--view-mode",
+            "single",
+            "--orientation",
+            "auto",
+            "--pages-file",
+            "pages.txt",
+        ]
+        .into_iter()
+        .map(String::from),
+    );
+    assert!(result
+        .err()
+        .expect("selection must not be ignored")
+        .to_string()
+        .contains("--pages-file"));
+}
