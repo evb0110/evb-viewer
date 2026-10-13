@@ -13,7 +13,14 @@ pub(crate) fn split_form(
         let mut state = CatalogWalkState::new();
         let mut fields = HashMap::new();
         let mut roots = Vec::new();
-        for field in source.resolved(form.get(b"Fields")?)?.as_array()? {
+        for field in form
+            .get(b"Fields")
+            .ok()
+            .and_then(|fields| source.resolved(fields).ok())
+            .and_then(|fields| fields.as_array().ok())
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+        {
             for field in split_form_field(
                 source,
                 target,

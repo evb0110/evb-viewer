@@ -2234,6 +2234,68 @@ fn review_split(source: &mut Document, order: &[usize], assembly: bool, stamp: b
 }
 
 #[test]
+fn split_pages_accepts_forms_without_a_readable_field_list() {
+    for fields in [None, Some(Object::Null), Some(Object::Integer(7))] {
+        let mut source = review_catalog_source();
+        let mut form = dictionary! {"DA" => Object::string_literal("/Helv 12 Tf 0 g")};
+        if let Some(fields) = fields {
+            form.set("Fields", fields);
+        }
+        source.catalog_mut().unwrap().set("AcroForm", form);
+        for assembly in [false, true] {
+            let mut split = review_split(&mut source, &[0], assembly, false);
+            let input = path("empty-form-source", "pdf");
+            let output = path("empty-form-output", "pdf");
+            let instructions = path("empty-form-overlay", "json");
+            source.save(&input).unwrap();
+            split.save(&output).unwrap();
+            write(
+                &instructions,
+                serde_json::json!({"pages": [{
+                    "sourcePageIndex": 0, "outputPageIndex": 0,
+                    "matrix": [1, 0, 0, 1, 0, 0], "linkOnly": true
+                }]})
+                .to_string(),
+            )
+            .unwrap();
+            let result = Command::new(env!("CARGO_BIN_EXE_evb-pdf-page-ops"))
+                .args(["overlay-text", "--qpdf"])
+                .arg(qpdf_path())
+                .arg("--input")
+                .arg(&output)
+                .arg("--source")
+                .arg(&input)
+                .arg("--output")
+                .arg(&output)
+                .arg("--instructions-file")
+                .arg(&instructions)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let output_document = Document::load(&output).unwrap();
+            let form = output_document
+                .dereference(output_document.catalog().unwrap().get(b"AcroForm").unwrap())
+                .unwrap()
+                .1
+                .as_dict()
+                .unwrap();
+            assert!(form.get(b"Fields").unwrap().as_array().unwrap().is_empty());
+            assert_eq!(
+                form.get(b"DA").unwrap().as_str().unwrap(),
+                b"/Helv 12 Tf 0 g"
+            );
+            for file in [input, output, instructions] {
+                let _ = remove_file(file);
+            }
+        }
+    }
+}
+
+#[test]
 fn split_pages_cross_page_reply_targets_the_listed_output_note() {
     for order in [&[0, 1, 2][..], &[2, 0][..]] {
         let mut source = review_catalog_source();
