@@ -842,11 +842,7 @@ describe('release policy', () => {
 
     it.skipIf(process.platform === 'win32')('requires packaging credentials only when the gate builds packages', () => {
         const workflowSource = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
-        const workflow = getStaticYAMLValue(parseYAML(workflowSource)) as {jobs: {gate: {steps: Array<{
-            if?: string;
-            name?: string;
-            run?: string;
-        }>;};};};
+        const workflow = getStaticYAMLValue(parseYAML(workflowSource)) as {jobs: {gate: {steps: Array<Pick<IWorkflowStep, keyof IWorkflowStep>>;};};};
         const gateStep = (name: string) => {
             const step = workflow.jobs.gate.steps.find(candidate => candidate.name === name);
             if (!step?.run) {
