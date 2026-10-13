@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
 import {
+    createStopPoint,
     listStagedNames,
     refuseCompletionAppend,
     restartAfterCrash,
@@ -55,6 +56,14 @@ vi.mock('fs/promises', async importOriginal => {
     };
 });
 
+// A flush matters only across a power cut, which no unit test can make. On a
+// busy disk each one waits for the disk's whole journal, seconds at a time.
+vi.mock('@electron/utils/fsyncPath', () => ({
+    fsyncDirectory: async () => undefined,
+    fsyncDirectorySync: () => undefined,
+    fsyncFile: async () => undefined,
+    fsyncFileSync: () => undefined,
+}));
 vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getPageCount,
     getDjvuResolution: async () => 300,
@@ -520,17 +529,14 @@ describe('DjVu image export limits', () => {
         const outputPath = join(tempDir, 'crash.png');
         await writeFile(join(tempDir, '.fedcba9876543210.tmp'), 'not recorded');
         await writeFile(join(tempDir, 'unrelated.tmp'), 'keep');
-        let reachedPublish = false;
+        const publish = createStopPoint();
         const {exportDjvuPagesAsPng} = await import('@electron/features/image-export/main/djvuImageExport');
         // The hook never settles, so the export stops there as a killed process would.
         void exportDjvuPagesAsPng('/books/crash.djvu', outputPath, {
             scratch: {using: (prefix, run) => usingManagedScratchScope(prefix, appTempRoot, run)},
-            beforePublish: () => {
-                reachedPublish = true;
-                return new Promise<void>(() => undefined);
-            },
+            beforePublish: publish.stop,
         });
-        await vi.waitFor(() => expect(reachedPublish).toBe(true));
+        await publish.reached;
         expect(listStagedNames(tempDir)).toHaveLength(2);
 
         await restartAfterCrash(appTempRoot);
@@ -559,16 +565,13 @@ describe('DjVu image export limits', () => {
         const outputPath = join(tempDir, 'crash.tif');
         await writeFile(join(tempDir, '.fedcba9876543210.tmp'), 'not recorded');
         await writeFile(join(tempDir, 'unrelated.tmp'), 'keep');
-        let reachedPublish = false;
+        const publish = createStopPoint();
         const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
         void exportDjvuAsMultiPageTiff('/books/crash.djvu', outputPath, {
             scratch: {using: (prefix, run) => usingManagedScratchScope(prefix, appTempRoot, run)},
-            beforePublish: () => {
-                reachedPublish = true;
-                return new Promise<void>(() => undefined);
-            },
+            beforePublish: publish.stop,
         });
-        await vi.waitFor(() => expect(reachedPublish).toBe(true));
+        await publish.reached;
         expect(listStagedNames(tempDir)).toHaveLength(2);
 
         await restartAfterCrash(appTempRoot);

@@ -40,3 +40,18 @@ export async function refuseCompletionAppend(path: string, data: string) {
         await chmod(path, 0o444);
     }
 }
+
+// A step a killed process stops at: `stop` never settles, and `reached`
+// resolves once the step runs, so a test waits for the step, not for a clock.
+export function createStopPoint() {
+    const {
+        promise: reached, resolve,
+    } = Promise.withResolvers<undefined>();
+    return {
+        reached,
+        stop: <T = undefined>() => {
+            resolve(undefined);
+            return new Promise<T>(() => undefined);
+        },
+    };
+}
