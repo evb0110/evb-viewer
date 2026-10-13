@@ -444,7 +444,7 @@ export default {
         'completedTitle': 'Limpeza de digitalizações concluída',
         'completedPartialTitle': 'Páginas selecionadas limpas',
         'openResultFailed': 'O PDF limpo não pôde ser aberto',
-        'outputClosedBeforeSaveAs': 'O PDF limpo não está mais aberto, então nada foi guardado. Reabra-o para o guardar.',
+        'outputClosedBeforeSaveAs': 'O PDF limpo já não está aberto e não foi guardado. Reabra-o para o guardar.',
         'saveAs': 'Guardar como…',
         'cancel': 'Cancelar limpeza',
         'canceling': 'A cancelar…',
