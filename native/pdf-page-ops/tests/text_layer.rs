@@ -3133,7 +3133,7 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
                 );
             }
         }
-        // An ownership cycle has no terminal half. Refuse before publication.
+        // A repeated ownership link stops traversal without losing note text.
         for owner in [
             root,
             document
@@ -3148,8 +3148,39 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
             document.save(&source).unwrap();
             write(&output, b"existing output").unwrap();
             let result = run_overlay_text_with_qpdf(&input, &source, &output, &instructions);
-            assert!(!result.status.success());
-            assert_eq!(fs::read(&output).unwrap(), b"existing output");
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            let compact = Command::new(qpdf_path())
+                .arg(&output)
+                .arg(&inspected)
+                .output()
+                .unwrap();
+            assert!(
+                compact.status.success(),
+                "{}",
+                String::from_utf8_lossy(&compact.stderr)
+            );
+            let saved = Document::load(&inspected).unwrap();
+            let notes = saved
+                .objects
+                .values()
+                .filter_map(|object| object.as_dict().ok())
+                .filter_map(|annotation| {
+                    annotation
+                        .get(b"Contents")
+                        .ok()
+                        .and_then(|value| value.as_str().ok())
+                })
+                .collect::<Vec<_>>();
+            for contents in ["Root note", "Reply note", "Seam note", "Legacy seam note"] {
+                assert!(
+                    notes.contains(&contents.as_bytes()),
+                    "{contents}: {notes:?}"
+                );
+            }
         }
         document.get_dictionary_mut(root).unwrap().remove(b"IRT");
         let mut deep_owner = root;
