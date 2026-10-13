@@ -3,6 +3,7 @@ import type {
     Page,
 } from 'puppeteer-core';
 import {resolve} from 'node:path';
+import {normalizePathForLookup} from '@electron/file-access/workingCopyStore';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { delay } from 'es-toolkit/promise';
@@ -440,10 +441,29 @@ async function openPathInApp(
                 await waitForFunctionInPage(page, () => {
                     const api = (window as IE2EWindow).__evbTestApi;
                     const activeTabId = api?.getActiveTabId?.();
+                    const transitioningChassis = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] [data-chassis-resizing="true"]');
                     return api?.isStartupOpenClaimPending?.() === false
+                        && !transitioningChassis
                         && typeof activeTabId === 'string'
                         && activeTabId.length > 0;
                 }, {timeout: remainingMs});
+                // The app keys native documents by their canonical file lookup,
+                // while a closing workspace can outlive its tab in the renderer.
+                const activeSource = await evaluateInPage(page, () => {
+                    const api = (window as IE2EWindow).__evbTestApi;
+                    const tabId = api?.getActiveTabId();
+                    const tab = document.querySelector<HTMLElement>('.editor-pane.is-active .tab.is-active[data-tab-id]');
+                    const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
+                    if (!tabId || tab?.dataset.tabId !== tabId || host?.dataset.workspaceTabId !== tabId
+                        || api?.getActiveToolbarSnapshot()?.viewerCapabilities.closeableDocument !== true) {
+                        return null;
+                    }
+                    return api.readActiveWorkspaceStateValues<{originalPath: string | null}>(['originalPath']).originalPath;
+                });
+                if (activeSource && normalizePathForLookup(activeSource) === normalizePathForLookup(sourcePath)) {
+                    await waitForLoaded(page, remainingMs);
+                    return;
+                }
                 openBaselineEventId = await getLatestAutomationEventId(page);
                 const openResult = await dispatchDocumentOpenOnce(async () => {
                     return evaluateInPage(page, async (path: string) => {

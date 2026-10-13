@@ -9,6 +9,7 @@ import {
     readFile,
     rm,
     stat,
+    symlink,
 } from 'node:fs/promises';
 import {
     copyProjectFixture,
@@ -544,6 +545,13 @@ describe('Electron E2E - native save and reopen', () => {
         });
         expect(await readFile(sourcePath)).toEqual(sourceBytes);
         expect(await readPdfTextAnnotationRecords(destinationPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Save As first text'})]));
+        const activePath = process.platform === 'win32' ? destinationPath : `${destinationPath}.alias.pdf`;
+        if (activePath !== destinationPath) {
+            await symlink(destinationPath, activePath);
+            onTestFinished(() => rm(activePath, {force: true}));
+        }
+        await openPdfInApp(session.page, activePath);
+        expect(await session.page.$$eval('.editor-pane.is-active .tab[data-tab-id]', tabs => tabs.length)).toBe(1);
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         await openPdfInApp(session.page, destinationPath);
         await waitForOpenedPdf(session, destinationPath);
