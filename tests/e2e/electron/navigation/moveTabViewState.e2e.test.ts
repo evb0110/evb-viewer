@@ -25,7 +25,9 @@ import {
 import {
     ensureSidebarOpen, goToPageViaToolbar, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {
+    installPageEvaluationShims, waitForFunctionInPage,
+} from '@tests/e2e/electron/helpers/pageRuntime';
 import type * as Pdfjs from 'pdfjs-dist';
 import type {
     ConsoleMessage, Page,
@@ -37,6 +39,7 @@ import {
 import {DEFAULT_SETTINGS} from '@contracts/settings';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {LOCALE_MESSAGES} from '@i18n-app';
+import {activateElectronMenuItem} from '@scripts/electron-run/activateElectronMenuItem';
 import {
     electronAppTempDirPath,
     electronUserDataPath,
@@ -170,6 +173,144 @@ async function waitForTransferredViewSettled(page: Page) {
 }
 
 describe('Move Tab to New Window view state', () => {
+
+    it.each([
+        'commits',
+        'is refused',
+    ] as const)('disables native Save and Save As while moving and restores them when the move %s', async (outcome) => {
+        const home = mkdtempSync(join(tmpdir(), 'moving-menu-'));
+        const fixture = join(home, 'moving.pdf');
+        const savedAs = join(home, 'saved-as.pdf');
+        const replacement = join(home, 'replacement.pdf');
+        let destination: Page | null = null;
+        onTestFinished(async () => {
+            if (destination && !destination.isClosed()) await destination.evaluate(() => (
+                (window as Window & {__movingMenuLoad?: {restore: () => void}}).__movingMenuLoad?.restore()
+            ));
+            await sessions.restart({
+                clean: true,
+                hard: true,
+            });
+            rmSync(home, {
+                recursive: true,
+                force: true,
+            });
+        });
+        await sessions.restart({
+            clean: true,
+            hard: true,
+            extraEnv: {
+                EVB_E2E_SAVE_DIALOG_PATH: savedAs,
+                EVB_E2E_OPEN_DIALOG_PATH: replacement,
+            },
+        });
+        for (const path of [
+            join(home, 'seed.pdf'),
+            fixture,
+            replacement,
+        ]) {
+            copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), path);
+        }
+        const {page: source} = sessions.getSession();
+        await openPdfInApp(source, join(home, 'seed.pdf'));
+        destination = await moveTabToNewWindow(source);
+        await installPageEvaluationShims(destination);
+        await clickAsUser(source, '.tab-new');
+        const target = destination;
+        const targetId = (await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.listTargetWindows()))[0]!.windowId;
+        await openPdfInApp(source, fixture);
+        await createFreeTextAnnotationWithPointer(source, 'Save frontier', {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
+        // The review holds the ordinary first geometry answer while the real
+        // tab menu moves the document. Replacement uses the real file picker.
+        await target.evaluate(() => {
+            const descriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'catch')!;
+            const then = Promise.prototype.then;
+            let release: () => void = () => {};
+            const gate = new Promise<void>(resolve => {release = resolve;});
+            const state = {
+                held: false,
+                restore: () => {Object.defineProperty(Promise.prototype, 'catch', descriptor); release();},
+            };
+            Object.defineProperty(Promise.prototype, 'catch', {
+                ...descriptor,
+                value(this: Promise<unknown>, onRejected: (reason: unknown) => unknown) {
+                    return then.call(this, (value: unknown) => {
+                        if (value && typeof value === 'object' && 'pageNumber' in value
+                            && 'width' in value && 'height' in value && 'pageCount' in value) {
+                            state.held = true;
+                            Object.defineProperty(Promise.prototype, 'catch', descriptor);
+                            return gate.then(() => value);
+                        }
+                        return value;
+                    }, onRejected);
+                },
+            });
+            (window as Window & {__movingMenuLoad?: typeof state}).__movingMenuLoad = state;
+        });
+        await clickAsUser(source, '.tab.is-active', {button: 'right'});
+        await clickAsUser(source, `[role="menuitem"][data-tab-command="move-to-window-${targetId}"]`);
+        await waitForFunctionInPage(target, () => (
+            (window as Window & {__movingMenuLoad?: {held: boolean}}).__movingMenuLoad?.held === true
+        ));
+        await source.waitForSelector('.workspace-transfer-state', {visible: true});
+        const movingSave = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+S'});
+        const movingSaveAs = await activateElectronMenuItem(source, {accelerator: 'CmdOrCtrl+Shift+S'});
+        console.log('MOVING_NATIVE_MENU', JSON.stringify({
+            outcome,
+            movingSave,
+            movingSaveAs,
+            outputExists: existsSync(savedAs),
+        }));
+        expect(movingSave).toMatchObject({
+            activated: false,
+            reason: 'disabled',
+        });
+        expect(movingSaveAs).toMatchObject({
+            activated: false,
+            reason: 'disabled',
+        });
+        expect(existsSync(savedAs)).toBe(false);
+        if (outcome === 'is refused') {
+            await clickAsUser(target, '#editor-global-toolbar-host button[aria-label="More tools"]');
+            await clickFoundAsUser(target, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(item => item.textContent?.trim() === 'Open File'), undefined, {description: 'Replace the incoming document'});
+            await waitForFunctionInPage(source, () => document.querySelector('.workspace-transfer-state') === null);
+            await waitForPdfLoaded(source);
+        } else {
+            await target.evaluate(() => (window as Window & {__movingMenuLoad?: {restore: () => void}}).__movingMenuLoad?.restore());
+            await waitForPdfLoaded(target);
+            await waitForFunctionInPage(target, () => document.querySelector('.workspace-transfer-state') === null);
+            await vi.waitFor(async () => expect(await source.$$eval('.tab-label', nodes => nodes.map(node => node.textContent?.trim())))
+                .not.toContain('moving.pdf'), {timeout: 30_000});
+            // A hidden session's native menu targets its first remaining window.
+            // Close the now-empty source, leaving the moved document as that window.
+            await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.closeCurrentWindow());
+            await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
+        }
+        const survivor = outcome === 'commits' ? target : source;
+        await waitForViewerInteractive(survivor);
+        const save = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+S'});
+        await vi.waitFor(async () => expect(await survivor.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
+        expect(await readPdfTextAnnotationRecords(fixture)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Save frontier'})]));
+        const saveAs = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+Shift+S'});
+        await vi.waitFor(async () => expect(existsSync(savedAs) && (await readPdfTextAnnotationRecords(savedAs))
+            .some(record => record.contents === 'Save frontier')).toBe(true), {timeout: 30_000});
+        console.log('SETTLED_NATIVE_MENU', JSON.stringify({
+            outcome,
+            save,
+            saveAs,
+        }));
+        await waitForPdfLoaded(survivor);
+        await waitForViewerInteractive(survivor);
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            await survivor.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}.png`)});
+            copyFileSync(savedAs, join(process.env.EVB_R3_EVIDENCE_DIR, `native-menu-${outcome}-saved.pdf`));
+        }
+    }, 120_000);
+
 
     it.each([
         [

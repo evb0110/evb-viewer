@@ -46,6 +46,7 @@ export const useWorkspaceShellState = (options: IUseWorkspaceShellStateOptions):
     const activeWorkspaceCanOptimizePdf = computed(() => activeToolbarSnapshot.value?.canOptimizePdf === true);
     const activeWorkspaceInteractive = computed(() => (
         activeWorkspaceHasDocument.value
+        && options.activeDocumentSession.value?.operationLease.activeKind.value !== 'tab-transfer'
         && options.activeDocumentSession.value?.snapshot.value.phase === 'presented'
         && activeToolbarSnapshot.value?.initialVisualReady === true
         && (activeToolbarSnapshot.value?.totalPages ?? 0) > 0
