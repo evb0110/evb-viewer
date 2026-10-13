@@ -61,7 +61,6 @@ let remoteSettingsFile: IScanCleanupSettingsFile | null = null;
 let remoteWriteQueue = Promise.resolve();
 interface IPendingGlobalWrite {
     request: IScanCleanupSettingsUpdateRequest;
-    acknowledge: () => void;
     promise: Promise<void>;
 }
 let pendingRemoteGlobalWrite: IPendingGlobalWrite | null = null;
@@ -316,8 +315,8 @@ function schedulePersistenceRetry() {
     }, delayMs);
 }
 
-// Only the ordered stream acknowledges a global write; invoke replies carry no intent outcome.
-function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPreferences, requestId?: TRequestId) {
+// Both IPC paths acknowledge the same durable intent; only the stream projects remote state.
+function acknowledgeGlobalPreferences(settings: IScanCleanupGlobalPreferences, requestId?: TRequestId) {
     if (requestId !== undefined && requestId === pendingRemoteGlobalWrite?.request.requestId) {
         for (const [
             key,
@@ -327,9 +326,12 @@ function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPreferences
                 pendingGlobalFields.delete(key);
             }
         }
-        pendingRemoteGlobalWrite.acknowledge();
         pendingPreferences = pendingGlobalFields.size === 0 ? null : pendingPreferences;
     }
+}
+
+function applyCommittedGlobalPreferences(settings: IScanCleanupGlobalPreferences, requestId?: TRequestId) {
+    acknowledgeGlobalPreferences(settings, requestId);
     acknowledgedPreferences = cloneScanCleanupPreferenceValue(settings);
     if (!preferences) {
         return;
@@ -351,7 +353,6 @@ function queueRemoteUpdate(
 ): Promise<void> {
     const isGlobalPreferencesWrite = 'settingsPatch' in request;
     const documentKey = isGlobalPreferencesWrite ? null : documentUpdateKey(request);
-    const ownerCommit = isGlobalPreferencesWrite ? Promise.withResolvers<undefined>() : null;
     if (documentKey !== null && documentToken && documentVersion !== undefined) {
         pendingDocumentUpdates.set(documentKey, {
             request,
@@ -373,7 +374,7 @@ function queueRemoteUpdate(
         }
         const result = await updateSettings(request);
         remoteSettingsFile = result;
-        await ownerCommit?.promise;
+        if (isGlobalPreferencesWrite) acknowledgeGlobalPreferences(result.settings, request.requestId);
         committed = true;
     });
     remoteWriteQueue = queuedWrite.then(() => undefined, () => undefined);
@@ -391,10 +392,9 @@ function queueRemoteUpdate(
         schedulePersistenceRetry();
         throw error;
     });
-    if (ownerCommit) {
+    if (isGlobalPreferencesWrite) {
         pendingRemoteGlobalWrite = {
             request,
-            acknowledge: () => { ownerCommit.resolve(undefined); },
             promise: observedWrite,
         };
     } else if (documentKey !== null) {
@@ -883,7 +883,6 @@ export function resetScanCleanupPreferencesStore() {
     pendingDocumentUpdates.clear();
     pendingLegacyDocumentUpdates.clear();
     pendingGlobalFields.clear();
-    pendingRemoteGlobalWrite?.acknowledge();
     pendingRemoteGlobalWrite = null;
     persistenceRetryAttempt = 0;
     if (persistenceRetryTimer !== null) {

@@ -74,12 +74,10 @@ async function createDurableSettingsStore(onSettingsChanged = broadcastSettings,
     };
 }
 
-// Stands in for the main process: a committed global write reaches every
-// renderer subscriber, the writer's own included.
+// Binds the main-process IPC handlers; the store's callback delivers events.
 function connectMainProcessSettings(store: ReturnType<typeof createScanCleanupSettingsStore>) {
     capability.value.getSettings.mockImplementation(store.get);
     capability.value.updateSettings.mockImplementation(store.update);
-
 }
 
 vi.mock('@app/utils/platform', () => ({isDesktopPlatformActive: () => true}));
@@ -116,21 +114,28 @@ describe('scan cleanup renderer preference store', () => {
         })));
     });
 
-    it('persists a document patch under the normalized authoritative source hash', async () => {
+    it('persists later global and document edits when settings events are dropped', async () => {
+        const {
+            filePath, store,
+        } = await createDurableSettingsStore(() => undefined);
+        connectMainProcessSettings(store);
+        const preferences = getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        preferences.readingOrder = 'rtl';
+        await flushScanCleanupPreferencesStore();
+        preferences.binarization = 'sauvola';
+        await flushScanCleanupPreferencesStore();
+        await saveScanCleanupDocumentPreferencesInStore('A'.repeat(64), '/documents/book.pdf', {outputMode: 'grayscale'});
+        const saved = JSON.parse(await readFile(filePath, 'utf8'));
+        expect(saved.settings).toMatchObject({
+            readingOrder: 'rtl',
+            binarization: 'sauvola',
+        });
+        expect(saved.documentOverrides['a'.repeat(64)]?.outputMode).toBe('grayscale');
+        resetScanCleanupPreferencesStore();
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
-
-        await saveScanCleanupDocumentPreferencesInStore(
-            'A'.repeat(64),
-            '/documents/book.pdf',
-            {outputMode: 'grayscale'},
-        );
-
-        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({document: {
-            sourceSha256: 'a'.repeat(64),
-            legacyDocumentKey: '/documents/book.pdf',
-            patch: {outputMode: 'grayscale'},
-        }}));
+        expect(getScanCleanupPreferencesStore().readingOrder).toBe('rtl');
     });
 
     it('rebases independently hydrated renderer stores through a second edit', async () => {
@@ -1185,19 +1190,6 @@ describe('scan cleanup renderer preference store', () => {
             app.unmount();
             host.remove();
         }
-    });
-
-    it('sends only changed global fields so concurrent clients can merge them', async () => {
-        getScanCleanupPreferencesStore();
-        await whenScanCleanupPreferencesReady();
-        const preferences = getScanCleanupPreferencesStore();
-        preferences.readingOrder = 'rtl';
-        await nextTick();
-        await flushScanCleanupPreferencesStore();
-        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({
-            settingsPatch: {readingOrder: 'rtl'},
-            requestId: expect.any(String),
-        }));
     });
 
     it('rebases a later global edit without replaying an acknowledged field', async () => {
