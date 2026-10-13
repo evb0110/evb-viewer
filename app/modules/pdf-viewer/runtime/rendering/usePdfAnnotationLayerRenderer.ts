@@ -15,6 +15,7 @@ import {
     renderPdfjsAnnotationLayer,
 } from '@app/services/pdfjs/pdfViewerFacade';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {runCoordinatedPdfPageOperation} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
@@ -44,7 +45,15 @@ function getParsedPageAnnotations(pdfPage: IPdfPage) {
         return cached;
     }
 
-    const pending = pdfPage.getAnnotations().catch((error: unknown) => {
+    // PDF.js text extraction reads and resets the appearance stream also used
+    // by raster operator-list creation. Keep both under the page's one owner.
+    const pending = runCoordinatedPdfPageOperation({
+        owner: 'annotation-data',
+        pageNumber: pdfPage.pageNumber,
+        pdfPage,
+        priority: 0,
+        operation: () => pdfPage.getAnnotations(),
+    }).catch((error: unknown) => {
         parsedPageAnnotations.delete(pdfPage);
         throw error;
     });
