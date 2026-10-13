@@ -1833,6 +1833,8 @@ export default {
             'sessionRestoreDescription': 'The tabs from your last session could not be reopened. Their recovery data was kept.',
             'documentNotReopenedTitle': 'Document not reopened',
             'documentNotReopenedDescription': '{fileName} stopped the viewer while it was opening, so it was not reopened. You can open it again from Recent Files.',
+            'workingCopyLostTitle': 'Unsaved changes not found',
+            'workingCopyLostDescription': 'The unsaved changes to {fileName} are in a working copy that is missing on this computer, so the document opened as last saved. They are kept for a later start that finds the working copy.',
         },
         'settings': {
             'load': 'Failed to load settings',

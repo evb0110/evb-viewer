@@ -1833,6 +1833,8 @@ export default {
             'sessionRestoreDescription': 'Die Tabs Ihrer letzten Sitzung konnten nicht erneut geöffnet werden. Die Wiederherstellungsdaten wurden aufbewahrt.',
             'documentNotReopenedTitle': 'Dokument nicht wieder geöffnet',
             'documentNotReopenedDescription': '{fileName} hat die Anzeige beim Öffnen beendet und wurde deshalb nicht wieder geöffnet. Sie können es über „Zuletzt verwendete Dateien“ erneut öffnen.',
+            'workingCopyLostTitle': 'Ungespeicherte Änderungen nicht gefunden',
+            'workingCopyLostDescription': 'Die ungespeicherten Änderungen an {fileName} liegen in einer Arbeitskopie, die auf diesem Computer fehlt, daher wurde das Dokument im zuletzt gespeicherten Stand geöffnet. Sie bleiben für einen späteren Start erhalten, der die Arbeitskopie findet.',
         },
         'settings': {
             'load': 'Einstellungen konnten nicht geladen werden',

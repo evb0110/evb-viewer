@@ -1844,6 +1844,8 @@ export default {
             'sessionRestoreDescription': 'Não foi possível reabrir os separadores da última sessão. Os dados de recuperação foram mantidos.',
             'documentNotReopenedTitle': 'Documento não reaberto',
             'documentNotReopenedDescription': '{fileName} interrompeu o visualizador durante a abertura, por isso não foi reaberto. Pode abri-lo novamente a partir de Ficheiros Recentes.',
+            'workingCopyLostTitle': 'Alterações não guardadas não encontradas',
+            'workingCopyLostDescription': 'As alterações não guardadas em {fileName} estão numa cópia de trabalho que falta neste computador, por isso o documento foi aberto tal como foi guardado pela última vez. São mantidas para um arranque posterior que encontre a cópia de trabalho.',
         },
         'settings': {
             'load': 'Não foi possível carregar as definições',

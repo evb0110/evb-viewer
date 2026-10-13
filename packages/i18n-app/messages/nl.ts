@@ -1833,6 +1833,8 @@ export default {
             'sessionRestoreDescription': 'De tabbladen van je vorige sessie konden niet opnieuw worden geopend. De herstelgegevens zijn bewaard.',
             'documentNotReopenedTitle': 'Document niet opnieuw geopend',
             'documentNotReopenedDescription': '{fileName} liet de viewer stoppen tijdens het openen en is daarom niet opnieuw geopend. Je kunt het opnieuw openen via Recente bestanden.',
+            'workingCopyLostTitle': 'Niet-opgeslagen wijzigingen niet gevonden',
+            'workingCopyLostDescription': 'De niet-opgeslagen wijzigingen in {fileName} staan in een werkkopie die op deze computer ontbreekt, dus het document is geopend zoals het het laatst is opgeslagen. Ze blijven bewaard voor een latere start die de werkkopie vindt.',
         },
         'settings': {
             'load': 'Instellingen konden niet worden geladen',

@@ -1833,6 +1833,8 @@ export default {
             'sessionRestoreDescription': 'Non è stato possibile riaprire le schede dell’ultima sessione. I dati di ripristino sono stati conservati.',
             'documentNotReopenedTitle': 'Documento non riaperto',
             'documentNotReopenedDescription': '{fileName} ha arrestato il visualizzatore durante l’apertura, quindi non è stato riaperto. Puoi riaprirlo da File recenti.',
+            'workingCopyLostTitle': 'Modifiche non salvate non trovate',
+            'workingCopyLostDescription': 'Le modifiche non salvate a {fileName} sono in una copia di lavoro che manca su questo computer, quindi il documento è stato aperto com’era all’ultimo salvataggio. Vengono conservate per un avvio successivo che trovi la copia di lavoro.',
         },
         'settings': {
             'load': 'Impossibile caricare le impostazioni',

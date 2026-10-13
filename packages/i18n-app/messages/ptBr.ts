@@ -1844,6 +1844,8 @@ export default {
             'sessionRestoreDescription': 'Não foi possível reabrir as abas da última sessão. Os dados de recuperação foram mantidos.',
             'documentNotReopenedTitle': 'Documento não reaberto',
             'documentNotReopenedDescription': '{fileName} interrompeu o visualizador durante a abertura, por isso não foi reaberto. Você pode abri-lo novamente em Arquivos Recentes.',
+            'workingCopyLostTitle': 'Alterações não salvas não encontradas',
+            'workingCopyLostDescription': 'As alterações não salvas em {fileName} estão em uma cópia de trabalho que não existe neste computador, por isso o documento foi aberto como foi salvo pela última vez. Elas são mantidas para uma próxima inicialização que encontre a cópia de trabalho.',
         },
         'settings': {
             'load': 'Não foi possível carregar as configurações',
