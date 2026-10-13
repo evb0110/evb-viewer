@@ -320,6 +320,11 @@ describe('useWorkspaceFailureSurface', () => {
             'errors.save.permissionDenied',
         ],
         [
+            'PDF is read-only or locked',
+            'The PDF is read-only or locked: EPERM: operation not permitted, rename \'/documents/.0f1e2d3c4b5a6978.tmp\' -> \'/documents/report.pdf\'',
+            'errors.save.fileReadOnly',
+        ],
+        [
             'file is in use by another program',
             'EBUSY: resource busy or locked, rename \'/documents/report.pdf.bak\' -> \'/documents/report.pdf\'',
             'errors.save.fileBusy',
@@ -346,11 +351,17 @@ describe('useWorkspaceFailureSurface', () => {
         expect(destination).toBe('saved-as.pdf');
     });
 
-    it.each(LOCALE_CODES)('says the folder cannot be written and names Save As in %s', locale => {
+    it.each(LOCALE_CODES)('says whether the folder or the PDF refused the write and names Save As in %s', locale => {
         const messages = LOCALE_MESSAGES[locale];
-        const text = formatTranslationLeaf(messages.errors.save.permissionDenied, {}, locale);
-        expect(text).toContain(messages.toolbar.saveAs.replace(/(?:…|\.\.\.)$/u, ''));
-        expect(text).not.toMatch(/\{\w+\}/u);
+        for (const leaf of [
+            messages.errors.save.permissionDenied,
+            messages.errors.save.fileReadOnly,
+        ]) {
+            const text = formatTranslationLeaf(leaf, {}, locale);
+            expect(text).toContain(messages.toolbar.saveAs.replace(/(?:…|\.\.\.)$/u, ''));
+            expect(text).not.toMatch(/\{\w+\}/u);
+        }
+        expect(messages.errors.save.fileReadOnly).not.toBe(messages.errors.save.permissionDenied);
     });
 
     it('keeps a genuine write failure separate from a changed original', () => {

@@ -1737,6 +1737,7 @@ export default {
             'workingCopyMissing': 'Die temporäre Kopie des Dokuments wurde entfernt, daher können diese Änderungen nicht gespeichert werden. Öffnen Sie die Datei erneut.',
             'notCompleted': 'Das Dokument konnte nicht geschrieben werden.',
             'permissionDenied': 'EVB Viewer kann nicht in den Ordner dieser PDF schreiben, daher wurde sie nicht gespeichert. Wählen Sie «Speichern unter», um Ihre Änderungen in einem anderen Ordner zu speichern.',
+            'fileReadOnly': 'Diese PDF ist schreibgeschützt oder gesperrt, daher konnte EVB Viewer sie nicht speichern. Heben Sie den Schreibschutz oder die Sperre der Datei auf und speichern Sie erneut, oder wählen Sie «Speichern unter», um Ihre Änderungen als neue Datei zu speichern.',
             'fileBusy': 'Die Datei wird gerade von einem anderen Programm verwendet, daher konnte sie nicht geschrieben werden. Schließen Sie das Programm und versuchen Sie es erneut, oder wählen Sie «Speichern unter», um Ihre Änderungen an einem anderen Ort zu speichern.',
             'diskFull': 'Der Datenträger ist voll. Geben Sie Speicherplatz frei oder verwenden Sie «Speichern unter» auf einem anderen Datenträger.',
             'writeFailed': 'Die Datei konnte nicht geschrieben werden. Prüfen Sie Schreibberechtigungen und freien Speicherplatz oder speichern Sie die Datei an einem anderen Ort.',

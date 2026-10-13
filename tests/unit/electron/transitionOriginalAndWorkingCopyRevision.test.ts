@@ -1,6 +1,7 @@
 import {existsSync} from 'node:fs';
 import {
     appendFile,
+    chmod,
     link,
     mkdir,
     mkdtemp,
@@ -889,6 +890,41 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 throw new Error('post-sync failure');
             },
         })).rejects.toThrow('post-sync failure');
+
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+    });
+
+    it.each([
+        [
+            'the PDF itself',
+            'The PDF is read-only or locked: EPERM',
+        ],
+        [
+            'its folder',
+            'The folder of the PDF cannot be written: EPERM',
+        ],
+    ])('says whether %s refused a save, after restoring it', async (refuser, cause) => {
+        const {
+            originalPath,
+            stagedPath,
+            workingCopyPath,
+        } = await prepare('old-original', 'old-working', 'original.pdf', join(tempRoot, 'work'));
+        const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
+        const readOnly = refuser === 'the PDF itself' ? originalPath : dirname(originalPath);
+
+        await expect(transitionOriginalAndWorkingCopyRevision({
+            captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
+            workingCopyPath,
+            originalPath,
+            reason: 'native-mutation',
+            senderId: 7,
+            stagePublication: () => Promise.resolve({path: stagedPath}),
+            publishOriginal: async () => {
+                await chmod(readOnly, 0o555);
+                throw Object.assign(new Error('EPERM: operation not permitted'), {code: 'EPERM'});
+            },
+        }).finally(() => chmod(readOnly, 0o755))).rejects.toThrow(cause);
 
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');

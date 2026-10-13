@@ -16,6 +16,7 @@ import {
     assertPathMatchesSaveWitnessSnapshot, type IOriginalPathSaveWitness,
 } from '@electron/file-access/originalPathSaveWitness';
 import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
+import {explainWriteRefusal} from '@electron/file-access/explainWriteRefusal';
 
 export async function transitionOriginalAndWorkingCopyRevision(input: {
     workingCopyPath: string;
@@ -93,10 +94,7 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                         await measurePhase('transition-after-working-copy-sync', async () =>
                             input.refreshOriginalExpectation?.(witness.getOriginalFileExpectation()));
                     } catch (error) {
-                        if (error instanceof OriginalPathSaveConflictError) await recordWorkingCopyJournalOriginal(transitionJournal, {
-                            ...transitionJournal.original!,
-                            state: 'conflicted',
-                        });
+                        if (error instanceof OriginalPathSaveConflictError) await recordWorkingCopyJournalOriginal(transitionJournal, Object.assign(transitionJournal.original!, {state: 'conflicted' as const}));
                         throw error;
                     }
                 },
@@ -117,10 +115,8 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 if (!committed && journal?.original
                     && (journal.original.state === 'prepared' || journal.original.state === 'published')) {
                     await restoreTransitionOriginal(journal, journal.original);
-                    await recordWorkingCopyJournalOriginal(journal, {
-                        ...journal.original,
-                        state: 'restored',
-                    }).finally(() => input.refreshOriginalExpectation?.(admittedExpectation));
+                    await recordWorkingCopyJournalOriginal(journal, Object.assign(journal.original, {state: 'restored' as const}))
+                        .finally(() => input.refreshOriginalExpectation?.(admittedExpectation));
                 }
             } finally {
                 if (!committed && (!journal?.original || journal.original.state === 'restored' || journal.original.state === 'conflicted')) {
@@ -129,5 +125,8 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 }
             }
         }
+    }).catch(async (error: unknown) => {
+        // Only once the save has rolled back can a refusal tell a read-only PDF from an unwritable folder.
+        throw await explainWriteRefusal(error, input.originalPath);
     });
 }

@@ -1737,6 +1737,7 @@ export default {
             'workingCopyMissing': 'La copia temporal del documento se eliminó, por lo que estos cambios no se pueden guardar. Vuelva a abrir el archivo.',
             'notCompleted': 'No se pudo escribir el documento.',
             'permissionDenied': 'EVB Viewer no puede escribir en la carpeta de este PDF, así que no se guardó. Elige «Guardar como» para guardar los cambios en otra carpeta.',
+            'fileReadOnly': 'Este PDF es de solo lectura o está bloqueado, así que EVB Viewer no pudo guardarlo. Quita al archivo la opción de solo lectura o de bloqueo y vuelve a guardar, o elige «Guardar como» para guardar los cambios en un archivo nuevo.',
             'fileBusy': 'El archivo está en uso por otro programa, así que no se pudo escribir. Cierra ese programa y vuelve a intentarlo, o elige «Guardar como» para guardar los cambios en otro lugar.',
             'diskFull': 'El disco está lleno. Libera espacio o usa «Guardar como» en otro disco.',
             'writeFailed': 'No se pudo escribir el archivo. Comprueba los permisos de escritura y el espacio libre, o guárdalo en otro lugar.',

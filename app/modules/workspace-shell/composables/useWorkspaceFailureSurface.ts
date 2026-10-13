@@ -80,10 +80,6 @@ export const useWorkspaceFailureSurface = () => {
     // attempts cannot accumulate ids nothing will ever read again.
     const lastReportedOperationIds = new Map<TWorkspaceFailureDomain, string>();
 
-    function isDuplicateFailure(domain: TWorkspaceFailureDomain, operationId: string) {
-        return lastReportedOperationIds.get(domain) === operationId;
-    }
-
     function clearSaveFailure() {
         lastReportedOperationIds.delete('save');
         hasSaveFailureState.value = false;
@@ -98,7 +94,7 @@ export const useWorkspaceFailureSurface = () => {
         }
         const message = persistence?.message ?? '';
         if (HELD_OR_DENIED_MESSAGE.test(message)) {
-            return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : 'errors.save.permissionDenied');
+            return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : /The PDF is read-only or locked/u.test(message) ? 'errors.save.fileReadOnly' : 'errors.save.permissionDenied');
         }
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
             return t('errors.save.diskFull');
@@ -131,7 +127,7 @@ export const useWorkspaceFailureSurface = () => {
         diagnostics?: IPdfPersistFailure,
         saveAs?: () => void,
     ) {
-        if (isDuplicateFailure('save', operationId)) {
+        if (lastReportedOperationIds.get('save') === operationId) {
             return false;
         }
         const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
@@ -206,7 +202,7 @@ export const useWorkspaceFailureSurface = () => {
             BrowserLogger.debug('annotations', 'Annotation creation failure is not user-visible', failure);
             return false;
         }
-        if (isDuplicateFailure('annotation', failure.operationId)) {
+        if (lastReportedOperationIds.get('annotation') === failure.operationId) {
             return false;
         }
         lastReportedOperationIds.set('annotation', failure.operationId);

@@ -1748,6 +1748,7 @@ export default {
             'workingCopyMissing': 'A cópia temporária do documento foi removida, então estas alterações não podem ser salvas. Abra o arquivo novamente.',
             'notCompleted': 'Não foi possível gravar o documento.',
             'permissionDenied': 'O EVB Viewer não consegue gravar na pasta deste PDF, por isso ele não foi salvo. Escolha «Salvar Como» para salvar as alterações em outra pasta.',
+            'fileReadOnly': 'Este PDF é somente leitura ou está bloqueado, por isso o EVB Viewer não conseguiu salvá-lo. Desative a opção somente leitura ou o bloqueio do arquivo e salve novamente, ou escolha «Salvar Como» para salvar as alterações em um novo arquivo.',
             'fileBusy': 'O arquivo está em uso por outro programa, por isso não foi possível gravá-lo. Feche esse programa e tente novamente, ou escolha «Salvar como» para salvar as alterações em outro local.',
             'diskFull': 'O disco está cheio. Libere espaço ou use «Salvar como» em outro disco.',
             'writeFailed': 'Não foi possível gravar o arquivo. Verifique as permissões de gravação e o espaço livre, ou salve-o em outro local.',

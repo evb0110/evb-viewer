@@ -1748,6 +1748,7 @@ export default {
             'workingCopyMissing': 'A cópia temporária do documento foi removida, por isso estas alterações não podem ser guardadas. Volte a abrir o ficheiro.',
             'notCompleted': 'Não foi possível escrever o documento.',
             'permissionDenied': 'O EVB Viewer não consegue escrever na pasta deste PDF, por isso não foi gravado. Escolha «Guardar Como» para guardar as alterações noutra pasta.',
+            'fileReadOnly': 'Este PDF é só de leitura ou está bloqueado, por isso o EVB Viewer não o conseguiu gravar. Desative a opção só de leitura ou o bloqueio do ficheiro e grave novamente, ou escolha «Guardar Como» para guardar as alterações num novo ficheiro.',
             'fileBusy': 'O ficheiro está em uso por outro programa, por isso não foi possível escrevê-lo. Feche esse programa e tente novamente, ou escolha «Guardar como» para guardar as alterações noutro local.',
             'diskFull': 'O disco está cheio. Liberte espaço ou use «Guardar como» noutro disco.',
             'writeFailed': 'Não foi possível escrever o ficheiro. Verifique as permissões de escrita e o espaço livre, ou guarde-o noutro local.',

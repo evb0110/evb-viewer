@@ -1748,6 +1748,7 @@ export default {
             'workingCopyMissing': 'La copie temporaire du document a été supprimée, donc ces modifications ne peuvent pas être enregistrées. Rouvrez le fichier.',
             'notCompleted': 'Le document n’a pas pu être écrit.',
             'permissionDenied': 'EVB Viewer ne peut pas écrire dans le dossier de ce PDF, qui n’a donc pas été enregistré. Choisissez « Enregistrer sous » pour enregistrer vos modifications dans un autre dossier.',
+            'fileReadOnly': 'Ce PDF est en lecture seule ou verrouillé, EVB Viewer n’a donc pas pu l’enregistrer. Retirez au fichier l’attribut lecture seule ou le verrouillage et enregistrez de nouveau, ou choisissez « Enregistrer sous » pour enregistrer vos modifications dans un nouveau fichier.',
             'fileBusy': 'Le fichier est utilisé par un autre programme, il n’a donc pas pu être écrit. Fermez ce programme et réessayez, ou choisissez « Enregistrer sous » pour enregistrer vos modifications ailleurs.',
             'diskFull': 'Le disque est plein. Libérez de l’espace ou utilisez « Enregistrer sous » sur un autre disque.',
             'writeFailed': 'Le fichier n’a pas pu être écrit. Vérifiez les autorisations d’écriture et l’espace libre, ou enregistrez-le ailleurs.',

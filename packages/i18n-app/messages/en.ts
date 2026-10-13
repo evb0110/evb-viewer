@@ -1737,6 +1737,7 @@ export default {
             'workingCopyMissing': 'The temporary copy of the document was removed, so these changes cannot be saved. Reopen the file.',
             'notCompleted': 'The document could not be written.',
             'permissionDenied': 'EVB Viewer cannot write in the folder that holds this PDF, so it was not saved. Choose Save As to save your changes in another folder.',
+            'fileReadOnly': 'This PDF is read-only or locked, so EVB Viewer could not save it. Clear the file\'s read-only or locked setting and save again, or choose Save As to save your changes as a new file.',
             'fileBusy': 'The file is in use by another program, so it could not be written. Close that program and try again, or choose Save As to save your changes elsewhere.',
             'diskFull': 'The disk is full. Free up space or use Save As on another disk.',
             'writeFailed': 'The file could not be written. Check write permissions and free disk space, or use Save As elsewhere.',
