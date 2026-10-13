@@ -1,13 +1,10 @@
 import type {ChildProcess} from 'node:child_process';
 import {
-    open,
+    access,
     readFile,
     readlink,
 } from 'node:fs/promises';
-import {
-    connect,
-    type Socket,
-} from 'node:net';
+import type {Socket} from 'node:net';
 import {
     isAbsolute,
     join,
@@ -256,10 +253,14 @@ const WINDOWS_START_TIME_HOST_SCRIPT = `while ($null -ne ($line = [Console]::In.
     [Console]::Out.Flush()
 }`;
 
-let windowsStartTimeHost: {
+interface IWindowsStartTimeHost {
     child: ChildProcess;
     answers: Array<(answer: string | null) => void>;
-} | null = null;
+    // Ends this reader: its open questions answer null, and the next read starts another.
+    end: () => void;
+}
+
+let windowsStartTimeHost: IWindowsStartTimeHost | null = null;
 
 function readWindowsStartTime(pid: number) {
     return new Promise<string | null>(resolveAnswer => {
@@ -277,27 +278,31 @@ function readWindowsStartTime(pid: number) {
                 ],
                 windowsHide: true,
             });
-            const host = {
+            const started: IWindowsStartTimeHost = {
                 child,
-                answers: [] as Array<(answer: string | null) => void>,
-            };
-            const close = () => {
-                if (windowsStartTimeHost === host) windowsStartTimeHost = null;
-                host.answers.splice(0).forEach(answer => answer(null));
+                answers: [],
+                end: () => {
+                    if (windowsStartTimeHost === started) windowsStartTimeHost = null;
+                    started.answers.splice(0).forEach(answer => answer(null));
+                    child.kill();
+                },
             };
             createInterface({input: child.stdout}).on('line', line => {
-                host.answers.shift()?.(line.trim());
-                if (host.answers.length === 0) (child.stdout as Socket).unref();
+                started.answers.shift()?.(line.trim());
+                if (started.answers.length === 0) (child.stdout as Socket).unref();
             });
-            child.once('error', close).once('close', close);
-            child.stdin.once('error', close);
+            child.once('error', started.end).once('close', started.end);
+            child.stdin.once('error', started.end);
             child.unref();
             (child.stdin as Socket).unref();
-            windowsStartTimeHost = host;
+            windowsStartTimeHost = started;
         }
-        windowsStartTimeHost.answers.push(resolveAnswer);
-        (windowsStartTimeHost.child.stdout as Socket).ref();
-        windowsStartTimeHost.child.stdin!.write(`${String(pid)}\n`);
+        const host = windowsStartTimeHost;
+        host.answers.push(resolveAnswer);
+        (host.child.stdout as Socket).ref();
+        host.child.stdin!.write(`${String(pid)}\n`);
+        // The two-second bound of every identity read: a reader that has not answered by then is ended.
+        setTimeout(() => host.answers.includes(resolveAnswer) && host.end(), 2_000).unref();
     });
 }
 
@@ -360,27 +365,36 @@ export function startTimesMatch(recorded: string, observed: string, platform = p
     return recorded === observed || (platform === 'linux' && /^\d+$/u.test(recorded) && observed.endsWith(`:${recorded}`));
 }
 
-// Whether a profile's Chromium single-instance lock is held. The OS lets go of
-// it when its holder exits (Windows deletes "lockfile" on close; a socket stops
-// listening), so it answers without a pid or a clock. A failure keeps it held.
+// Whether a profile's Chromium single-instance lock is held, asked without
+// touching it: a live instance logs a connection to its socket, and a handle on
+// its lock file could stand in a launch's way. Windows deletes "lockfile" when
+// its holder closes it, so it exists exactly while held. On POSIX,
+// SingletonSocket links to the holder's socket in a short temporary folder,
+// which the kernel lists among the bound sockets only while a process has it
+// open. A failure keeps it held.
 async function isProfileHeld(userDataPath: string) {
     if (process.platform === 'win32') {
-        return open(join(userDataPath, 'lockfile'), 'r+').then(handle => handle.close().then(() => false), (error: NodeJS.ErrnoException) => error.code !== 'ENOENT');
+        return access(join(userDataPath, 'lockfile')).then(() => true, (error: NodeJS.ErrnoException) => error.code !== 'ENOENT');
     }
-    // SingletonSocket links to the listening socket in a short temporary folder,
-    // since a socket path in a deep profile would not fit sun_path.
     const socketPath = await readlink(join(userDataPath, 'SingletonSocket')).catch((error: NodeJS.ErrnoException) => error.code === 'ENOENT' ? '' : null);
     if (socketPath === '' || socketPath === null) {
         return socketPath === null;
     }
-    return new Promise<boolean>(resolveHeld => {
-        const socket = connect(socketPath);
-        socket.once('connect', () => {
-            socket.destroy();
-            resolveHeld(true);
-        });
-        socket.once('error', (error: NodeJS.ErrnoException) => resolveHeld(error.code !== 'ENOENT' && error.code !== 'ECONNREFUSED'));
-    });
+    try {
+        const boundSockets = process.platform === 'linux'
+            ? process.getBuiltinModule('node:fs').readFileSync('/proc/net/unix', 'utf8')
+            : String((await execFileForIdentity('/usr/sbin/netstat', [
+                '-f',
+                'unix',
+                '-an',
+            ], {
+                timeout: 2_000,
+                maxBuffer: 8 * 1024 * 1024,
+            })).stdout);
+        return boundSockets.split('\n').some(line => line.trimEnd().endsWith(` ${socketPath}`));
+    } catch {
+        return true;
+    }
 }
 
 /** The profile a record belongs to: the one this process holds, another profile's user-data folder, or unknown. */
