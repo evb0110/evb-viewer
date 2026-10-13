@@ -1,5 +1,6 @@
 import {
     copyFile,
+    link,
     mkdir,
     mkdtemp,
     readFile,
@@ -10,6 +11,8 @@ import { tmpdir } from 'node:os';
 import path, { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
+    afterAll,
+    beforeAll,
     describe,
     expect,
     it,
@@ -64,6 +67,25 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/check-web-deploy-assets.mjs')).href
 ) as IWebDeployAssetsModule;
 
+let wasmFixtureRoot: string;
+
+beforeAll(async () => {
+    // Keep real WASM bytes once, on the same volume as the disposable projects.
+    wasmFixtureRoot = await mkdtemp(path.join(tmpdir(), 'evb-web-wasm-'));
+    for (const asset of REQUIRED_WEB_WASM_ASSETS) {
+        const destination = path.join(wasmFixtureRoot, asset.relativePath);
+        await mkdir(path.dirname(destination), {recursive: true});
+        await copyFile(path.join(process.cwd(), 'public', asset.relativePath), destination);
+    }
+});
+
+afterAll(async () => {
+    await rm(wasmFixtureRoot, {
+        force: true,
+        recursive: true,
+    });
+});
+
 async function createTempProject() {
     const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-web-assets-'));
     const roots = [
@@ -77,9 +99,11 @@ async function createTempProject() {
     }
 
     for (const asset of REQUIRED_WEB_WASM_ASSETS) {
-        const sourcePath = path.join(process.cwd(), 'public', asset.relativePath);
+        const sourcePath = path.join(wasmFixtureRoot, asset.relativePath);
         for (const root of roots) {
-            await copyFile(sourcePath, path.join(tempRoot, root, asset.relativePath));
+            // These fixtures only read or unlink WASM files. Separate directory
+            // entries preserve deletion checks without rewriting 19 MiB per case.
+            await link(sourcePath, path.join(tempRoot, root, asset.relativePath));
         }
     }
 
