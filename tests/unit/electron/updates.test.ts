@@ -1513,7 +1513,6 @@ describe('updates robustness', () => {
         const updates = await loadUpdatesModule(); const events = fanout(updates);
         await updates.triggerManualUpdateCheck({senderId: 1});
         const errors = events.filter(e => e[0]!.phase === 'error');
-        console.info('UPDATE_CHECK_REJECTION', JSON.stringify(errors));
 
         expect(errors.length).toBe(1);
         expect(errors.every(e => e[0]!.requestedHere === true && e[1]!.requestedHere === false && e[2]!.requestedHere === false)).toBe(true);
@@ -1541,16 +1540,10 @@ describe('updates robustness', () => {
         } = Promise.withResolvers<undefined>();
         mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {await gate; const failure = new Error('download failed'); mocks.autoUpdater.emit('error', failure); throw failure;});
         updates.downloadAvailableUpdate({senderId:1});await flushPromises();
-        const initialProgress = events.at(-1)!;
         const joined=updates.downloadAvailableUpdate({senderId:2});
         const progress = events.at(-1)!;
         release(undefined);await vi.advanceTimersByTimeAsync(0);
         const result=events.find(event => event[0]!.phase === 'error')!;
-        console.info('UPDATE_JOINED_DOWNLOAD', JSON.stringify({
-            initialProgress,
-            progress,
-            result,
-        }));
         expect(progress.map(s => s.requestedHere)).toEqual([
             true,
             true,
@@ -1815,7 +1808,7 @@ describe('updates robustness', () => {
         expect(reloaded!.dialog.value.open).toBe(false);
     });
 
-    it('review: repeated error events during download and a check join produce one requested failure', async () => {
+    it('repeated error events during download and a check join produce one requested failure', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
@@ -1841,7 +1834,6 @@ describe('updates robustness', () => {
         await checking;
         await vi.advanceTimersByTimeAsync(0);
         const errors = events.filter(e => e[0]!.phase === 'error');
-        console.log('review repeated-download/check-join', JSON.stringify(errors));
         expect(errors).toHaveLength(1);
         expect(errors[0]!.map(s => s.requestedHere)).toEqual([
             true,
@@ -1850,7 +1842,7 @@ describe('updates robustness', () => {
         ]);
     });
 
-    it('review: closing the only download requester never retargets its failure', async () => {
+    it('closing the only download requester never retargets its failure', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
         const owner = await loadUpdatesModule();
@@ -1867,7 +1859,6 @@ describe('updates robustness', () => {
         gate.resolve(undefined);
         await vi.advanceTimersByTimeAsync(0);
         const errors = events.filter(e => e[0]!.phase === 'error');
-        console.log('review closed-download-requester', JSON.stringify(errors));
         expect(errors).toHaveLength(1);
         expect(errors[0]!.map(s => s.requestedHere)).toEqual([
             false,
@@ -1875,7 +1866,7 @@ describe('updates robustness', () => {
         ]);
     });
 
-    it('review: a window opened during a download hydrates silently and may join', async () => {
+    it('a window opened during a download hydrates silently and may join', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
         const owner = await loadUpdatesModule();
@@ -1890,14 +1881,13 @@ describe('updates robustness', () => {
         await fresh!.downloadUpdate();
         gate.resolve(undefined);
         await vi.advanceTimersByTimeAsync(0);
-        console.log('review fresh download window', JSON.stringify({...fresh!.dialog.value}));
         expect(fresh!.dialog.value).toMatchObject({
             open:true,
             phase:'error',
         });
     });
 
-    it('review: app quit cancels a download without emitting its failure', async () => {
+    it('app quit cancels a download without emitting its failure', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
         const owner = await loadUpdatesModule();
@@ -1917,11 +1907,10 @@ describe('updates robustness', () => {
         const quit = owner.shutdownUpdates();
         gate.resolve(undefined);
         await quit;
-        console.log('review app-quit statuses', JSON.stringify(events));
         expect(events.filter(s => s.phase === 'error')).toHaveLength(0);
     });
 
-    it('review: a live startup failure is presented once across three subscribed windows', async () => {
+    it('a live startup failure is presented once across three subscribed windows', async () => {
         const marker = Promise.withResolvers<IMockPendingUpdateStartup | null>();
         mocks.recordPendingUpdateStartup.mockImplementation(() => marker.promise);
         const owner = await loadUpdatesModule();
@@ -1934,11 +1923,10 @@ describe('updates robustness', () => {
             version:1,
         });
         await vi.advanceTimersByTimeAsync(0);
-        console.log('review live startup dialogs', JSON.stringify(ui.map(w => ({...w.dialog.value}))));
         expect(ui.filter(w => w.dialog.value.open && w.dialog.value.phase === 'error')).toHaveLength(1);
     });
 
-    it('review: a delayed install error remains attributed to the approving window', async () => {
+    it('a delayed install error remains attributed to the approving window', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
         const owner = await loadUpdatesModule();
@@ -1952,7 +1940,6 @@ describe('updates robustness', () => {
         expect(install).toBeDefined();
         await install!();
         mocks.autoUpdater.emit('error',new Error('Squirrel rejected the downloaded ZIP'));
-        console.log('review late native error dialogs', JSON.stringify(ui.map(w => ({...w.dialog.value}))));
         expect(ui.map(w => w.dialog.value.open)).toEqual([
             true,
             false,
@@ -1960,7 +1947,7 @@ describe('updates robustness', () => {
         ]);
     });
 
-    it('review: repeated native install errors have one terminal presentation', async () => {
+    it('repeated native install errors have one terminal presentation', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
         const owner = await loadUpdatesModule();
@@ -1979,7 +1966,6 @@ describe('updates robustness', () => {
         mocks.autoUpdater.emit('error',error);
         mocks.autoUpdater.emit('error',error);
         const failures = events.filter(e => e[0]!.phase === 'error');
-        console.log('review repeated native terminal results', JSON.stringify(failures));
         expect(failures).toHaveLength(1);
         expect(failures[0]!.map(s => s.requestedHere)).toEqual([
             true,
@@ -1987,12 +1973,11 @@ describe('updates robustness', () => {
             false,
         ]);
     });
-    it('review-final: a rejected download does not later reopen a ready result', async () => {
+    it('a rejected download does not later reopen a ready result', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
         const owner = await loadUpdatesModule();
         const ui = await renderers(owner);
-        const events: IAppUpdateStatus[] = [];
         let requestedInstall = false;
         owner.configureUpdateInstallShutdown(() => {requestedInstall = true;});
         await owner.triggerManualUpdateCheck({senderId:1});
@@ -2007,16 +1992,8 @@ describe('updates robustness', () => {
         owner.downloadAvailableUpdate({senderId:1});
         await vi.advanceTimersByTimeAsync(0);
         const failed = {...ui[0]!.dialog.value};
-        events.push({...ui[0]!.status.value});
         skipped.resolve({});
         await vi.advanceTimersByTimeAsync(0);
-        events.push({...ui[0]!.status.value});
-        console.log('review-final download completion ordering', JSON.stringify({
-            failed,
-            after:{...ui[0]!.dialog.value},
-            events,
-            requestedInstall,
-        }));
         expect(failed.phase).toBe('error');
         expect(ui[0]!.dialog.value).toMatchObject({
             phase:'error',
@@ -2025,7 +2002,7 @@ describe('updates robustness', () => {
         expect(requestedInstall).toBe(false);
     });
 
-    it('review-final: the actual shell presents one live startup toast across three windows', async () => {
+    it('the actual shell presents one live startup toast across three windows', async () => {
         const marker = Promise.withResolvers<IMockPendingUpdateStartup | null>();
         mocks.recordPendingUpdateStartup.mockImplementation(() => marker.promise);
         const owner = await loadUpdatesModule();
@@ -2070,8 +2047,6 @@ describe('updates robustness', () => {
             });
             await vi.advanceTimersByTimeAsync(0);
             await nextTick();
-            console.log('R4_STARTUP_STATUSES', JSON.stringify(ui.map(w => ({...w.status.value}))));
-            console.log('review-final live startup shell toasts', JSON.stringify(toasts.map(t=>t.map(x=>x.title))));
             expect(toasts.flat().filter(t=>t.title==='updates.errorTitle')).toHaveLength(1);
         } finally { for (const scope of scopes) scope.stop(); }
     });
@@ -2098,15 +2073,14 @@ describe('updates robustness', () => {
         expect(events.flat().filter(event => event.phase === 'error')).toEqual([]);
     });
 
-    it('closing review: a registered window without a subscription cannot consume the startup failure', async () => {
+    it('a registered window without a subscription cannot consume the startup failure', async () => {
         const marker = Promise.withResolvers<IMockPendingUpdateStartup | null>();
         mocks.recordPendingUpdateStartup.mockImplementation(() => marker.promise);
         const owner = await loadUpdatesModule();
-        const sent: IAppUpdateStatus[] = [];
         // The production dispatcher enumerates registered BrowserWindows, even
         // before AppShell's mounted hook subscribes (or during a renderer reload).
         owner.initializeUpdates(snapshot => {
-            sent.push(owner.projectUpdateStatusForWindow(snapshot, 1));
+            owner.projectUpdateStatusForWindow(snapshot, 1);
         });
         marker.resolve({
             installationApplied:false,
@@ -2117,11 +2091,6 @@ describe('updates robustness', () => {
         });
         await vi.advanceTimersByTimeAsync(0);
         const [late] = await renderers(owner,[1]);
-        console.log('CLOSING_REGISTERED_NOT_SUBSCRIBED',JSON.stringify({
-            sent,
-            last:late!.status.value,
-            dialog:{...late!.dialog.value},
-        }));
         expect(late!.dialog.value).toMatchObject({
             open:true,
             phase:'error',
