@@ -178,9 +178,10 @@ export function findAddedChecks(entries, readAddedLines, readRemovedLines = () =
             continue;
         }
         const isTestFile = TEST_FILE_PATTERN.test(path);
-        const addedLines = readAddedLines(path).filter(line => !isTestFile || !movedLines.has(line.trim()));
+        const rawAddedLines = readAddedLines(path);
+        const addedLines = rawAddedLines.filter(line => !isTestFile || !movedLines.has(line.trim()));
         if (status === 'A') {
-            const titles = isTestFile ? testTitlesOf(readAddedLines(path)) : [];
+            const titles = isTestFile ? testTitlesOf(rawAddedLines) : [];
             const moved = titles.length > 0 && titles.every(title => movedTitles.has(title));
             const rule = ADDED_CHECK_FILE_PATTERNS.find(candidate => candidate.pattern.test(path));
             if (rule && !moved) {
@@ -291,15 +292,19 @@ function findStagedAddedChecksAgainst(cwd, base) {
     if (names === null) {
         return [];
     }
-    const diffOf = (/** @type {string} */ path) => git([
-        'diff',
-        '--cached',
-        '-U0',
-        ...base,
-        '--',
+    const entries = parseNameStatus(names);
+    const diffs = new Map(entries.map(({path}) => [
         path,
-    ], cwd) ?? '';
-    return findAddedChecks(parseNameStatus(names), path => addedLinesOf(diffOf(path)), path => removedLinesOf(diffOf(path)));
+        git([
+            'diff',
+            '--cached',
+            '-U0',
+            ...base,
+            '--',
+            path,
+        ], cwd) ?? '',
+    ]));
+    return findAddedChecks(entries, path => addedLinesOf(diffs.get(path) ?? ''), path => removedLinesOf(diffs.get(path) ?? ''));
 }
 
 // A merge commit only adds what neither parent already had, so a check that
@@ -334,17 +339,21 @@ function findCommitAddedChecks(commit, cwd) {
     if (names === null) {
         return [];
     }
-    const diffOf = (/** @type {string} */ path) => git([
-        'diff-tree',
-        '--no-commit-id',
-        '--root',
-        '-p',
-        '-U0',
-        commit,
-        '--',
+    const entries = parseNameStatus(names);
+    const diffs = new Map(entries.map(({path}) => [
         path,
-    ], cwd) ?? '';
-    return findAddedChecks(parseNameStatus(names), path => addedLinesOf(diffOf(path)), path => removedLinesOf(diffOf(path)));
+        git([
+            'diff-tree',
+            '--no-commit-id',
+            '--root',
+            '-p',
+            '-U0',
+            commit,
+            '--',
+            path,
+        ], cwd) ?? '',
+    ]));
+    return findAddedChecks(entries, path => addedLinesOf(diffs.get(path) ?? ''), path => removedLinesOf(diffs.get(path) ?? ''));
 }
 
 /** @param {string[]} commits @param {string} cwd @returns {{matches: string[], subject: string}[]} */
