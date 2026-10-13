@@ -54,21 +54,21 @@ async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
 /**
  * Restores an interrupted publication by moving the displaced backup back; without one, the original was never
  * displaced or is already restored and is not EVB's to restore, and an original that already holds its pre-save bytes
- * keeps them. A present destination must match the journal first.
+ * keeps them. A present destination must match a full fingerprint first: sampled bytes alone prove nothing, so a
+ * journal without one keeps the displaced file beside the PDF, as for any other change.
  */
 export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
     if (original.state === 'restored' || original.state === 'conflicted' || !await stat(original.backupPath).then(() => true, () => false)) return;
-    // Each decision below reads the whole PDF afresh. A PDF another program holds refuses its restore, and renaming it
-    // onto itself, which changes nothing, says so first, so a held PDF is not read in full at every revision read.
-    await rename(original.path, original.path).catch((error: unknown) => existsSync(original.path) ? Promise.reject(error) : undefined);
+    // Each decision below reads the whole PDF afresh. A PDF or displaced backup another program holds refuses the restore,
+    // and renaming each onto itself, which changes nothing, says so first, so neither is read in full at every read.
+    const assertMovable = (path: string) => rename(path, path).catch((error: unknown) => existsSync(path) ? Promise.reject(error) : undefined);
+    await assertMovable(original.path).then(() => assertMovable(original.backupPath));
     if (original.preparedSnapshot !== undefined && await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true}).then(() => true, () => false)) return;
     // A replace journal left by EVB's Windows fallback is applied only for an original EVB is about to restore.
     if (process.platform === 'win32') await recoverWindowsAtomicReplace(original.path);
     // EVB's own bytes, recorded as published or not yet, are rolled back even when only their metadata changed.
     const intendedWitness = await witnessIntendedContent(original);
-    const expectedSnapshot = intendedWitness ? undefined : original.state === 'prepared'
-        ? original.preparedSnapshot
-        : original.publishedSnapshot;
+    const expectedSnapshot = intendedWitness ? undefined : original[original.state === 'prepared' ? 'preparedSnapshot' : 'publishedSnapshot'];
     if (expectedSnapshot !== undefined) {
         try {
             await assertPathMatchesSaveWitnessSnapshot(original.path, expectedSnapshot);
@@ -82,9 +82,7 @@ export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
             return;
         }
     }
-    const witness = intendedWitness ?? await capturePathSaveWitness(original.path);
-    if (!witness) {
-        throw new OriginalPathSaveConflictError();
-    }
+    const witness = intendedWitness ?? (expectedSnapshot?.contentFingerprint === undefined ? null : await capturePathSaveWitness(original.path));
+    if (!witness) throw new OriginalPathSaveConflictError();
     await atomicReplace(original.backupPath, original.path, {assertDestinationCurrent: () => witness.assertCurrent()});
 }

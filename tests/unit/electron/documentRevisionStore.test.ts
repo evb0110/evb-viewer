@@ -44,6 +44,7 @@ import {
     recoverWorkingCopyTransition,
 } from '@electron/file-access/workingCopyJournal';
 import {writeWorkingCopyManifestRevision} from '@electron/file-access/workingCopyManifest';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 
 let tempRoot = '';
 
@@ -250,6 +251,7 @@ describe('documentRevisionStore', () => {
             path: originalPath,
             backupPath: otherBackupPath,
             state: 'published',
+            intendedFingerprint: fullFingerprint('ORIGINAL_NEW'),
         });
         await writeFile(originalPath, 'ORIGINAL_NEW');
         await writeFile(otherPath, 'WORKING_NEW');
@@ -520,6 +522,9 @@ describe('documentRevisionStore', () => {
 });
 
 const NEXT = requireDocumentRevisionToken('drt1:test:2:next');
+const fullFingerprint = (content: string) => `sha256-full-v1:${createOriginalFileContentFingerprintHash(Buffer.byteLength(content))
+    .update(content)
+    .digest('hex')}`;
 
 describe('workingCopyJournal crash recovery', () => {
     let root = '';
@@ -588,7 +593,28 @@ describe('workingCopyJournal crash recovery', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-1');
     });
 
-    it('restores a published original together with the working copy', async () => {
+    it.each([
+        [
+            'proves the PDF still holds the published bytes',
+            'saved-1',
+            [
+                'document.pdf',
+                'manifest.json',
+                'original.pdf',
+            ],
+        ],
+        // Sampled bytes alone cannot tell EVB's bytes from another program's edit, so nothing is overwritten.
+        [
+            'has no full fingerprint',
+            'saved-2',
+            [
+                'document.pdf',
+                'manifest.json',
+                'original (original).pdf',
+                'original.pdf',
+            ],
+        ],
+    ])('restores the working copy, and the published original only when the journal %s', async (proof, original, names) => {
         const workingCopyPath = await setup('drt1:test:1:current');
         const originalPath = join(root, 'original.pdf');
         const originalBackupPath = join(root, 'original.pdf.evb-transition-test.bak');
@@ -599,17 +625,14 @@ describe('workingCopyJournal crash recovery', () => {
             path: originalPath,
             backupPath: originalBackupPath,
             state: 'published',
+            ...(proof === 'has no full fingerprint' ? {} : {intendedFingerprint: fullFingerprint('saved-2')}),
         });
         await writeFile(workingCopyPath, 'revision-2');
 
         await recoverWorkingCopyTransition(workingCopyPath);
-        await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-1');
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe(original);
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('revision-1');
-        await expect(readdir(root)).resolves.toEqual([
-            'document.pdf',
-            'manifest.json',
-            'original.pdf',
-        ]);
+        await expect(readdir(root)).resolves.toEqual(names);
     });
 
     it('leaves a truncated journal and the document untouched', async () => {
