@@ -26,11 +26,12 @@ import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
+import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import type {Page} from 'puppeteer-core';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
-    readNativePdfCatalog, resolveNativePageOpsPath,
+    readNativePdfCatalog, readNativePdfCatalogPart, resolveNativePageOpsPath,
 } from '@electron/features/page-ops/public/nativePageOpsPath';
 
 describe('Electron E2E - bookmark destination round trip', () => {
@@ -561,6 +562,92 @@ describe('Electron E2E - bookmark destination round trip', () => {
         expect((await readOutlineTargets(fixture)).map(item => item.title)).toContain('Kept');
         expect((await PDFDocument.load(await readFile(fixture))).getPageCount()).toBe(3);
     }, 90_000);
+
+    it('keeps 5000 named children under their parent after deleting an unrelated page', async () => {
+        const fixture = await createBookmarkTreeFixturePdf(`named-subtree-${Date.now()}.pdf`, [
+            fixtureBookmark('Parent', 0, Array.from({length: 5_000}, (_, index) => fixtureBookmark(`Child ${index}`, 0))),
+            fixtureBookmark('After', 0),
+        ]);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        let child = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict)
+            .lookup(PDFName.of('First'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+        const names = [];
+        for (let index = 0; index < 5_000; index += 1) {
+            const name = PDFString.of(`name-${String(index).padStart(5, '0')}`);
+            names.push(name, pdf.context.obj([
+                pdf.getPages()[0]!.ref,
+                PDFName.of('Fit'),
+            ]));
+            child.set(PDFName.of('Dest'), name);
+            if (index < 4_999) child = child.lookup(PDFName.of('Next'), PDFDict);
+        }
+        pdf.catalog.set(PDFName.of('Names'), pdf.context.obj({Dests: {Names: names}}));
+        await writeFile(fixture, await pdf.save({useObjectStreams: false}));
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await findBookmarkRow(page, 'Parent');
+        await openDocumentSidebarTab(page, 'Pages');
+        await clickAsUser(page, '[data-thumbnail-page="2"]', {button: 'right'});
+        await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+            .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete unrelated page'});
+        await waitForFunctionInPage(page, () => document.querySelector('[data-thumbnail-page="4"]') === null, {timeout: 60_000});
+        await waitForPdfLoaded(page);
+        await saveViaVisibleToolbar(page, 60_000, fixture);
+        const saved = await PDFDocument.load(await readFile(fixture));
+        const parent = saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+        const nativePath = resolveNativePageOpsPath();
+        if (!nativePath) throw new Error('Native catalog reader is unavailable');
+        const catalog = decodeMetadataSnapshot({
+            bookmarks: await readNativePdfCatalogPart(nativePath, fixture, 'bookmarks', {commandLabel: 'E2E saved named subtree'}),
+            untitledBookmarkLabel: 'Untitled',
+        });
+        const observation = {
+            rootCount: catalog.bookmarks?.length,
+            childCount: catalog.bookmarks?.[0]?.items.length,
+            title: parent.lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText(),
+            hasChildren: parent.has(PDFName.of('First')),
+            nextTitle: parent.lookup(PDFName.of('Next'), PDFDict).lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText(),
+        };
+        const evidence = await mkdtemp(join(tmpdir(), 'evb-named-subtree-'));
+        await copyFile(fixture, join(evidence, 'saved.pdf'));
+        await writeFile(join(evidence, 'hierarchy.json'), JSON.stringify(observation, null, 2));
+        console.info('SAVED_NAMED_SUBTREE ' + JSON.stringify({
+            evidence,
+            ...observation,
+        }));
+        expect(observation).toEqual({
+            rootCount: 2,
+            childCount: 5_000,
+            title: 'Parent',
+            hasChildren: true,
+            nextTitle: 'After',
+        });
+        expect(saved.getPageCount()).toBe(3);
+        expect(catalog.bookmarks?.[0]?.items.map(item => ({
+            title: item.title,
+            pageIndex: item.pageIndex,
+            namedDest: item.namedDest,
+        })))
+            .toEqual(Array.from({length: 5_000}, (_, index) => ({
+                title: `Child ${index}`,
+                pageIndex: 0,
+                namedDest: `name-${String(index).padStart(5, '0')}`,
+            })));
+        await clickAsUser(page, 'button[aria-label="Close Tab"]');
+        await page.waitForSelector('.page_container', {hidden: true});
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        const row = await findBookmarkRow(page, 'Parent');
+        const toggle = (await row.$('.document-bookmark-item__toggle'))!;
+        if (await toggle.evaluate(button => button.getAttribute('aria-expanded')) !== 'true') await clickAsUser(page, toggle);
+        await goToPageViaToolbar(page, 3);
+        await activateBookmark(page, 'Child 0');
+        await waitForToolbarCurrentPage(page, 1);
+        expect(await page.$eval('.page_container[data-page="1"]', node => node.textContent)).toContain('Metadata matrix page 1');
+    }, 180_000);
 
     it('review-b6yh removes an accepted named destination when its page is deleted', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`named-replacement-${Date.now()}.pdf`, [fixtureBookmark('Imported', 0)]);

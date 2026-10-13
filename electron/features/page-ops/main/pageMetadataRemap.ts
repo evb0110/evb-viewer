@@ -80,12 +80,11 @@ export async function resolvePageMetadataSourceTargets(
     return usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
         const mutationsPath = join(tempDir, 'targets.json');
         const bookmarks: IPdfBookmarkEntry[] = [];
-        const chunks = splitPdfNativeMutationSetIntoBoundedChunks({bookmarks: {
+        for (const chunk of splitPdfNativeMutationSetIntoBoundedChunks({bookmarks: {
             totalPages: await getPdfPageCount(sourcePath, options),
             untitledLabel: metadata.untitledBookmarkLabel,
             items: metadata.bookmarks?.slice() ?? [],
-        }});
-        for (const chunk of chunks) {
+        }})) {
             await writeFile(mutationsPath, JSON.stringify(chunk), 'utf8');
             const result = await runNativeToolCommand(binaryPath, [
                 'read-document-catalog',
@@ -107,12 +106,12 @@ export async function resolvePageMetadataSourceTargets(
                 untitledBookmarkLabel: metadata.untitledBookmarkLabel,
             });
             if (!resolved.bookmarks) throw new Error('Native bookmark target resolution returned no bookmarks');
-            bookmarks.push(...resolved.bookmarks);
+            const level = (chunk.continuation?.bookmarkPath ?? [])
+                .reduce<readonly IPdfBookmarkEntry[]>((items, index) => items[index]!.items, bookmarks);
+            // Decoding owns these arrays; the contract exposes readonly views.
+            (level as IPdfBookmarkEntry[]).push(...resolved.bookmarks);
         }
-        return {
-            ...metadata,
-            bookmarks,
-        };
+        return Object.assign({}, metadata, {bookmarks});
     });
 }
 

@@ -176,6 +176,64 @@ describe('page metadata remap', () => {
         expect(identity.bookmarks?.items[0]?.namedDest).toBe('chapter-two');
     });
 
+    it('keeps split named subtrees at their original paths before remapping pages', async () => {
+        const metadata = {
+            bookmarks: [
+                bookmark('Before', 0),
+                bookmark('Parent', null, [
+                    bookmark('Nested', null, Array.from({length: 5_000}, (_, index) => bookmark(`Child ${index}`, null))),
+                    {
+                        ...bookmark('Unresolved', null),
+                        namedDest: 'missing',
+                    },
+                ]),
+                bookmark('After', 0),
+            ],
+            untitledBookmarkLabel: 'Untitled',
+        };
+        const resolve = (items: readonly IPdfBookmarkEntry[]): IPdfBookmarkEntry[] => items.map(item => ({
+            ...item,
+            pageIndex: item.namedDest === 'missing' ? null : requirePageIndex(2),
+            items: resolve(item.items),
+        }));
+        mocks.runNativeToolCommand.mockImplementation(async (_binary: string, args: string[]) => ({
+            stdout: args[0] === '--show-npages' ? '3' : JSON.stringify({bookmarks: resolve(
+                JSON.parse(await readFile(args[args.indexOf('--mutations-file') + 1]!, 'utf8')).bookmarks.items,
+            )}),
+            stderr: '',
+            exitCode: 0,
+        }));
+        const source = await resolvePageMetadataSourceTargets(metadata, '/source.pdf', {
+            signal: new AbortController().signal,
+            cancelGroup: 'nested-bookmarks',
+        });
+        expect(source?.bookmarks?.map(item => item.title)).toEqual([
+            'Before',
+            'Parent',
+            'After',
+        ]);
+        expect(source?.bookmarks?.[1]?.items.map(item => item.title)).toEqual([
+            'Nested',
+            'Unresolved',
+        ]);
+        expect(source?.bookmarks?.[1]?.items[0]?.items).toEqual(resolve(metadata.bookmarks[1]!.items[0]!.items));
+        expect(metadata.bookmarks[1]!.items[0]!.items[0]!.pageIndex).toBeNull();
+        const remapped = remapPageMetadata(source!, {
+            previousPageCount: 3,
+            pages: [
+                {fromPageNumber: 1},
+                {fromPageNumber: 3},
+            ],
+        });
+        expect(remapped.bookmarks?.items[1]?.items[0]?.items).toHaveLength(5_000);
+        expect(remapped.bookmarks?.items[1]?.items[0]?.items.every(item => item.pageIndex === 1)).toBe(true);
+        expect(remapped.bookmarks?.items[1]?.items[1]).toMatchObject({
+            title: 'Unresolved',
+            pageIndex: null,
+            namedDest: 'missing',
+        });
+    });
+
     it('remaps exact labels and bookmark destinations through reorder/delete/insert', () => {
         const result = remapPageMetadata({
             pageLabels: [
