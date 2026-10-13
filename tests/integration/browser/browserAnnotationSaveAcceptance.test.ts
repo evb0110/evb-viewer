@@ -14,6 +14,7 @@ import {
 } from 'node:path';
 import {build} from 'esbuild';
 import {chromium} from 'playwright';
+import {clickCenter} from './documentLifecycleTestHelpers';
 import {
     PDFDocument, PDFArray, PDFDict, PDFName, PDFString, PDFHexString,
 } from 'pdf-lib';
@@ -148,10 +149,11 @@ describe('browser annotation save acceptance in Chromium', () => {
                 if (typeof prepare !== 'function') throw new Error('Missing print acceptance entry');
                 await prepare();
             });
-            await page.getByRole('button', {
-                name: 'Prepare facing print',
-                exact: true,
-            }).click();
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
+            // Trusted CDP input without Playwright's injected hit-target
+            // listeners becoming part of the main-thread measurement.
+            await clickCenter(page, 'button');
             const result = await page.evaluate(() => Reflect.get(globalThis, '__evbPrintResponsivenessResult'));
             expect(result).toEqual({
                 pageCount: 2_000,

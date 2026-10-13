@@ -22,6 +22,7 @@ const failureReceipt = vi.hoisted(() => ({
 const failureReporter = vi.hoisted(() => ({capture: vi.fn(() => failureReceipt)}));
 
 vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
+vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: async () => undefined}));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -67,7 +68,7 @@ class FakeWorker {
 
     public postMessage(message: unknown, transfer: Transferable[] = []) {
         this.postMessageCalls.push({
-            message,
+            message: structuredClone(message, {transfer}),
             transfer,
         });
         FakeWorker.onPostMessage?.(this);
@@ -379,7 +380,7 @@ describe('browserPageOpsWorkerClient', () => {
             signal: canceledController.signal,
         });
         const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: siblingInput}, {dedicated: true});
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
 
         expect(FakeWorker.instances).toHaveLength(2);
         const canceledWorker = FakeWorker.instances[0];
@@ -422,7 +423,7 @@ describe('browserPageOpsWorkerClient', () => {
             dedicated: true,
             signal: staleController.signal,
         });
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
         const staleWorker = FakeWorker.instances[0];
         if (!staleWorker) {
             throw new Error('Expected a stale annotation parse worker');
@@ -434,7 +435,7 @@ describe('browserPageOpsWorkerClient', () => {
         await staleRejection;
 
         const replacement = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([2])}, {dedicated: true});
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
         const replacementWorker = FakeWorker.instances[1];
         if (!replacementWorker) {
             throw new Error('Expected a replacement annotation parse worker');
@@ -446,7 +447,7 @@ describe('browserPageOpsWorkerClient', () => {
             error => { replacementOutcome = error; },
         );
         staleWorker.dispatchMessage(createParseResponse(1, new Uint8Array([99])));
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
         expect(replacementOutcome).toBeUndefined();
 
         const replacementResult = new Uint8Array([
@@ -460,7 +461,7 @@ describe('browserPageOpsWorkerClient', () => {
         expect(replacementWorker.terminated).toBe(true);
     });
 
-    it('isolates a dedicated worker failure and preserves input ownership before transfer', async () => {
+    it('isolates a dedicated worker failure and preserves input ownership', async () => {
         FakeWorker.autoRespond = false;
         const failedInput = new Uint8Array([
             13,
@@ -469,7 +470,7 @@ describe('browserPageOpsWorkerClient', () => {
         ]);
         const sibling = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: new Uint8Array([16])}, {dedicated: true});
         const failed = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: failedInput}, {dedicated: true});
-        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
 
         expect(FakeWorker.instances).toHaveLength(2);
         const siblingWorker = FakeWorker.instances[0];
@@ -479,13 +480,12 @@ describe('browserPageOpsWorkerClient', () => {
         }
 
         const postedRequest = failedWorker.postMessageCalls[0]?.message as {payload: {data: Uint8Array};} | undefined;
-        const transferredInput = postedRequest?.payload.data;
-        if (!transferredInput) {
-            throw new Error('Expected a transferred annotation parse input');
+        const workerInput = postedRequest?.payload.data;
+        if (!workerInput) {
+            throw new Error('Expected a worker-owned annotation parse input');
         }
-        expect(transferredInput).not.toBe(failedInput);
-        expect(transferredInput).toEqual(failedInput);
-        expect(failedWorker.postMessageCalls[0]?.transfer).toContain(transferredInput.buffer);
+        expect(workerInput).not.toBe(failedInput);
+        expect(workerInput).toEqual(failedInput);
         expect(failedInput).toEqual(new Uint8Array([
             13,
             14,
@@ -543,7 +543,7 @@ describe('browserPageOpsWorkerClient', () => {
                         orientation: 'landscape' as const,
                     };
             const canceled = runBrowserPageOpsWorkerRequest(type, payload, {signal: controller.signal});
-            await Promise.resolve();
+            await vi.advanceTimersByTimeAsync(0);
             const sibling = runBrowserPageOpsWorkerRequest('rotate', {
                 data: new Uint8Array([4]),
                 pages: [1],
@@ -658,7 +658,7 @@ describe('browserPageOpsWorkerClient', () => {
                 data: new Uint8Array([1]),
                 password: '',
             });
-            await Promise.resolve();
+            await vi.advanceTimersByTimeAsync(0);
             FakeWorker.lastInstance?.dispatchMessage({
                 id: 1,
                 type: 'decrypt',

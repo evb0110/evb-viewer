@@ -25,6 +25,7 @@ import * as v from 'valibot';
 
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS = 90_000;
+const WORKER_INPUT_COPY_CHUNK_BYTES = 512 * 1024;
 
 export {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 
@@ -58,19 +59,29 @@ function reportWorkerFailure(error: Error) {
     return error;
 }
 
-interface IBuildWorkerRequestWithTransfersOptions {preserveInputOwnership?: boolean;}
+interface IBuildWorkerRequestWithTransfersOptions {
+    preserveInputOwnership?: boolean;
+    signal?: AbortSignal;
+}
 
-function buildWorkerRequestWithTransfers(
+async function buildWorkerRequestWithTransfers(
     request: TBrowserPageOpsWorkerRequest,
     options: IBuildWorkerRequestWithTransfersOptions = {},
 ) {
-    const toTransferableRequestData = (data: Uint8Array) => options.preserveInputOwnership
-        ? toTransferableUint8Array(data.slice())
-        : toTransferableUint8Array(data);
+    const toTransferableRequestData = async (data: Uint8Array) => {
+        if (!options.preserveInputOwnership) return toTransferableUint8Array(data);
+        const copy = new Uint8Array(data.byteLength);
+        for (let offset = 0; offset < data.byteLength; offset += WORKER_INPUT_COPY_CHUNK_BYTES) {
+            if (options.signal?.aborted) throw abortErrorFromSignal(options.signal);
+            copy.set(data.subarray(offset, offset + WORKER_INPUT_COPY_CHUNK_BYTES), offset);
+            await yieldToBrowser();
+        }
+        return copy;
+    };
     const transfer: Transferable[] = [];
     if (request.type === 'insertPages') {
-        const transferableData = toTransferableRequestData(request.payload.data);
-        const transferableInsertionData = toTransferableRequestData(request.payload.insertionData);
+        const transferableData = await toTransferableRequestData(request.payload.data);
+        const transferableInsertionData = await toTransferableRequestData(request.payload.insertionData);
         return {
             request: {
                 ...request,
@@ -89,15 +100,16 @@ function buildWorkerRequestWithTransfers(
 
     if (request.type === 'mergePages') {
         const transferredBuffers = new Set<ArrayBuffer>();
-        const documents = request.payload.documents.map((document) => {
-            let data = toTransferableRequestData(document);
+        const documents: Uint8Array[] = [];
+        for (const document of request.payload.documents) {
+            let data = await toTransferableRequestData(document);
             if (transferredBuffers.has(data.buffer)) {
                 data = data.slice();
             }
             transferredBuffers.add(data.buffer);
             transfer.push(data.buffer);
-            return data;
-        });
+            documents.push(data);
+        }
         return {
             request: {
                 ...request,
@@ -107,7 +119,7 @@ function buildWorkerRequestWithTransfers(
         };
     }
 
-    const transferableData = toTransferableRequestData(request.payload.data);
+    const transferableData = await toTransferableRequestData(request.payload.data);
     return {
         request: {
             ...request,
@@ -168,7 +180,6 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
     options: {
         signal?: AbortSignal;
         preserveInputOwnership?: boolean;
-        disposeWorkerOnSettlement?: boolean;
     } = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     const request: IBrowserPageOpsWorkerRequest<K> = {
@@ -191,9 +202,6 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
             }
             settled = true;
             removeAbortListener();
-            if (options.disposeWorkerOnSettlement) {
-                client.resetWorker();
-            }
             return true;
         };
         const rejectRequest = (error: Error) => {
@@ -235,20 +243,15 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
             }
         }
 
-        try {
-            const workerRequest = buildWorkerRequestWithTransfers(
-                request,
-                options.preserveInputOwnership === undefined
-                    ? {}
-                    : {preserveInputOwnership: options.preserveInputOwnership},
-            );
-            worker.postMessage(workerRequest.request, workerRequest.transfer);
-        } catch (error) {
+        void buildWorkerRequestWithTransfers(request, options).then((workerRequest) => {
+            if (!settled) worker.postMessage(workerRequest.request, workerRequest.transfer);
+        }).catch((error: unknown) => {
+            if (settled) return;
             client.cancelPendingRequest(
                 request.id,
                 reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),
             );
-        }
+        });
     });
 }
 
@@ -286,6 +289,9 @@ async function runDedicatedBrowserPageOpsWorkerRequest<K extends TBrowserPageOps
     const client = createBrowserPageOpsWorkerClient();
     try {
         if (isCpuPageOperation(type)) {
+            // Worker startup and the ownership-preserving copy must not extend
+            // the input event's task. Use the same scheduler as the fallback.
+            await yieldToBrowser();
             try {
                 client.getWorker();
             } catch (error) {
@@ -294,11 +300,11 @@ async function runDedicatedBrowserPageOpsWorkerRequest<K extends TBrowserPageOps
                 }
                 return await runBrowserPageOpsWithoutWorker(type, payload, signal);
             }
+            await yieldToBrowser();
         }
         return await runBrowserPageOpsWorkerRequestWithClient(client, type, payload, {
             ...(signal ? {signal} : {}),
             preserveInputOwnership: true,
-            disposeWorkerOnSettlement: true,
         });
     } finally {
         client.resetWorker();
