@@ -363,7 +363,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         expect(positiveControl).toContain('Unmarked sentence selects normally');
         await page.evaluate(() => document.getSelection()?.removeAllRanges());
 
-        const highlight = '.page_container[data-page="1"] .highlightAnnotation, .page_container[data-page="1"] [data-annotation-kind="text-markup"]';
+        const highlight = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-text-markup path[data-annotation-visual]';
         const before = await page.$eval(highlight, element => {
             const rect = element.getBoundingClientRect();
             return {

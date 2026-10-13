@@ -135,7 +135,9 @@ function isMarkupTool(tool: string): tool is 'Highlight' | 'Underline' | 'Strike
 async function readPaintedAnnotation(page: Page) {
     return page.evaluate(() => {
         const entity = document.querySelector<SVGElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="shape"], .editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]');
-        const visual = entity?.querySelector<SVGElement>('[data-annotation-visual]');
+        const visual = entity?.dataset.markupSubtype === 'Highlight'
+            ? entity.closest('.pdf-annotation-editor-layer')?.querySelector<SVGElement>('.pdf-annotation-editor-text-markup path[data-annotation-visual]')
+            : entity?.querySelector<SVGElement>('[data-annotation-visual]');
         const pageRect = entity?.closest('.page_container')?.getBoundingClientRect();
         const card = entity ? document.querySelector<HTMLElement>(`.editor-pane.is-active .note-item[data-annotation-id="${entity.dataset.annotationId}"]`) : null;
         const chip = card?.querySelector<HTMLElement>('.note-item-color-chip');
@@ -143,7 +145,7 @@ async function readPaintedAnnotation(page: Page) {
             return null;
         }
         const style = getComputedStyle(visual);
-        const rect = entity.getBoundingClientRect();
+        const rect = entity.dataset.markupSubtype === 'Highlight' ? visual.getBoundingClientRect() : entity.getBoundingClientRect();
         return {
             id: entity.dataset.annotationId,
             kind: entity.dataset.annotationKind,

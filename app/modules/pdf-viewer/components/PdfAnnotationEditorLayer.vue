@@ -3,7 +3,7 @@
         ref="layerRef"
         class="pdf-annotation-editor-layer"
         :class="{'is-interactive': isInteractive, 'is-text-selecting': pointerGesture.isTextSelecting.value}"
-        :style="{touchAction: pointerGesture.textSelectionTouchAction.value}"
+        :style="{touchAction: pointerGesture.textSelectionTouchAction.value, zIndex: 'auto'}"
         data-pdf-annotation-editor-surface
         :data-view-rotation="viewRotation"
         :data-pdf-annotation-editor-ready="editorReady ? 'true' : undefined"
@@ -23,6 +23,15 @@
         <div
             v-if="isInteractive"
             class="pdf-annotation-editor-surface__background"
+            :style="{zIndex: 'var(--app-z-pdf-annotation-editor-layer)'}"
+            aria-hidden="true"
+        />
+        <svg
+            :id="highlightFillPlaneId"
+            class="pdf-annotation-editor-surface__svg"
+            viewBox="0 0 1 1"
+            preserveAspectRatio="none"
+            :style="{...planeStyle, mixBlendMode: 'multiply'}"
             aria-hidden="true"
         />
         <svg
@@ -38,6 +47,7 @@
                 :page-rotation="surface.getPageGeometry(pageIndex)?.rotation ?? 0"
                 :entity="entity"
                 :highlight-paint-quads="highlightPaintQuads.get(entity.identity.id)"
+                :highlight-fill-target="`#${highlightFillPlaneId}`"
                 :selected="isSelected(entity.identity.id)"
                 :page-size="pageDimensions"
             />
@@ -80,7 +90,7 @@
                 :key="entity.identity.id"
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
-                :display-rect="displayRectForNote(entity)"
+                :display-rect="displayRectFor(entity)"
                 @pointer-down="handleEntityPointerDown(entity, $event)"
                 @activate="handleNoteActivate(entity)"
             />
@@ -89,7 +99,7 @@
                 :key="entity.identity.id"
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
-                :display-rect="displayRectForStamp(entity)"
+                :display-rect="displayRectFor(entity)"
             />
             <div
                 v-if="textPlacementPreview"
@@ -169,6 +179,7 @@ if (!injectedSurface) {
 }
 const surface: IAnnotationEditorSurface = injectedSurface;
 const layerRef = ref<HTMLElement | null>(null);
+const highlightFillPlaneId = useId();
 const editorReady = ref(false);
 const editingId = surface.editingId;
 const pageDimensions = computed(() => {
@@ -180,6 +191,7 @@ const planeStyle = computed(() => {
     const swapped = viewRotation.value === 90 || viewRotation.value === 270;
     const page = pageDimensions.value;
     return {
+        zIndex: 'var(--app-z-pdf-annotation-editor-layer)',
         left: '50%',
         top: '50%',
         width: swapped ? `${page.width / page.height * 100}%` : '100%',
@@ -426,13 +438,6 @@ const htmlEntities = computed(() => ({
     stamps: entities.value.filter((entity): entity is IPlacedImageEntity => entity.kind === 'placed-image'),
 }));
 
-function displayRectForStamp(entity: IPlacedImageEntity) {
-    const delta = moveDelta.value;
-    return delta && surface.selectedIds.value.has(entity.identity.id)
-        ? translateRect(entity.rect, delta.x, delta.y)
-        : draggedAnnotationId.value === entity.identity.id ? pointerGesture.previewRect.value ?? undefined : undefined;
-}
-
 function setTextBoxRef(
     annotationId: AnnotationId,
     element: Element | ComponentPublicInstance | null,
@@ -624,27 +629,16 @@ const textPlacementPreview = computed(() => {
         : null;
 });
 
-function displayRectFor(entity: ITextBoxEntity) {
+function displayRectFor(entity: ITextBoxEntity | INoteEntity | IPlacedImageEntity) {
     const delta = moveDelta.value;
     if (delta && surface.selectedIds.value.has(entity.identity.id)) {
-        return translateRect(entity.rect, delta.x, delta.y);
+        return translateRect(entity.kind === 'note' ? entity.position : entity.rect, delta.x, delta.y);
     }
     if (draggedAnnotationId.value !== entity.identity.id) {
         return undefined;
     }
     const rect = pointerGesture.previewRect.value;
     return rect ? fitTextBoxRect(entity, rect) : undefined;
-}
-
-function displayRectForNote(entity: INoteEntity) {
-    const delta = moveDelta.value;
-    if (delta && surface.selectedIds.value.has(entity.identity.id)) {
-        return translateRect(entity.position, delta.x, delta.y);
-    }
-    if (draggedAnnotationId.value !== entity.identity.id) {
-        return undefined;
-    }
-    return pointerGesture.previewRect.value ?? undefined;
 }
 
 function textBoxIdAtPoint(event: Pick<MouseEvent, 'clientX' | 'clientY'>) {

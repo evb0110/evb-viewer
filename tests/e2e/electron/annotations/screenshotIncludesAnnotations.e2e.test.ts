@@ -1,5 +1,5 @@
 import {
-    copyFile, mkdtemp, writeFile,
+    copyFile, mkdtemp, readFile, writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -9,14 +9,20 @@ import {
 import {
     describe, expect, it, onTestFinished,
 } from 'vitest';
+import {
+    PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber,
+} from 'pdf-lib';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {
     clickAnnotationTool, createTextMarkupWithPointer, setAnnotationColor,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
-    clickVisibleToolbarButton, openPdfInApp, saveViaWindowHandle, waitForPdfLoaded,
+    clickVisibleToolbarButton, openPdfInApp, saveViaVisibleToolbar, saveViaWindowHandle, waitForPdfLoaded, waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
+import {
+    clickAsUser, revealForPointer,
+} from '@tests/e2e/electron/helpers/userInput';
 import {
     startElectronE2ESession, type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
@@ -78,6 +84,119 @@ async function countAnnotationColourPixels(
 
 describe('Electron E2E - screenshot annotation output', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-screenshot-annotation-${Date.now()}`});
+
+    it('keeps text readable under an opaque imported Highlight after recolour and reopen', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-opaque-highlight-'));
+        const path = join(directory, 'imported.pdf');
+        const pdf = await PDFDocument.create();
+        const sheet = pdf.addPage([
+            612,
+            792,
+        ]);
+        sheet.drawText('Hydration review selectable highlighted text', {
+            x: 40,
+            y: 740,
+            size: 16,
+            font: await pdf.embedFont('Helvetica'),
+        });
+        sheet.node.set(PDFName.of('Annots'), pdf.context.obj([pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'Highlight',
+            Rect: [
+                40,
+                736,
+                354,
+                758,
+            ],
+            QuadPoints: [
+                40,
+                758,
+                354,
+                758,
+                40,
+                736,
+                354,
+                736,
+            ],
+            C: [
+                1,
+                1,
+                0,
+            ],
+            CA: 1,
+            F: 4,
+        }))]));
+        await writeFile(path, await pdf.save());
+        let {page} = sessions.getSession();
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, '.editor-pane.is-active [data-markup-subtype="Highlight"] [data-annotation-hit-target]');
+        await clickAsUser(page, '[data-annotation-inspector][data-target="selection"] .swatch[aria-label="#ef4444"]');
+        await saveViaVisibleToolbar(page, 30_000, path);
+        const saved = await PDFDocument.load(await readFile(path));
+        const annotation = saved.context.lookup(
+            saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).get(0), PDFDict,
+        );
+        expect(annotation.lookup(PDFName.of('CA'), PDFNumber).asNumber()).toBe(1);
+        const colour = annotation.lookup(PDFName.of('C'), PDFArray);
+        for (const [
+            index,
+            value,
+        ] of [
+                239 / 255,
+                68 / 255,
+                68 / 255,
+            ].entries()) {
+            expect(colour.lookup(index, PDFNumber).asNumber()).toBeCloseTo(value, 5);
+        }
+        ({page} = await sessions.restart({hard: true}));
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await clickAnnotationTool(page, 'Select');
+        await revealForPointer(page, '.editor-pane.is-active [data-markup-subtype="Highlight"] [data-annotation-hit-target]');
+        const clip = await page.$eval('.editor-pane.is-active [data-markup-subtype="Highlight"] [data-annotation-hit-target]', element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                x: Math.ceil(rect.x + 2),
+                y: Math.ceil(rect.y + 2),
+                width: Math.floor(rect.width - 4),
+                height: Math.floor(rect.height - 4),
+            };
+        });
+        const underlyingGlyphs = await page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', (element, region) => {
+            if (!(element instanceof HTMLCanvasElement)) throw new Error('Page canvas is missing');
+            const canvas = element;
+            const rect = canvas.getBoundingClientRect();
+            const pixels = canvas.getContext('2d')!.getImageData(
+                (region.x - rect.x) * canvas.width / rect.width,
+                (region.y - rect.y) * canvas.height / rect.height,
+                region.width * canvas.width / rect.width,
+                region.height * canvas.height / rect.height,
+            ).data;
+            let count = 0;
+            for (let offset = 0; offset < pixels.length; offset += 4) {
+                if (pixels[offset]! < 100 && pixels[offset + 1]! < 100 && pixels[offset + 2]! < 100) count += 1;
+            }
+            return count * rect.width / canvas.width * rect.height / canvas.height;
+        }, clip);
+        const screenPath = join(directory, 'reopened.png');
+        await page.screenshot({
+            path: screenPath,
+            clip,
+        });
+        const visible = await countAnnotationColourPixels(screenPath);
+        console.log(`OPAQUE_HIGHLIGHT_PIXELS ${JSON.stringify({
+            underlyingGlyphs,
+            ...visible,
+            screenPath,
+        })}`);
+        expect(underlyingGlyphs, 'the covered region contains actual rendered text').toBeGreaterThan(100);
+        expect(visible.count, 'the imported red fill is still visible').toBeGreaterThan(100);
+        expect(visible.darkPixels, 'the fill preserves the underlying dark glyphs').toBeGreaterThan(underlyingGlyphs * 0.9);
+    }, 90_000);
 
     it('copies the visible annotation colour into the screenshot clipboard image', async () => {
         const evidenceDirectory = await mkdtemp(join(tmpdir(), 'evb-screenshot-annotations-'));
@@ -142,7 +261,16 @@ describe('Electron E2E - screenshot annotation output', () => {
             width: Math.ceil(annotationBox.right - annotationBox.left),
             height: Math.ceil(annotationBox.bottom - annotationBox.top),
         }}));
-        const screenPixels = await countAnnotationColourPixels(screenPath);
+        const opacity = await page.$eval('.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]', element =>
+            Number(getComputedStyle(element).getPropertyValue('--annotation-opacity')));
+        expect(opacity).toBeGreaterThan(0);
+        // The fixture page is white. Count its actual fill colour instead of
+        // the red glyph-edge tint produced by ordinary alpha compositing.
+        const screenPixels = await countAnnotationColourPixels(screenPath, {
+            red: 255 + (239 - 255) * opacity,
+            green: 255 + (68 - 255) * opacity,
+            blue: 255 + (68 - 255) * opacity,
+        });
         console.log(`ANNOTATION_SCREEN ${JSON.stringify({
             ...screenPixels,
             screenPath,

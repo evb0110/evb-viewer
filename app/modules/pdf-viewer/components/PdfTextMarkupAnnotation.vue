@@ -12,7 +12,11 @@
             <path v-if="entity.subtype === 'Squiggly'" data-annotation-visual :d="squiggleFor(quad)" />
             <line v-else-if="entity.subtype !== 'Highlight'" data-annotation-visual v-bind="lineFor(quad)" />
         </template>
-        <path v-if="entity.subtype === 'Highlight' && highlightPath" data-annotation-visual :d="highlightPath" />
+        <Teleport :to="highlightFillTarget" defer>
+            <g v-if="entity.subtype === 'Highlight' && highlightPath" class="pdf-annotation-editor-text-markup" :style="markupStyle">
+                <path data-annotation-visual :d="highlightPath" style="mix-blend-mode: multiply" />
+            </g>
+        </Teleport>
         <template v-if="entity.subtype === 'Highlight' && selected">
             <defs>
                 <mask :id="highlightOutlineMaskId" maskUnits="userSpaceOnUse" x="-1" y="-1" width="3" height="3">
@@ -39,6 +43,7 @@ const props = defineProps<{
     selected: boolean;
     pageSize?: IAnnotationPageDimensions;
     pageRotation?: number;
+    highlightFillTarget: string;
     highlightPaintQuads?: readonly IAnnotationMarkerRect[] | undefined;
 }>();
 // One nonzero-winding fill applies transparency once, including where text
@@ -51,32 +56,19 @@ const ownHighlightPath = computed(() => highlightPathFor(props.entity.quadPoints
 const highlightOutlineMaskId = useId();
 function lineFor(quad: IAnnotationMarkerRect) {
     const fraction = props.entity.subtype === 'StrikeOut' ? 0.5 : 0.94;
-    switch (props.pageRotation ?? 0) {
-        case 90: return {
-            x1: quad.left + quad.width * (1 - fraction),
-            y1: quad.top,
-            x2: quad.left + quad.width * (1 - fraction),
-            y2: quad.top + quad.height,
-        };
-        case 180: return {
-            x1: quad.left,
-            y1: quad.top + quad.height * (1 - fraction),
-            x2: quad.left + quad.width,
-            y2: quad.top + quad.height * (1 - fraction),
-        };
-        case 270: return {
-            x1: quad.left + quad.width * fraction,
-            y1: quad.top,
-            x2: quad.left + quad.width * fraction,
-            y2: quad.top + quad.height,
-        };
-        default: return {
-            x1: quad.left,
-            y1: quad.top + quad.height * fraction,
-            x2: quad.left + quad.width,
-            y2: quad.top + quad.height * fraction,
-        };
-    }
+    const rotation = props.pageRotation ?? 0;
+    const position = rotation === 90 || rotation === 180 ? 1 - fraction : fraction;
+    return rotation % 180 ? {
+        x1: quad.left + quad.width * position,
+        y1: quad.top,
+        x2: quad.left + quad.width * position,
+        y2: quad.top + quad.height,
+    } : {
+        x1: quad.left,
+        y1: quad.top + quad.height * position,
+        x2: quad.left + quad.width,
+        y2: quad.top + quad.height * position,
+    };
 }
 function squiggleFor(quad: IAnnotationMarkerRect) {
     const line = lineFor(quad);
