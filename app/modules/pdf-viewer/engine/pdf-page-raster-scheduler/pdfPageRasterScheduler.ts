@@ -645,9 +645,7 @@ export function createPdfPageRasterScheduler(
                 demand: work.demand,
             });
         } catch (error) {
-            if (work.prepared !== null) {
-                discardPrepared(work);
-            }
+            discardPrepared(work);
             releaseReservation(work);
             scheduleReattempt(work, !isDemandCurrent(work)
                 || error instanceof Error && (error.name === 'AbortError' || error.name === 'RenderingCancelledException') ? {

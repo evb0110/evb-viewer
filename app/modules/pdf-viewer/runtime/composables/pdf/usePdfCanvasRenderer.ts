@@ -4,7 +4,6 @@ import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { MaybeRefOrGetter } from 'vue';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { toPdfjsHiddenAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
@@ -269,11 +268,7 @@ export const usePdfCanvasRenderer = (deps: {
         const cssWidth = viewport.width;
         const cssHeight = viewport.height;
         if (!isValidViewportSize(cssWidth, cssHeight)) {
-            BrowserLogger.warn(
-                'pdf-renderer',
-                `Skipping page ${pdfPage.pageNumber} render due to invalid viewport size ${cssWidth}x${cssHeight}`,
-            );
-            return null;
+            throw new RangeError(`PDF page ${pdfPage.pageNumber} has invalid viewport size ${cssWidth}x${cssHeight}`);
         }
 
         const pixelSize = calculateCanvasPixelSize(cssWidth, cssHeight, options);
@@ -282,11 +277,7 @@ export const usePdfCanvasRenderer = (deps: {
             scaleY: pixelSize.pixelHeight / cssHeight,
         };
         if (!isValidCanvasScale(canvasScale)) {
-            BrowserLogger.warn(
-                'pdf-renderer',
-                `Skipping page ${pdfPage.pageNumber} render due to invalid canvas scale ${canvasScale.scaleX}x${canvasScale.scaleY}`,
-            );
-            return null;
+            throw new RangeError(`PDF page ${pdfPage.pageNumber} has invalid canvas scale ${canvasScale.scaleX}x${canvasScale.scaleY}`);
         }
 
         const annotationOptions = await withPageStageTimeout(
@@ -321,7 +312,7 @@ export const usePdfCanvasRenderer = (deps: {
         const context = canvas.getContext('2d');
         if (!context) {
             surfaceReservation?.release();
-            return null;
+            throw new Error(`PDF page ${pdfPage.pageNumber} has no 2D context`);
         }
         try {
             setupCanvas(canvas, cssWidth, cssHeight, pixelSize);

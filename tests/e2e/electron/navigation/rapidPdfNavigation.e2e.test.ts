@@ -3494,6 +3494,65 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         timeoutMs: 180_000,
     });
 
+    it('explains a permanently invalid page once and offers a working Retry', async () => {
+        const session = sessionFixture.getSession();
+        const warnings: string[] = [];
+        const collectWarning = (message: {text(): string}) => {
+            if (/Skipping page 2 render due to invalid/.test(message.text())) warnings.push(message.text());
+        };
+        session.page.on('console', collectWarning);
+        try {
+            await openPdfInApp(session.page, resolve('tests/fixtures/public-malformed-viewport.pdf'), 45_000);
+            await clickVisibleToolbarButton(session.page, 'Next Page');
+            const shown = await waitForVisiblePageOutcome(session, 2, 30_000, true);
+            const outcome = {
+                shown,
+                warnings: warnings.length,
+                ...await readViewerPageOutcome(session, 2),
+            };
+            mkdirSync(resolve('.devkit/rasterstall-r2'), {recursive: true});
+            writeFileSync(resolve('.devkit/rasterstall-r2/malformed-outcome.json'), JSON.stringify(outcome, null, 2));
+            await session.page.screenshot({path: resolve('.devkit/rasterstall-r2/malformed-outcome.png')});
+            expect(shown, JSON.stringify(outcome)).toMatchObject({
+                feedback: 'error',
+                text: 'Unable to render this page',
+            });
+            const retry = () => session.page.evaluate(() => Array.from(
+                document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
+            ).filter(button => button.textContent?.trim() === 'Retry').length);
+            await expect.poll(retry, {timeout: 10_000}).toBe(1);
+            const settledWarnings = warnings.length;
+            await delay(2_000);
+            expect(warnings).toHaveLength(settledWarnings);
+            expect(warnings).toHaveLength(0);
+            await clickFoundAsUser(session.page, () => Array.from(
+                document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
+            ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'invalid page 2 Retry'});
+            expect(await waitForVisiblePageOutcome(session, 2, 10_000, true)).toMatchObject({
+                feedback: 'error',
+                text: 'Unable to render this page',
+            });
+            await expect.poll(retry, {timeout: 10_000}).toBe(1);
+            const retriedWarnings = warnings.length;
+            await delay(2_000);
+            expect(warnings).toHaveLength(retriedWarnings);
+            expect(await waitForVisiblePageOutcome(session, 2, 10_000, true)).toMatchObject({
+                feedback: 'error',
+                text: 'Unable to render this page',
+            });
+            await session.page.screenshot({path: resolve('.devkit/rasterstall-r2/malformed-outcome.png')});
+            writeFileSync(resolve('.devkit/rasterstall-r2/malformed-outcome.json'), JSON.stringify({
+                ...outcome,
+                retryButtons: await retry(),
+                settledWarnings,
+                retriedWarnings,
+                finalWarnings: warnings.length,
+            }, null, 2));
+        } finally {
+            session.page.off('console', collectWarning);
+        }
+    }, 90_000);
+
     it('renders a failed buffer raster after deliberate navigation', async () => {
         const session = sessionFixture.getSession();
         const pdfPath = await createLargeScannedFixturePdf(`failed-buffer-raster-${Date.now()}.pdf`, 4, 0);

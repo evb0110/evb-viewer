@@ -1,7 +1,9 @@
 import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
 import { findInitialRenderAuthorityViolations } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 import type * as PdfPageRendererModule from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
-import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {
+    IPdfDocument, IPdfPage,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
 import { requirePageNumber } from '@contracts/pageNumbers';
@@ -50,10 +52,22 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import { createPdfOpeningViewportStallDiagnostic } from '@app/modules/pdf-viewer/runtime/viewport/createPdfOpeningViewportStallDiagnostic';
 import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
+import type {IFailureToastTarget} from '@app/composables/useFailureToast';
+import {renderToString} from 'vue/server-renderer';
+import {requireEpochMs} from '@contracts/timestamps';
+import {cast} from '@tests/helpers/cast';
 
 // Nuxt supplies these globals when the renderer owns its failure presenter.
-vi.stubGlobal('useToast', () => ({add: vi.fn()}));
-vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+const toasts: Array<Parameters<IFailureToastTarget['add']>[0]> = [];
+vi.stubGlobal('useToast', () => ({add: (toast: Parameters<IFailureToastTarget['add']>[0]) => toasts.push(toast)}));
+vi.mock('vue-i18n', async () => {
+    const {default: messages} = await import('@i18n-app/messages/en');
+    return {useI18n: () => ({
+        locale: ref('en'),
+        t: (key: string) => key,
+        getLocaleMessage: () => messages,
+    })};
+});
 afterAll(() => vi.unstubAllGlobals());
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
@@ -69,6 +83,8 @@ vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer', async im
     const original = await importOriginal<typeof PdfPageRendererModule>();
     return {usePdfPageRenderer: (...args: Parameters<typeof original.usePdfPageRenderer>) => ({
         ...original.usePdfPageRenderer(...args),
+        // These canvas behavior fixtures do not acquire pages for optional DOM layers.
+        renderLayerPromotions: async () => {},
         renderCommittedPageLayers: async ({
             pageNumber, version, requestId,
         }: Parameters<ReturnType<typeof original.usePdfPageRenderer>['renderCommittedPageLayers']>[0]) => {
@@ -524,7 +540,32 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('settles an exhausted discarded viewport raster without presenting a failed page', async () => {
+    it('explains an invalid viewport without re-demanding it, and redraws it on Retry', async () => {
+        toasts.length = 0;
+        vi.mocked(BrowserLogger.error).mockReturnValue({
+            eventId: '0123456789abcdef0123456789abcdef',
+            code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
+            occurredAt: requireEpochMs(Date.now()),
+            severity: 'error',
+        });
+        let invalid = true;
+        const page = cast<IPdfPage>({
+            pageNumber: 1,
+            rotate: 0,
+            getViewport: ({scale}: {scale: number}) => ({
+                width: invalid ? Infinity : 600 * scale,
+                height: invalid ? Infinity : 900 * scale,
+                userUnit: 1,
+                rawDims: {
+                    pageWidth: 600,
+                    pageHeight: 900,
+                },
+            }),
+            render: () => ({
+                promise: Promise.resolve(),
+                cancel() {},
+            }),
+        });
         const scheduler = createPdfPageRasterScheduler({
             documentFence: {
                 loadToken: 1,
@@ -532,23 +573,19 @@ describe('PdfViewportSession behavior', () => {
                 documentRevision: 'revision-1',
             },
             leasePage: async () => ({
-                page: Object.create(null),
+                page,
                 release() {},
             }),
             surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
         });
-        const animation = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0);
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
         const fixture = createViewportFixture({
             pageCount: 1,
             bufferPages: 0,
             rasterScheduler: scheduler,
         });
         document.body.append(fixture.container);
-        // The page remains demanded while its canvas host is being replaced.
-        appendPageBox(fixture.container, 1, {
-            height: 900,
-            top: 0,
-        });
+        appendRasterTarget(fixture.container, 1);
         fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
         fixture.viewport.markPageMounted(requirePageNumber(1));
         try {
@@ -557,15 +594,30 @@ describe('PdfViewportSession behavior', () => {
                 start: 1,
                 end: 1,
             }).then(() => {settled = true;});
+            await expect.poll(() => toasts.length, {timeout: 1_000}).toBe(1);
             await expect.poll(() => settled, {timeout: 500}).toBe(true);
             await raster;
-            expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(false);
+            expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(true);
             expect(fixture.container.querySelector('canvas')).toBeNull();
+            const description = toasts[0]!.description;
+            if (typeof description !== 'function') throw new Error('Expected a failure description');
+            expect(await renderToString(description())).toContain('Unable to render this page');
+            const retry = toasts[0]!.actions?.find(action => action.label === 'Retry');
+            expect(retry).toBeDefined();
+            await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+            expect(toasts).toHaveLength(1);
+            expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(true);
+            invalid = false;
+            retry!.onClick();
+            await expect.poll(() => fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
+            expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(false);
+            expect(fixture.container.querySelector('canvas')!.width).toBeGreaterThan(0);
         } finally {
             await fixture.dispose();
             await scheduler.dispose();
             fixture.container.remove();
-            animation.mockRestore();
+            context.mockRestore();
+            vi.mocked(BrowserLogger.error).mockReset();
         }
     });
 

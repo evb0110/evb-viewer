@@ -333,8 +333,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }
             resolveViewportRasterWaiters(pageNumber);
             renderedPageStateVersion.value += 1;
-            queueFrame();
-            if (outcome.status !== 'failed') return;
+            if (outcome.status !== 'failed') return queueFrame();
             if (demand.lane !== 'navigation-target' && demand.lane !== 'viewport-visible') return;
             initialVisual.handlePageRasterFailed({
                 openSurfaceGeneration: job.renderOptions.openSurfaceGeneration ?? 0,

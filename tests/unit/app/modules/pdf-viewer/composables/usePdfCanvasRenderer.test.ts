@@ -99,6 +99,40 @@ describe('usePdfCanvasRenderer', () => {
         delete (globalThis as Record<string, unknown>).document;
     });
 
+    it.each([
+        [
+            'invalid viewport size',
+            {
+                width: Infinity,
+                height: Infinity,
+            },
+        ],
+        [
+            'invalid canvas scale',
+            {
+                width: Number.MAX_VALUE,
+                height: Number.MAX_VALUE,
+            },
+        ],
+    ] as const)('rejects a permanent %s instead of discarding the attempt', async (reason, dimensions) => {
+        installCanvasDocument();
+        const page = createPdfPage({getViewport: () => ({
+            ...DEFAULT_VIEWPORT,
+            ...dimensions,
+        })});
+        const renderer = usePdfCanvasRenderer({outputScale: 2});
+        await expect(renderer.prepareCanvasRender(page as never, 1)).rejects.toThrow(reason);
+    });
+
+    it('rejects a missing 2D context and releases its reserved surface', async () => {
+        const {canvas} = installCanvasDocument();
+        canvas.getContext.mockReturnValue(null as never);
+        const release = vi.fn();
+        const renderer = usePdfCanvasRenderer({outputScale: 1});
+        await expect(renderer.prepareCanvasRender(createPdfPage() as never, 1, {reserveSurface: () => ({release})})).rejects.toThrow('2D context');
+        expect(release).toHaveBeenCalledOnce();
+    });
+
     it('requests separate annotation canvases for appearance-backed annotations', async () => {
         const {
             canvas,
