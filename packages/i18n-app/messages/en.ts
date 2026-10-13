@@ -1724,6 +1724,8 @@ export default {
             'folderEmpty': 'No supported documents were found in the selected folder',
             'save': 'Failed to save file',
             'originalSavedOtherKept': 'The PDF changed elsewhere while it was being saved. The file as it was just before this save was kept next to it as {path}. Your changes are still open here; use Save As to keep them.',
+            'recoveryKeptOriginalTitle': 'A version was kept beside this PDF',
+            'recoveryKeptOriginal': 'A save of this PDF was interrupted, and another program changed it before EVB could undo that save. The version that was on disk just before the save was kept next to it as {path}.',
             'browserStorageTitle': 'Browser storage is unavailable',
             'browserStorageDescription': '“{name}” is open in memory, but it will not reappear after reload.',
         },

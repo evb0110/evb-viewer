@@ -1724,6 +1724,8 @@ export default {
             'folderEmpty': 'Nessun documento supportato trovato nella cartella selezionata',
             'save': 'Impossibile salvare il file',
             'originalSavedOtherKept': 'Il PDF è stato modificato altrove durante il salvataggio. Il file com’era subito prima di questo salvataggio è stato conservato accanto come {path}. Le modifiche sono ancora aperte qui; usa «Salva con nome» per conservarle.',
+            'recoveryKeptOriginalTitle': 'È stata conservata una versione accanto a questo PDF',
+            'recoveryKeptOriginal': 'Un salvataggio di questo PDF è stato interrotto e un altro programma lo ha modificato prima che EVB potesse annullarlo. La versione presente sul disco subito prima del salvataggio è stata conservata accanto come {path}.',
             'browserStorageTitle': 'Lo spazio di archiviazione del browser non è disponibile',
             'browserStorageDescription': '“{name}” è aperto in memoria, ma non riapparirà dopo il ricaricamento.',
         },

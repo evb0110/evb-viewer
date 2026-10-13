@@ -11,6 +11,8 @@ const openPdfResultSchema = v.object({
     isGenerated: v.exactOptional(v.boolean()),
     recoveryDirtyBaseline: v.exactOptional(v.boolean()),
     wasEncrypted: v.exactOptional(v.literal(true)),
+    /** A file recovery after an interrupted save kept beside the PDF, told once at this open. */
+    keptOriginalPath: v.exactOptional(documentRefSchema),
 });
 const openDjvuResultSchema = v.object({
     kind: v.literal('djvu'),

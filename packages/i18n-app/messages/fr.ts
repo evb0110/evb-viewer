@@ -1735,6 +1735,8 @@ export default {
             'folderEmpty': 'Aucun document pris en charge n’a été trouvé dans le dossier sélectionné',
             'save': 'Échec de l’enregistrement du fichier',
             'originalSavedOtherKept': 'Le PDF a été modifié ailleurs pendant l’enregistrement. Le fichier tel qu’il était juste avant cet enregistrement a été conservé à côté sous le nom {path}. Vos modifications sont toujours ouvertes ici ; utilisez « Enregistrer sous » pour les conserver.',
+            'recoveryKeptOriginalTitle': 'Une version a été conservée à côté de ce PDF',
+            'recoveryKeptOriginal': 'Un enregistrement de ce PDF a été interrompu, et un autre programme l’a modifié avant qu’EVB puisse annuler cet enregistrement. La version qui se trouvait sur le disque juste avant l’enregistrement a été conservée à côté sous le nom {path}.',
             'browserStorageTitle': 'Le stockage du navegador est indisponible',
             'browserStorageDescription': '« {name} » est ouvert en mémoire, mais ne réapparaîtra pas après rechargement.',
         },

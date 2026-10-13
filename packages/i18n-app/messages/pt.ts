@@ -1735,6 +1735,8 @@ export default {
             'folderEmpty': 'Não foram encontrados documentos compatíveis na pasta selecionada',
             'save': 'Falha ao guardar ficheiro',
             'originalSavedOtherKept': 'O PDF foi alterado noutro programa durante a gravação. O ficheiro tal como estava imediatamente antes desta gravação foi conservado ao lado como {path}. As suas alterações continuam abertas aqui; use «Guardar Como» para as conservar.',
+            'recoveryKeptOriginalTitle': 'Foi conservada uma versão ao lado deste PDF',
+            'recoveryKeptOriginal': 'Uma gravação deste PDF foi interrompida e outro programa alterou-o antes de o EVB poder anular essa gravação. A versão que estava no disco imediatamente antes da gravação foi conservada ao lado como {path}.',
             'browserStorageTitle': 'O armazenamento do navegador não está disponível',
             'browserStorageDescription': '“{name}” está aberto na memória, mas não reaparecerá após recarregar.',
         },

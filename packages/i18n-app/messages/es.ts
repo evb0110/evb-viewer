@@ -1724,6 +1724,8 @@ export default {
             'folderEmpty': 'No se encontraron documentos compatibles en la carpeta seleccionada',
             'save': 'No se pudo guardar el archivo',
             'originalSavedOtherKept': 'El PDF cambió en otro programa mientras se guardaba. El archivo tal como estaba justo antes de este guardado se conservó junto a él como {path}. Sus cambios siguen abiertos aquí; use «Guardar como» para conservarlos.',
+            'recoveryKeptOriginalTitle': 'Se conservó una versión junto a este PDF',
+            'recoveryKeptOriginal': 'Se interrumpió un guardado de este PDF y otro programa lo modificó antes de que EVB pudiera deshacer ese guardado. La versión que estaba en el disco justo antes del guardado se conservó junto a él como {path}.',
             'browserStorageTitle': 'El almacenamiento del navegador no está disponible',
             'browserStorageDescription': '“{name}” está abierto en memoria, pero no volverá a aparecer tras recargar.',
         },

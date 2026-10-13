@@ -49,6 +49,10 @@ const platformApi = createElectronPlatformApiFixture({
     documentPicker: mocks.documentPicker,
     documentRecentFiles: mocks.documentRecentFiles,
 });
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({
+    presentNoticeToast: vi.fn(),
+    presentFailureToast: vi.fn(),
+})}));
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/performanceProfile', () => ({
     getPerformanceProfile: () => mocks.performanceProfile,

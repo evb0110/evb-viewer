@@ -1724,6 +1724,8 @@ export default {
             'folderEmpty': 'Im ausgewählten Ordner wurden keine unterstützten Dokumente gefunden',
             'save': 'Datei konnte nicht gespeichert werden',
             'originalSavedOtherKept': 'Die PDF-Datei wurde während des Speicherns anderweitig geändert. Die Datei im Zustand direkt vor diesem Speichern wurde daneben als {path} aufbewahrt. Ihre Änderungen sind hier noch geöffnet; verwenden Sie „Speichern unter“, um sie zu behalten.',
+            'recoveryKeptOriginalTitle': 'Eine Fassung wurde neben dieser PDF aufbewahrt',
+            'recoveryKeptOriginal': 'Ein Speichern dieser PDF wurde unterbrochen, und ein anderes Programm hat sie geändert, bevor EVB das Speichern rückgängig machen konnte. Die Fassung, die direkt vor dem Speichern auf dem Datenträger war, wurde daneben als {path} aufbewahrt.',
             'browserStorageTitle': 'Browserspeicher ist nicht verfügbar',
             'browserStorageDescription': '„{name}“ ist im Arbeitsspeicher geöffnet, erscheint nach dem Neuladen aber nicht wieder.',
         },

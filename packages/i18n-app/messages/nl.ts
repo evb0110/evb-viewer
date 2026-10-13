@@ -1724,6 +1724,8 @@ export default {
             'folderEmpty': 'Er zijn geen ondersteunde documenten gevonden in de geselecteerde map',
             'save': 'Kan bestand niet opslaan',
             'originalSavedOtherKept': 'De pdf is elders gewijzigd tijdens het opslaan. Het bestand zoals het vlak voor deze opslag was, is ernaast bewaard als {path}. Uw wijzigingen zijn hier nog open; gebruik ‘Opslaan als’ om ze te bewaren.',
+            'recoveryKeptOriginalTitle': 'Er is een versie naast deze pdf bewaard',
+            'recoveryKeptOriginal': 'Het opslaan van deze pdf is onderbroken, en een ander programma heeft hem gewijzigd voordat EVB het opslaan ongedaan kon maken. De versie die vlak voor het opslaan op schijf stond, is ernaast bewaard als {path}.',
             'browserStorageTitle': 'Browseropslag is niet beschikbaar',
             'browserStorageDescription': '‘{name}’ is in het geheugen geopend, maar verschijnt niet opnieuw na herladen.',
         },

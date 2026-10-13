@@ -65,6 +65,10 @@ const electronApi = createElectronPlatformApiFixture({
     },
 });
 
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({
+    presentNoticeToast: vi.fn(),
+    presentFailureToast: vi.fn(),
+})}));
 vi.mock('@app/utils/platform', () => ({
     getPlatformAPI: () => electronApi,
     hasElectronAPI: () => mocks.hasElectronApi(),

@@ -1735,6 +1735,8 @@ export default {
             'folderEmpty': 'Não foram encontrados documentos compatíveis na pasta selecionada',
             'save': 'Falha ao salvar arquivo',
             'originalSavedOtherKept': 'O PDF foi alterado em outro programa durante o salvamento. O arquivo como estava logo antes deste salvamento foi mantido ao lado como {path}. Suas alterações continuam abertas aqui; use “Salvar Como” para mantê-las.',
+            'recoveryKeptOriginalTitle': 'Uma versão foi mantida ao lado deste PDF',
+            'recoveryKeptOriginal': 'Um salvamento deste PDF foi interrompido e outro programa o alterou antes que o EVB pudesse desfazer esse salvamento. A versão que estava no disco logo antes do salvamento foi mantida ao lado como {path}.',
             'browserStorageTitle': 'O armazenamento do navegador não está disponível',
             'browserStorageDescription': '“{name}” está aberto na memória, mas não reaparecerá após recarregar.',
         },

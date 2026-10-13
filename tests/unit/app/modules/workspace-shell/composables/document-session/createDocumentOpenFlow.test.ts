@@ -39,6 +39,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
+    presentNoticeToast: vi.fn(),
     documentFiles: {
         readFile: vi.fn(),
         readFileRange: vi.fn(),
@@ -70,6 +71,10 @@ const platformApi = createElectronPlatformApiFixture({
     documentPicker: mocks.documentPicker,
     documentRecentFiles: mocks.documentRecentFiles,
 });
+vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({
+    presentNoticeToast: mocks.presentNoticeToast,
+    presentFailureToast: vi.fn(),
+})}));
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/performanceProfile', () => ({
     getPerformanceProfile: () => mocks.performanceProfile,
@@ -438,6 +443,30 @@ describe('createDocumentOpenFlow', () => {
         expect(state.isDirty.value).toBe(true);
         expect(recoveryBaselineDuringHistoryReset).toEqual([true]);
         expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
+    });
+
+    it('tells once where recovery kept the version that was on disk before an interrupted save', async () => {
+        const {
+            deps,
+            openFlow,
+        } = createOpenFlowHarness();
+        deps.t = ((key: string, params?: Record<string, unknown>) => `${key}${params ? JSON.stringify(params) : ''}`) as TTranslateFn;
+        mocks.presentNoticeToast.mockClear();
+        const opened: TOpenFileResult = {
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/book.pdf'),
+            workingPath: requireDocumentRef('/tmp/book-working.pdf'),
+            keptOriginalPath: requireDocumentRef('/documents/book (original).pdf'),
+        };
+
+        await expect(openFlow.openFile(opened)).resolves.toMatchObject({status: 'opened'});
+
+        expect(mocks.presentNoticeToast).toHaveBeenCalledTimes(1);
+        expect(mocks.presentNoticeToast).toHaveBeenCalledWith({
+            tone: 'warning',
+            title: 'errors.file.recoveryKeptOriginalTitle',
+            description: `errors.file.recoveryKeptOriginal${JSON.stringify({path: '/documents/book (original).pdf'})}`,
+        });
     });
 
     it('shows an opening working copy only once its admission ends, changing the shown source once', async () => {

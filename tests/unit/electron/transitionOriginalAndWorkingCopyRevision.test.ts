@@ -1160,9 +1160,14 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await link(backupPath, keptPath);
 
         await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
-        expect((await readdir(tempRoot)).filter(name => !before.includes(name))).toEqual(['original (original).pdf']);
+        expect((await readdir(tempRoot)).filter(name => !before.includes(name) && name !== 'kept-original-notices.json'))
+            .toEqual(['original (original).pdf']);
         await expect(readFile(keptPath, 'utf8')).resolves.toBe('other-program');
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-by-evb');
+        // The next open of this PDF tells the person, once, where recovery kept that file.
+        const {takeKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
+        await expect(takeKeptOriginal(originalPath)).resolves.toBe(keptPath);
+        await expect(takeKeptOriginal(originalPath)).resolves.toBeUndefined();
     });
 
     it('keeps an external edit made while recovery checks the original, and the file before the save beside it', async () => {

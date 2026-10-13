@@ -9,7 +9,7 @@ import { rm } from 'fs/promises';
 import { moveFileToMissingPath } from '@electron/utils/atomicReplace';
 import { isSameFile } from '@electron/utils/fileIdentity';
 
-const MAX_PATH_COMPONENT_BYTES = 255;
+export const MAX_PATH_COMPONENT_BYTES = 255;
 
 function getUtf8ByteLength(value: string) {
     return Buffer.byteLength(value, 'utf8');

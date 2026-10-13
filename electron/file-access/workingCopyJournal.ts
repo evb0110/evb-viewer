@@ -25,8 +25,9 @@ import {
     linkOrCopyFileDurably,
 } from '@electron/file-access/documentFileWriteAtomic';
 import {
-    keepOriginalBeside, truncateUtf8PathComponent,
+    keepOriginalBeside, MAX_PATH_COMPONENT_BYTES, truncateUtf8PathComponent,
 } from '@electron/utils/boundedPathComponent';
+import {rememberKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {isSameFile} from '@electron/utils/fileIdentity';
 import {
     originalSchema,
@@ -135,21 +136,18 @@ export async function recordWorkingCopyJournalOriginal(
     if (original?.state === 'conflicted') original.backupPath = await keepOriginalBeside(original.backupPath, original.path).catch(() => original.backupPath);
 }
 
-async function truncateWorkingCopy(workingCopyPath: string, length: number) {
-    const handle = await openFileHandle(workingCopyPath, 'r+');
-    try {
-        await handle.truncate(length);
-        await handle.sync();
-    } finally {
-        await handle.close().catch(() => undefined);
-    }
-}
-
 // A working copy that is still the backup's inode was never replaced; only a replaced one needs the backup copied
 // back. An append-mode backup is a hard link to the appended file, so either way the append is cut off afterwards.
 async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
     if (!await isSameFile(journal.workingCopyPath, journal.backupPath)) await copyFileAtomic(journal.backupPath, journal.workingCopyPath);
-    if (journal.previousLength !== undefined) await truncateWorkingCopy(journal.workingCopyPath, journal.previousLength);
+    if (journal.previousLength === undefined) return;
+    const handle = await openFileHandle(journal.workingCopyPath, 'r+');
+    try {
+        await handle.truncate(journal.previousLength);
+        await handle.sync();
+    } finally {
+        await handle.close().catch(() => undefined);
+    }
 }
 
 /**
@@ -206,7 +204,8 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     if (journal && (await readWorkingCopyManifest(workingCopyPath))?.revision.token !== journal.nextRevisionToken) {
         await restoreWorkingCopyContent(journal);
         const pending = journal.original && await restoreTransitionOriginal(journal, journal.original).then(() => null, (error: unknown) => {
-            if (error instanceof OriginalPathSaveConflictError) return null;
+            // A file recovery keeps beside the PDF is told once, at the next open of that PDF.
+            if (error instanceof OriginalPathSaveConflictError) return error.keptFilePath ? rememberKeptOriginal(journal.original!.path, error.keptFilePath).then(() => null) : null;
             log.warn('Kept an interrupted save\'s journal: its PDF cannot be restored yet', {error: getErrorMessage(error)});
             return error instanceof Error ? error : new Error(getErrorMessage(error));
         });
@@ -219,14 +218,12 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     });
 }
 
-const NAME_MAX_BYTES = 255;
-
 /**
  * An original backup is named for the working copy whose transition made it: the `pdf-work-*` directory key is part of
  * the name. The original basename leads only as far as the name, with its publication suffix, stays within NAME_MAX.
  */
 export function createOriginalTransitionBackupPath(originalPath: string, workingCopyPath: string) {
     const ownerSegment = `.evb-transition-${basename(dirname(workingCopyPath))}-${randomUUID()}`;
-    const basenameBudget = NAME_MAX_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - '.bak.tmp'.length;
+    const basenameBudget = MAX_PATH_COMPONENT_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - '.bak.tmp'.length;
     return join(dirname(originalPath), `${truncateUtf8PathComponent(basename(originalPath), basenameBudget)}${ownerSegment}.bak`);
 }
