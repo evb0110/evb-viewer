@@ -5,9 +5,9 @@ import {
     extname,
     join,
 } from 'path';
-import { range } from 'es-toolkit/math';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import { rm } from 'fs/promises';
 import { moveFileToMissingPath } from '@electron/utils/atomicReplace';
+import { isSameFile } from '@electron/utils/fileIdentity';
 
 const MAX_PATH_COMPONENT_BYTES = 255;
 
@@ -51,20 +51,17 @@ export function buildOutputPathWithSuffix(targetPath: string, suffix: string) {
 }
 
 /**
- * Moves a file beside `targetPath` as `<stem> (<label>)<ext>`, then `<stem> (<label> 2)<ext>` and on, never over an
- * existing file. Returns the new path, or `sourcePath` when no name is free or the move fails.
+ * Keeps a file beside `targetPath` as "<stem> (original)<ext>", then "(original 2)" and on, within the filename limit,
+ * never over another file. A taken name that already is this file, linked by a move a crash cut short before it
+ * unlinked `sourcePath`, is used, and only `sourcePath` goes. Returns where the file is kept.
  */
-export async function moveFileToLabelledPathBeside(sourcePath: string, targetPath: string, label: string) {
-    for (const number of range(1, 100)) {
-        const candidatePath = buildOutputPathWithSuffix(targetPath, number === 1 ? ` (${label})` : ` (${label} ${number})`);
-        try {
-            if (!existsSync(candidatePath)) {
-                await moveFileToMissingPath(sourcePath, candidatePath);
-                return candidatePath;
-            }
-        } catch (error) {
-            if (!isErrnoException(error) || error.code !== 'EEXIST') return sourcePath;
+export async function keepOriginalBeside(sourcePath: string, targetPath: string) {
+    for (let copy = 1; ; copy += 1) {
+        const keptPath = buildOutputPathWithSuffix(targetPath, copy === 1 ? ' (original)' : ` (original ${copy})`);
+        const taken = existsSync(keptPath);
+        if (!taken || await isSameFile(keptPath, sourcePath)) {
+            await (taken ? rm(sourcePath, {force: true}) : moveFileToMissingPath(sourcePath, keptPath));
+            return keptPath;
         }
     }
-    return sourcePath;
 }

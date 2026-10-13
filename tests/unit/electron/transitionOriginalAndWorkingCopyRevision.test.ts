@@ -1029,6 +1029,37 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
     });
 
+    it('finishes keeping the file as it was before a save when a crash cut its move short', async () => {
+        const {
+            originalPath, workingCopyPath,
+        } = await prepare('saved-by-evb', 'old-working');
+        const {
+            prepareWorkingCopyTransition, recoverWorkingCopyTransition,
+        } = await import('@electron/file-access/workingCopyJournal');
+        const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+        const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+        const journal = await prepareWorkingCopyTransition(workingCopyPath, requireDocumentRevisionToken('drt1:crash:2:next'));
+        const before = await readdir(tempRoot);
+        const backupPath = `${originalPath}.evb-transition-crash.bak`;
+        await writeFile(backupPath, 'other-program');
+        // The save recorded the conflict and linked the kept name, then stopped before it removed the hidden one.
+        await writeFile(getWorkingCopyJournalPath(workingCopyPath), JSON.stringify({
+            ...journal,
+            original: {
+                path: originalPath,
+                backupPath,
+                state: 'conflicted',
+            },
+        }));
+        const keptPath = join(tempRoot, 'original (original).pdf');
+        await link(backupPath, keptPath);
+
+        await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
+        expect((await readdir(tempRoot)).filter(name => !before.includes(name))).toEqual(['original (original).pdf']);
+        await expect(readFile(keptPath, 'utf8')).resolves.toBe('other-program');
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-by-evb');
+    });
+
     it('keeps an external edit made while recovery checks the original, and the file before the save beside it', async () => {
         let replaceAfterHash: (() => Promise<void>) | null = null;
         vi.doMock('@electron/file-access/originalPathSnapshot', async (importOriginal) => {

@@ -25,8 +25,9 @@ import {
     linkOrCopyFileDurably,
 } from '@electron/file-access/documentFileWriteAtomic';
 import {
-    moveFileToLabelledPathBeside, truncateUtf8PathComponent,
+    keepOriginalBeside, truncateUtf8PathComponent,
 } from '@electron/utils/boundedPathComponent';
+import {isSameFile} from '@electron/utils/fileIdentity';
 import {
     originalSchema,
     restoreOriginal,
@@ -120,24 +121,17 @@ export async function prepareWorkingCopyTransition(
 
 /**
  * Records the original a transition publishes, before and after publication. An earlier transition's original carried
- * here is removed first, so a file another program still holds refuses this one. A conflicted save first moves the
- * displaced original to a visible "<name> (original).pdf" beside the PDF, so the journal never names a missing file.
+ * here is removed first, so a file another program still holds refuses this one. A conflicted save is recorded before
+ * its displaced original moves to a visible "<name> (original).pdf", so recovery finishes a move a crash cut short.
  */
 export async function recordWorkingCopyJournalOriginal(
     journal: IWorkingCopyJournal,
     original: IWorkingCopyJournalOriginal,
 ) {
     if (journal.original && journal.original.backupPath !== original.backupPath) await rm(journal.original.backupPath, {force: true});
-    if (original.state === 'conflicted') original.backupPath = await moveFileToLabelledPathBeside(original.backupPath, original.path, 'original');
     journal.original = original;
     await writeJournal(journal);
-}
-
-// Whether two paths name one file, as a hard-link backup and the file it backs up do.
-async function isSameFile(path: string, otherPath: string) {
-    const first = await stat(path).catch(() => null);
-    const second = first && await stat(otherPath).catch(() => null);
-    return first !== null && first.dev === second?.dev && first.ino === second.ino;
+    if (original.state === 'conflicted') original.backupPath = await keepOriginalBeside(original.backupPath, original.path).catch(() => original.backupPath);
 }
 
 async function truncateWorkingCopy(workingCopyPath: string, length: number) {
@@ -188,7 +182,8 @@ export async function rollbackWorkingCopyTransition(journal: IWorkingCopyJournal
  * recorded as conflicted, which keeps the displaced file beside the PDF, and the conflict names that file.
  */
 export async function restoreTransitionOriginal(journal: IWorkingCopyJournal, original: IWorkingCopyJournalOriginal) {
-    await restoreOriginal(original).catch(async (error: unknown) => {
+    // A conflicted transition only finishes keeping its displaced file, which a crash may have cut short.
+    await (original.state === 'conflicted' ? Promise.reject(new OriginalPathSaveConflictError()) : restoreOriginal(original)).catch(async (error: unknown) => {
         if (!(error instanceof OriginalPathSaveConflictError) || !existsSync(original.backupPath)) throw error;
         original.state = 'conflicted';
         await recordWorkingCopyJournalOriginal(journal, original);

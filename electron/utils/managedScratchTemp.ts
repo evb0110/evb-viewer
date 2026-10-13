@@ -17,17 +17,14 @@ import {
 } from 'path';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
-import {
-    atomicReplace,
-    moveFileToMissingPath,
-} from '@electron/utils/atomicReplace';
+import { atomicReplace } from '@electron/utils/atomicReplace';
 import {
     isSameFileIdentity,
     readFileIdentity,
     type IFileIdentity,
 } from '@electron/utils/fileIdentity';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
-import { buildOutputPathWithSuffix } from '@electron/utils/boundedPathComponent';
+import { keepOriginalBeside } from '@electron/utils/boundedPathComponent';
 import {
     isErrnoException,
     isRecord,
@@ -294,23 +291,6 @@ function parseManagedScratchRecordLine(line: string): TManagedScratchRecordEntry
     return value.kind === 'complete' ? {kind: 'complete'} : null;
 }
 
-// A target someone changed after the export keeps that change. Its original
-// moves from the hidden backup to "<name> (original)" beside it, within the
-// filename limit, where the person finds it next to its file. A taken name is
-// skipped unless it already is this backup, linked by a start that stopped
-// before it unlinked the hidden name.
-async function keepOriginalBeside(target: string, backupPath: string, backup: IFileIdentity) {
-    for (let copy = 1; ; copy += 1) {
-        const keptPath = buildOutputPathWithSuffix(target, copy === 1 ? ' (original)' : ` (original ${copy})`);
-        const kept = await readFileIdentity(keptPath);
-        if (kept === null || isSameFileIdentity(kept, backup)) {
-            await (kept === null ? moveFileToMissingPath(backupPath, keptPath) : rm(backupPath, {force: true}));
-            logger.warn(`Kept the original of "${target}" at "${keptPath}": the file changed after the export`);
-            return keptPath;
-        }
-    }
-}
-
 // Settles one target that an export published, or was about to publish, and
 // returns where its original is kept when it stays beside the target. A backup
 // goes back over a target the export replaced, or over a missing target. A
@@ -351,7 +331,10 @@ export async function settlePublishedTarget(
         await rm(backupPath, {force: true});
         return null;
     }
-    return keepOriginalBeside(target, backupPath, backup);
+    // A target someone changed after the export keeps that change; its original is kept beside it.
+    const keptPath = await keepOriginalBeside(backupPath, target);
+    logger.warn(`Kept the original of "${target}" at "${keptPath}": the file changed after the export`);
+    return keptPath;
 }
 
 // Applies a record and returns whether it is settled: absent, or applied in

@@ -1,4 +1,7 @@
-import {lstat} from 'fs/promises';
+import {
+    lstat,
+    stat,
+} from 'fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
 
 export interface IFileIdentity {
@@ -26,6 +29,14 @@ export async function readFileIdentity(filePath: string): Promise<IFileIdentity 
         }
         throw error;
     }
+}
+
+// Whether two paths name one file, as a hard link or a crash-interrupted move leaves them. File IDs are compared as
+// bigints: NTFS IDs exceed 2^53, so a Number can join two different files.
+export async function isSameFile(path: string, otherPath: string) {
+    const first = await stat(path, {bigint: true}).catch(() => null);
+    const second = first && await stat(otherPath, {bigint: true}).catch(() => null);
+    return first !== null && first.dev === second?.dev && first.ino === second.ino;
 }
 
 export function isSameFileIdentity(first: IFileIdentity | null, second: IFileIdentity | null) {
