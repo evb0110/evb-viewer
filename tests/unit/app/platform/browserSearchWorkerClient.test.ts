@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -134,6 +135,10 @@ describe('browserSearchWorkerClient', () => {
         vi.stubGlobal('window', {});
         vi.stubGlobal('navigator', {hardwareConcurrency: 4});
         vi.stubGlobal('Worker', FakeWorker);
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     function pageMatchRequest(text: string, query = 'alpha') {
@@ -590,11 +595,6 @@ describe('browserSearchWorkerClient', () => {
             await request.promise;
         }
         expect((await Promise.all(requests.map(request => request.promise))).every(result => result.matchCount === 1)).toBe(true);
-        console.log(JSON.stringify({
-            probe: 'search-concurrency',
-            requests: 48,
-            peakWorkers: peak,
-        }));
         expect(peak).toBeLessThanOrEqual(2);
         const reused = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('reused'));
         for (const worker of FakeWorker.instances) {

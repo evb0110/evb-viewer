@@ -273,25 +273,28 @@ describe('usePdfFile façade', () => {
         const file = createFacade();
         await file.openFile(pdfResult('structured-conflict'));
         file.isDirty.value = true;
-        vi.spyOn(electronApi.documentFiles, 'saveFileStructured').mockResolvedValueOnce({
+        const saveSpy = vi.spyOn(electronApi.documentFiles, 'saveFileStructured').mockResolvedValueOnce({
             ok: false,
             reason: 'original-changed',
             externalWriteCommitted: Boolean(keptFilePath),
             ...(keptFilePath ? {keptFilePath} : {}),
         });
 
-        await expect(file.saveWorkingCopy()).resolves.toMatchObject({
-            success: false,
-            failure: {
-                reason: 'original-changed',
-                ...(keptFilePath ? {keptFilePath} : {}),
-            },
-        });
-        expect(file.originalPath.value).toBe('/structured-conflict.pdf');
-        expect(file.workingCopyPath.value).toBe('/tmp/structured-conflict.pdf');
-        expect(file.isDirty.value).toBe(true);
-        expect(file.error.value).toBeNull();
-        vi.restoreAllMocks();
+        try {
+            await expect(file.saveWorkingCopy()).resolves.toMatchObject({
+                success: false,
+                failure: {
+                    reason: 'original-changed',
+                    ...(keptFilePath ? {keptFilePath} : {}),
+                },
+            });
+            expect(file.originalPath.value).toBe('/structured-conflict.pdf');
+            expect(file.workingCopyPath.value).toBe('/tmp/structured-conflict.pdf');
+            expect(file.isDirty.value).toBe(true);
+            expect(file.error.value).toBeNull();
+        } finally {
+            saveSpy.mockRestore();
+        }
     });
 
     it('rejects an empty PDF before it can claim the document session', async () => {

@@ -85,6 +85,7 @@ afterEach(() => {
     for (const unmount of [...activeUnmounts]) {
         unmount();
     }
+    vi.unstubAllGlobals();
 });
 
 describe('SettingsPrivacyPanel', () => {

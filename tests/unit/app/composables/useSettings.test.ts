@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -71,6 +72,10 @@ describe('useSettings', () => {
         cookieStore.clear();
         stateStore.clear();
         installNuxtStateStubs();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     it('preserves supported locale values on save', async () => {
@@ -461,6 +466,7 @@ describe('useSettings', () => {
     });
 
     it('keeps a failed edit failed when another window saves, until the person retries', async () => {
+        vi.useFakeTimers();
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         let stored: ISettingsData = {
             ...DEFAULT_SETTINGS,
@@ -487,7 +493,7 @@ describe('useSettings', () => {
             authorName: 'Other window',
         };
         emitSettingsChange(stored);
-        await new Promise(resolve => setTimeout(resolve, 550));
+        await vi.advanceTimersByTimeAsync(550);
         expect(instance.settings.value.authorName).toBe('Chosen author');
         expect(instance.settingsSaveStatus.value).toBe('failed');
         expect(instance.settingsSaveError.value).toContain('ENOSPC');

@@ -56,6 +56,13 @@ await import('@electron/utils/appTempDir');
 
 let tempRoot = '';
 
+function publicationOptions(assertDestinationCurrent: () => Promise<void>, destinationBackupPath: string) {
+    return {
+        assertDestinationCurrent,
+        destinationBackupPath,
+    };
+}
+
 function deferred() {
     let resolve!: () => void;
     const promise = new Promise<void>((resolvePromise) => {
@@ -427,13 +434,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 senderId: 7,
                 reason: 'save-sync',
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, originalPath, 7),
-                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, originalPath, {
-                    ...({
-                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                        ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
-                    }),
-                    destinationBackupPath,
-                }),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
             }).catch((error: unknown) => error);
             expect(edited).toBe(true);
             expect(result).toMatchObject({keptFilePath: expect.any(String)});
@@ -472,13 +473,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 reason: 'save-sync',
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7),
                 publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
-                    await atomicReplace(fixture.stagedPath, fixture.originalPath, {
-                        ...({
-                            ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                            ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
-                        }),
-                        destinationBackupPath,
-                    });
+                    await atomicReplace(fixture.stagedPath, fixture.originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath));
                     const target = mutation === 'replacement' ? `${fixture.originalPath}.external` : fixture.originalPath;
                     await writeFile(target, 'external-after-publication');
                     if (mutation === 'replacement') await rename(target, fixture.originalPath);
@@ -544,13 +539,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, originalPath, 7),
                 publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
                     await editBeforeBackup(originalPath, destinationBackupPath);
-                    return atomicReplace(fixture.stagedPath, originalPath, {
-                        ...({
-                            ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                            ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
-                        }),
-                        destinationBackupPath,
-                    });
+                    return atomicReplace(fixture.stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath));
                 },
             })).resolves.toBeNull();
             expect(edited).toBe(true);
@@ -578,13 +567,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 senderId: 7,
                 reason: 'save-sync',
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7),
-                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, fixture.originalPath, {
-                    ...({
-                        ...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent}),
-                        ...(destinationBackupPath === undefined ? {} : {destinationBackupPath}),
-                    }),
-                    destinationBackupPath,
-                }),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, fixture.originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
             })).resolves.toMatchObject({contentRevision: 2});
             expect(await readFile(fixture.originalPath, 'utf8')).toBe('new-committed-pdf');
             expect(await readFile(fixture.workingCopyPath, 'utf8')).toBe('new-committed-pdf');
@@ -670,10 +653,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 signal: controller.signal,
                 reason: 'save-sync',
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(fixture.workingCopyPath, fixture.originalPath, 7, controller.signal),
-                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, fixture.originalPath, {
-                    ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                    destinationBackupPath,
-                }),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => atomicReplace(fixture.stagedPath, fixture.originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
                 onPhase: phase => { if (phase === 'transition-admit-original') proof = true; },
             })).rejects.toMatchObject({name: 'AbortError'});
             expect(controller.signal.aborted).toBe(true);
@@ -849,10 +829,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             stagePublication: () => Promise.resolve({path: stagedPath}),
-            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
-                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                destinationBackupPath,
-            }),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
             refreshOriginalExpectation: async () => {
                 await writeFile(originalPath, 'external-original');
                 throw new Error('post-sync failure');
@@ -880,10 +857,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             stagePublication: () => Promise.resolve({path: stagedPath}),
-            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
-                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                destinationBackupPath,
-            }),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
             refreshOriginalExpectation: async () => {
                 throw new Error('post-sync failure');
             },
@@ -893,7 +867,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
     });
 
-    it.each([
+    // Root bypasses the chmod refusal that the message classifier probes.
+    it.skipIf(process.getuid?.() === 0).each([
         [
             'the PDF itself',
             'The PDF is read-only or locked: EPERM',
@@ -1520,10 +1495,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             stagePublication: () => Promise.resolve({path: stagedPath}),
-            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
-                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                destinationBackupPath,
-            }),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
             refreshOriginalExpectation: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
@@ -1554,10 +1526,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             stagePublication: () => Promise.resolve({path: secondStagedPath}),
-            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(secondStagedPath, originalPath, {
-                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                destinationBackupPath,
-            }),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(secondStagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
         })).resolves.toMatchObject({contentRevision: 3});
 
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('second-committed-pdf');
@@ -1595,10 +1564,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             stagePublication: () => Promise.resolve({path: stagedPath}),
-            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
-                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                destinationBackupPath,
-            }),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
             refreshOriginalExpectation: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
@@ -1630,10 +1596,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             stagePublication: () => Promise.resolve({path: secondStagedPath}),
-            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(secondStagedPath, originalPath, {
-                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                destinationBackupPath,
-            }),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(secondStagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
         })).resolves.toMatchObject({contentRevision: 3});
 
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('second-committed-pdf');
@@ -1658,10 +1621,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             senderId: 7,
             captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             stagePublication: () => Promise.resolve({path: stagedPath}),
-            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
-                ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                destinationBackupPath,
-            }),
+            publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
             refreshOriginalExpectation: async () => {
                 expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
             },
@@ -1704,10 +1664,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 senderId: 7,
                 captureOriginalWitness: () => captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
                 stagePublication: () => Promise.resolve({path: stagedPath}),
-                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, {
-                    ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                    destinationBackupPath,
-                }),
+                publishOriginal: (assertDestinationCurrent, destinationBackupPath) => publishImmutableFileAtomic(stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath)),
                 refreshOriginalExpectation: async () => {
                     expect(await refreshWorkingCopyOriginalFileExpectation(workingCopyPath, 7)).toBe(true);
                 },
@@ -1809,10 +1766,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             publishOriginal: async (assertDestinationCurrent, destinationBackupPath) => {
                 publicationPaused.resolve();
                 await releasePublication.promise;
-                await atomicReplace(stagedPath, originalPath, {
-                    ...({...(assertDestinationCurrent === undefined ? {} : {assertDestinationCurrent})}),
-                    destinationBackupPath,
-                });
+                await atomicReplace(stagedPath, originalPath, publicationOptions(assertDestinationCurrent, destinationBackupPath));
             },
         });
 

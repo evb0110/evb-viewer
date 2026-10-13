@@ -208,26 +208,28 @@ describe.skipIf(process.platform !== 'darwin')('macOS hidden bundle launch contr
             args: [],
             stdio: 'ignore',
         });
-        expect(await owned.exited).toBe(0);
-        const [
-            copyIdentifier = '',
-            userDataPath = '',
-            logDirectory = '',
-        ] = readFileSync(`${join(workDirectory, 'user-data')}.env`, 'utf8').trim().split('\n');
-        expect(copyIdentifier).toMatch(/^com\.example\.fixture\.automation-[0-9a-f]{8}$/u);
-        expect(realpathSync(dirname(userDataPath))).toBe(realpathSync(workDirectory));
-        expect(realpathSync(dirname(logDirectory))).toBe(realpathSync(workDirectory));
-        expect(readFileSync(infoPlistPath)).toEqual(originalPlist);
+        try {
+            expect(await owned.exited).toBe(0);
+            const [
+                copyIdentifier = '',
+                userDataPath = '',
+                logDirectory = '',
+            ] = readFileSync(`${join(workDirectory, 'user-data')}.env`, 'utf8').trim().split('\n');
+            expect(copyIdentifier).toMatch(/^com\.example\.fixture\.automation-[0-9a-f]{8}$/u);
+            expect(realpathSync(dirname(userDataPath))).toBe(realpathSync(workDirectory));
+            expect(realpathSync(dirname(logDirectory))).toBe(realpathSync(workDirectory));
+            expect(readFileSync(infoPlistPath)).toEqual(originalPlist);
 
-        // Records named for the copy are removed; the installed identifier's records stay.
-        const library = join(root, 'Library');
-        mkdirSync(join(library, 'Preferences'), {recursive: true});
-        writeFileSync(join(library, 'Preferences', `${copyIdentifier}.plist`), 'copy');
-        writeFileSync(join(library, 'Preferences', 'com.example.fixture.plist'), 'installed');
-        removeMacOSAutomationCopyRecords(copyIdentifier, library);
-        expect(readdirSync(join(library, 'Preferences'))).toEqual(['com.example.fixture.plist']);
-
-        await owned.stop();
+            // Records named for the copy are removed; the installed identifier's records stay.
+            const library = join(root, 'Library');
+            mkdirSync(join(library, 'Preferences'), {recursive: true});
+            writeFileSync(join(library, 'Preferences', `${copyIdentifier}.plist`), 'copy');
+            writeFileSync(join(library, 'Preferences', 'com.example.fixture.plist'), 'installed');
+            removeMacOSAutomationCopyRecords(copyIdentifier, library);
+            expect(readdirSync(join(library, 'Preferences'))).toEqual(['com.example.fixture.plist']);
+        } finally {
+            await owned.stop();
+        }
         expect(readdirSync(workDirectory).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
     });
 
