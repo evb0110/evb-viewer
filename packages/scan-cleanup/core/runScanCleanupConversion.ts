@@ -315,12 +315,6 @@ async function createPageGeometryRasterSource(
     };
 }
 
-function resolvePageRasterSource(
-    source: TScanCleanupDpiDetails,
-): IScanCleanupPageRasterSource {
-    return source;
-}
-
 function assertScanCleanupInkAnchorCapacity(
     pageCount: number,
     options: IRunScanCleanupPipelineRequest['options'],
@@ -1180,8 +1174,7 @@ async function runStreamingScanCleanupConversion({
     // batch; a child serves backward reads from geometry it materialized while
     // planning that batch so no consumer reopens the sidecar from page one.
     const pageSizeStore = createPageSizeStoreFromGeometrySidecar(geometrySidecarPath, signal);
-    const boundedDpiSource = resolvePageRasterSource(dpiDetails);
-    let documentDpi = resolveSourceDpi(boundedDpiSource.documentDpi);
+    let documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
     let largestBatchBytes: number | null = 0;
     for (const batch of iterateScanCleanupPageBatches(pageCount, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {
         signal.throwIfAborted();
@@ -1195,8 +1188,8 @@ async function runStreamingScanCleanupConversion({
                 largestBatchBytes = null;
                 break;
             }
-            if (boundedDpiSource.documentDpi !== undefined && boundedDpiSource.documentDpi !== null) {
-                documentDpi = Math.max(documentDpi, resolveSourceDpi(boundedDpiSource.documentDpi));
+            if (dpiDetails.documentDpi !== undefined && dpiDetails.documentDpi !== null) {
+                documentDpi = Math.max(documentDpi, resolveSourceDpi(dpiDetails.documentDpi));
             }
             if (request.options.preserveOriginalQuality === true) {
                 // Lossless children render their analysis page at no more
@@ -1215,9 +1208,9 @@ async function runStreamingScanCleanupConversion({
                 // An unresolved Auto page may still synthesize a bilevel layer;
                 // using that larger pixel allowance keeps this estimate safe.
                 outputCarriesBinaryLayer: true,
-                sourceRasterDetected: boundedDpiSource.detected
-                    && boundedDpiSource.documentDpi !== undefined
-                    && boundedDpiSource.documentDpi !== null,
+                sourceRasterDetected: dpiDetails.detected
+                    && dpiDetails.documentDpi !== undefined
+                    && dpiDetails.documentDpi !== null,
                 maxPixels: resolveScanCleanupPipelineMaxPixels(),
                 guardrail,
             });
@@ -1322,7 +1315,7 @@ async function runStreamingScanCleanupConversion({
                 scratch,
                 summary: createEmptyScanCleanupSummary(batchPageNumbers.length, []),
                 pageSizeStore,
-                dpiDetails: boundedDpiSource,
+                dpiDetails: dpiDetails,
                 documentCanvas,
                 options,
                 sourceText,
@@ -1360,6 +1353,7 @@ async function runStreamingScanCleanupConversion({
             summary.cropSkipped += childSummary.cropSkipped;
             summary.excludedPages += childSummary.excludedPages;
             summary.blankPagesSkipped += childSummary.blankPagesSkipped;
+            summary.accessibilityTagsRemoved ||= childSummary.accessibilityTagsRemoved;
             // Page-level warning lists are intentionally owned by each child
             // evidence file. Keep the coordinator summary bounded and retain
             // only the initial run warnings here.
@@ -1406,7 +1400,7 @@ async function runStreamingScanCleanupConversion({
         if (
             fullDocumentRun
             && request.options.outputMode === 'auto'
-            && boundedDpiSource.compactLayeredPageCountComplete !== true
+            && dpiDetails.compactLayeredPageCountComplete !== true
         ) {
             throw new ScanCleanupStreamingEvidenceError(
                 batchSummariesPath,
@@ -1419,9 +1413,9 @@ async function runStreamingScanCleanupConversion({
             options: request.options,
             partialRun: !fullDocumentRun,
             sourceBytes: sourceFile.size,
-            ...(boundedDpiSource.compactLayeredPageCount === undefined
+            ...(dpiDetails.compactLayeredPageCount === undefined
                 ? {}
-                : {compactLayeredPageCount: boundedDpiSource.compactLayeredPageCount}),
+                : {compactLayeredPageCount: dpiDetails.compactLayeredPageCount}),
         });
         // The detailed per-page report lives in the bounded batch summaries.
         // The top-level report remains a small descriptor, so diagnostics can
@@ -1658,12 +1652,10 @@ export async function runScanCleanupConversion(
                     Array.isArray(dpiProbePages) ? dpiProbePages : undefined,
                     (completedPages, totalPages) => emitProgress('probing', completedPages, totalPages),
                 );
-        const structuralRasterSource = resolvePageRasterSource(structuralDpiDetails);
-        const dpiDetails = structuralRasterSource.detected
+        const dpiDetails = structuralDpiDetails.detected
             ? structuralDpiDetails
             : metadataDpiDetails ?? structuralDpiDetails;
-        const dpiSource = resolvePageRasterSource(dpiDetails);
-        if (metadataDpiDetails && !structuralRasterSource.detected) {
+        if (metadataDpiDetails && !structuralDpiDetails.detected) {
             emitProgress('probing', dpiProbePageCount, dpiProbePageCount, dpiProbePages);
         }
         let documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
@@ -1743,10 +1735,10 @@ export async function runScanCleanupConversion(
                         // Auto budget describes the source document, and the
                         // scalar observer must not mistake an excluded page
                         // for a failed or out-of-order raster probe.
-                        const sourceRaster = await dpiSource.getPageRaster(pageNumber);
+                        const sourceRaster = await dpiDetails.getPageRaster(pageNumber);
                         if (!pageOverride.excluded) {
-                            if (dpiSource.documentDpi !== undefined && dpiSource.documentDpi !== null) {
-                                documentDpi = Math.max(documentDpi, resolveSourceDpi(dpiSource.documentDpi));
+                            if (dpiDetails.documentDpi !== undefined && dpiDetails.documentDpi !== null) {
+                                documentDpi = Math.max(documentDpi, resolveSourceDpi(dpiDetails.documentDpi));
                             }
                             const sourceDpi = resolveSourceDpi(sourceRaster?.dpi, documentDpi);
                             const outputMode = resolveScanCleanupEffectiveOutputMode({
@@ -1820,7 +1812,7 @@ export async function runScanCleanupConversion(
                 documentPageCount,
                 canvas: resampleCanvas,
                 options: request.options,
-                rasterSource: dpiSource,
+                rasterSource: dpiDetails,
                 rasterDetectionAvailable: paths.pdfimagesBinary !== undefined,
                 ...(request.layoutByPage === undefined ? {} : {layoutByPage: request.layoutByPage}),
             })
@@ -1961,7 +1953,7 @@ export async function runScanCleanupConversion(
             runCommand: dependencies.runCommand,
             log,
         });
-        summary.accessibilityTagsRemoved = overlaid.accessibilityTagsRemoved;
+        summary.accessibilityTagsRemoved ||= overlaid.accessibilityTagsRemoved;
         await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         emitProgress('handoff', 0, pageCount, []);
         await copyFile(stagedPdfPath, publishTempPath);
@@ -2051,21 +2043,20 @@ async function executeScanCleanupBatch({
         await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, signal, log, dependencies.runCommand);
         return summary;
     }
-    const dpiSource = resolvePageRasterSource(dpiDetails);
     const documentDpi = resolveSourceDpi(dpiDetails.documentDpi);
     // Materialize raster facts only for the bounded child or a genuinely
     // small document. The xlarge parent keeps the accessor open and asks
     // it for the current native batch instead.
     const detectedRasterByPage = new Map<number, IDetectedPageRaster>();
     for (const pageNumber of pageNumbers) {
-        const raster = await dpiSource.getPageRaster(pageNumber);
+        const raster = await dpiDetails.getPageRaster(pageNumber);
         if (raster !== undefined) detectedRasterByPage.set(pageNumber, raster);
     }
     const resolvePageSourceDpi = (pageNumber: number) => resolveSourceDpi(
         detectedRasterByPage.get(pageNumber)?.dpi,
-        dpiSource.documentDpi === undefined || dpiSource.documentDpi === null
+        dpiDetails.documentDpi === undefined || dpiDetails.documentDpi === null
             ? documentDpi
-            : Math.max(documentDpi, resolveSourceDpi(dpiSource.documentDpi)),
+            : Math.max(documentDpi, resolveSourceDpi(dpiDetails.documentDpi)),
     );
     const resolvePageOutputMode = (pageNumber: number) => {
         const pageOverride = getScanCleanupPageOverride(
