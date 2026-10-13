@@ -484,6 +484,46 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await page.screenshot({path: join(evidence, 'reopened.png')});
     }, 90_000);
 
+    it('crpart3ne saves a depth-64 bookmark with its kept nested action', async () => {
+        let nested = fixtureBookmark('Leaf', 0);
+        for (let depth = 1; depth < 64; depth += 1) nested = {
+            ...fixtureBookmark(`Parent ${depth}`, 0),
+            items: [nested],
+        };
+        const fixture = await createBookmarkTreeFixturePdf(`crpart3ne-deep-action-${Date.now()}.pdf`, [
+            nested,
+            fixtureBookmark('Editable', 0),
+        ]);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        let leaf = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+        for (let depth = 1; depth < 64; depth += 1) leaf = leaf.lookup(PDFName.of('First'), PDFDict);
+        let payload = pdf.context.obj({Payload: PDFString.of('Kept action sentinel')});
+        for (let depth = 1; depth < 15; depth += 1) payload = pdf.context.obj({K: payload});
+        leaf.delete(PDFName.of('Dest'));
+        const action = pdf.context.obj({
+            S: PDFName.of('URI'),
+            URI: PDFString.of('https://example.invalid/crpart3ne'),
+            K: payload,
+        });
+        leaf.set(PDFName.of('A'), action);
+        const before = action.toString();
+        await writeFile(fixture, await pdf.save());
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await renameBookmarkAsUser(page, 'Editable', 'Edited sibling');
+        await saveViaVisibleToolbar(page, 60_000, fixture);
+        const saved = await PDFDocument.load(await readFile(fixture));
+        let savedLeaf = saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
+        for (let depth = 1; depth < 64; depth += 1) savedLeaf = savedLeaf.lookup(PDFName.of('First'), PDFDict);
+        expect(savedLeaf.lookup(PDFName.of('A'), PDFDict).toString()).toBe(before);
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await findBookmarkRow(page, 'Edited sibling');
+    }, 90_000);
+
     it.each([
         'unknown target',
         'large object dump',

@@ -149,10 +149,11 @@ pub fn deserialize_json_slice<T: DeserializeOwned>(
 }
 
 // Each bookmark level has one object and one items array. The request,
-// metadata, envelope and original destination add at most six containers.
+// metadata and destination add six containers; a kept action adds up to
+// three per PDF value level (dict, entries, pair), plus its scalar tag.
 // Keep generic callers bounded too: an untagged scalar can buffer Content
 // before its typed visitor sees an invalid nested object.
-const MAX_JSON_DEPTH: usize = 2 * crate::pdf_catalog::MAX_BOOKMARK_DEPTH + 6;
+const MAX_JSON_DEPTH: usize = 2 * crate::pdf_catalog::MAX_BOOKMARK_DEPTH + 3 * 16 + 8;
 
 struct JsonDepthDeserializer<D> {
     inner: D,
