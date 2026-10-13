@@ -463,6 +463,64 @@ describe('native PDF save route', () => {
         expect(mutations.deletes).toEqual([expect.objectContaining({objectNumber: 12})]);
     });
 
+    it('writes a recoloured imported text box once, through its own mutation', () => {
+        // review-b7s: the box also went out as a note's geometry, which wrote
+        // /Rect from its marker before the text box was written.
+        const app = new AnnotationApplication('recoloured-text-box');
+        app.store.import({
+            kind: 'text-box',
+            identity: {
+                id: asAnnotationId('bordered-handwritten'),
+                pdfRef: '6R',
+            },
+            pageIndex: requirePageIndex(0),
+            revision: 0,
+            persistedRevision: 0,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            text: 'Hand-written label',
+            rect: {
+                left: 0.168,
+                top: 0.228,
+                width: 0.437,
+                height: 0.059,
+            },
+            rotation: 0,
+            fontSize: 14,
+            color: '#000000',
+        });
+        app.store.updateTextBox(asAnnotationId('bordered-handwritten'), {color: '#f59e0b'});
+        const result = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({
+            shapes: [],
+            nativeTextBoxes: [{
+                pageIndex: requirePageIndex(0),
+                stableKey: 'bordered-handwritten',
+                annotationId: '6R',
+                text: 'Hand-written label',
+                rect: [
+                    100,
+                    600,
+                    360,
+                    650,
+                ],
+                rotation: 0,
+                fontSize: 14,
+                color: [
+                    245,
+                    158,
+                    11,
+                ],
+            }],
+        }));
+        if (result.route !== 'native-append') throw new Error(`Expected native save: ${result.nativeRejection}`);
+        const mutations = result.nativeMutationProjection.mutations;
+        expect(mutations.textBoxes?.map(textBox => textBox.annotationId)).toEqual(['6R']);
+        expect(mutations.geometryUpdates).toBeUndefined();
+        expect(mutations.freeTextNotes ?? []).toEqual([]);
+    });
+
     function projectRecovery(entity: INoteEntity | IPlacedImageEntity) {
         const app = new AnnotationApplication('recovery');
         app.store.import(entity);

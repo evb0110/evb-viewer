@@ -631,6 +631,11 @@ function buildClassifiedNativeMutationProjection(
     const changedComments = plan.entities
         .filter(entity => !entity.deleted && isActuallyChangedEntity(entity))
         .map(entitySummary);
+    // A text box the native payload writes is written once, by its own mutation:
+    // never also as a note's geometry or a FreeText note.
+    const changedNotes = capabilities.nativeTextBoxes === undefined
+        ? changedComments
+        : changedComments.filter(comment => !isCanonicalTextBoxComment(comment));
     const noteTextUpdatesResult = replayAllowed && canonical.pendingTexts.size > 0
         ? buildNativeNoteTextUpdatesForSave({
             pendingTexts: canonical.pendingTexts,
@@ -645,11 +650,7 @@ function buildClassifiedNativeMutationProjection(
         // EVB-owned sticky notes remain safe native payloads when another
         // A canonical annotation outside the writer's bounded mutation set
         // must fail closed instead of entering a second save route.
-        canonicalComments: replayAllowed
-            ? capabilities.nativeTextBoxes === undefined
-                ? changedComments
-                : changedComments.filter(comment => !isCanonicalTextBoxComment(comment))
-            : canonicalStickyNotesForNativeAppend,
+        canonicalComments: replayAllowed ? changedNotes : canonicalStickyNotesForNativeAppend,
         replayableCanonicalStickyNoteStableKeys: canonical.replayableCanonicalStickyNoteStableKeys,
     });
     const annotationDeletesResult = replayAllowed
@@ -657,7 +658,7 @@ function buildClassifiedNativeMutationProjection(
         : null;
     const noteTextUpdates = noteTextUpdatesResult?.value ?? [];
     const noteGeometryUpdatesResult = replayAllowed
-        ? nativeNoteGeometryProjection(changedComments)
+        ? nativeNoteGeometryProjection(changedNotes)
         : null;
     if (noteGeometryUpdatesResult?.skipEvents.length) {
         return 'annotation-work-not-covered-by-native-mutations';
