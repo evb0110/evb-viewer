@@ -968,16 +968,17 @@ export function createDocumentAgentPageLabels(options: ICreateDocumentAgentPageL
         if (endPage < startPage) {
             throw new Error(`${actionId} endPage must be greater than or equal to startPage.`);
         }
+        const style = normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format);
         return {
             startPage,
             endPage,
-            style: normalizeAgentPageLabelStyle(input.style ?? input.numberStyle ?? input.format),
+            style,
             prefix: getAgentRawStringInput(input, 'prefix') ?? '',
-            startNumber: Math.max(1, Math.trunc(
+            startNumber: admitPdfPageLabelStartNumber(style,
                 getAgentNumberInput(input, 'startNumber')
                 ?? getAgentNumberInput(input, 'number')
                 ?? 1,
-            )),
+            ),
         };
     }
 

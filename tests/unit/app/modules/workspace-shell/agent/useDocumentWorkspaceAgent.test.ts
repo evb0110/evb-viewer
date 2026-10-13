@@ -364,7 +364,12 @@ describe('createDocumentWorkspaceAgent', () => {
             startNumber: 7.8,
             admitted: 7,
         },
-    ])('admits the same numbering through apply_range and apply_plan: $style', async ({
+        {
+            style: 'D',
+            startNumber: 1e21,
+            admitted: Number.MAX_SAFE_INTEGER,
+        },
+    ])('admits the same numbering through apply_range and apply_plan: $style $startNumber', async ({
         style, startNumber, admitted,
     }) => {
         const options = createAgentOptions();
