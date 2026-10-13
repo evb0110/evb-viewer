@@ -172,7 +172,8 @@ Added 2026-09-23 on the owner's request (#834).
 the page, zoom, annotations, or responsiveness of another.
 
 **T2. Unsaved work is protected.** Closing a tab, a window or the app with
-unsaved changes asks first, and a crash or forced quit leaves recoverable work.
+unsaved changes asks first, and a crash or forced quit leaves recoverable work,
+also when the computer restarts before EVB does.
 
 **T3. Output is complete and usable.** A saved or exported file opens in this
 viewer and in a stock reader, with all pages and the saved annotations.
