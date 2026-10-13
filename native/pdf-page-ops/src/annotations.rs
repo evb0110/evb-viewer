@@ -246,24 +246,9 @@ pub(crate) fn update_note_geometry(
             marker_rect_to_pdf_rect(update.marker_rect, page_view, page_rotation)?
         };
 
-        if marker_form {
-            let target_dict = document.get_dictionary_mut(target.annotation_id)?;
-            convert_free_text_marker_to_text(target_dict, pdf_rect, modified_at);
-        }
-
-        {
-            let target_dict = document.get_dictionary_mut(target.annotation_id)?;
-            set_annotation_geometry_dict(target_dict, destination_page_id, pdf_rect, modified_at);
-            apply_note_style_update(target_dict, update);
-            if let Ok(Object::Dictionary(popup_dict)) = target_dict.get_mut(b"Popup") {
-                set_annotation_geometry_dict(
-                    popup_dict,
-                    destination_page_id,
-                    pdf_rect,
-                    modified_at,
-                );
-            }
-        }
+        let target_dict = document.get_dictionary_mut(target.annotation_id)?;
+        let placement = (destination_page_id, pdf_rect, modified_at);
+        place_note_target(target_dict, marker_form, placement, update);
         if let Some(popup_id) = target.popup_ref {
             let popup_dict = document.get_dictionary_mut(popup_id)?;
             set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect, modified_at);
@@ -390,28 +375,11 @@ pub(crate) fn update_note_geometry_incremental(
         };
 
         incremental.opt_clone_object_to_new_document(target.annotation_id)?;
-        if marker_form {
-            let target_dict = incremental
-                .new_document
-                .get_dictionary_mut(target.annotation_id)?;
-            convert_free_text_marker_to_text(target_dict, pdf_rect, modified_at);
-        }
-
-        {
-            let target_dict = incremental
-                .new_document
-                .get_dictionary_mut(target.annotation_id)?;
-            set_annotation_geometry_dict(target_dict, destination_page_id, pdf_rect, modified_at);
-            apply_note_style_update(target_dict, update);
-            if let Ok(Object::Dictionary(popup_dict)) = target_dict.get_mut(b"Popup") {
-                set_annotation_geometry_dict(
-                    popup_dict,
-                    destination_page_id,
-                    pdf_rect,
-                    modified_at,
-                );
-            }
-        }
+        let target_dict = incremental
+            .new_document
+            .get_dictionary_mut(target.annotation_id)?;
+        let placement = (destination_page_id, pdf_rect, modified_at);
+        place_note_target(target_dict, marker_form, placement, update);
         if let Some(popup_id) = target.popup_ref {
             incremental.opt_clone_object_to_new_document(popup_id)?;
             let popup_dict = incremental.new_document.get_dictionary_mut(popup_id)?;
@@ -1023,18 +991,22 @@ pub(crate) fn fit_text_box(
     let lines = |size: f64| lay_out(geometry.width - 2.0 * PADDING_X * size, size);
     let fit = |size: f64| {
         let lines = lines(size);
+        // A quarter point keeps ink and the clip's antialiased edge apart at 4x.
+        let [width, height] = [geometry.width, geometry.height].map(|side| side - 0.25);
         let inside = |(index, line): (usize, &Line)| {
             let (left, baseline) = line_origin(geometry, line, index, size);
-            line.glyphs.iter().all(|glyph| {
-                let ink = faces[glyph.font].glyph_metrics(Size::new(1.0), LocationRef::default());
-                let ink = ink.bounds(glyph.id.into()).unwrap_or_default();
-                let [x1, y1, x2, y2] =
-                    [ink.x_min, ink.y_min, ink.x_max, ink.y_max].map(|em| f64::from(em) * size);
-                let (x, y) = (left + glyph.x, baseline + glyph.y);
-                // A quarter point keeps ink and the clip's antialiased edge apart at 4x.
-                let [width, height] = [geometry.width, geometry.height].map(|side| side - 0.25);
-                x1 == x2 || (x + x1).min(y + y1) >= 0.25 && x + x2 <= width && y + y2 <= height
-            })
+            // A simple font's line has measured advances, not outlines.
+            let measured = !line.glyphs.is_empty() || left + line.width <= width;
+            measured
+                && line.glyphs.iter().all(|glyph| {
+                    let ink =
+                        faces[glyph.font].glyph_metrics(Size::new(1.0), LocationRef::default());
+                    let ink = ink.bounds(glyph.id.into()).unwrap_or_default();
+                    let [x1, y1, x2, y2] =
+                        [ink.x_min, ink.y_min, ink.x_max, ink.y_max].map(|em| f64::from(em) * size);
+                    let (x, y) = (left + glyph.x, baseline + glyph.y);
+                    x1 == x2 || (x + x1).min(y + y1) >= 0.25 && x + x2 <= width && y + y2 <= height
+                })
         };
         let height = (lines.len() as f64 * LINE_HEIGHT + PADDING_Y) * size;
         (height <= geometry.height + 0.01 && lines.iter().enumerate().all(inside)).then_some(lines)
@@ -1355,6 +1327,24 @@ pub(crate) fn set_text_note_annotation_fields(
     }
     set_rgb_color(dict, "C", note.color.as_deref());
     dict.set("Open", Object::Boolean(note.open));
+}
+
+/// Moves a note's target, a legacy marker converted, and a popup it holds
+/// inline to `pdf_rect` on its page, with the update's colour and state.
+fn place_note_target(
+    dict: &mut Dictionary,
+    marker_form: bool,
+    (page_id, pdf_rect, modified_at): (ObjectId, PdfRect, &str),
+    update: &NoteGeometryUpdate,
+) {
+    if marker_form {
+        convert_free_text_marker_to_text(dict, pdf_rect, modified_at);
+    }
+    set_annotation_geometry_dict(dict, page_id, pdf_rect, modified_at);
+    apply_note_style_update(dict, update);
+    if let Ok(Object::Dictionary(popup)) = dict.get_mut(b"Popup") {
+        set_annotation_geometry_dict(popup, page_id, pdf_rect, modified_at);
+    }
 }
 
 fn apply_note_style_update(dict: &mut Dictionary, update: &NoteGeometryUpdate) {

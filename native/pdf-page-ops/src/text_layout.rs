@@ -218,23 +218,19 @@ pub(crate) fn layout_with_fonts(
 }
 
 pub(crate) fn layout_simple(text: &str, width: f64, size: f64, advances: &[f64; 128]) -> Vec<Line> {
-    wrap(
-        text,
-        width,
-        Some(Level::ltr()),
-        |text, _, paragraph, range| {
-            let text = &text[range];
-            Line {
-                text: text.to_string(),
-                glyphs: Vec::new(),
-                width: text
-                    .bytes()
-                    .map(|c| advances[usize::from(c)] * size / 1000.0)
-                    .sum(),
-                rtl: paragraph.level.is_rtl(),
-            }
-        },
-    )
+    wrap(text, width, Some(Level::ltr()), |text, _, _, range| {
+        let text = &text[range];
+        // Spaces hanging at the line's end are not measured, as the wrap measures it.
+        let visible = text.trim_end_matches([' ', '\t']).bytes();
+        let width = visible
+            .map(|c| advances[usize::from(c)] * size / 1000.0)
+            .sum();
+        Line {
+            text: text.to_string(),
+            width,
+            ..Line::default()
+        }
+    })
 }
 
 fn wrap(

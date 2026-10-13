@@ -2028,6 +2028,23 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
         row.2 == 0 && row.3 == row.4 && row.5 && !row.6
     };
     assert!(rows.iter().all(|row| whole(&row)), "{rows:#?}");
+    // review-b7s: a compact label in the document's Helvetica, too narrow for
+    // its W at the DA size, prints whole: its measured advance fits the box.
+    write_print_text_pdf(
+        &temp.pdf,
+        "W",
+        Some("Helvetica"),
+        0,
+        0,
+        [100, 600, 125, 650],
+        22,
+    );
+    print_annotation_pdf(&temp.pdf, &printed);
+    assert_eq!(
+        clipped_ink(&printed),
+        0,
+        "the compact Helvetica W prints whole"
+    );
     // Covered characters must paint their own glyphs, not replacement boxes.
     // The directional mark preserves the RTL paragraph for the comparison.
     for text in ["Latin abc xyz", "אבג", "مرحبا", "ܫܠܡܐ"] {
