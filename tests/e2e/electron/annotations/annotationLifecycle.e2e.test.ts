@@ -936,14 +936,14 @@ async function moveCanonicalNote(page: Page, stableKey: string, before: NonNulla
     return moved;
 }
 
-function expectMarkerAnchorClose(actual: ICanonicalNoteSnapshot['markerRect'], expected: ICanonicalNoteSnapshot['markerRect']) {
+function expectMarkerCentreClose(actual: ICanonicalNoteSnapshot['markerRect'], expected: ICanonicalNoteSnapshot['markerRect']) {
     expect(actual).not.toBeNull();
     expect(expected).not.toBeNull();
     if (!actual || !expected) {
         return;
     }
-    expect(actual.left).toBeCloseTo(expected.left, 3);
-    expect(actual.top).toBeCloseTo(expected.top, 3);
+    expect(actual.left + actual.width / 2).toBeCloseTo(expected.left + expected.width / 2, 3);
+    expect(actual.top + actual.height / 2).toBeCloseTo(expected.top + expected.height / 2, 3);
 }
 
 async function readCanonicalHighlightIdentities(page: Page) {
@@ -2562,8 +2562,8 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         });
         expect((await readNoteColorPresentation(page, reopened.stableKey)).chip).toBe('rgb(239, 68, 68)');
         // The native `/Text` writer expands the in-memory point marker to its
-        // 20-point icon rectangle. Its normalized anchor remains stable.
-        expectMarkerAnchorClose(reopened.markerRect, moved.markerRect);
+        // 20-point icon rectangle around the same centre.
+        expectMarkerCentreClose(reopened.markerRect, moved.markerRect);
     }, 90_000);
 
     it('shows foreign note replies as read-only and deletes them with their parent', async () => {
