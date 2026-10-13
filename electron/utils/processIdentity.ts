@@ -23,7 +23,7 @@ export interface IProcessIdentity {
     startTime: string;
     // What proves a child an older build recorded (see isExactStartTime): the
     // pid that created it, which Windows keeps, and the environment it was
-    // started with, which macOS shows its own user.
+    // started with, NUL-delimited on macOS.
     parentPid?: number;
     environment?: string;
 }
@@ -106,87 +106,84 @@ async function readLinuxProcessIdentity(pid: number): Promise<IProcessIdentity |
     }
 }
 
-// The kernel keeps a process's start as seconds and microseconds (p_starttime
-// at the head of its kinfo_proc); ps prints it to the second only, so two runs
-// in one second looked alike. JavaScript for Automation reads it through sysctl.
-const MAC_START_TIME_SCRIPT = `ObjC.import('Foundation');
-ObjC.bindFunction('sysctl', ['int', ['void *', 'unsigned int', 'void *', 'void *', 'void *', 'unsigned long']]);
+// kinfo_proc starts with p_starttime (seconds and microseconds). KERN_PROCARGS2
+// retains NUL-delimited argv and environment; proc_pidpath names the executable.
+// The shared JXA reader asks these OS APIs directly, so spaces are never parsed.
+const MAC_PROCESS_SCRIPT = `ObjC.import('Foundation');
+ObjC.bindFunction('sysctl', ['int', ['void *', 'unsigned int', 'void *', 'unsigned long *', 'void *', 'unsigned long']]);
+ObjC.bindFunction('proc_pidpath', ['int', ['int', 'void *', 'unsigned int']]);
+function read(encoded) {
+    const mib = $.NSData.alloc.initWithBase64EncodedStringOptions(encoded, 0);
+    const size = Ref();
+    if ($.sysctl(mib.bytes, mib.length / 4, null, size, null, 0) !== 0) return null;
+    const data = $.NSMutableData.dataWithLength(size[0]);
+    if ($.sysctl(mib.bytes, mib.length / 4, data.mutableBytes, size, null, 0) !== 0) return null;
+    return data.subdataWithRange($.NSMakeRange(0, size[0]));
+}
 function run(argv) {
-    const info = $.NSMutableData.dataWithLength(648);
-    const size = $.NSData.alloc.initWithBase64EncodedStringOptions('iAIAAAAAAAA=', 0).mutableCopy;
-    const mib = $.NSData.alloc.initWithBase64EncodedStringOptions(argv[0], 0);
-    if ($.sysctl(mib.bytes, 4, info.mutableBytes, size.mutableBytes, null, 0) !== 0) return '';
-    return size.base64EncodedStringWithOptions(0).js + ' ' + info.subdataWithRange($.NSMakeRange(0, 12)).base64EncodedStringWithOptions(0).js;
+    const info = read(argv[0]);
+    if (!info || Number(info.length) !== 648) return '';
+    const fields = [info.subdataWithRange($.NSMakeRange(0, 12))];
+    if (argv[1]) {
+        const path = $.NSMutableData.dataWithLength(4096);
+        const length = $.proc_pidpath(Number(argv[1]), path.mutableBytes, 4096);
+        const args = read(argv[2]);
+        if (length <= 0 || !args) return '';
+        fields.push(path.subdataWithRange($.NSMakeRange(0, length)), args);
+    }
+    return fields.map(data => data.base64EncodedStringWithOptions(0).js).join(' ');
 }`;
 
-async function readMacStartTime(pid: number) {
-    const mib = Buffer.alloc(16);
-    [
-        1,
-        14,
-        1,
-        pid,
-    ].forEach((value, index) => mib.writeInt32LE(value, index * 4)); // CTL_KERN, KERN_PROC, KERN_PROC_PID
+async function readMacProcessData(pid: number, includeArguments = false) {
+    const mib = Buffer.from(Int32Array.of(1, 14, 1, pid).buffer); // CTL_KERN, KERN_PROC, KERN_PROC_PID
+    const procArgs = Buffer.from(Int32Array.of(1, 49, pid).buffer); // CTL_KERN, KERN_PROCARGS2
     try {
         const {stdout} = await execFileForIdentity('/usr/bin/osascript', [
             '-l',
             'JavaScript',
             '-e',
-            MAC_START_TIME_SCRIPT,
+            MAC_PROCESS_SCRIPT,
             mib.toString('base64'),
+            ...(includeArguments ? [
+                String(pid),
+                procArgs.toString('base64'),
+            ] : []),
         ], {
             timeout: 2_000,
-            maxBuffer: 1024,
+            maxBuffer: 2 * 1024 * 1024,
         });
-        const [
-            size,
-            head,
-        ] = String(stdout).trim().split(' ').map(part => Buffer.from(part, 'base64'));
-        // A pid with no process answers with an empty kinfo_proc.
-        if (size?.length !== 8 || size.readBigUInt64LE() !== 648n || head?.length !== 12) return null;
-        return `${String(head.readBigInt64LE(0))}.${String(head.readInt32LE(8)).padStart(6, '0')}`;
+        return String(stdout).trim().split(' ').map(part => Buffer.from(part, 'base64'));
     } catch {
-        return null;
+        return [];
     }
 }
 
+function macStartTime(head: Buffer | undefined) {
+    return head?.length === 12 ? `${String(head.readBigInt64LE(0))}.${String(head.readInt32LE(8)).padStart(6, '0')}` : null;
+}
+
 async function readMacProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
-    try {
-        const readCommand = (environment: string[]) => execFileForIdentity('/bin/ps', [
-            ...environment,
-            '-ww',
-            '-o',
-            'command=',
-            '-p',
-            String(pid),
-        ], {
-            timeout: 1_000,
-            maxBuffer: 256 * 1024,
-        }).then(({stdout}) => String(stdout).trim());
-        const [
-            command,
-            commandWithEnvironment,
-            startTime,
-        ] = await Promise.all([
-            readCommand([]),
-            readCommand(['-E']),
-            readMacStartTime(pid),
-        ]);
-        const argumentsList = parseCommandLine(command);
-        const executablePath = argumentsList[0];
-        if (startTime === null || executablePath === undefined || !isAbsolute(executablePath)) {
-            return null;
-        }
-        return {
-            executablePath: resolve(executablePath),
-            arguments: argumentsList,
-            startTime,
-            // ps -E appends the environment the process started with, for this user's processes.
-            environment: commandWithEnvironment.slice(command.length).trim(),
-        };
-    } catch {
-        return null;
-    }
+    const [
+        head,
+        path,
+        procArgs,
+    ] = await readMacProcessData(pid, true);
+    const startTime = macStartTime(head);
+    const executablePath = path?.toString('utf8');
+    if (startTime === null || !executablePath || !isAbsolute(executablePath) || !procArgs || procArgs.length < 4) return null;
+    const argc = procArgs.readInt32LE(0);
+    // Skip exec_path and its alignment padding. Empty argv entries after argv[0] still count.
+    let offset = procArgs.indexOf(0, 4) + 1;
+    if (offset < 5 || argc <= 0) return null;
+    while (procArgs[offset] === 0) offset += 1;
+    const fields = procArgs.subarray(offset).toString('utf8').split('\0');
+    if (fields.length <= argc) return null;
+    return {
+        executablePath: resolve(executablePath),
+        arguments: fields.slice(0, argc),
+        startTime,
+        environment: fields.slice(argc).filter(Boolean).join('\0'),
+    };
 }
 
 async function readWindowsProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
@@ -317,7 +314,7 @@ export async function readProcessStartTime(pid: number): Promise<string | null> 
         return readWindowsStartTime(pid);
     }
     if (process.platform === 'darwin') {
-        return isProcessAlive(pid) ? readMacStartTime(pid) : '';
+        return isProcessAlive(pid) ? macStartTime((await readMacProcessData(pid))[0]) : '';
     }
     if (process.platform !== 'linux') {
         return null;

@@ -86,16 +86,8 @@ function normalizeIdentityPath(path: string, platform: NodeJS.Platform) {
     return platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
-// An older build's start time is never this build's exact value (see
-// isExactStartTime), so its child is proven by what only that child has: the
-// recorded manifest on its command line (checked below), the recorded scratch
-// as the TMPDIR it was started with, or the recorded owner as its creator.
-function isOlderBuildChild(entry: IManagedProcessRegistryEntry, identity: IProcessIdentity, platform: NodeJS.Platform) {
-    return !isExactStartTime(entry.processStartTime!, platform) && (entry.manifestPath !== undefined
-        || ` ${identity.environment ?? ''} `.includes(` TMPDIR=${entry.scratchPath ?? '\0'} `)
-        || identity.parentPid === entry.ownerPid);
-}
-
+// An older build's child must also carry its recorded manifest, exact TMPDIR
+// environment entry, or creator pid: its older start-time format is not proof.
 function processIdentityMatches(
     entry: IManagedProcessRegistryEntry,
     identity: IProcessIdentity,
@@ -105,7 +97,9 @@ function processIdentityMatches(
     return normalizeIdentityPath(identity.executablePath, platform) === normalizeIdentityPath(entry.binaryPath, platform)
         && (entry.processStartTime === undefined
             || startTimesMatch(entry.processStartTime, identity.startTime, platform)
-            || isOlderBuildChild(entry, identity, platform))
+            || (!isExactStartTime(entry.processStartTime, platform) && (entry.manifestPath !== undefined
+                || (identity.environment ?? '').split('\0').includes(`TMPDIR=${entry.scratchPath ?? '\0'}`)
+                || identity.parentPid === entry.ownerPid)))
         && (entry.manifestPath === undefined
             || (manifestIndex >= 0
                 && identity.arguments[manifestIndex + 1] !== undefined

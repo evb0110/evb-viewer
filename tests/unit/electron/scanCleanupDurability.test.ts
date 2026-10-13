@@ -1,5 +1,6 @@
 import {
     access,
+    copyFile,
     mkdir,
     mkdtemp,
     readFile,
@@ -15,7 +16,9 @@ import {
 } from 'node:child_process';
 import {once} from 'node:events';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    dirname, join,
+} from 'node:path';
 import {
     afterEach,
     describe,
@@ -244,9 +247,16 @@ describe('scan-cleanup durability', () => {
     it('reaps a tool an older build recorded once that build\'s run has ended', async () => {
         const namespacePath = await createTemporaryDirectory();
         const scratchPath = await createManagedScratchTempDir('native-command-', namespacePath);
+        const binaryPath = process.platform === 'darwin'
+            ? join(namespacePath, 'EVB Viewer.app', 'Contents', 'MacOS', 'node')
+            : process.execPath;
+        if (binaryPath !== process.execPath) {
+            await mkdir(dirname(binaryPath), {recursive: true});
+            await copyFile(process.execPath, binaryPath);
+        }
         // runNativeCommand starts a tool in its own process group, with its
         // temporary folder at its scratch.
-        const child = spawn(process.execPath, [
+        const child = spawn(binaryPath, [
             '-e',
             'setInterval(() => {}, 1000)',
         ], {
@@ -265,7 +275,7 @@ describe('scan-cleanup durability', () => {
             const registration = await registerManagedProcess(namespacePath, {
                 pid: child.pid!,
                 hasExited: () => child.exitCode !== null || child.signalCode !== null,
-                binaryPath: process.execPath,
+                binaryPath,
                 scratchPath,
             });
             // What an older build recorded instead of the exact creation time:
