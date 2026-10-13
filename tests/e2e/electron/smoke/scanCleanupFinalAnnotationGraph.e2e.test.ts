@@ -118,12 +118,11 @@ describe('public catalog cleanup proof', () => {
             await checkbox('Crop each output page to its content', false);
             await checkbox('Match page size with other pages', false);
             await checkbox('Skip blank pages', false);
-            if (mode.startsWith('compact')) {
-                if (await page.$eval('.scan-cleanup-advanced-toggle', el => el.getAttribute('aria-expanded') !== 'true'))
-                    await clickAsUser(page, '.scan-cleanup-advanced-toggle');
-                await page.waitForFunction(() => document.querySelector('.scan-cleanup-advanced-toggle')?.getAttribute('aria-expanded') === 'true');
-                await checkbox('Normalize uneven illumination', false);
-            }
+            // Auto Color bypasses illumination normalization; keep this fixture on that path.
+            if (mode.startsWith('compact')) await page.waitForFunction(() => {
+                const included = Array.from(document.querySelectorAll('.scan-thumbnail-status:not(.is-excluded)'));
+                return included.length === 2 && included.every(el => el.textContent?.trim().endsWith('Color'));
+            });
             await page.waitForFunction(selector => {
                 const button = document.querySelector<HTMLButtonElement>(selector);
                 return button && !button.disabled && button.textContent?.includes('Clean');
