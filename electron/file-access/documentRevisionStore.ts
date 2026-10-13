@@ -64,12 +64,13 @@ interface IProvisionalWorkingCopyRevision {
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
 const runContentTransitionSerially = createKeyedSerialQueue();
 
-// A transition repairs its own journal and original backup. A reader repairs only what an ended or failed transition
-// left behind: while a mutation of the working copy or of another copy of its original (that copy looked up in main,
-// whichever window owns it, originals compared by the original-path lock's key) is under way it skips the repair, so it
-// neither waits for that transition nor rolls it back or deletes its backup. Otherwise it queues behind any repair
-// already running, so no reader exposes a revision before its bytes are repaired.
-function repairEndedTransition(workingCopyPath: string, originalPath: string | undefined) {
+// A transition repairs its own journal and original backup. A reader, or a restart claiming the working copy, repairs
+// only what an ended or failed transition left behind: while a mutation of the working copy or of another copy of its
+// original (that copy looked up in main, whichever window owns it, originals compared by the original-path lock's key)
+// is under way it skips the repair, so it neither waits for that transition nor rolls it back or deletes its backup.
+// Otherwise it queues behind any repair already running, so no reader exposes a revision before its bytes are repaired.
+export function repairEndedTransition(workingCopyPath: string, senderId?: number) {
+    const originalPath = getWorkingCopyOriginalPath(workingCopyPath, senderId)?.originalPath;
     const key = getRevisionQueueKey(workingCopyPath);
     const repair = () => runContentTransitionSerially(key, () => recoverWorkingCopyTransition(workingCopyPath).then(() => undefined));
     const originalKey = originalPath === undefined ? undefined : getRevisionQueueKey(originalPath);
@@ -261,10 +262,7 @@ export async function initializeFreshWorkingCopyRevision(
         return ensureWorkingCopyRevision(normalizedWorkingPath, senderId);
     }
 
-    await repairEndedTransition(
-        normalizedWorkingPath,
-        getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath,
-    );
+    await repairEndedTransition(normalizedWorkingPath, senderId);
 
     const revision = createRevision(normalizedWorkingPath, 1, senderId);
     await writeWorkingCopyManifestRevision(normalizedWorkingPath, revision, {durable: false});
@@ -345,10 +343,7 @@ export async function ensureWorkingCopyRevision(
     if (provisional) {
         return provisional.revision;
     }
-    await repairEndedTransition(
-        normalizedWorkingPath,
-        getWorkingCopyOriginalPath(normalizedWorkingPath, senderId)?.originalPath,
-    );
+    await repairEndedTransition(normalizedWorkingPath, senderId);
     hydrateWorkingCopySyncRequired(normalizedWorkingPath);
 
     const existing = await readWorkingCopyRevision(normalizedWorkingPath);

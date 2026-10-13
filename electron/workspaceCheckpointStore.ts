@@ -21,6 +21,7 @@ import {
 } from '@contracts/workspaceCheckpoint';
 import {
     parseDocumentRef,
+    requireDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
 import {isErrnoException} from '@contracts/runtimeGuards';
@@ -40,6 +41,8 @@ import {
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
+import {repairEndedTransition} from '@electron/file-access/documentRevisionStore';
+import {findKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {
     isOpenPathAccessible,
     requireOpenPath,
@@ -1225,65 +1228,21 @@ export async function claimWorkspaceCheckpoint(
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,
                 );
-                if (!transferred && lazyWorkingCopy) {
-                    await setWorkingCopyOriginalPath(
-                        tab.workingCopyRef,
-                        lazyWorkingCopy.originalPath,
-                        newOwnerWebContentsId,
-                        {
-                            admissionSnapshot: toAdmissionSnapshot(lazyWorkingCopy.admissionSnapshot),
-                            backingState: 'lazy-original',
-                            deferOriginalFileExpectation: true,
-                            ...(lazyWorkingCopy.originalFileExpectation
-                                ? {originalFileExpectation: lazyWorkingCopy.originalFileExpectation}
-                                : {}),
-                            role: lazyWorkingCopy.role,
-                        },
-                    );
-                    if (lazyWorkingCopy.sourceBackingErrorCode) {
-                        const restoredEntry = getWorkingCopyBackingEntry(
-                            tab.workingCopyRef,
-                            newOwnerWebContentsId,
-                        );
-                        if (restoredEntry) {
-                            transitionWorkingCopyBackingState(
-                                tab.workingCopyRef,
-                                restoredEntry.registrationId,
-                                'lazy-original',
-                                {sourceBackingErrorCode: lazyWorkingCopy.sourceBackingErrorCode},
-                            );
-                        }
-                    }
-                } else if (!transferred && storedWorkingCopy) {
-                    await setWorkingCopyOriginalPath(
-                        tab.workingCopyRef,
-                        storedWorkingCopy.originalPath,
-                        newOwnerWebContentsId,
-                        {
-                            ...(storedWorkingCopy.admissionSnapshot
-                                ? {admissionSnapshot: toAdmissionSnapshot(storedWorkingCopy.admissionSnapshot)}
-                                : {}),
-                            backingState: storedWorkingCopy.backingState,
-                            deferOriginalFileExpectation: true,
-                            ...(storedWorkingCopy.originalFileExpectation
-                                ? {originalFileExpectation: storedWorkingCopy.originalFileExpectation}
-                                : {}),
-                            role: storedWorkingCopy.role,
-                        },
-                    );
-                    if (storedWorkingCopy.sourceBackingErrorCode) {
-                        const restoredEntry = getWorkingCopyBackingEntry(
-                            tab.workingCopyRef,
-                            newOwnerWebContentsId,
-                        );
-                        if (restoredEntry) {
-                            transitionWorkingCopyBackingState(
-                                tab.workingCopyRef,
-                                restoredEntry.registrationId,
-                                storedWorkingCopy.backingState,
-                                {sourceBackingErrorCode: storedWorkingCopy.sourceBackingErrorCode},
-                            );
-                        }
+                const registered = lazyWorkingCopy ? {
+                    ...lazyWorkingCopy,
+                    backingState: 'lazy-original' as const,
+                } : storedWorkingCopy;
+                if (!transferred && registered) {
+                    await setWorkingCopyOriginalPath(tab.workingCopyRef, registered.originalPath, newOwnerWebContentsId, {
+                        ...(registered.admissionSnapshot ? {admissionSnapshot: toAdmissionSnapshot(registered.admissionSnapshot)} : {}),
+                        backingState: registered.backingState,
+                        deferOriginalFileExpectation: true,
+                        ...(registered.originalFileExpectation ? {originalFileExpectation: registered.originalFileExpectation} : {}),
+                        role: registered.role,
+                    });
+                    const restoredEntry = getWorkingCopyBackingEntry(tab.workingCopyRef, newOwnerWebContentsId);
+                    if (registered.sourceBackingErrorCode && restoredEntry) {
+                        transitionWorkingCopyBackingState(tab.workingCopyRef, restoredEntry.registrationId, registered.backingState, {sourceBackingErrorCode: registered.sourceBackingErrorCode});
                     }
                 } else if (!transferred && tab.sourceRef) {
                     await setWorkingCopyOriginalPath(
@@ -1295,6 +1254,18 @@ export async function claimWorkspaceCheckpoint(
                 }
             }
         }
+        // A save the crash cut short ends before any tab reopens: a clean tab reopens the PDF itself, and the file a
+        // rolled-back save kept beside the PDF is named to a tab that reopens its working copy.
+        const claimedTabs = await Promise.all(checkpointWithAnnotationRecovery.tabs.map(async (tab) => {
+            await (tab.workingCopyRef && repairEndedTransition(tab.workingCopyRef, newOwnerWebContentsId).catch((error: unknown) => {
+                log.warn(`Could not finish an interrupted save of a restored document: ${getErrorMessage(error)}`);
+            }));
+            const keptOriginalPath = tab.sourceRef && await findKeptOriginal(tab.sourceRef);
+            return keptOriginalPath ? {
+                ...tab,
+                keptOriginalPath: requireDocumentRef(keptOriginalPath),
+            } : tab;
+        }));
         // The claimant keeps the record until it has reopened every tab and
         // acknowledges; renaming the file hands it over atomically.
         const claimedStored: IStoredWorkspaceCheckpoint = {
@@ -1322,7 +1293,10 @@ export async function claimWorkspaceCheckpoint(
         recoveryClaimGenerationsByOwner.set(newOwnerRecoveryId, generations);
         claimedInCurrentLoad.add(newOwnerRecoveryId);
         restoresInFlight.set(newOwnerRecoveryId, getRestoreOpenedDocuments(canonicalCheckpoint));
-        return checkpointWithAnnotationRecovery;
+        return {
+            ...checkpointWithAnnotationRecovery,
+            tabs: claimedTabs,
+        };
     });
 }
 

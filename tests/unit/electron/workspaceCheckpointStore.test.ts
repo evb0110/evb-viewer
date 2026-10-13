@@ -1,16 +1,21 @@
 import type * as TViMockOriginalModule from '@electron/file-access/workingCopyStore';
 
 import {
+    copyFile,
     mkdir,
     mkdtemp,
     readdir,
     readFile,
+    rename,
     rm,
     writeFile,
 } from 'node:fs/promises';
 import type * as NodeFs from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { join } from 'node:path';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import { tmpdir } from 'node:os';
 import {
     afterAll,
@@ -23,6 +28,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireEpochMs} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
@@ -31,6 +37,12 @@ import {
     allowOpenPath,
     requireOpenPath,
 } from '@electron/file-access/openPathCapabilities';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
+import {
+    prepareWorkingCopyTransition,
+    recordWorkingCopyJournalOriginal,
+} from '@electron/file-access/workingCopyJournal';
 
 import {
     acknowledgeWorkspaceCheckpoint,
@@ -1484,6 +1496,66 @@ describe('workspace checkpoint store', () => {
             backingState: 'lazy-original',
             ownerWebContentsId: 22,
         });
+    });
+
+    it.each([
+        'displaced',
+        'published',
+    ] as const)('ends a Save the crash cut at the %s original before the claimed tab reopens', async (cut) => {
+        const originalPath = join(state.userDataPath, 'documents', 'crashed.pdf');
+        const workingPath = join(state.userDataPath, 'pdf-work-crashed', 'crashed.pdf');
+        const backupPath = `${originalPath}.evb-transition-pdf-work-crashed-save.bak`;
+        await mkdir(dirname(originalPath), {recursive: true});
+        await mkdir(dirname(workingPath), {recursive: true});
+        await writeFile(originalPath, 'ORIGINAL_OLD');
+        await writeFile(workingPath, 'WORKING_OLD');
+        // Save backed up the working copy and moved the PDF aside (or published its new bytes), then the app died.
+        const journal = await prepareWorkingCopyTransition(workingPath, requireDocumentRevisionToken('drt1:test:2:next'));
+        const published = `sha256-full-v1:${createOriginalFileContentFingerprintHash(12).update('ORIGINAL_NEW').digest('hex')}`;
+        await recordWorkingCopyJournalOriginal(journal, {
+            path: originalPath,
+            backupPath,
+            state: cut === 'displaced' ? 'prepared' : 'published',
+            preparedSnapshot: (await capturePathSaveWitness(originalPath))!.getSnapshotForJournal(),
+            intendedFingerprint: published,
+        });
+        await (cut === 'displaced' ? rename(originalPath, backupPath) : copyFile(originalPath, backupPath));
+        await writeFile(workingPath, 'WORKING_NEW');
+        if (cut === 'published') {
+            // Another program changed the published PDF before the restart.
+            await writeFile(originalPath, 'ORIGINAL_NEW external');
+        }
+        const crashedCheckpoint = {
+            ...checkpoint,
+            tabs: [{
+                ...checkpoint.tabs[0]!,
+                sourceRef: requireDocumentRef(originalPath),
+                workingCopyRef: requireDocumentRef(workingPath),
+            }],
+        };
+        state.owners.set(workingPath, 11);
+        state.originalPaths.set(workingPath, originalPath);
+        await saveWorkspaceCheckpoint(crashedCheckpoint, 11);
+        state.owners.clear();
+        state.originalPaths.clear();
+
+        const claimed = await claimWorkspaceCheckpoint(22);
+
+        await expect(readFile(workingPath, 'utf8')).resolves.toBe('WORKING_OLD');
+        if (cut === 'displaced') {
+            expect(claimed?.tabs[0]?.keptOriginalPath).toBeUndefined();
+            await expect(readdir(dirname(originalPath))).resolves.toEqual(['crashed.pdf']);
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('ORIGINAL_OLD');
+            return;
+        }
+        const keptPath = join(dirname(originalPath), 'crashed (original).pdf');
+        expect(claimed?.tabs[0]?.keptOriginalPath).toBe(keptPath);
+        await expect(readdir(dirname(originalPath)).then(names => names.sort())).resolves.toEqual([
+            'crashed (original).pdf',
+            'crashed.pdf',
+        ]);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('ORIGINAL_NEW external');
+        await expect(readFile(keptPath, 'utf8')).resolves.toBe('ORIGINAL_OLD');
     });
 
     it('rejects dirty lazy persistence and quarantines it on recovery', async () => {

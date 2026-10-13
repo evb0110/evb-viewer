@@ -47,6 +47,7 @@ function getRecoveryTarget(tab: IWorkspaceCheckpointTab): TOpenFileResult | null
             originalPath: tab.sourceRef,
             recoveryDirtyBaseline: true,
             ...(tab.requiresSaveAsOnFirstSave ? {isGenerated: true} : {}),
+            ...(tab.keptOriginalPath ? {keptOriginalPath: tab.keptOriginalPath} : {}),
         }
         : null;
 }
