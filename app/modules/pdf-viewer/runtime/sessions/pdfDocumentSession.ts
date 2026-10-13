@@ -1182,12 +1182,11 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         sourceLoader.cancelPendingOpen();
         const invalidation = invalidate('source-replaced', isSameDocumentRewrite);
         const activeScheduledLoadToken = scheduledLoadToken;
-        lifecycleBarrier = invalidation.then(async () => {
-            if (activeScheduledLoadToken === scheduledLoadToken) {
-                await load(isReload);
-            }
-        });
-        runGuardedTask(() => lifecycleBarrier, {
+        runGuardedTask(() => enqueueLifecycleOperation(async () => {
+            await invalidation;
+            if (activeScheduledLoadToken !== scheduledLoadToken) return;
+            await load(isReload);
+        }), {
             category: 'user-visible-operation',
             scope: 'pdf-viewer',
             message: 'Failed to load replacement PDF source',
