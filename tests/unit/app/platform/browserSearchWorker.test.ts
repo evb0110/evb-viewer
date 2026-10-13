@@ -246,6 +246,44 @@ describe('browserSearch worker', () => {
         });
     });
 
+    it('keeps the regex budget through empty pages before searchable PDF text', async () => {
+        const {
+            handler, postMessage,
+        } = await loadWorker();
+        vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+        let remainingMs = 250;
+        for (const [
+            id,
+            text,
+        ] of [
+                '',
+                '',
+                'Z',
+            ].entries()) {
+            handler({data: {
+                id,
+                type: 'matchPageText',
+                payload: {
+                    text,
+                    query: '^Z',
+                    options: {
+                        matchCase: true,
+                        wholeWord: false,
+                        useRegex: true,
+                    },
+                    maxMatches: 2,
+                    budgetMs: remainingMs,
+                },
+            }} as MessageEvent<unknown>);
+            const response = postMessage.mock.lastCall?.[0];
+            expect(response.ok).toBe(true);
+            expect(response.data.matchingMs).toBe(0);
+            remainingMs -= response.data.matchingMs;
+            expect(response.data.matches).toHaveLength(text ? 1 : 0);
+        }
+        expect(remainingMs).toBe(250);
+    });
+
     it('returns a typed protocol code for an unsafe regex before matching', async () => {
         const {
             handler,

@@ -15,7 +15,7 @@ import {
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
-    it('finds a regex match while the search worker is still starting', async () => {
+    it('finds a regex match past empty PDF pages while the worker is still starting', async () => {
         try {
             const page = await lifecycle.browser.newPage({viewport: {
                 width: 1_280,
@@ -43,10 +43,26 @@ describe('browser document lifecycle UI', () => {
                 name: 'Open File',
                 exact: true,
             }).first().click();
-            await (await chooserPromise).setFiles(resolve(
-                process.cwd(),
-                'tests/fixtures/electron/generated-text.pdf',
-            ));
+            const fixture = await PDFDocument.load(readFileSync(resolve(
+                process.cwd(), 'tests/fixtures/electron/generated-text.pdf',
+            )));
+            fixture.insertPage(0, [
+                612,
+                792,
+            ]);
+            fixture.insertPage(2, [
+                612,
+                792,
+            ]);
+            fixture.addPage([
+                612,
+                792,
+            ]);
+            await (await chooserPromise).setFiles({
+                name: 'empty-pages-search.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await fixture.save()),
+            });
             await page.locator('.page_container--rendered canvas').first().waitFor({
                 state: 'visible',
                 timeout: 30_000,
