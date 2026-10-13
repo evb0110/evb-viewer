@@ -140,6 +140,7 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
     'dialog:openPdfDirect': ['/tmp/fixture.pdf'],
     'dialog:openPdfDirectBatch': [['/tmp/fixture.pdf']],
     'dialog:openPdfDirectBatch:cancel': ['open-request-1'],
+    'dialog:keptOriginal:forget': ['/tmp/fixture.pdf'],
     'working-copy:createFromData': [
         'fixture.pdf',
         new Uint8Array([1]),

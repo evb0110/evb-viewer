@@ -481,6 +481,7 @@ export function createElectronApi(
         openDocumentDirect,
         openDocumentDirectBatch,
         cancelOpenDocumentDirectBatch: documentOpenFeature.cancelOpenDocumentDirectBatch!,
+        forgetKeptOriginal: documentOpenFeature.forgetKeptOriginal!,
         onOpenDocumentDirectBatchProgress: documentOpenFeature.onOpenDocumentDirectBatchProgress,
     } satisfies IDocumentsOpenCapability;
     const documentWorkingCopy = createPlatformFeaturePreloadClient(

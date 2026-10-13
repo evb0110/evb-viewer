@@ -1207,10 +1207,18 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             .toEqual(['original (original).pdf']);
         await expect(readFile(keptPath, 'utf8')).resolves.toBe('other-program');
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-by-evb');
-        // The next open of this PDF tells the person, once, where recovery kept that file.
-        const {takeKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
-        await expect(takeKeptOriginal(originalPath)).resolves.toBe(keptPath);
-        await expect(takeKeptOriginal(originalPath)).resolves.toBeUndefined();
+        // Every open of this PDF tells the person where recovery kept that file, until they dismiss it or delete it.
+        const {
+            findKeptOriginal, forgetKeptOriginal, rememberKeptOriginal,
+        } = await import('@electron/file-access/keptOriginalNotices');
+        await expect(findKeptOriginal(originalPath)).resolves.toBe(keptPath);
+        await expect(findKeptOriginal(originalPath)).resolves.toBe(keptPath);
+        await forgetKeptOriginal(originalPath);
+        await expect(findKeptOriginal(originalPath)).resolves.toBeUndefined();
+        await rememberKeptOriginal(originalPath, keptPath);
+        await rm(keptPath);
+        await expect(findKeptOriginal(originalPath)).resolves.toBeUndefined();
+        expect(JSON.parse(await readFile(join(tempRoot, 'kept-original-notices.json'), 'utf8'))).toEqual({});
     });
 
     it('still tells the next open where recovery kept the file when a second crash follows its move', async () => {
@@ -1254,8 +1262,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
             await expect(readFile(keptPath, 'utf8')).resolves.toBe('other-program');
             await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-by-evb');
-            const {takeKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
-            await expect(takeKeptOriginal(originalPath)).resolves.toBe(keptPath);
+            const {findKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
+            await expect(findKeptOriginal(originalPath)).resolves.toBe(keptPath);
         } finally {
             vi.doUnmock('fs/promises');
         }
@@ -1921,7 +1929,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             ]);
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
             // The next open of the PDF repeats where that file is, until the person dismisses it.
-            await expect((await import('@electron/file-access/keptOriginalNotices')).takeKeptOriginal(originalPath)).resolves.toBe(keptFilePath);
+            await expect((await import('@electron/file-access/keptOriginalNotices')).findKeptOriginal(originalPath)).resolves.toBe(keptFilePath);
         } finally {
             vi.doUnmock('fs/promises');
         }
@@ -2335,4 +2343,5 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             vi.doUnmock('node:fs/promises');
         }
     });
+
 });

@@ -1736,7 +1736,7 @@ export default {
             'save': 'Falha ao guardar ficheiro',
             'originalSavedOtherKept': 'O PDF foi alterado noutro programa durante a gravação. A versão que estava no disco imediatamente antes da sua gravação foi conservada ao lado como {path}. As suas alterações continuam abertas aqui; use «Guardar Como» para as conservar.',
             'recoveryKeptOriginalTitle': 'Foi conservada uma versão ao lado deste PDF',
-            'recoveryKeptOriginal': 'Uma gravação deste PDF foi interrompida e outro programa alterou-o antes de o EVB poder anular essa gravação. A versão que estava no disco imediatamente antes da gravação foi conservada ao lado como {path}.',
+            'recoveryKeptOriginal': 'Outro programa alterou este PDF enquanto o EVB Viewer o gravava, por isso a versão de imediatamente antes dessa gravação foi conservada ao lado como {path}. Compare os dois ficheiros e fique com o que pretende: se este PDF estiver correto, elimine {path}. Este aviso volta sempre que abrir este PDF, até fechar este aviso.',
             'browserStorageTitle': 'O armazenamento do navegador não está disponível',
             'browserStorageDescription': '“{name}” está aberto na memória, mas não reaparecerá após recarregar.',
         },

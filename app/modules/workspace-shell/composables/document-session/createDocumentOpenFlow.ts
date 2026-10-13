@@ -333,11 +333,15 @@ export function createDocumentOpenFlow(
         options: IPdfRasterDisplayProfileOpenOptions = {},
     ) {
         if (result.keptOriginalPath) {
-            // Main hands this over once: recovery after an interrupted save kept a file beside the PDF.
+            // A save kept a file beside the PDF; every open says so until the person dismisses it.
+            const originalPath = result.originalPath;
             presentNoticeToast({
                 tone: 'warning',
                 title: deps.t('errors.file.recoveryKeptOriginalTitle'),
                 description: deps.t('errors.file.recoveryKeptOriginal', {path: result.keptOriginalPath}),
+                duration: Number.POSITIVE_INFINITY,
+                progress: false,
+                onDismiss: () => void getDocumentOpenCapability().forgetKeptOriginal?.(originalPath).catch(() => undefined),
             });
         }
         if (result.recoveryDirtyBaseline === true) {

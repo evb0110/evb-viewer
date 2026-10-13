@@ -1725,7 +1725,7 @@ export default {
             'save': 'Failed to save file',
             'originalSavedOtherKept': 'The PDF changed elsewhere while it was being saved. The version that was on disk just before your save was kept next to it as {path}. Your changes are still open here; use Save As to keep them.',
             'recoveryKeptOriginalTitle': 'A version was kept beside this PDF',
-            'recoveryKeptOriginal': 'A save of this PDF was interrupted, and another program changed it before EVB could undo that save. The version that was on disk just before the save was kept next to it as {path}.',
+            'recoveryKeptOriginal': 'Another program changed this PDF while EVB Viewer was saving it, so the version from just before that save was kept next to it as {path}. Compare the two files and keep the one you want: if this PDF is right, delete {path}. This notice comes back each time you open this PDF until you dismiss it.',
             'browserStorageTitle': 'Browser storage is unavailable',
             'browserStorageDescription': '“{name}” is open in memory, but it will not reappear after reload.',
         },

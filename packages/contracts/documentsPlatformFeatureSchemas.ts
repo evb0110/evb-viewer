@@ -179,6 +179,7 @@ const createWorkingCopyFromPathArgs = v.strictTuple([
 ]);
 const cancelOpenBatchArgs = requestIdArgs;
 const cancelRequestArgs = requestIdArgs;
+const keptOriginalArgs = pdfPathSchema;
 
 const savePdfAsArgs = v.strictTuple([
     documentRefSchema,
@@ -503,6 +504,7 @@ export {
     cancelOpenBatchArgs,
     cancellationResult,
     cancelRequestArgs,
+    keptOriginalArgs,
     cloneStagedNativeMutationArgs,
     commitNativeMutationsArgs,
     conformanceResultSchema as conformanceResult,

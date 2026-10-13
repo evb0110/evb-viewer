@@ -36,10 +36,13 @@ import {BrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/brows
 import {clearPdfValidationRevisionCacheForTests} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type * as FailureToastModule from '@app/composables/useFailureToast';
+import {formatTranslationLeaf} from '@i18n-core';
+import {LOCALE_MESSAGES} from '@i18n-app';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
-    presentNoticeToast: vi.fn(),
+    toasts: [] as Array<Record<string, unknown>>,
     documentFiles: {
         readFile: vi.fn(),
         readFileRange: vi.fn(),
@@ -52,6 +55,7 @@ const mocks = vi.hoisted(() => ({
         onOpenDocumentDirectBatchProgress: vi.fn(() => vi.fn()),
         openDocumentDirect: vi.fn(),
         openDocumentDirectBatch: vi.fn(),
+        forgetKeptOriginal: vi.fn(async () => undefined),
     },
     documentPdf: {validatePdfPath: vi.fn()},
     documentPicker: { openDocumentDialog: vi.fn() },
@@ -71,10 +75,14 @@ const platformApi = createElectronPlatformApiFixture({
     documentPicker: mocks.documentPicker,
     documentRecentFiles: mocks.documentRecentFiles,
 });
-vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({
-    presentNoticeToast: mocks.presentNoticeToast,
-    presentFailureToast: vi.fn(),
-})}));
+// Notices go through the real presenter to a toaster that keeps what it was given to show.
+vi.mock('@app/composables/useFailureToast', async (importOriginal) => {
+    const {createNoticeToastPresenter} = await importOriginal<typeof FailureToastModule>();
+    return {useFailureToast: () => ({
+        presentNoticeToast: createNoticeToastPresenter({add: options => mocks.toasts.push({...options})}),
+        presentFailureToast: vi.fn(),
+    })};
+});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/performanceProfile', () => ({
     getPerformanceProfile: () => mocks.performanceProfile,
@@ -445,13 +453,15 @@ describe('createDocumentOpenFlow', () => {
         expect(state.requiresSaveAsOnFirstSave.value).toBe(false);
     });
 
-    it('tells once where recovery kept the version that was on disk before an interrupted save', async () => {
+    it('says where a save kept the version from before it and what to do, until the person dismisses it', async () => {
         const {
             deps,
             openFlow,
         } = createOpenFlowHarness();
-        deps.t = ((key: string, params?: Record<string, unknown>) => `${key}${params ? JSON.stringify(params) : ''}`) as TTranslateFn;
-        mocks.presentNoticeToast.mockClear();
+        const english = LOCALE_MESSAGES.en.errors.file;
+        deps.t = ((key: string, params?: Record<string, string>) =>
+            formatTranslationLeaf(english[key.replace('errors.file.', '') as keyof typeof english], params ?? {}, 'en')) as TTranslateFn;
+        mocks.toasts.length = 0;
         const opened: TOpenFileResult = {
             kind: 'pdf',
             originalPath: requireDocumentRef('/documents/book.pdf'),
@@ -461,12 +471,17 @@ describe('createDocumentOpenFlow', () => {
 
         await expect(openFlow.openFile(opened)).resolves.toMatchObject({status: 'opened'});
 
-        expect(mocks.presentNoticeToast).toHaveBeenCalledTimes(1);
-        expect(mocks.presentNoticeToast).toHaveBeenCalledWith({
-            tone: 'warning',
-            title: 'errors.file.recoveryKeptOriginalTitle',
-            description: `errors.file.recoveryKeptOriginal${JSON.stringify({path: '/documents/book (original).pdf'})}`,
-        });
+        expect(mocks.toasts).toHaveLength(1);
+        const notice = mocks.toasts[0]!;
+        expect(notice.title).toBe('A version was kept beside this PDF');
+        expect(notice.description).toBe('Another program changed this PDF while EVB Viewer was saving it, so the version from just '
+            + 'before that save was kept next to it as /documents/book (original).pdf. Compare the two files and keep the one you '
+            + 'want: if this PDF is right, delete /documents/book (original).pdf. This notice comes back each time you open this '
+            + 'PDF until you dismiss it.');
+        expect(notice.duration).toBe(Number.POSITIVE_INFINITY);
+        expect(mocks.documentOpen.forgetKeptOriginal).not.toHaveBeenCalled();
+        (notice['onUpdate:open'] as (open: boolean) => void)(false);
+        expect(mocks.documentOpen.forgetKeptOriginal).toHaveBeenCalledWith('/documents/book.pdf');
     });
 
     it('shows an opening working copy only once its admission ends, changing the shown source once', async () => {

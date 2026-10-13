@@ -1736,7 +1736,7 @@ export default {
             'save': 'Échec de l’enregistrement du fichier',
             'originalSavedOtherKept': 'Le PDF a été modifié ailleurs pendant l’enregistrement. La version qui se trouvait sur le disque juste avant votre enregistrement a été conservée à côté sous le nom {path}. Vos modifications sont toujours ouvertes ici ; utilisez « Enregistrer sous » pour les conserver.',
             'recoveryKeptOriginalTitle': 'Une version a été conservée à côté de ce PDF',
-            'recoveryKeptOriginal': 'Un enregistrement de ce PDF a été interrompu, et un autre programme l’a modifié avant qu’EVB puisse annuler cet enregistrement. La version qui se trouvait sur le disque juste avant l’enregistrement a été conservée à côté sous le nom {path}.',
+            'recoveryKeptOriginal': 'Un autre programme a modifié ce PDF pendant qu’EVB Viewer l’enregistrait ; la version d’avant cet enregistrement a donc été conservée à côté sous le nom {path}. Comparez les deux fichiers et gardez celui que vous voulez : si ce PDF est le bon, supprimez {path}. Cet avis revient à chaque ouverture de ce PDF jusqu’à ce que vous fermiez cet avis.',
             'browserStorageTitle': 'Le stockage du navegador est indisponible',
             'browserStorageDescription': '« {name} » est ouvert en mémoire, mais ne réapparaîtra pas après rechargement.',
         },

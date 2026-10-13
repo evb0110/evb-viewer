@@ -36,8 +36,8 @@ function updateNotices<T>(update: (notices: Map<string, string>) => T) {
 }
 
 /**
- * Remembers that recovery after an interrupted save kept `keptPath` beside `originalPath`, so the next open of that
- * PDF tells the person once. A notice that cannot be stored is only logged: it never fails the recovery.
+ * Remembers that an interrupted or refused save kept `keptPath` beside `originalPath`, so every open of that PDF tells
+ * the person until they dismiss it. A notice that cannot be stored is only logged: it never fails the save or recovery.
  */
 export async function rememberKeptOriginal(originalPath: string, keptPath: string) {
     await updateNotices(notices => notices.set(normalizePathForLookup(originalPath), keptPath)).catch((error: unknown) => {
@@ -45,15 +45,15 @@ export async function rememberKeptOriginal(originalPath: string, keptPath: strin
     });
 }
 
-/** Takes, once, the file recovery kept beside `originalPath`, while it is still there to open. */
-export async function takeKeptOriginal(originalPath: string) {
-    const key = normalizePathForLookup(originalPath);
-    if (!(await readNotices().catch(() => new Map<string, string>())).has(key)) {
-        return undefined;
-    }
-    return updateNotices((notices) => {
-        const keptPath = notices.get(key);
-        notices.delete(key);
-        return keptPath !== undefined && existsSync(keptPath) ? keptPath : undefined;
-    }).catch(() => undefined);
+/** The file kept beside `originalPath`, while it is still there to open; a notice whose file is gone is forgotten. */
+export async function findKeptOriginal(originalPath: string) {
+    const keptPath = (await readNotices().catch(() => new Map<string, string>())).get(normalizePathForLookup(originalPath));
+    if (keptPath === undefined || existsSync(keptPath)) return keptPath;
+    await forgetKeptOriginal(originalPath);
+    return undefined;
+}
+
+/** Forgets the notice for `originalPath` once the person has dismissed it. */
+export async function forgetKeptOriginal(originalPath: string) {
+    await updateNotices(notices => notices.delete(normalizePathForLookup(originalPath))).catch(() => undefined);
 }
