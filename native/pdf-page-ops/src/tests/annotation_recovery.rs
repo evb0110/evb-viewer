@@ -325,6 +325,30 @@ fn shape_author_survives_both_writers_and_omitted_updates() {
 }
 
 #[test]
+fn subpoint_text_box_fit_writes_a_positive_reopenable_size() {
+    let geometry = crate::text_box_font::geometry(
+        PdfRect {
+            x1: 0.0,
+            y1: 0.0,
+            x2: 0.5,
+            y2: 10.0,
+        },
+        0,
+        0,
+    )
+    .unwrap();
+    let text = "Small box";
+    let (size, _) = crate::annotations::fit_text_box(
+        12.0,
+        &geometry,
+        &crate::text_box_font::FONTS,
+        |width, size| crate::text_box_font::layout(text, width, size),
+    );
+    assert!(size > 0.0 && size < 1.0, "fitted size: {size}");
+
+}
+
+#[test]
 fn dangling_and_non_dictionary_annotations_leave_valid_entries_readable() {
     let (mut document, page_id) = create_test_document();
     let note = document.add_object(dictionary! {"Type" => "Annot", "Subtype" => "Text", "Rect" => vec![10.into(),20.into(),30.into(),40.into()], "Contents" => Object::string_literal("Kept note")});

@@ -958,8 +958,7 @@ pub(crate) fn fit_text_box(
     let lines = |size: f64| lay_out(geometry.width - 2.0 * PADDING_X * size, size);
     let fit = |size: f64| {
         let lines = lines(size);
-        // A quarter point keeps ink and the clip's antialiased edge apart at 4x.
-        let [width, height] = [geometry.width, geometry.height].map(|side| side - 0.25);
+        let (width, height) = (geometry.width, geometry.height);
         let inside = |(index, line): (usize, &Line)| {
             let (left, baseline) = line_origin(geometry, line, index, size);
             // A simple font's line has measured advances, not outlines.
@@ -972,7 +971,7 @@ pub(crate) fn fit_text_box(
                     let [x1, y1, x2, y2] =
                         [ink.x_min, ink.y_min, ink.x_max, ink.y_max].map(|em| f64::from(em) * size);
                     let (x, y) = (left + glyph.x, baseline + glyph.y);
-                    x1 == x2 || (x + x1).min(y + y1) >= 0.25 && x + x2 <= width && y + y2 <= height
+                    x1 == x2 || (x + x1).min(y + y1) >= 0.0 && x + x2 <= width && y + y2 <= height
                 })
         };
         let height = (lines.len() as f64 * LINE_HEIGHT + PADDING_Y) * size;
@@ -990,7 +989,7 @@ pub(crate) fn fit_text_box(
             (range.0, middle)
         };
     }
-    let size = (range.0 * 100.0).floor() / 100.0;
+    let size = ((range.0 * 100.0).floor() / 100.0).max(0.01);
     (size, lines(size))
 }
 

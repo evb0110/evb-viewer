@@ -1,5 +1,5 @@
 import {
-    PDFDocument, PDFName, PDFArray,
+    PDFDocument, PDFName, PDFArray, PDFDict, PDFString, PDFHexString,
 } from 'pdf-lib';
 import {
     afterEach,
@@ -29,6 +29,7 @@ import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
+    saveViaVisibleToolbar,
     waitForActiveDocumentSource,
     waitForPdfLoaded,
     waitForViewerInteractive,
@@ -786,6 +787,51 @@ describe('Electron E2E - native save and reopen', () => {
         await waitForOpenedPdf(session, pdfPath);
         await expect.poll(() => session!.page.$$eval('.pdf-annotation-editor-text-box', nodes => nodes.map(node => node.textContent)), {timeout: 20_000})
             .toContain('Store-owned text box');
+    }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
+
+    it('crpart3ne saves a subpoint text box with a positive readable font size', async () => {
+        const pdfPath = await createCanonicalAnnotationSurfaceFixturePdf(`subpoint-text-box-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(pdfPath));
+        const annots = pdf.getPages()[0]!.node.lookup(PDFName.of('Annots'), PDFArray);
+        const box = pdf.context.lookup(annots.get(0), PDFDict);
+        box.set(PDFName.of('Rect'), pdf.context.obj([
+            100,
+            100,
+            100.5,
+            110,
+        ]));
+        box.set(PDFName.of('Contents'), PDFString.of('Small box'));
+        await writeFile(pdfPath, await pdf.save());
+        session = await startElectronE2ESession(`e2e-crpart3ne-fit-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session, pdfPath);
+        await waitForTextBoxDisplay(session.page);
+        // Set up a dirty imported box; Save itself uses the visible toolbar.
+        const comment = await waitForParsedTextBoxComment(session.page);
+        const stableKey = stringField(comment, 'stableKey');
+        expect(stableKey).not.toBeNull();
+        const updated = await requireWorkspaceCommand<IAgentActionResult>(session.page, 'runAgentAction', [
+            'annotation.update_note',
+            {
+                stableKey,
+                text: 'Small box edited',
+            },
+        ]);
+        expect(updated?.updated).toBe(true);
+        await saveViaVisibleToolbar(session.page, 60_000, pdfPath);
+        const saved = await PDFDocument.load(await readFile(pdfPath));
+        const savedAnnots = saved.getPages()[0]!.node.lookup(PDFName.of('Annots'), PDFArray);
+        const savedBox = saved.context.lookup(savedAnnots.get(0), PDFDict);
+        const da = savedBox.lookup(PDFName.of('DA'), PDFString).decodeText();
+        const size = Number(da.match(/([0-9.]+) Tf/u)?.[1]);
+        expect(size).toBeGreaterThan(0);
+        expect(size).toBeLessThan(1);
+        expect(savedBox.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Small box edited');
+        await openPdfInApp(session.page, pdfPath);
+        await waitForPdfLoaded(session.page);
+        await expect.poll(async () => stringField(findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), 'Small box edited') ?? {}, 'text'), {timeout: 20_000}).toBe('Small box edited');
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('creates, edits, resizes, moves, recolors, undoes, saves, and reopens a text box', async () => {
