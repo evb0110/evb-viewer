@@ -2335,6 +2335,38 @@ fn split_pages_cross_page_reply_targets_the_listed_output_note() {
 }
 
 #[test]
+fn split_pages_keeps_text_from_cyclic_annotation_threads() {
+    for key in ["IRT", "Parent"] {
+        for self_link in [false, true] {
+            let mut source = review_catalog_source();
+            let page = source.get_pages()[&1];
+            let first = source.new_object_id();
+            let second = source.new_object_id();
+            for (id, related, text) in [
+                (first, if self_link { first } else { second }, "first"),
+                (second, first, "second"),
+            ] {
+                let mut note = dictionary! {"Subtype" => "Text", "P" => page,
+                "Rect" => vec![10.into(), 20.into(), 26.into(), 36.into()],
+                "Contents" => Object::string_literal(text)};
+                note.set(key, related);
+                source.set_object(id, note);
+            }
+            source.get_dictionary_mut(page).unwrap().set(
+                "Annots",
+                vec![Object::Reference(first), Object::Reference(second)],
+            );
+            let split = review_split(&mut source, &[0], false, false);
+            let text = split_page_annotations(&split, 1)
+                .iter()
+                .map(|(_, note)| note.get(b"Contents").unwrap().as_str().unwrap().to_vec())
+                .collect::<Vec<_>>();
+            assert_eq!(text, [b"first".to_vec(), b"second".to_vec()]);
+        }
+    }
+}
+
+#[test]
 fn split_pages_removed_reply_target_keeps_text_without_an_unlisted_clone() {
     let mut source = review_catalog_source();
     let target = source.add_object(dictionary! {

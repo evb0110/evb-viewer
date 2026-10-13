@@ -24,8 +24,11 @@ pub(crate) fn thread_owner<'a>(
                     || parent.get(b"P").and_then(Object::as_reference).ok() == Some(page))
         })
     {
-        if seen.len() >= 127 || !seen.insert(id) {
-            return Err("annotation ownership is cyclic or too deep".into());
+        if !seen.insert(id) {
+            break;
+        }
+        if seen.len() > 127 {
+            return Err("annotation ownership is too deep".into());
         }
         owner = parent;
     }
@@ -35,20 +38,6 @@ pub(crate) fn thread_owner<'a>(
 /// A note sits on the output that holds its marker centre, as an overlay note
 /// does, so a thread is placed as a unit by the centre of its owner. An owner
 /// without a readable rectangle is kept rather than dropped.
-fn owner_centre_in_crop(
-    source: &Document,
-    owner: &Dictionary,
-    matrix: [f64; 6],
-    crop: PdfRect,
-) -> bool {
-    let Some(rect) = read_pdf_rect_from_dict(source, owner) else {
-        return true;
-    };
-    let rect = PdfMatrix::from_values(matrix).bounds(rect);
-    let (x, y) = ((rect.x1 + rect.x2) / 2.0, (rect.y1 + rect.y2) / 2.0);
-    x >= crop.x1 && x < crop.x2 && y >= crop.y1 && y < crop.y2
-}
-
 pub(crate) fn keep_split_annotation(
     source: &Document,
     output: &crate::split_output::SplitOutputPage,
@@ -68,12 +57,14 @@ pub(crate) fn keep_split_annotation(
             resolve_page_rotation(source, output.source_id)?,
         );
     Ok(!note_owner
-        || owner_centre_in_crop(
-            source,
-            owner,
-            crate::split_output::split_annotation_matrix(output.transform),
-            output.crop,
-        ))
+        || read_pdf_rect_from_dict(source, owner).is_none_or(|rect| {
+            let rect = PdfMatrix::from_values(crate::split_output::split_annotation_matrix(
+                output.transform,
+            ))
+            .bounds(rect);
+            let (x, y) = ((rect.x1 + rect.x2) / 2.0, (rect.y1 + rect.y2) / 2.0);
+            x >= output.crop.x1 && x < output.crop.x2 && y >= output.crop.y1 && y < output.crop.y2
+        }))
 }
 
 /// Allocate from all retained page lists before rebinding any thread link.
