@@ -184,18 +184,8 @@ export async function assertPathMatchesSaveWitnessSnapshot(
     }
 }
 
-async function captureRequiredPathSaveWitness(originalPath: string): Promise<IOriginalPathSaveWitness> {
-    return new OriginalPathSaveWitness(originalPath, await capturePathSnapshot(originalPath));
-}
-
-export async function capturePathSaveWitness(
-    originalPath: string,
-): Promise<IOriginalPathSaveWitness | null> {
-    try {
-        return await captureRequiredPathSaveWitness(originalPath);
-    } catch {
-        return null;
-    }
+export function capturePathSaveWitness(originalPath: string): Promise<IOriginalPathSaveWitness | null> {
+    return captureOpenSourceWitness(originalPath).catch(() => null);
 }
 
 /**
@@ -203,8 +193,8 @@ export async function capturePathSaveWitness(
  * revision again before registration without retaining a handle. Only a real
  * snapshot mismatch is a conflict; an unreadable or vanished source keeps its error.
  */
-export function captureOpenSourceWitness(originalPath: string) {
-    return captureRequiredPathSaveWitness(originalPath);
+export async function captureOpenSourceWitness(originalPath: string): Promise<IOriginalPathSaveWitness> {
+    return new OriginalPathSaveWitness(originalPath, await capturePathSnapshot(originalPath));
 }
 
 export async function captureOriginalPathSaveWitness(
@@ -290,9 +280,9 @@ async function restoreAppPublishedOriginalExpectation(
         if (saved.path !== originalPath) {
             return null;
         }
-        // The revision commit retains the journal's witnessed publication.
-        // A stale workspace checkpoint cannot erase this save baseline.
-        await assertPathMatchesSaveWitnessSnapshot(originalPath, saved.snapshot, {allowBackupMetadataChange: saved.snapshot.contentFingerprint !== undefined});
+        // The revision commit retains the journal's witnessed publication; a stale workspace checkpoint cannot erase
+        // this save baseline. With its fingerprint, the saved bytes count even when only their metadata changed.
+        await assertPathMatchesSaveWitnessSnapshot(originalPath, saved.snapshot, {contentOnly: saved.snapshot.contentFingerprint !== undefined});
     } else {
         // Older saved copies prove publication only through their shared inode.
         const workingStat = await stat(workingPath, {bigint: true});

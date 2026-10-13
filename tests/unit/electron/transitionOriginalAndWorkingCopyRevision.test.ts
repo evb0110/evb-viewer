@@ -1437,7 +1437,11 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('second-committed-pdf');
     });
 
-    it('restores the app-published original witness after a hard reopen before a second save', async () => {
+    it.each([
+        'as published',
+        'with only its modification time touched',
+        'rewritten with the same bytes',
+    ])('restores the app-published original witness after a hard reopen before a second save, %s', async change => {
         const {
             originalPath,
             stagedPath,
@@ -1483,6 +1487,14 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             backingState: 'eager',
             originalFileExpectation: reopenedExpectation!,
         });
+        // A sync client may touch the saved file, or rewrite it with the same bytes, while EVB is stopped.
+        if (change === 'with only its modification time touched') {
+            const {utimes} = await import('node:fs/promises');
+            await utimes(originalPath, 1700000000, 1700000000);
+        } else if (change === 'rewritten with the same bytes') {
+            await writeFile(`${originalPath}.sync`, await readFile(originalPath));
+            await rename(`${originalPath}.sync`, originalPath);
+        }
 
         await expect(transitionOriginalAndWorkingCopyRevision({
             workingCopyPath,
