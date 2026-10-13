@@ -1951,6 +1951,63 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
             "lost supported text: {text}"
         );
     }
+    // A DA size its box cannot hold prints at the size a Save of that box
+    // fits, with every mark inside the box. With an appearance, as printed
+    // once, it prints as it is.
+    let mut rows = Vec::new();
+    for (text, font) in [
+        ("بَسْمِ لَا بــِسْمِ", None),
+        ("ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ", None),
+        ("הַקְּדֻשָּׁה וְהַטָּהֳרָה", None),
+        ("Latin label, pp. 12-15", None),
+        ("Latin label, pp. 12-15", Some("Helvetica")),
+    ] {
+        write_print_text_pdf(&temp.pdf, text, font, 0, 0, [100, 450, 400, 480], 28);
+        print_annotation_pdf(&temp.pdf, &printed);
+        let hidden = clipped_ink(&printed);
+        // The size the first annotation's appearance draws, as Tf records it.
+        let drawn_size = |pdf: &Path| {
+            let document = Document::load(pdf).unwrap();
+            let page = document.get_dictionary(document.get_pages()[&1]).unwrap();
+            let annotation = page.get(b"Annots").unwrap().as_array().unwrap()[0].as_reference();
+            let annotation = document.get_dictionary(annotation.unwrap()).unwrap();
+            let normal = annotation
+                .get(b"AP")
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"N")
+                .unwrap();
+            let mut stream = document
+                .get_object(normal.as_reference().unwrap())
+                .unwrap()
+                .as_stream()
+                .unwrap()
+                .clone();
+            stream.decompress().unwrap();
+            let content = String::from_utf8(stream.content).unwrap();
+            let (before, _) = content.split_once(" Tf").unwrap();
+            before.rsplit(' ').next().unwrap().parse::<f64>().unwrap()
+        };
+        let saved = TempPaths::new("print-text-fit-save");
+        let blank = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/semtext/blank.pdf");
+        fs::copy(blank, &saved.pdf).unwrap();
+        write_mutations(
+            &saved,
+            &json!({"textBoxes": [{
+                "pageIndex": 0, "stableKey": "fit", "text": text, "rect": [100, 450, 400, 480],
+                "rotation": 0, "fontSize": 28, "color": [0, 0, 0],
+            }]}),
+        );
+        run_save(&saved);
+        let (printed_size, saved_size) = (drawn_size(&printed), drawn_size(&saved.pdf));
+        let again = temp.root.join("again.pdf");
+        print_annotation_pdf(&printed, &again);
+        rows.push((text, font, hidden, printed_size, saved_size, again.exists()));
+    }
+    // Whole, at the size Save fits, and unchanged once it has an appearance.
+    let whole = |row: &&(_, _, usize, f64, f64, bool)| row.2 == 0 && row.3 == row.4 && !row.5;
+    assert!(rows.iter().all(|row| whole(&row)), "{rows:#?}");
     // Covered characters must paint their own glyphs, not replacement boxes.
     // The directional mark preserves the RTL paragraph for the comparison.
     for text in ["Latin abc xyz", "אבג", "مرحبا", "ܫܠܡܐ"] {
@@ -2273,13 +2330,6 @@ fn authored_semitic_text_boxes_save_harfbuzz_appearances() {
     }
     // review-b7f: a 150 x 20 pt box at 13.33 pt hid two kasra strokes below
     // its nominal line. Vowel points below and above the line stay in the box.
-    let render = |pdf: &Path| {
-        // The box and 30 pt around it on the A4 page, at 4x.
-        let crop = "-r 288 -x 160 -y 2160 -W 840 -H 360 -singlefile";
-        let tool = external_tool::tool_path("PDFTOPPM_PATH", "poppler", "pdftoppm");
-        let output = Command::new(tool).args(crop.split(' ')).arg(pdf).output();
-        output.unwrap().stdout
-    };
     for text in ["بَسْمِ لَا بــِسْمِ", "ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ", "הַקְּדֻשָּׁה וְהַטָּהֳרָה"]
     {
         let temp = TempPaths::new("short-semitic-marks");
@@ -2293,59 +2343,75 @@ fn authored_semitic_text_boxes_save_harfbuzz_appearances() {
             }]}),
         );
         run_save(&temp);
-        // Unclipped, with room around the box, the page draws the same pixels.
-        let mut saved = Document::load(&temp.pdf).unwrap();
-        let page = saved.get_dictionary(saved.get_pages()[&1]).unwrap();
-        let annotation = page.get(b"Annots").unwrap().as_array().unwrap()[0]
-            .as_reference()
-            .unwrap();
-        let appearance = saved
-            .get_dictionary(annotation)
-            .unwrap()
-            .get(b"AP")
-            .unwrap();
-        let normal = appearance
-            .as_dict()
-            .unwrap()
-            .get(b"N")
-            .unwrap()
-            .as_reference()
-            .unwrap();
-        let grow = |dict: &mut Dictionary, key: &[u8]| {
-            let side = dict.get(key).unwrap().as_array().unwrap().clone();
-            let side = side.iter().map(|value| value.as_float().unwrap());
-            let grown = side
-                .zip([-100.0, -100.0, 100.0, 100.0])
-                .map(|(v, d)| Object::Real(v + d));
-            dict.set(key, grown.collect::<Vec<_>>());
-        };
-        grow(saved.get_dictionary_mut(annotation).unwrap(), b"Rect");
-        let stream = saved
-            .get_object_mut(normal)
-            .unwrap()
-            .as_stream_mut()
-            .unwrap();
-        stream.decompress().unwrap();
-        let content = String::from_utf8(stream.content.clone()).unwrap();
-        assert!(
-            content.contains(" re W n"),
-            "the appearance clips to its box"
-        );
-        stream.set_content(content.replace(" re W n", " re n").into_bytes());
-        grow(&mut stream.dict, b"BBox");
-        let unclipped = temp.root.join("unclipped.pdf");
-        saved.save(&unclipped).unwrap();
-        let clipped = render(&temp.pdf);
-        assert!(
-            clipped.iter().any(|channel| *channel < 128),
-            "the crop shows {text}"
-        );
-        let unclipped = render(&unclipped);
-        assert!(
-            clipped == unclipped,
+        assert_eq!(
+            clipped_ink(&temp.pdf),
+            0,
             "{text} keeps every mark inside its box"
         );
     }
+}
+
+/// Pixels at 4x that the first annotation's box clip hides: the page around
+/// the box, rendered as saved and again unclipped with room around the box.
+fn clipped_ink(pdf: &Path) -> usize {
+    let mut document = Document::load(pdf).unwrap();
+    let page = document.get_dictionary(document.get_pages()[&1]).unwrap();
+    let numbers = |object: &Object| -> Vec<f32> {
+        let values = object.as_array().unwrap().iter();
+        values.map(|value| value.as_float().unwrap()).collect()
+    };
+    let height = numbers(page.get(b"MediaBox").unwrap())[3];
+    let annotation = page.get(b"Annots").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let annotation_dict = document.get_dictionary(annotation).unwrap();
+    let rect = numbers(annotation_dict.get(b"Rect").unwrap());
+    let appearance = annotation_dict.get(b"AP").unwrap().as_dict().unwrap();
+    let normal = appearance.get(b"N").unwrap().as_reference().unwrap();
+    let grow = |dict: &mut Dictionary, key: &[u8]| {
+        let grown = numbers(dict.get(key).unwrap()).into_iter();
+        let grown = grown
+            .zip([-100.0, -100.0, 100.0, 100.0])
+            .map(|(v, d)| Object::Real(v + d));
+        dict.set(key, grown.collect::<Vec<_>>());
+    };
+    grow(document.get_dictionary_mut(annotation).unwrap(), b"Rect");
+    let stream = document
+        .get_object_mut(normal)
+        .unwrap()
+        .as_stream_mut()
+        .unwrap();
+    stream.decompress().unwrap();
+    let content = String::from_utf8(stream.content.clone()).unwrap();
+    assert!(
+        content.contains(" re W n"),
+        "the appearance clips to its box"
+    );
+    stream.set_content(content.replace(" re W n", " re n").into_bytes());
+    grow(&mut stream.dict, b"BBox");
+    let unclipped = pdf.with_extension("unclipped.pdf");
+    document.save(&unclipped).unwrap();
+    let [x1, y1, x2, y2] = [rect[0], rect[1], rect[2], rect[3]].map(|v| (v * 4.0) as i64);
+    let top = (height * 4.0) as i64 - y2;
+    let crop = [x1 - 120, top - 120, x2 - x1 + 240, y2 - y1 + 240].map(|v| v.to_string());
+    let render = |pdf: &Path| {
+        let tool = external_tool::tool_path("PDFTOPPM_PATH", "poppler", "pdftoppm");
+        let mut command = Command::new(tool);
+        command.args(["-r", "288", "-singlefile", "-x", &crop[0], "-y", &crop[1]]);
+        command.args(["-W", &crop[2], "-H", &crop[3]]).arg(pdf);
+        let ppm = command.output().unwrap().stdout;
+        ppm.splitn(4, |byte| *byte == b'\n')
+            .nth(3)
+            .unwrap()
+            .to_vec()
+    };
+    let (clipped, unclipped) = (render(pdf), render(&unclipped));
+    assert!(
+        clipped.iter().any(|channel| *channel < 128),
+        "the crop shows the box"
+    );
+    let pixels = clipped.chunks(3).zip(unclipped.chunks(3));
+    pixels.filter(|(a, b)| a != b).count()
 }
 
 #[test]
@@ -2422,14 +2488,16 @@ fn print_freetext_courier_wraps_all_sixty_glyphs_in_six_lines() {
     );
     print_annotation_pdf(&temp.pdf, &printed);
     let pixels = poppler_pixels(&printed);
-    // Count visible glyph columns in each 21.6-point line. The dot and stem
-    // of i can occupy separate horizontal bands, but belong to one glyph.
+    // Printing lays text out as a saved text box does: 0.3 em side padding,
+    // 1.35 em lines and the DejaVu Sans line box. The 109.2 pt content width
+    // holds ten 10.8 pt glyphs. The dot and stem of i can occupy separate
+    // horizontal bands, but belong to one glyph.
     let mut columns = [[false; 596]; 6];
     for (index, rgb) in pixels.chunks_exact(3).enumerate() {
         if rgb.iter().all(|c| *c < 100) {
             let y = index / 596;
             assert!(y >= 142, "text stays inside its rectangle");
-            let line = ((y - 142) as f64 / 21.6) as usize;
+            let line = ((y - 142) as f64 / 24.3) as usize;
             columns.get_mut(line).expect("six visible lines")[index % 596] = true;
         }
     }
@@ -2442,20 +2510,29 @@ fn print_freetext_courier_wraps_all_sixty_glyphs_in_six_lines() {
                 .count()
         })
         .collect();
-    assert_eq!(glyph_counts, vec![11, 11, 11, 11, 11, 5]);
+    assert_eq!(glyph_counts, vec![10; 6]);
     // Render an independent, ordinary page-content Courier reference with
     // this run's reader. Host font substitutions must not change the verdict.
+    use skrifa::MetadataProvider;
+    let dejavu = include_bytes!("../../../public/fonts/annotation/DejaVuSans.ttf");
+    let metrics = skrifa::FontRef::new(dejavu).unwrap().metrics(
+        skrifa::instance::Size::unscaled(),
+        skrifa::instance::LocationRef::default(),
+    );
+    let line_box = f64::from(metrics.ascent + metrics.descent) / f64::from(metrics.units_per_em);
+    let first_baseline = (0.15 + 1.35 / 2.0 + line_box / 2.0) * 18.0;
     let reference = temp.root.join("courier-reference.pdf");
     let mut document = Document::load(&temp.pdf).unwrap();
-    let mut content = String::from("BT /Helv 18 Tf 0 g\n");
-    for (index, count) in [11, 11, 11, 11, 11, 5].iter().enumerate() {
+    let mut content = String::from("q 1 0 0 1 100 450 cm BT /Helv 18 Tf 0 g\n");
+    for index in 0..6 {
+        let baseline = 250.0 - first_baseline - index as f64 * 1.35 * 18.0;
         content.push_str(&format!(
-            "1 0 0 1 100 {} Tm ({}) Tj\n",
-            682.0 - index as f64 * 21.6,
-            "i".repeat(*count)
+            "1 0 0 1 {} {baseline} Tm ({}) Tj\n",
+            0.3 * 18.0,
+            "i".repeat(10)
         ));
     }
-    content.push_str("ET\n");
+    content.push_str("ET Q\n");
     let content = document.add_object(lopdf::Stream::new(
         lopdf::dictionary! {},
         content.into_bytes(),

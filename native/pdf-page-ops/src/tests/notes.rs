@@ -3013,7 +3013,9 @@ fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
     };
     let [x1, y1, x2, y2] = editor.rect;
     let geometry = crate::text_box_font::geometry(PdfRect { x1, y1, x2, y2 }, 0, 0).unwrap();
-    let (size, lines) = crate::annotations::fit_text_box(&editor, &geometry);
+    let text = |width, size| crate::text_box_font::layout(&editor.text, width, size);
+    let fonts = &crate::text_box_font::FONTS;
+    let (size, lines) = crate::annotations::fit_text_box(editor.font_size, &geometry, fonts, text);
     assert_eq!((size, lines.len()), (22.0, 15));
 }
 

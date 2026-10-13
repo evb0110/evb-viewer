@@ -1,6 +1,8 @@
 //! FreeText print synthesis, independent of editor admission.
 
 use super::*;
+use crate::annotations::line_origin;
+use crate::text_box_font::{layout_simple, layout_with_fonts};
 
 /// Synthesize foreign FreeText in PDF space; an empty text area retains its colors.
 pub(super) fn missing_free_text_appearance(
@@ -100,7 +102,7 @@ pub(super) fn missing_free_text_appearance(
         x2: inner.x2 - 2.0 * width,
         y2: inner.y2 - 2.0 * width,
     };
-    let color_operator = operator(&color);
+    let color = format!("{} {}", format_operands(&color), operator(&color));
     if let Ok(geometry) = print_text_geometry(
         document,
         annotation,
@@ -113,27 +115,22 @@ pub(super) fn missing_free_text_appearance(
                 .map(|advances| (font.clone(), advances))
         }) {
             resources.set("Font", Dictionary::from_iter([("PrintText", font)]));
+            let lay_out = |width, size| layout_simple(&text, width, size, &advances);
+            let (size, lines) = crate::annotations::fit_text_box(size, &geometry, &[], lay_out);
             content.push_str(&format!(
-                "q {} cm 0 0 {} {} re W n BT {} {color_operator} /PrintText {size} Tf\n",
+                "q {} cm 0 0 {} {} re W n BT {color} /PrintText {size} Tf\n",
                 format_operands(&geometry.matrix),
                 geometry.width,
                 geometry.height,
-                format_operands(&color)
             ));
-            for (index, line) in
-                crate::text_box_font::layout_simple(&text, geometry.width, size, &advances)
-                    .iter()
-                    .enumerate()
-            {
+            for (index, line) in lines.iter().enumerate() {
+                let (left, baseline) = line_origin(&geometry, line, index, size);
                 let text = line
                     .text
                     .replace('\\', "\\\\")
                     .replace('(', "\\(")
                     .replace(')', "\\)");
-                content.push_str(&format!(
-                    "1 0 0 1 0 {} Tm ({text}) Tj\n",
-                    geometry.height - size - index as f64 * size * 1.2
-                ));
+                content.push_str(&format!("1 0 0 1 {left} {baseline} Tm ({text}) Tj\n"));
             }
             content.push_str("ET Q\n");
         } else {
@@ -174,50 +171,14 @@ pub(super) fn missing_free_text_appearance(
                 .map(Vec::as_slice)
                 .chain(crate::text_box_font::FONTS)
                 .collect();
-            let padding = crate::text_box_font::PADDING_X * size;
-            let width = (geometry.width - 2.0 * padding).max(0.0);
-            let lines = crate::text_box_font::layout_with_fonts(
-                &text,
-                width,
-                size,
-                &programs,
-                Some(unicode_bidi::Level::ltr()),
-            );
+            let level = Some(unicode_bidi::Level::ltr());
+            let lay_out = |width, size| layout_with_fonts(&text, width, size, &programs, level);
+            let (size, lines) =
+                crate::annotations::fit_text_box(size, &geometry, &programs, lay_out);
             let fonts = crate::text_box_font::embed_fonts(document, &lines, &programs)?;
-            content.push_str(&format!(
-                "q {} cm 0 0 {} {} re W n BT {} {color_operator}\n",
-                format_operands(&geometry.matrix),
-                geometry.width,
-                geometry.height,
-                format_operands(&color)
+            content.push_str(&crate::annotations::text_box_content(
+                &geometry, &color, &lines, size,
             ));
-            for (index, line) in lines.iter().enumerate() {
-                let left = padding
-                    + if line.rtl {
-                        (width - line.width).max(0.0)
-                    } else {
-                        0.0
-                    };
-                let baseline = geometry.height
-                    - crate::text_box_font::baseline_from_top(size)
-                    - index as f64 * crate::text_box_font::LINE_HEIGHT * size;
-                content.push_str(&format!(
-                    "/Span << /ActualText <{}> >> BDC\n",
-                    crate::text_box_font::unicode_hex(&line.text, true)
-                ));
-                for glyph in &line.glyphs {
-                    content.push_str(&format!(
-                        "/TextFont{} {} Tf 1 0 0 1 {} {} Tm <{:04X}> Tj\n",
-                        glyph.font,
-                        size,
-                        left + glyph.x,
-                        baseline + glyph.y,
-                        glyph.id
-                    ));
-                }
-                content.push_str("EMC\n");
-            }
-            content.push_str("ET Q\n");
             resources.set("Font", fonts);
         }
     }

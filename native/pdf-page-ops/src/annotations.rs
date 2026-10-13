@@ -1033,7 +1033,7 @@ pub(crate) fn validate_text_box_rect(
 
 /// Where a fitted line starts and sits in its box. RTL lines align right, and
 /// the spaces that hang at their end fall off the start side.
-fn line_origin(geometry: &Geometry, line: &Line, index: usize, size: f64) -> (f64, f64) {
+pub(crate) fn line_origin(geometry: &Geometry, line: &Line, index: usize, size: f64) -> (f64, f64) {
     let rest = (geometry.width - 2.0 * PADDING_X * size).max(0.0) - line.width;
     let left = PADDING_X * size + if line.rtl { rest } else { 0.0 };
     let baseline = geometry.height - baseline_from_top(size) - index as f64 * LINE_HEIGHT * size;
@@ -1044,10 +1044,19 @@ fn line_origin(geometry: &Geometry, line: &Line, index: usize, size: f64) -> (f6
 /// count and every positioned glyph's ink, marks below the baseline and above
 /// the cap height included, stays inside the box, which clips the appearance.
 /// Where it does not, the size shrinks until it does. The appearance and the
-/// DA, which the reopened editor reads, both use that size.
-pub(crate) fn fit_text_box(editor: &TextBoxMutation, geometry: &Geometry) -> (f64, Vec<Line>) {
-    let faces = FONTS.map(|program| FontRef::from_index(program, 0).expect("bundled font"));
-    let lines = |size: f64| layout(&editor.text, geometry.width - 2.0 * PADDING_X * size, size);
+/// DA, which the reopened editor reads, both use that size. Printing fits a
+/// box without an appearance the same way, with its own programs and layout.
+pub(crate) fn fit_text_box(
+    font_size: f64,
+    geometry: &Geometry,
+    programs: &[&[u8]],
+    lay_out: impl Fn(f64, f64) -> Vec<Line>,
+) -> (f64, Vec<Line>) {
+    let faces: Vec<_> = programs
+        .iter()
+        .map(|p| FontRef::from_index(p, 0).expect("font"))
+        .collect();
+    let lines = |size: f64| lay_out(geometry.width - 2.0 * PADDING_X * size, size);
     let fit = |size: f64| {
         let lines = lines(size);
         let inside = |(index, line): (usize, &Line)| {
@@ -1066,10 +1075,10 @@ pub(crate) fn fit_text_box(editor: &TextBoxMutation, geometry: &Geometry) -> (f6
         let height = (lines.len() as f64 * LINE_HEIGHT + PADDING_Y) * size;
         (height <= geometry.height + 0.01 && lines.iter().enumerate().all(inside)).then_some(lines)
     };
-    if let Some(lines) = fit(editor.font_size) {
-        return (editor.font_size, lines);
+    if let Some(lines) = fit(font_size) {
+        return (font_size, lines);
     }
-    let mut range = (0.0, editor.font_size);
+    let mut range = (0.0, font_size);
     while range.1 - range.0 > 0.01 {
         let middle = (range.0 + range.1) / 2.0;
         range = if fit(middle).is_some() {
@@ -1082,35 +1091,28 @@ pub(crate) fn fit_text_box(editor: &TextBoxMutation, geometry: &Geometry) -> (f6
     (size, lines(size))
 }
 
-pub(crate) fn build_text_box_appearance(
-    document: &mut Document,
-    editor: &TextBoxMutation,
-    rect: PdfRect,
-    page_rotation: i64,
-    shared: &mut crate::text_box_font::SharedFonts,
-) -> Result<(ObjectId, f64)> {
-    let [x1, y1, x2, y2] = editor.rect;
-    let source = PdfRect { x1, y1, x2, y2 };
-    let geometry = text_box_font::geometry(source, i64::from(editor.rotation), page_rotation)?;
-    let color = editor.color.map(|component| f64::from(component) / 255.0);
+/// Fitted lines clipped to their box. Text state lasts through BT, so each
+/// font is selected only where it changes.
+pub(crate) fn text_box_content(
+    geometry: &Geometry,
+    color: &str,
+    lines: &[Line],
+    size: f64,
+) -> String {
     let mut content = format!(
-        "q\n{} cm\n0 0 {} {} re W n\nBT\n{} rg\n0 Tc\n",
+        "q\n{} cm\n0 0 {} {} re W n\nBT\n{color}\n0 Tc\n",
         format_operands(&geometry.matrix),
         number_to_content(geometry.width),
         number_to_content(geometry.height),
-        format_operands(&color),
     );
-    let (size, lines) = fit_text_box(editor, &geometry);
-    let fonts = shared.resources(document, &lines);
     let mut font = None;
     for (index, line) in lines.iter().enumerate() {
-        let (left, baseline) = line_origin(&geometry, line, index, size);
+        let (left, baseline) = line_origin(geometry, line, index, size);
         content.push_str(&format!(
             "/Span << /ActualText <{}> >> BDC\n",
             text_box_font::unicode_hex(&line.text, true)
         ));
         for run in line.glyphs.chunk_by(|a, b| a.font == b.font) {
-            // Text state lasts through BT: select a font only where it changes.
             if font.replace(run[0].font) != Some(run[0].font) {
                 let size = number_to_content(size);
                 content.push_str(&format!("/TextFont{} {size} Tf\n", run[0].font));
@@ -1126,7 +1128,25 @@ pub(crate) fn build_text_box_appearance(
         }
         content.push_str("EMC\n");
     }
-    content.push_str("ET\nQ");
+    content + "ET\nQ"
+}
+
+pub(crate) fn build_text_box_appearance(
+    document: &mut Document,
+    editor: &TextBoxMutation,
+    rect: PdfRect,
+    page_rotation: i64,
+    shared: &mut crate::text_box_font::SharedFonts,
+) -> Result<(ObjectId, f64)> {
+    let [x1, y1, x2, y2] = editor.rect;
+    let source = PdfRect { x1, y1, x2, y2 };
+    let geometry = text_box_font::geometry(source, i64::from(editor.rotation), page_rotation)?;
+    let color = editor.color.map(|component| f64::from(component) / 255.0);
+    let text = |width, size| layout(&editor.text, width, size);
+    let (size, lines) = fit_text_box(editor.font_size, &geometry, &FONTS, text);
+    let fonts = shared.resources(document, &lines);
+    let color = format!("{} rg", format_operands(&color));
+    let content = text_box_content(&geometry, &color, &lines, size);
     Ok((document.add_object(Stream::new(lopdf::dictionary! {
         "Type" => "XObject", "Subtype" => "Form", "FormType" => 1,
         "BBox" => rect_object(rect), "Resources" => lopdf::dictionary! {"Font" => fonts},
@@ -1249,7 +1269,7 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
     if !replaced_rg {
         bytes.extend_from_slice(format!(" {} rg", format_operands(&color)).as_bytes());
     }
-    bytes
+    bytes.trim_ascii_start().to_vec()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1272,13 +1292,7 @@ fn set_text_box_fields(
         page_rotation,
         rect,
     );
-    dict.set(
-        "Contents",
-        Object::String(
-            encode_pdf_text_string(&editor.text),
-            StringFormat::Hexadecimal,
-        ),
-    );
+    dict.set("Contents", text_object(&editor.text));
     let effective_modified_at = shape_pdf_date(editor.modified_at, modified_at);
     dict.set(
         "M",
@@ -1291,28 +1305,15 @@ fn set_text_box_fields(
         dict.set("Border", vec![0.into(), 0.into(), 0.into()]);
     }
     let color = editor.color.map(|component| f64::from(component) / 255.0);
-    let default_appearance = if is_new {
-        format!(
-            "/Helv {} Tf {} rg",
-            number_to_content(font_size),
-            format_operands(&color),
-        )
-        .into_bytes()
-    } else {
-        patch_default_appearance(existing_default_appearance.as_deref(), font_size, color)
-    };
+    // A new box starts from an empty DA, which gains the Tf and rg it lacks.
+    let default_appearance = existing_default_appearance.as_deref();
+    let default_appearance = patch_default_appearance(default_appearance, font_size, color);
     dict.set("DA", Object::string_literal(default_appearance));
     let mut appearance = existing_appearance.unwrap_or_default();
     appearance.set("N", Object::Reference(appearance_ref));
     dict.set("AP", appearance);
     if is_new || editor.author.is_some() {
-        dict.set(
-            "T",
-            Object::String(
-                encode_pdf_text_string(editor.author.as_deref().unwrap_or("")),
-                StringFormat::Hexadecimal,
-            ),
-        );
+        dict.set("T", text_object(editor.author.as_deref().unwrap_or("")));
     }
     if is_new || editor.created_at.is_some() {
         dict.set(
@@ -1336,20 +1337,8 @@ pub(crate) fn set_text_note_annotation_fields(
     dict.set("Name", Object::Name(b"Note".to_vec()));
     dict.set("F", Object::Integer(4));
     dict.set("Rect", rect_object(pdf_rect));
-    dict.set(
-        "Contents",
-        Object::String(
-            encode_pdf_text_string(&note.text),
-            StringFormat::Hexadecimal,
-        ),
-    );
-    dict.set(
-        "T",
-        Object::String(
-            encode_pdf_text_string(note.author.as_deref().unwrap_or("")),
-            StringFormat::Hexadecimal,
-        ),
-    );
+    dict.set("Contents", text_object(&note.text));
+    dict.set("T", text_object(note.author.as_deref().unwrap_or("")));
     dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
     if dict
         .get(b"CreationDate")
@@ -1445,21 +1434,9 @@ pub(crate) fn set_popup_annotation_fields(
 ) {
     dict.set("Parent", Object::Reference(parent_ref));
     dict.set("Rect", rect_object(pdf_rect));
-    dict.set(
-        "Contents",
-        Object::String(
-            encode_pdf_text_string(&note.text),
-            StringFormat::Hexadecimal,
-        ),
-    );
+    dict.set("Contents", text_object(&note.text));
     dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
-    dict.set(
-        "T",
-        Object::String(
-            encode_pdf_text_string(note.author.as_deref().unwrap_or("")),
-            StringFormat::Hexadecimal,
-        ),
-    );
+    dict.set("T", text_object(note.author.as_deref().unwrap_or("")));
 }
 
 pub(crate) fn replayable_free_text_note_name_from_parts(
@@ -2213,10 +2190,7 @@ pub(crate) fn set_annotation_incremental_object_contents(
 }
 
 pub(crate) fn set_annotation_dict_contents(dict: &mut Dictionary, text: &str, modified_at: &str) {
-    dict.set(
-        "Contents",
-        Object::String(encode_pdf_text_string(text), StringFormat::Hexadecimal),
-    );
+    dict.set("Contents", text_object(text));
     set_annotation_modified_at(dict, modified_at);
 }
 
@@ -2224,6 +2198,11 @@ pub(crate) fn set_annotation_dict_contents(dict: &mut Dictionary, text: &str, mo
 /// PDFDocEncoding. Callers share this so one string decodes the same everywhere.
 pub(crate) fn pdf_string_to_text(object: &Object) -> Option<String> {
     lopdf::decode_text_string(object).ok()
+}
+
+/// A PDF text string in UTF-16BE, written as hexadecimal.
+fn text_object(text: &str) -> Object {
+    Object::String(encode_pdf_text_string(text), StringFormat::Hexadecimal)
 }
 
 pub(crate) fn encode_pdf_text_string(text: &str) -> Vec<u8> {
