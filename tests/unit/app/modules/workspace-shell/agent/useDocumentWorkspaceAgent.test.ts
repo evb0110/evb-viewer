@@ -348,6 +348,40 @@ describe('createDocumentWorkspaceAgent', () => {
         expect(handleQuickNoteAction).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+        {
+            style: 'A',
+            startNumber: 1_000_000_000,
+            admitted: 104,
+        },
+        {
+            style: 'r',
+            startNumber: 10_000,
+            admitted: 3999,
+        },
+        {
+            style: 'D',
+            startNumber: 7.8,
+            admitted: 7,
+        },
+    ])('admits the same numbering through apply_range and apply_plan: $style', async ({
+        style, startNumber, admitted,
+    }) => {
+        const options = createAgentOptions();
+        const agent = createDocumentWorkspaceAgent(options);
+        const input = {
+            startPage: 1,
+            endPage: 1,
+            style,
+            startNumber,
+        };
+        await agent.runAgentAction('page_labels.apply_range', input);
+        const applied = options.pageLabelRanges.value.map(range => ({...range}));
+        expect(applied[0]?.startNumber).toBe(admitted);
+        await agent.runAgentAction('page_labels.apply_plan', {segments: [input]});
+        expect(options.pageLabelRanges.value).toEqual(applied);
+    });
+
     it('keeps primary renderer action handlers aligned with advertised capabilities', () => {
         const advertisedRendererActionIds = AGENT_CAPABILITY_TEMPLATES
             .map(template => template.id)
