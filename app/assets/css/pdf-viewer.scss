@@ -59,13 +59,12 @@
     pointer-events: none;
 }
 
+/* PDF.js hydration does not gate the app's canonical annotation editor. */
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .text-layer,
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-layer,
-.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .pdf-annotation-editor-layer,
 .pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-editor-layer,
 .pdfViewer .page_container[data-page-layer-readiness="hydrating"] .text-layer,
 .pdfViewer .page_container[data-page-layer-readiness="hydrating"] .annotation-layer,
-.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .pdf-annotation-editor-layer,
 .pdfViewer .page_container[data-page-layer-readiness="hydrating"] .annotation-editor-layer {
     pointer-events: none;
 }
@@ -284,9 +283,7 @@
 
 .pdfViewer.is-selection-markup-tool .pdf-annotation-editor-surface__background,
 .pdfViewer.is-text-selection-mode .pdf-annotation-editor-surface__background,
-.pdfViewer .page_container:not(.page_container--rendered) .pdf-annotation-editor-surface__background,
-.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .pdf-annotation-editor-surface__background,
-.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .pdf-annotation-editor-surface__background {
+.pdfViewer .page_container:not(.page_container--rendered) .pdf-annotation-editor-surface__background {
     /* stylelint-disable declaration-no-important -- css-important-allow: Readiness and selection modes must override the interactive background while a page is not ready for pointer input. */
     pointer-events: none !important;
     /* stylelint-enable declaration-no-important */

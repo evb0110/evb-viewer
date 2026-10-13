@@ -15,6 +15,84 @@ import {
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
+    it.each([
+        'canvas-only',
+        'hydrating',
+    ])('opens a note editor while PDF.js layers remain %s', async (readiness) => {
+        const pdf = await PDFDocument.create();
+        const font = await pdf.embedFont(StandardFonts.Helvetica);
+        pdf.addPage([
+            612,
+            792,
+        ]).drawText('Note placement before PDF.js layer hydration', {
+            x: 40,
+            y: 740,
+            font,
+            size: 16,
+        });
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1280,
+            height: 800,
+        }});
+        try {
+            const page = await context.newPage();
+            // Fault setup only: retain the committed canvas while PDF.js's
+            // text/link layers stay pending or fall back to canvas-only.
+            await page.route('**/*usePdfPageRenderer.ts*', async (route) => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'container.dataset.pageLayerReadiness = "hydrating";';
+                if (!body.includes(marker)) throw new Error('PDF.js layer hydration fault seam was not found');
+                const hold = readiness === 'hydrating' ? 'await new Promise(() => {});' : 'return;';
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker, `${marker} ${hold}`),
+                });
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'pending-layers-note.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            const pageContainer = page.locator('.page_container[data-page="1"]').first();
+            await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
+            await page.waitForFunction(value => document.querySelector('.page_container[data-page="1"]')?.getAttribute('data-page-layer-readiness') === value, readiness);
+            await page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            }).click();
+            await page.getByRole('button', {
+                name: 'Click inside the document to place a sticky note.',
+                exact: true,
+            }).waitFor({state: 'visible'});
+            const bounds = await pageContainer.boundingBox();
+            if (!bounds) throw new Error('The first PDF page is not visible');
+            await page.mouse.click(bounds.x + 200, bounds.y + 200);
+            const input = page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            });
+            const text = `Note placed while PDF.js layers remain ${readiness}`;
+            await input.fill(text);
+            expect(await input.inputValue()).toBe(text);
+        } finally {
+            await context.close();
+        }
+    }, 90_000);
+
     it('reuses dirty recovery bytes for reading changes and protects the next note edit', async () => {
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
