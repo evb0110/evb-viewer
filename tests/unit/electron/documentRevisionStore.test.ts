@@ -267,6 +267,59 @@ describe('documentRevisionStore', () => {
         await expect(readFile(otherPath, 'utf8')).resolves.toBe('WORKING_OLD');
     });
 
+    it.each([
+        [
+            'a staged native save, which names its window',
+            {ownerWebContentsId: 7},
+        ],
+        [
+            'Save, which registers no window',
+            {},
+        ],
+    ])('lets another window read its copy of a PDF while %s holds the PDF', async (_save, mutationOptions) => {
+        const originalPath = join(tempRoot, 'shared-live.pdf');
+        const savingPath = join(tempRoot, 'pdf-work-saving', 'shared-live.pdf');
+        const readingPath = join(tempRoot, 'pdf-work-reading', 'shared-live.pdf');
+        for (const path of [
+            savingPath,
+            readingPath,
+        ]) {
+            mkdirSync(dirname(path), {recursive: true});
+            writeFileSync(path, 'SHARED');
+        }
+        writeFileSync(originalPath, 'SHARED');
+        const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+        const {
+            ensureWorkingCopyRevision, getWorkingCopyRevision,
+        } = await import('@electron/file-access/documentRevisionStore');
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+        const {withOriginalPathMutationLock} = await import('@electron/file-access/withOriginalPathMutationLock');
+        await setWorkingCopyOriginalPath(savingPath, originalPath, 7, {deferOriginalFileExpectation: true});
+        await setWorkingCopyOriginalPath(readingPath, originalPath, 8, {deferOriginalFileExpectation: true});
+        await ensureWorkingCopyRevision(savingPath, 7);
+        const revision = await ensureWorkingCopyRevision(readingPath, 8);
+
+        // Window 7 saves: its mutation holds the PDF's lock until the save is let go.
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let holding!: () => void;
+        const held = new Promise<void>((resolve) => {
+            holding = resolve;
+        });
+        const save = enqueueWorkingCopyMutation(savingPath, () => withOriginalPathMutationLock(originalPath, async () => {
+            holding();
+            await released;
+        }), mutationOptions);
+        await held;
+
+        // Window 8 reads its own copy without waiting for that save.
+        await expect(getWorkingCopyRevision(readingPath, 8)).resolves.toMatchObject({token: revision.token});
+        release();
+        await save;
+    });
+
     it('publishes a transition revision only after its commit succeeds', async () => {
         const originalPath = join(tempRoot, 'transition-original.pdf');
         const workingPath = join(tempRoot, 'pdf-work-transition', 'transition.pdf');

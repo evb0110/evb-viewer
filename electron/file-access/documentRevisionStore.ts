@@ -30,6 +30,7 @@ import {
     getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
     getWorkingCopyOriginalPath,
+    getWorkingCopyOriginalPathForPersistence,
     getWorkingCopyOriginalFileExpectation,
     getWorkingCopyRegistrationId,
     normalizePathForLookup,
@@ -63,19 +64,17 @@ interface IProvisionalWorkingCopyRevision {
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
 const runContentTransitionSerially = createKeyedSerialQueue();
 
-// A transition repairs its own journal and original backup. A reader repairs
-// only what an ended or failed transition left behind: while a mutation of the
-// working copy or of another copy of its original is under way it skips the
-// repair, so it neither waits for that transition nor rolls it back or deletes
-// its backup. Otherwise it queues behind any repair already running, so no
-// reader exposes a revision before its bytes are repaired.
+// A transition repairs its own journal and original backup. A reader repairs only what an ended or failed transition
+// left behind: while a mutation of the working copy or of another copy of its original (that copy looked up in main,
+// whichever window owns it, originals compared by the original-path lock's key) is under way it skips the repair, so it
+// neither waits for that transition nor rolls it back or deletes its backup. Otherwise it queues behind any repair
+// already running, so no reader exposes a revision before its bytes are repaired.
 function repairEndedTransition(workingCopyPath: string, originalPath: string | undefined) {
     const key = getRevisionQueueKey(workingCopyPath);
     const repair = () => runContentTransitionSerially(key, () => recoverWorkingCopyTransition(workingCopyPath).then(() => undefined));
-    if (snapshotMainOperations().some(({
-        kind, workingCopyPath: path,
-    }) => kind === 'critical-write' && path !== undefined
-        && (getRevisionQueueKey(path) === key || originalPath !== undefined && getWorkingCopyOriginalPath(path)?.originalPath === originalPath))) {
+    const originalKey = originalPath === undefined ? undefined : getRevisionQueueKey(originalPath);
+    if (snapshotMainOperations().some(operation => operation.kind === 'critical-write' && operation.workingCopyPath !== undefined && (getRevisionQueueKey(operation.workingCopyPath) === key
+        || getRevisionQueueKey(getWorkingCopyOriginalPathForPersistence(operation.workingCopyPath)?.originalPath ?? '') === originalKey))) {
         return Promise.resolve();
     }
     return originalPath ? withOriginalPathMutationLock(originalPath, repair) : repair();
