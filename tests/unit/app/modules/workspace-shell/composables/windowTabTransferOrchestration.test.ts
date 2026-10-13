@@ -172,8 +172,22 @@ describe('window tab transfer orchestration helpers', () => {
             isDjvu: true,
             revisionInfo: null,
         });
-        source.markPresented();
+        source.claimOpen({
+            kind: 'restore',
+            target: {
+                fileName: 'source.djvu',
+                originalPath: path,
+                isDjvu: true,
+            },
+        });
+        // The source's first paint may arrive after the destination's ACK.
+        // Both show the same document; the source must still be removed.
+        transferMock.mockImplementationOnce(async () => {
+            source.markPresented();
+            return {success: true};
+        });
         source.attachWorkspace('source', createWorkspaceExposeFixture({
+            waitForDocumentOpenSettled: async () => {source.markPresented();},
             captureSplitPayload: async () => ({
                 kind: 'djvu',
                 sourcePath: path,
@@ -248,7 +262,10 @@ describe('window tab transfer orchestration helpers', () => {
         });
 
         const moving = transfers.moveTabToNewWindow('source');
-        await handoffStarted.promise;
+        await Promise.race([
+            handoffStarted.promise,
+            moving,
+        ]);
         expect(snapshotOccupiesTab(source.snapshot.value)).toBe(false);
         settings.openSettingsPage();
         finishHandoff.resolve(undefined);
@@ -695,7 +712,12 @@ describe('window tab transfer orchestration helpers', () => {
             rightTab,
         ]) {
             // Each view's DocumentWorkspace captures the document at its own page.
-            controller.attachWorkspace(tabId, createWorkspaceExposeFixture({captureSplitPayload: () => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value)}));
+            controller.attachWorkspace(tabId, createWorkspaceExposeFixture({
+                // These loaded views need no open, even if their pixels have
+                // been evicted. An inactive view cannot repaint for a merge.
+                waitForDocumentOpenSettled: () => Promise.withResolvers<undefined>().promise,
+                captureSplitPayload: () => document.splitPayload.captureSplitPayload(pages.get(tabId)!.value),
+            }));
         }
 
         const leftPane = {

@@ -210,11 +210,15 @@ describe('Move Tab to New Window view state', () => {
             await source.keyboard.press('Enter');
         }
         const targetTitle = await target.title();
+        const targetWindow = await fastSource.evaluate(async (title: string) => (
+            (await window.electronAPI!.windowTabs!.listTargetWindows()).find(candidate => candidate.label === title)
+        ), targetTitle);
+        if (!targetWindow) throw new Error(`Transfer target window ${targetTitle} was not listed`);
         const moveToTarget = async (source: Page) => {
             await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
-            await clickFoundAsUser(source, (title: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(item => item.textContent?.trim().startsWith(`Move Tab to Window: ${title}`)), targetTitle,
-            {description: `Move Tab to Window: ${targetTitle}`});
+            // The first incoming document changes the window's title. Its
+            // visible menu command still addresses the same native window.
+            await clickAsUser(source, `[role="menuitem"][data-tab-command="move-to-window-${targetWindow.windowId}"]`);
         };
         await moveToTarget(slowSource);
         await moveToTarget(fastSource);
@@ -600,10 +604,18 @@ async function readRenderedSettings(page: Page) {
 describe('Settings changes reach every open window', () => {
     it('does not silently replay a failed choice over another window save', async () => {
         const home = mkdtempSync(join(tmpdir(), 'settings-failed-choice-'));
-        onTestFinished(() => rmSync(home, {
-            recursive: true,
-            force: true,
-        }));
+        onTestFinished(async () => {
+            // A renderer reset retains NODE_OPTIONS in main and its workers.
+            // Stop the injected process before deleting its required preload.
+            await sessions.restart({
+                clean: true,
+                hard: true,
+            });
+            rmSync(home, {
+                recursive: true,
+                force: true,
+            });
+        });
         const marker = join(home, 'fail-save');
         const preload = join(home, 'fail-settings.cjs');
         // Test-owned Node preload: reject only the armed settings temp-file write,

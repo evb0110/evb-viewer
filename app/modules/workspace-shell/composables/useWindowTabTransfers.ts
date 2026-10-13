@@ -329,22 +329,18 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         timeoutMs = DEFAULT_CAPTURE_TIMEOUT_MS,
     ): Promise<IPreparedTransferItem | null> {
         const session = getDocumentSession(tabId);
-        const commandTarget = session?.getView(tabId) ? session.createCommandTarget(tabId) : null;
-        if (!isCommandTargetCurrent(session, commandTarget)) {
-            return null;
-        }
-
         let captureResultClaimed = false;
         const capturePromise = (async (): Promise<IPreparedTransferItem | null> => {
             const workspace = await waitForWorkspace(tabId);
             if (!workspace) {
                 return null;
             }
-
-            if (!isCommandTargetCurrent(session, commandTarget)) {
-                return null;
+            // An opening source owns a pending identity. Stable inactive
+            // views can transfer without repainting their evicted pixels.
+            if (session?.snapshot.value.activeTransaction) {
+                await workspace.waitForDocumentOpenSettled();
             }
-
+            const commandTarget = session?.createCommandTarget(tabId) ?? null;
             const payload = await workspace.captureSplitPayload();
             if (!isCommandTargetCurrent(session, commandTarget)) {
                 await cleanupSplitPayloadSnapshot(payload, {
