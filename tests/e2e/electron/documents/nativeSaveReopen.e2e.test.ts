@@ -1,4 +1,7 @@
 import {
+    PDFDocument, PDFName, PDFArray,
+} from 'pdf-lib';
+import {
     afterEach,
     describe,
     expect,
@@ -10,6 +13,7 @@ import {
     rm,
     stat,
     symlink,
+    writeFile,
 } from 'node:fs/promises';
 import {
     copyProjectFixture,
@@ -766,6 +770,22 @@ describe('Electron E2E - native save and reopen', () => {
             typeof shape.annotationId === 'string' && shape.annotationId.length > 0
         ))).toBe(true);
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(0);
+    }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
+
+    it('crpart3ne imports valid annotations beside dangling and scalar references', async () => {
+        const pdfPath = await createCanonicalAnnotationSurfaceFixturePdf(`dangling-annots-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(pdfPath));
+        const annots = pdf.getPages()[0]!.node.lookup(PDFName.of('Annots'), PDFArray);
+        annots.insert(0, pdf.context.register(pdf.context.obj(42)));
+        annots.push(pdf.context.nextRef());
+        await writeFile(pdfPath, await pdf.save());
+        session = await startElectronE2ESession(`e2e-crpart3ne-import-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session, pdfPath);
+        await expect.poll(() => session!.page.$$eval('.pdf-annotation-editor-text-box', nodes => nodes.map(node => node.textContent)), {timeout: 20_000})
+            .toContain('Store-owned text box');
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('creates, edits, resizes, moves, recolors, undoes, saves, and reopens a text box', async () => {

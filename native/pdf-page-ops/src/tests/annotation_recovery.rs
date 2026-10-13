@@ -323,3 +323,29 @@ fn shape_author_survives_both_writers_and_omitted_updates() {
         }
     }
 }
+
+#[test]
+fn dangling_and_non_dictionary_annotations_leave_valid_entries_readable() {
+    let (mut document, page_id) = create_test_document();
+    let note = document.add_object(dictionary! {"Type" => "Annot", "Subtype" => "Text", "Rect" => vec![10.into(),20.into(),30.into(),40.into()], "Contents" => Object::string_literal("Kept note")});
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(note)]);
+    let expected = collect_parsed_annotations(&document, "D:20261013000000Z").unwrap();
+    let dangling = document.new_object_id();
+    let scalar = document.add_object(Object::Integer(42));
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![
+            Object::Reference(dangling),
+            Object::Reference(note),
+            Object::Reference(scalar),
+        ],
+    );
+    let actual = collect_parsed_annotations(&document, "D:20261013000000Z").unwrap();
+    assert_eq!(
+        serde_json::to_value(actual).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+}

@@ -211,24 +211,22 @@ where
                 "PDF page annotation array exceeds the admission ceiling",
             ));
         }
-        for object in annots {
-            let Ok(reply_id) = object.as_reference() else {
-                continue;
-            };
-            let dict = document.dictionary(reply_id)?;
-            if let Some(parent_id) = annotation_related_ref(dict, b"IRT") {
-                reply_count += 1;
-                if reply_count > MAX_PAGE_ANNOTATIONS {
-                    return Err(domain_error(
-                        NativeErrorCode::TooLarge,
-                        "PDF document reply index exceeds the admission ceiling",
-                    ));
-                }
-                reply_children
-                    .entry(parent_id)
-                    .or_default()
-                    .push((reply_id, page_index));
+        for (reply_id, parent_id) in annots.iter().filter_map(|object| {
+            let id = object.as_reference().ok()?;
+            let dict = document.dictionary(id).ok()?;
+            Some((id, annotation_related_ref(dict, b"IRT")?))
+        }) {
+            reply_count += 1;
+            if reply_count > MAX_PAGE_ANNOTATIONS {
+                return Err(domain_error(
+                    NativeErrorCode::TooLarge,
+                    "PDF document reply index exceeds the admission ceiling",
+                ));
             }
+            reply_children
+                .entry(parent_id)
+                .or_default()
+                .push((reply_id, page_index));
         }
         page_index += 1;
         Ok(())
@@ -482,7 +480,7 @@ where
     for object in &annots {
         let object_id = object.as_reference().ok();
         let dict = match object_id {
-            Some(id) => Some(document.dictionary(id)?),
+            Some(id) => document.dictionary(id).ok(),
             None => object.as_dict().ok(),
         };
         let Some(dict) = dict else { continue };
