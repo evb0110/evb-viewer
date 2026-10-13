@@ -778,14 +778,7 @@ function normalizeBookmarkItems(
             fail(`${label}[${index}].title must be a string`, options);
         }
         const pageIndex = item.pageIndex;
-        if (
-            pageIndex !== null
-            && (
-                typeof pageIndex !== 'number'
-                || !Number.isSafeInteger(pageIndex)
-                || pageIndex < 0
-            )
-        ) {
+        if (pageIndex !== null && (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0)) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer or null`, options);
         }
         const namedDest = item.namedDest;
@@ -813,14 +806,17 @@ function normalizeBookmarkItems(
         } finally {
             state.depth = previousDepth;
         }
-        if (state.count > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
-            fail(`bookmark mutations must include at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} items`, options);
+        let sourceIntent: ReturnType<typeof decodeBookmarkSourceIntent>;
+        try {
+            sourceIntent = decodeBookmarkSourceIntent(item);
+        } catch {
+            fail(`${label}[${index}] has an invalid source destination, action or name`, options);
         }
         return {
             title,
             pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             pageYRatio: typeof pageYRatio === 'number' ? pageYRatio : null,
-            ...decodeBookmarkSourceIntent(item),
+            ...sourceIntent,
             namedDest: namedDest,
             bold: item.bold === true,
             italic: item.italic === true,

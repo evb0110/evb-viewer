@@ -144,6 +144,44 @@ function countBookmarkItems(items: readonly INativeBookmarkTestItem[]): number {
 }
 
 describe('native PDF mutation contracts', () => {
+    it.each([
+        [
+            'typeError',
+            TypeError,
+        ],
+        [
+            'error',
+            Error,
+        ],
+    ] as const)('labels nested source-intent failures with errorKind=%s', (errorKind, errorConstructor) => {
+        for (const invalid of [
+            {originalDestination: {kind: 'Invalid'}},
+            {originalAction: {dict: [[
+                'URI',
+                {literal: [256]},
+            ]]}},
+            {originalNamedDest: {literal: [256]}},
+        ]) {
+            const normalize = () => normalizePdfNativeMutationSet({bookmarks: {
+                totalPages: 1,
+                items: [{
+                    ...createBookmark('Parent'),
+                    items: [{
+                        ...createBookmark('Invalid child'),
+                        ...invalid,
+                    }],
+                }],
+            }}, 'mutations', {errorKind});
+            expect(normalize).toThrow(errorConstructor);
+            try {
+                normalize();
+            } catch (error) {
+                expect(error?.constructor).toBe(errorConstructor);
+                expect(error).toHaveProperty('message', 'mutations.bookmarks.items[0].items[0] has an invalid source destination, action or name');
+            }
+        }
+    });
+
     it('preserves bounded source destinations through save and rejects invalid coordinate shapes', () => {
         const originalDestination = {
             kind: 'XYZ',
