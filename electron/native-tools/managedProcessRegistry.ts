@@ -13,6 +13,8 @@ import {
 import {removeManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
 import {
     getOwnStartTime,
+    isExactStartTime,
+    isRecordedProcessRunning,
     isProcessAlive as isLiveProcess,
     readProcessIdentity,
     readProcessStartTime,
@@ -84,6 +86,16 @@ function normalizeIdentityPath(path: string, platform: NodeJS.Platform) {
     return platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
+// An older build's start time is never this build's exact value (see
+// isExactStartTime), so its child is proven by what only that child has: the
+// recorded manifest on its command line (checked below), the recorded scratch
+// as the TMPDIR it was started with, or the recorded owner as its creator.
+function isOlderBuildChild(entry: IManagedProcessRegistryEntry, identity: IProcessIdentity, platform: NodeJS.Platform) {
+    return !isExactStartTime(entry.processStartTime!, platform) && (entry.manifestPath !== undefined
+        || ` ${identity.environment ?? ''} `.includes(` TMPDIR=${entry.scratchPath ?? '\0'} `)
+        || identity.parentPid === entry.ownerPid);
+}
+
 function processIdentityMatches(
     entry: IManagedProcessRegistryEntry,
     identity: IProcessIdentity,
@@ -91,7 +103,9 @@ function processIdentityMatches(
 ) {
     const manifestIndex = identity.arguments.indexOf('--manifest');
     return normalizeIdentityPath(identity.executablePath, platform) === normalizeIdentityPath(entry.binaryPath, platform)
-        && (entry.processStartTime === undefined || startTimesMatch(entry.processStartTime, identity.startTime, platform))
+        && (entry.processStartTime === undefined
+            || startTimesMatch(entry.processStartTime, identity.startTime, platform)
+            || isOlderBuildChild(entry, identity, platform))
         && (entry.manifestPath === undefined
             || (manifestIndex >= 0
                 && identity.arguments[manifestIndex + 1] !== undefined
@@ -221,24 +235,17 @@ export async function reapOrphanedManagedProcesses(
     for (const {
         entryPath, entry,
     } of entries) {
-        const ownerIsAlive = isProcessAlive(entry.ownerPid);
-        const ownerIdentity = ownerIsAlive && entry.ownerStartTime !== undefined
-            ? await readIdentity(entry.ownerPid)
-            : null;
-        if (ownerIsAlive && entry.ownerStartTime === undefined) {
-            // A live worker still owns the child. Another app instance must
-            // never terminate it merely because its marker is old. Missing
-            // owner identity is also a fail-closed result for platforms where
-            // the journal could not capture a start token.
-            continue;
-        }
-        if (ownerIsAlive && ownerIdentity === null) {
-            log('warn', `Skipped managed process pid ${String(entry.pid)} because its live owner identity could not be proven`);
-            continue;
-        }
-        if (ownerIdentity !== null
-            && entry.ownerStartTime !== undefined
-            && startTimesMatch(entry.ownerStartTime, ownerIdentity.startTime, platform)) {
+        // A child whose process tree is gone gives back its scratch, then its entry.
+        const release = async () => {
+            if (entry.scratchPath && !await removeManagedScratchTempDir(entry.scratchPath, 'native-command-', namespacePath)) {
+                log('warn', `Preserved managed process pid ${String(entry.pid)} because its scratch path is outside the namespace`);
+                return false;
+            }
+            await unlink(entryPath).catch(() => undefined);
+            return true;
+        };
+        // A live owner still holds its child, also when its start cannot be proven.
+        if (await isRecordedProcessRunning(entry.ownerPid, entry.ownerStartTime)) {
             continue;
         }
         if (!isProcessAlive(entry.pid)) {
@@ -246,11 +253,7 @@ export async function reapOrphanedManagedProcesses(
                 log('warn', `Preserved scratch for managed process pid ${String(entry.pid)} while its process group is still alive`);
                 continue;
             }
-            if (entry.scratchPath && !await removeManagedScratchTempDir(entry.scratchPath, 'native-command-', namespacePath)) {
-                log('warn', `Preserved managed process pid ${String(entry.pid)} because its scratch path is outside the namespace`);
-                continue;
-            }
-            await unlink(entryPath).catch(() => undefined);
+            await release();
             continue;
         }
         const processIdentity = await readIdentity(entry.pid);
@@ -265,16 +268,11 @@ export async function reapOrphanedManagedProcesses(
             preferProcessGroup: platform !== 'win32',
         }).catch(() => false);
         const processTreeGone = terminated || !isProcessTreeAlive(entry.pid, platform);
-        if (processTreeGone) {
-            if (entry.scratchPath && !await removeManagedScratchTempDir(entry.scratchPath, 'native-command-', namespacePath)) {
-                log('warn', `Preserved managed process pid ${String(entry.pid)} because its scratch path is outside the namespace`);
-                continue;
-            }
-            await unlink(entryPath).catch(() => undefined);
+        if (!processTreeGone) {
+            log('warn', `Could not reap orphaned managed process pid ${String(entry.pid)}`);
+        } else if (await release()) {
             reapedCount += 1;
             log('debug', `Reaped orphaned managed process pid ${String(entry.pid)}`);
-        } else {
-            log('warn', `Could not reap orphaned managed process pid ${String(entry.pid)}`);
         }
     }
     return reapedCount;

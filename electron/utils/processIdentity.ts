@@ -24,6 +24,11 @@ export interface IProcessIdentity {
     executablePath: string;
     arguments: readonly string[];
     startTime: string;
+    // What proves a child an older build recorded (see isExactStartTime): the
+    // pid that created it, which Windows keeps, and the environment it was
+    // started with, which macOS shows its own user.
+    parentPid?: number;
+    environment?: string;
 }
 
 const LINUX_BOOT_ID_PATH = '/proc/sys/kernel/random/boot_id';
@@ -150,22 +155,27 @@ async function readMacStartTime(pid: number) {
 
 async function readMacProcessIdentity(pid: number): Promise<IProcessIdentity | null> {
     try {
+        const readCommand = (environment: string[]) => execFileForIdentity('/bin/ps', [
+            ...environment,
+            '-ww',
+            '-o',
+            'command=',
+            '-p',
+            String(pid),
+        ], {
+            timeout: 1_000,
+            maxBuffer: 256 * 1024,
+        }).then(({stdout}) => String(stdout).trim());
         const [
-            {stdout},
+            command,
+            commandWithEnvironment,
             startTime,
         ] = await Promise.all([
-            execFileForIdentity('/bin/ps', [
-                '-o',
-                'command=',
-                '-p',
-                String(pid),
-            ], {
-                timeout: 1_000,
-                maxBuffer: 16 * 1024,
-            }),
+            readCommand([]),
+            readCommand(['-E']),
             readMacStartTime(pid),
         ]);
-        const argumentsList = parseCommandLine(String(stdout).trim());
+        const argumentsList = parseCommandLine(command);
         const executablePath = argumentsList[0];
         if (startTime === null || executablePath === undefined || !isAbsolute(executablePath)) {
             return null;
@@ -174,6 +184,8 @@ async function readMacProcessIdentity(pid: number): Promise<IProcessIdentity | n
             executablePath: resolve(executablePath),
             arguments: argumentsList,
             startTime,
+            // ps -E appends the environment the process started with, for this user's processes.
+            environment: commandWithEnvironment.slice(command.length).trim(),
         };
     } catch {
         return null;
@@ -184,7 +196,7 @@ async function readWindowsProcessIdentity(pid: number): Promise<IProcessIdentity
     const command = [
         `$process = Get-Process -Id ${String(pid)} -ErrorAction Stop`,
         `$native = Get-CimInstance Win32_Process -Filter "ProcessId = ${String(pid)}" -ErrorAction Stop`,
-        '@($process.StartTime.ToUniversalTime().ToString(\'o\'), $native.ExecutablePath, $native.CommandLine) -join "`n"',
+        '@($process.StartTime.ToUniversalTime().ToString(\'o\'), $native.ParentProcessId, $native.ExecutablePath, $native.CommandLine) -join "`n"',
     ].join('; ');
     try {
         const {stdout} = await execFileForIdentity('powershell.exe', [
@@ -199,6 +211,7 @@ async function readWindowsProcessIdentity(pid: number): Promise<IProcessIdentity
         });
         const lines = String(stdout).trim().split(/\r?\n/u);
         const startTime = normalizeProcessStartTime(lines.shift() ?? '');
+        const parentPid = Number(lines.shift());
         const executablePath = lines.shift()?.trim();
         const argumentsList = parseCommandLine(lines.join(' '));
         if (startTime === null || executablePath === undefined || !isAbsolute(executablePath)) {
@@ -208,6 +221,7 @@ async function readWindowsProcessIdentity(pid: number): Promise<IProcessIdentity
             executablePath: resolve(executablePath),
             arguments: argumentsList,
             startTime,
+            parentPid,
         };
     } catch {
         return null;
@@ -330,6 +344,18 @@ export function isProcessAlive(pid: number) {
 // Exact, at the OS value's own precision. A Linux registry entry from before
 // the boot id was recorded holds bare ticks; it can only name a process of this
 // boot's that started at that tick, and the reaper also matches its executable.
+// The shape of a start time this build reads, per platform. Older builds kept
+// macOS ps seconds and a Windows clock estimate, which never equal it.
+const EXACT_START_TIME_PATTERNS: Partial<Record<NodeJS.Platform, RegExp>> = {
+    darwin: /^\d+\.\d{6}$/u,
+    linux: /^[\da-f-]+:\d+$/u,
+    win32: /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{7}Z$/u,
+};
+
+export function isExactStartTime(startTime: string, platform = process.platform) {
+    return EXACT_START_TIME_PATTERNS[platform]?.test(startTime) === true;
+}
+
 export function startTimesMatch(recorded: string, observed: string, platform = process.platform) {
     return recorded === observed || (platform === 'linux' && /^\d+$/u.test(recorded) && observed.endsWith(`:${recorded}`));
 }

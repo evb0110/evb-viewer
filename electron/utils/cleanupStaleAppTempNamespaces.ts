@@ -22,6 +22,10 @@ import {
 } from '@electron/utils/appTempDir';
 import {getWorkingCopyJournalPath} from '@electron/file-access/workingCopyDirectory';
 import {
+    getManagedProcessRegistryDirectory,
+    reapOrphanedManagedProcesses,
+} from '@electron/native-tools/managedProcessRegistry';
+import {
     OWN_PROFILE,
     isRecordedProcessRunning,
 } from '@electron/utils/processIdentity';
@@ -49,10 +53,11 @@ const appTempNamespaceOwnerSchema = v.object({
 
 type TAppTempNamespaceOwner = v.InferOutput<typeof appTempNamespaceOwnerSchema>;
 
+// Only a checkpoint known to be absent lets the namespace go; a failed read keeps it.
 async function hasWorkspaceRecoveryCheckpoint(owner: TAppTempNamespaceOwner) {
     const records = await readdir(join(owner.userDataPath, 'workspace-recovery')).catch(() => []);
     return records.some(name => name.endsWith('.json'))
-        || (await lstat(join(owner.userDataPath, 'workspace-checkpoint.json'))).isFile();
+        || lstat(join(owner.userDataPath, 'workspace-checkpoint.json')).then(() => true, (error: unknown) => !isErrnoException(error) || error.code !== 'ENOENT');
 }
 
 async function readAppTempNamespaceOwner(namespacePath: string) {
@@ -84,18 +89,10 @@ export interface ICleanupStaleAppTempNamespacesOptions {
 export async function cleanupStaleAppTempNamespaces(
     options: ICleanupStaleAppTempNamespacesOptions = {},
 ) {
-    const requestedMaxAgeMs = options.maxAgeMs;
-    const maxAgeMs = typeof requestedMaxAgeMs === 'number'
-        && Number.isFinite(requestedMaxAgeMs)
-        && requestedMaxAgeMs >= 0
-        ? requestedMaxAgeMs
-        : APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS;
-    const requestedMaxEntries = options.maxEntries;
-    const maxEntries = typeof requestedMaxEntries === 'number'
-        && Number.isInteger(requestedMaxEntries)
-        && requestedMaxEntries > 0
-        ? requestedMaxEntries
-        : APP_TEMP_NAMESPACE_SCAN_LIMIT;
+    const {
+        maxAgeMs = APP_TEMP_NAMESPACE_STALE_MAX_AGE_MS,
+        maxEntries = APP_TEMP_NAMESPACE_SCAN_LIMIT,
+    } = options;
     // This profile's own scratch: the records of a run that ended go back.
     await sweepStaleManagedScratchTempDirs(getAppTempDir(), undefined, undefined, OWN_PROFILE);
     const currentNamespacePath = getAppTempDirPath();
@@ -127,6 +124,11 @@ export async function cleanupStaleAppTempNamespaces(
             if (!namespaceStat.isDirectory() || namespaceStat.isSymbolicLink()) {
                 continue;
             }
+            // This profile's previous release recorded its native children
+            // here; they are reaped first, and one still unproven keeps it.
+            if (namespacePath === getRetiredAppTempDirPath()) {
+                await reapOrphanedManagedProcesses(namespacePath);
+            }
             const owner = await readAppTempNamespaceOwner(namespacePath);
             // A marker is the ownership proof. Root mtime cannot tell us that
             // nested working-copy data is unused, so legacy or malformed roots
@@ -145,20 +147,14 @@ export async function cleanupStaleAppTempNamespaces(
             // the working-copy sweep finishes it, as for its own folders.
             await sweepStaleManagedScratchTempDirs(namespacePath, undefined, undefined, profile);
             const scopes = await readdir(namespacePath);
-            if ((await Promise.all(scopes.flatMap(scope => [
+            if ((await readdir(getManagedProcessRegistryDirectory(namespacePath)).catch(() => [])).length > 0 || (await Promise.all(scopes.flatMap(scope => [
                 join(namespacePath, scope, MANAGED_SCRATCH_RECORD_FILE),
                 getWorkingCopyJournalPath(join(namespacePath, scope, 'document.pdf')),
             ]).map(path => lstat(path).then(() => true, () => false)))).includes(true)) {
                 continue;
             }
-            try {
-                if (await hasWorkspaceRecoveryCheckpoint(owner)) {
-                    continue;
-                }
-            } catch (error) {
-                if (!isErrnoException(error) || error.code !== 'ENOENT') {
-                    continue;
-                }
+            if (await hasWorkspaceRecoveryCheckpoint(owner)) {
+                continue;
             }
             const lastTouchedAt = Math.floor(Math.max(
                 namespaceStat.mtimeMs,

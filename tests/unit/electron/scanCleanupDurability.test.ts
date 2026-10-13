@@ -36,7 +36,10 @@ import {
     MANAGED_PROCESS_REGISTRY_ENTRY_PREFIX,
     type IManagedProcessRegistryEntry,
 } from '@electron/native-tools/managedProcessRegistry';
-import type {IProcessIdentity} from '@electron/utils/processIdentity';
+import {
+    getOwnStartTime,
+    type IProcessIdentity,
+} from '@electron/utils/processIdentity';
 import { terminateProcessTree } from '@electron/utils/processTree';
 import { createManagedScratchTempDir } from '@electron/utils/managedScratchTemp';
 
@@ -238,6 +241,70 @@ describe('scan-cleanup durability', () => {
         await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
     });
 
+    it('reaps a tool an older build recorded once that build\'s run has ended', async () => {
+        const namespacePath = await createTemporaryDirectory();
+        const scratchPath = await createManagedScratchTempDir('native-command-', namespacePath);
+        // runNativeCommand starts a tool in its own process group, with its
+        // temporary folder at its scratch.
+        const child = spawn(process.execPath, [
+            '-e',
+            'setInterval(() => {}, 1000)',
+        ], {
+            detached: process.platform !== 'win32',
+            env: {
+                ...process.env,
+                TMPDIR: scratchPath,
+                TMP: scratchPath,
+                TEMP: scratchPath,
+            },
+            stdio: 'ignore',
+            windowsHide: true,
+        });
+        try {
+            await once(child, 'spawn');
+            const registration = await registerManagedProcess(namespacePath, {
+                pid: child.pid!,
+                hasExited: () => child.exitCode !== null || child.signalCode !== null,
+                binaryPath: process.execPath,
+                scratchPath,
+            });
+            // What an older build recorded instead of the exact creation time:
+            // bare Linux ticks, the macOS ps start to the second, a Windows
+            // clock estimate to the millisecond. Its own run has ended since.
+            const olderStartTime = (exact: string, pid: number) => process.platform === 'linux'
+                ? exact.split(':')[1]!
+                : process.platform === 'darwin'
+                    ? execFileSync('/bin/ps', [
+                        '-o',
+                        'lstart=',
+                        '-p',
+                        String(pid),
+                    ], {
+                        encoding: 'utf8',
+                        env: {
+                            ...process.env,
+                            LC_ALL: 'C',
+                        },
+                    }).trim().replace(/\s+/gu, ' ')
+                    : new Date(Date.parse(exact)).toISOString();
+            const entry = JSON.parse(await readFile(registration!.entryPath, 'utf8')) as IManagedProcessRegistryEntry;
+            await writeFile(registration!.entryPath, JSON.stringify({
+                ...entry,
+                processStartTime: olderStartTime(entry.processStartTime!, child.pid!),
+                ownerStartTime: olderStartTime(entry.ownerStartTime!, process.pid),
+            }), 'utf8');
+            const exited = once(child, 'exit');
+
+            await expect(reapOrphanedManagedProcesses(namespacePath)).resolves.toBe(1);
+
+            await exited;
+            await expect(access(registration!.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        }
+    });
+
     it('reaps a managed tool by executable path and process start identity', async () => {
         const namespacePath = await createTemporaryDirectory();
         const registryDirectory = getManagedProcessRegistryDirectory(namespacePath);
@@ -423,6 +490,7 @@ describe('scan-cleanup durability', () => {
         ]) {
             await mkdir(directory);
         }
+        const ownStartTime = await getOwnStartTime();
         const writeEntry = (pid: number, ownerPid: number, scratchPath: string) => writeFile(
             pid === 2_147_483_644 ? liveEntryPath : pid === 2_147_483_643 ? otherProfileEntryPath : finishedEntryPath,
             JSON.stringify({
@@ -431,7 +499,8 @@ describe('scan-cleanup durability', () => {
                 ownerPid,
                 binaryPath: '/native/tool',
                 processStartTime: `process-${pid}`,
-                ownerStartTime: ownerPid === process.pid ? 'live-owner' : 'dead-owner',
+                // A live owner records its own creation time.
+                ownerStartTime: ownerPid === process.pid ? ownStartTime! : 'dead-owner',
                 scratchPath,
             } satisfies IManagedProcessRegistryEntry),
             'utf8',
@@ -466,7 +535,8 @@ describe('scan-cleanup durability', () => {
     it.each([
         [
             'process start time',
-            {processStartTime: 'other-child-start'},
+            // This build's exact shape: a different value is another process.
+            {processStartTime: '70d4911d-53e3-441e-b385-a64a34cae556:101'},
         ],
         [
             'binary path',
@@ -486,7 +556,7 @@ describe('scan-cleanup durability', () => {
             ownerPid: 4241,
             binaryPath: '/native/evb-scan-cleanup',
             manifestPath: '/scratch/manifest.json',
-            processStartTime: 'child-start',
+            processStartTime: '70d4911d-53e3-441e-b385-a64a34cae556:100',
             ownerStartTime: 'owner-start',
             ...change,
         };
@@ -506,7 +576,7 @@ describe('scan-cleanup durability', () => {
                     '--manifest',
                     '/scratch/manifest.json',
                 ],
-                startTime: 'child-start',
+                startTime: '70d4911d-53e3-441e-b385-a64a34cae556:100',
             }),
             terminateProcessTree: terminate,
             platform: 'linux',

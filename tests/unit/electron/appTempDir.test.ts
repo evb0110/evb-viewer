@@ -1,4 +1,5 @@
 import {spawn} from 'node:child_process';
+import {once} from 'node:events';
 import {
     existsSync,
     lstatSync,
@@ -46,6 +47,7 @@ const {
 } = await import('@electron/utils/managedScratchTemp');
 const {readFileIdentity} = await import('@electron/utils/fileIdentity');
 const {getOwnStartTime} = await import('@electron/utils/processIdentity');
+const {registerManagedProcess} = await import('@electron/native-tools/managedProcessRegistry');
 
 describe('app temp directory namespace', () => {
     afterEach(() => {
@@ -265,6 +267,67 @@ describe('app temp directory namespace', () => {
             });
         }
     });
+    it('reaps the native tools this profile\'s previous release recorded in its temp namespace', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-reap-'));
+        const deadOwner = spawn(process.execPath, [
+            '-e',
+            'process.exit(0);',
+        ], {stdio: 'ignore'});
+        const tool = spawn(process.execPath, [
+            '-e',
+            'setInterval(() => {}, 1000);',
+        ], {
+            detached: process.platform !== 'win32',
+            stdio: 'ignore',
+        });
+        const toolSpawned = once(tool, 'spawn');
+        try {
+            await new Promise<void>(resolve => deadOwner.once('exit', () => resolve()));
+            vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
+            vi.stubEnv('TMPDIR', tempRoot);
+            vi.stubEnv('TEMP', tempRoot);
+            vi.stubEnv('TMP', tempRoot);
+            mocks.paths.userData = '/profiles/current';
+            initializeAppTempNamespace('/profiles/current');
+            // Releases before 2026-10 kept the namespace, and its native tools' records, in OS temp.
+            const retiredPath = getRetiredAppTempDirPath();
+            const scratchPath = await createManagedScratchTempDir('native-command-', retiredPath);
+            writeFileSync(join(retiredPath, '.evb-app-temp-owner.json'), `${JSON.stringify({
+                namespace: createAppTempNamespace('/profiles/current'),
+                userDataPath: '/profiles/current',
+                pid: deadOwner.pid,
+                startedAt: 0,
+            })}\n`);
+            await toolSpawned;
+            const registration = await registerManagedProcess(retiredPath, {
+                pid: tool.pid!,
+                hasExited: () => tool.exitCode !== null || tool.signalCode !== null,
+                binaryPath: process.execPath,
+                scratchPath,
+            });
+            // That release crashed: its run is gone and its tool still runs.
+            const entry = JSON.parse(readFileSync(registration!.entryPath, 'utf8')) as Record<string, unknown>;
+            writeFileSync(registration!.entryPath, JSON.stringify({
+                ...entry,
+                ownerPid: deadOwner.pid,
+            }));
+            const exited = once(tool, 'exit');
+
+            await cleanupStaleAppTempNamespaces({maxAgeMs: 60_000});
+
+            await exited;
+            expect(existsSync(registration!.entryPath)).toBe(false);
+            expect(existsSync(scratchPath)).toBe(false);
+        } finally {
+            if (tool.exitCode === null && tool.signalCode === null) tool.kill('SIGKILL');
+            mocks.paths.userData = '/profiles/default';
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('keeps a dead namespace whose save journal is not finished yet', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-journal-'));
         const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
