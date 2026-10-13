@@ -38,6 +38,8 @@ import {
     requireOpenPath,
 } from '@electron/file-access/openPathCapabilities';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {ensureWorkingCopyMaterialized} from '@electron/file-access/workingCopyMaterialization';
+import {WorkingCopyMissingError} from '@electron/file-access/workingCopyMissingError';
 import {capturePathSaveWitness} from '@electron/file-access/originalPathSaveWitness';
 import {
     prepareWorkingCopyTransition,
@@ -56,6 +58,10 @@ import {
 } from '@electron/workspaceCheckpointStore';
 
 const state = vi.hoisted(() => ({
+    // Each registration has its own id, as in the registry.
+    lastRegistrationId: 999,
+    // Working copies the store finds on disk; a test removes one as a roaming profile would.
+    presentWorkingCopies: new Set<string>(),
     backingEntries: new Map<string, {
         admissionSnapshot?: {
             mtimeNs: bigint;
@@ -92,6 +98,7 @@ vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof NodeFs>();
     return {
         ...actual,
+        existsSync: (path: string) => state.presentWorkingCopies.has(path) || actual.existsSync(path),
         readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
             if (state.failNextCheckpointRead) {
                 state.failNextCheckpointRead = false;
@@ -114,6 +121,10 @@ vi.mock('electron', () => ({
 
 vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
+    captureWorkingCopyAdmissionSnapshot: () => Promise.resolve({
+        mtimeNs: 1n,
+        size: 987_654n,
+    }),
     getWorkingCopyOwnerWebContentsId: (path: string) => state.owners.get(path),
     getWorkingCopyOriginalPath: (path: string, owner: number) => state.owners.get(path) === owner
         ? {originalPath: state.originalPaths.get(path)}
@@ -166,7 +177,7 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
             ...(options?.originalFileExpectation
                 ? {originalFileExpectation: options.originalFileExpectation}
                 : {}),
-            registrationId: 999,
+            registrationId: ++state.lastRegistrationId,
             role: options?.role ?? 'current',
         });
         return Promise.resolve();
@@ -264,6 +275,8 @@ describe('workspace checkpoint store', () => {
         state.blockCleanup.mockReset();
         state.failNextCheckpointRead = false;
         state.touchScanCleanupGeneratedOutput.mockClear();
+        state.presentWorkingCopies.clear();
+        state.presentWorkingCopies.add(workingCopyRef);
     });
 
     afterEach(async () => {
@@ -986,6 +999,59 @@ describe('workspace checkpoint store', () => {
                 size: 987_654,
             },
         });
+    });
+
+    it('says a dirty tab\'s unsaved changes are not here when its working copy is not on this computer', async () => {
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        state.backingEntries.set(workingCopyRef, {
+            backingState: 'materialized',
+            originalFileExpectation: {
+                contentFingerprint: 'sha256-full-v1:original-a',
+                mtimeMs: 123.456789,
+                size: 987_654,
+            },
+            originalPath: '/documents/draft.pdf',
+            ownerWebContentsId: 11,
+            registrationId: 41,
+            role: 'current',
+        });
+        await saveWorkspaceCheckpoint(checkpoint, 11);
+        state.backingEntries.clear();
+        state.owners.clear();
+        state.originalPaths.clear();
+        state.presentWorkingCopies.delete(workingCopyRef);
+
+        const claimed = await claimWorkspaceCheckpoint(22);
+
+        // It stays changed, so a start that finds the copy again still recovers it.
+        expect(claimed?.tabs).toEqual([{
+            ...checkpoint.tabs[0],
+            workingCopyLost: true,
+        }]);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0]).not.toHaveProperty('workingCopyLost');
+        // It shows its original, and nothing can save that stand-in or copy it into the missing copy's place.
+        expect(state.restoredOptions.get(workingCopyRef)).toMatchObject({backingState: 'lazy-original'});
+        await expect(ensureWorkingCopyMaterialized(workingCopyRef, {
+            ownerWebContentsId: 22,
+            reason: 'save',
+        })).rejects.toBeInstanceOf(WorkingCopyMissingError);
+        expect(state.presentWorkingCopies.has(workingCopyRef)).toBe(false);
+        await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0]).toMatchObject({
+            isDirty: true,
+            workingCopyRef,
+        });
+        // Later checkpoints keep the missing copy's own record, not the stand-in's.
+        await saveWorkspaceCheckpoint(checkpoint, 22);
+        const record = await readRecoveryRecord();
+        expect(record.lazyWorkingCopies).toBeUndefined();
+        expect(record.workingCopies).toEqual([expect.objectContaining({
+            backingState: 'materialized',
+            originalFileExpectation: expect.objectContaining({contentFingerprint: 'sha256-full-v1:original-a'}),
+            workingCopyRef,
+        })]);
+        expect(record.workingCopies?.[0]).not.toHaveProperty('admissionSnapshot');
     });
 
     it('restores the durable materialized witness when a live registration drifted', async () => {

@@ -11,7 +11,10 @@ import {
     rm,
     mkdir,
 } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -29,6 +32,7 @@ import { writeJsonAtomic } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import {
+    captureWorkingCopyAdmissionSnapshot,
     claimWorkingCopyOwnership,
     claimWorkingCopyRecovery,
     getWorkingCopyBackingEntry,
@@ -41,6 +45,10 @@ import {
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
 import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
+import {
+    isWorkingCopyMaterializationWithheld,
+    withholdWorkingCopyMaterialization,
+} from '@electron/file-access/withheldWorkingCopies';
 import {repairEndedTransition} from '@electron/file-access/documentRevisionStore';
 import {findKeptOriginal} from '@electron/file-access/keptOriginalNotices';
 import {
@@ -297,90 +305,52 @@ function decodeStoredJournal(value: unknown): IStoredWorkspaceJournal | null {
     return result.success ? result.output : null;
 }
 
-function collectLazyWorkingCopies(
+// The registrations behind a checkpoint's tabs: a lazy one names the original it still reads, any other its copy.
+function collectWorkingCopies(
     checkpoint: IWorkspaceCheckpoint,
     ownerWebContentsId: number,
 ) {
     const lazyWorkingCopies = new Map<string, IStoredLazyWorkingCopy>();
-    for (const tab of checkpoint.tabs) {
-        if (!tab.workingCopyRef || lazyWorkingCopies.has(tab.workingCopyRef)) {
-            continue;
-        }
-        const entry = getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId);
-        if (
-            !entry
-            || (
-                entry.backingState !== 'lazy-original'
-                && entry.backingState !== 'materializing'
-            )
-        ) {
-            continue;
-        }
-        if (checkpoint.tabs.some(candidate => (
-            candidate.workingCopyRef === tab.workingCopyRef
-            && candidate.isDirty
-        ))) {
-            throw new Error('Workspace checkpoint cannot persist a dirty lazy working copy');
-        }
-        if (!entry.admissionSnapshot) {
-            throw new Error('Workspace checkpoint lazy working copy has no admission snapshot');
-        }
-        lazyWorkingCopies.set(tab.workingCopyRef, {
-            admissionSnapshot: {
-                mtimeNs: entry.admissionSnapshot.mtimeNs.toString(),
-                size: entry.admissionSnapshot.size.toString(),
-            },
-            ...(entry.originalFileExpectation
-                ? {originalFileExpectation: entry.originalFileExpectation}
-                : {}),
-            originalPath: entry.originalPath,
-            registrationId: entry.registrationId,
-            role: entry.role,
-            ...(entry.sourceBackingErrorCode
-                ? {sourceBackingErrorCode: entry.sourceBackingErrorCode}
-                : {}),
-            workingCopyRef: tab.workingCopyRef,
-        });
-    }
-    return Array.from(lazyWorkingCopies.values());
-}
-
-function collectMaterializedWorkingCopies(
-    checkpoint: IWorkspaceCheckpoint,
-    ownerWebContentsId: number,
-) {
     const workingCopies = new Map<string, IStoredWorkingCopy>();
-    for (const tab of checkpoint.tabs) {
-        if (!tab.workingCopyRef || workingCopies.has(tab.workingCopyRef)) {
+    for (const {workingCopyRef} of checkpoint.tabs) {
+        const entry = workingCopyRef && getWorkingCopyBackingEntry(workingCopyRef, ownerWebContentsId);
+        if (!workingCopyRef || !entry || lazyWorkingCopies.has(workingCopyRef) || workingCopies.has(workingCopyRef)) {
             continue;
         }
-        const entry = getWorkingCopyBackingEntry(tab.workingCopyRef, ownerWebContentsId);
-        if (
-            !entry
-            || entry.backingState === 'lazy-original'
-            || entry.backingState === 'materializing'
-        ) {
-            continue;
-        }
-        workingCopies.set(tab.workingCopyRef, {
-            ...(entry.admissionSnapshot ? {admissionSnapshot: {
+        // A withheld stand-in is recorded as the missing copy it stands for, so a start that finds the copy recovers it.
+        const missing = isWorkingCopyMaterializationWithheld(workingCopyRef, ownerWebContentsId);
+        const recorded = {
+            ...(entry.admissionSnapshot && !missing ? {admissionSnapshot: {
                 mtimeNs: entry.admissionSnapshot.mtimeNs.toString(),
                 size: entry.admissionSnapshot.size.toString(),
             }} : {}),
-            backingState: entry.backingState,
-            ...(entry.originalFileExpectation
-                ? {originalFileExpectation: entry.originalFileExpectation}
-                : {}),
+            ...(entry.originalFileExpectation ? {originalFileExpectation: entry.originalFileExpectation} : {}),
             originalPath: entry.originalPath,
             registrationId: entry.registrationId,
             role: entry.role,
-            ...(entry.sourceBackingErrorCode
-                ? {sourceBackingErrorCode: entry.sourceBackingErrorCode}
-                : {}),
-            workingCopyRef: tab.workingCopyRef,
-        });
+            ...(entry.sourceBackingErrorCode ? {sourceBackingErrorCode: entry.sourceBackingErrorCode} : {}),
+            workingCopyRef,
+        };
+        if (missing || (entry.backingState !== 'lazy-original' && entry.backingState !== 'materializing')) {
+            workingCopies.set(workingCopyRef, {
+                ...recorded,
+                backingState: missing ? 'materialized' : entry.backingState,
+            });
+        } else if (checkpoint.tabs.some(tab => tab.workingCopyRef === workingCopyRef && tab.isDirty)) {
+            throw new Error('Workspace checkpoint cannot persist a dirty lazy working copy');
+        } else if (!recorded.admissionSnapshot) {
+            throw new Error('Workspace checkpoint lazy working copy has no admission snapshot');
+        } else {
+            lazyWorkingCopies.set(workingCopyRef, {
+                ...recorded,
+                admissionSnapshot: recorded.admissionSnapshot,
+            });
+        }
     }
-    return Array.from(workingCopies.values());
+    return {
+        lazyWorkingCopies: Array.from(lazyWorkingCopies.values()),
+        workingCopies: Array.from(workingCopies.values()),
+    };
 }
 
 function assertNoDirtyLazyRecovery(stored: IStoredWorkspaceCheckpoint) {
@@ -1087,8 +1057,9 @@ export async function saveWorkspaceCheckpoint(
         sourceAuthorizationOwner,
         durable,
     );
-    const lazyWorkingCopies = collectLazyWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
-    const workingCopies = collectMaterializedWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
+    const {
+        lazyWorkingCopies, workingCopies,
+    } = collectWorkingCopies(checkpointWithArtifacts, ownerWebContentsId);
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerRecoveryId,
@@ -1228,8 +1199,20 @@ export async function claimWorkspaceCheckpoint(
                     stored.ownerWebContentsId,
                     newOwnerWebContentsId,
                 );
-                const registered = lazyWorkingCopy ? {
-                    ...lazyWorkingCopy,
+                // A dirty tab's unsaved bytes live only in its working copy, which is missing when, for example, a
+                // roaming profile came without it. The tab reads its original in the copy's place, withheld.
+                const standIn = !transferred && !lazyWorkingCopy && storedWorkingCopy && tab.isDirty && !existsSync(tab.workingCopyRef)
+                    ? await captureWorkingCopyAdmissionSnapshot(storedWorkingCopy.originalPath).catch(() => null)
+                    : null;
+                const lazyOriginal = lazyWorkingCopy ?? (standIn ? {
+                    ...storedWorkingCopy!,
+                    admissionSnapshot: {
+                        mtimeNs: standIn.mtimeNs.toString(),
+                        size: standIn.size.toString(),
+                    },
+                } : undefined);
+                const registered = lazyOriginal ? {
+                    ...lazyOriginal,
                     backingState: 'lazy-original' as const,
                 } : storedWorkingCopy;
                 if (!transferred && registered) {
@@ -1241,6 +1224,7 @@ export async function claimWorkspaceCheckpoint(
                         role: registered.role,
                     });
                     const restoredEntry = getWorkingCopyBackingEntry(tab.workingCopyRef, newOwnerWebContentsId);
+                    if (standIn && restoredEntry) withholdWorkingCopyMaterialization(tab.workingCopyRef, restoredEntry.registrationId);
                     if (registered.sourceBackingErrorCode && restoredEntry) {
                         transitionWorkingCopyBackingState(tab.workingCopyRef, restoredEntry.registrationId, registered.backingState, {sourceBackingErrorCode: registered.sourceBackingErrorCode});
                     }
@@ -1261,10 +1245,12 @@ export async function claimWorkspaceCheckpoint(
                 log.warn(`Could not finish an interrupted save of a restored document: ${getErrorMessage(error)}`);
             }));
             const keptOriginalPath = tab.sourceRef && await findKeptOriginal(tab.sourceRef);
-            return keptOriginalPath ? {
+            const workingCopyLost = tab.workingCopyRef !== null && isWorkingCopyMaterializationWithheld(tab.workingCopyRef, newOwnerWebContentsId);
+            return {
                 ...tab,
-                keptOriginalPath: requireDocumentRef(keptOriginalPath),
-            } : tab;
+                ...(keptOriginalPath ? {keptOriginalPath: requireDocumentRef(keptOriginalPath)} : {}),
+                ...(workingCopyLost ? {workingCopyLost: true as const} : {}),
+            };
         }));
         // The claimant keeps the record until it has reopened every tab and
         // acknowledges; renaming the file hands it over atomically.
@@ -1328,11 +1314,10 @@ export function acknowledgeWorkspaceCheckpoint(
         }
         restoresInFlight.delete(ownerRecoveryId);
         const record = await readRecordFile(ownerRecoveryId);
-        if (!record) {
-            return false;
+        if (record && !record.checkpoint.tabs.some(tab => tab.workingCopyRef && isWorkingCopyMaterializationWithheld(tab.workingCopyRef, ownerWebContentsId))) {
+            await removeRecordAndArtifacts(ownerRecoveryId, record);
         }
-        await removeRecordAndArtifacts(ownerRecoveryId, record);
-        return true;
+        return record !== null;
     });
 }
 

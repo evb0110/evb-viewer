@@ -35,9 +35,7 @@ export const workspaceMetadataRecoverySchema = v.object({
 export type IWorkspaceMetadataRecovery = v.InferOutput<typeof workspaceMetadataRecoverySchema>;
 
 const documentRecoveryMetadataSchema = v.object({metadata: v.optional(workspaceMetadataRecoverySchema)});
-export function readWorkspaceRecoveryMetadata(value: unknown) {
-    return v.parse(documentRecoveryMetadataSchema, value).metadata;
-}
+export const readWorkspaceRecoveryMetadata = (value: unknown) => v.parse(documentRecoveryMetadataSchema, value).metadata;
 
 const paneIdSchema = v.pipe(v.string(), v.check(value => parsePaneId(value) !== null), v.transform(value => parsePaneId(value)!));
 const tabIdSchema = v.pipe(v.string(), v.check(value => parseTabId(value) !== null), v.transform(value => parseTabId(value)!));
@@ -101,6 +99,7 @@ const checkpointTabSchema = v.object({
     viewMode: v.optional(v.nullable(viewModeSchema)),
     viewRotation: v.optional(v.nullable(viewRotationSchema)),
     annotationRecovery: v.optional(annotationRecoverySchema),
+    workingCopyLost: v.optional(v.literal(true)),
     annotationRecoveryFailure: v.optional(v.object({
         reason: v.literal('capture-rejected'),
         message: v.pipe(v.string(), v.maxLength(4096)),

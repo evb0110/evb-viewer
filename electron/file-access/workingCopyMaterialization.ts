@@ -21,6 +21,7 @@ import {
     type IWorkingCopyOriginalFileExpectation,
     type TWorkingCopyBackingErrorCode,
 } from '@electron/file-access/workingCopyStore';
+import {assertWorkingCopyMaterializationAllowed} from '@electron/file-access/withheldWorkingCopies';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { mainJobBroker } from '@electron/resources/jobBroker';
@@ -309,12 +310,8 @@ async function publishMaterializedTarget(
                 || !entry.admissionSnapshot
                 || !await workingCopyAdmissionSnapshotsMatch(entry.admissionSnapshot, flight.admissionSnapshot)
             ) {
-                throw new WorkingCopyMaterializationError(
-                    'WORKING_COPY_REGISTRATION_CHANGED',
-                    'Working-copy registration changed during materialization',
-                );
+                return false;
             }
-
             await invalidateBackingSwapCaches(flight);
             await assertSourceSnapshot(flight.registration.originalPath, flight.admissionSnapshot, flight.registration.originalPath, flight.registration.originalFileExpectation);
             throwIfAborted(flight.controller.signal);
@@ -325,9 +322,10 @@ async function publishMaterializedTarget(
                 contentFingerprint: sourceFingerprint,
             };
             delete entry.sourceBackingErrorCode;
+            return true;
         },
     );
-    if (!publication.matched) {
+    if (!publication.matched || !publication.value) {
         throw new WorkingCopyMaterializationError(
             'WORKING_COPY_REGISTRATION_CHANGED',
             'Working-copy registration changed during materialization',
@@ -574,6 +572,7 @@ function getOrCreateFlight(
     if (!entry) {
         throw new Error('Working copy path is not managed by this owner');
     }
+    assertWorkingCopyMaterializationAllowed(logicalRef, entry.registrationId);
     if (
         entry.sourceBackingErrorCode === 'SOURCE_BACKING_CHANGED'
         || entry.sourceBackingErrorCode === 'SOURCE_BACKING_UNAVAILABLE'
