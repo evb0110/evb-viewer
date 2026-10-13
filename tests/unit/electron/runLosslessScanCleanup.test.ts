@@ -23,6 +23,7 @@ import type {
 } from '@evb/scan-cleanup/core/pdfPageSizes';
 import {runLosslessScanCleanup} from '@evb/scan-cleanup/core/runLosslessScanCleanup';
 import {runScanCleanupConversion} from '@evb/scan-cleanup/core/runScanCleanupConversion';
+import {loadScanCleanupPipelineWithBatchPages} from '@tests/helpers/loadScanCleanupPipelineWithBatchPages';
 import type {
     IRunScanCleanupPipelineDependencies,
     IScanCleanupPageRasterSource,
@@ -137,10 +138,23 @@ afterEach(async () => {
 });
 
 describe('runLosslessScanCleanup', () => {
-    it.each([
-        1,
-        1_025,
-    ])('retains accessibility loss from split-pages for a %i-page conversion', async documentPageCount => {
+    // Nine pages over an eight-page batch cross the same boundary as a 1,025-page book.
+    it.each<{
+        documentPageCount: number;
+        batchPages?: number;
+    }>([
+        {documentPageCount: 1},
+        {
+            documentPageCount: 9,
+            batchPages: 8,
+        },
+    ])('retains accessibility loss from split-pages for a $documentPageCount-page conversion', async ({
+        documentPageCount,
+        batchPages,
+    }) => {
+        const convert = batchPages === undefined
+            ? runScanCleanupConversion
+            : (await loadScanCleanupPipelineWithBatchPages(batchPages)).runScanCleanupConversion;
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-accessibility-test-'));
         roots.push(root);
         const sourcePdfPath = join(root, 'source.pdf');
@@ -194,7 +208,7 @@ describe('runLosslessScanCleanup', () => {
             getAvailableScratchBytes: async () => null,
             hashNativeBinary: async () => 'a'.repeat(64),
         };
-        const summary = await runScanCleanupConversion(
+        const summary = await convert(
             {
                 sourcePdfPath,
                 outputPdfPath,

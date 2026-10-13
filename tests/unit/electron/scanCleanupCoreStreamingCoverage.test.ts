@@ -63,7 +63,7 @@ import type {
 } from '@evb/scan-cleanup/core/types';
 import {resolveSourceDpi} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type * as TScanCleanupInputLimits from '@contracts/scan-cleanup/inputLimits';
+import {loadScanCleanupPipelineWithBatchPages} from '@tests/helpers/loadScanCleanupPipelineWithBatchPages';
 import {
     SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES,
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
@@ -381,21 +381,6 @@ afterEach(async () => {
         recursive: true,
     })));
 });
-
-// Loads the conversion pipeline with another streaming batch size. The module
-// graph is fresh only for this load; the other tests keep the production batch.
-async function loadPipelineWithBatchPages(batchPages: number) {
-    vi.resetModules();
-    vi.doMock('@contracts/scan-cleanup/inputLimits', async importOriginal => ({
-        ...await importOriginal<typeof TScanCleanupInputLimits>(),
-        SCAN_CLEANUP_STREAMING_BATCH_PAGES: batchPages,
-    }));
-    try {
-        return await import('@evb/scan-cleanup/core/runScanCleanupConversion');
-    } finally {
-        vi.doUnmock('@contracts/scan-cleanup/inputLimits');
-    }
-}
 
 describe('scan-cleanup-core conversion coverage', () => {
     it('validates the fallback used when source DPI metadata is absent', () => {
@@ -1055,7 +1040,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         'truncated sidecar',
     ] as const)('accumulates a bounded compact-source budget across every full Auto batch (%s)', {timeout: 30_000}, async (scenario) => {
         const batchPages = 8;
-        const pipeline = await loadPipelineWithBatchPages(batchPages);
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(batchPages);
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-xlarge-auto-budget-test-'));
         roots.push(root);
         const sourcePdfPath = join(root, 'source.pdf');
@@ -1356,7 +1341,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         // A boundary at the production batch size needs 1,025 pages, about 4,100
         // template copies per run on NTFS. Eight pages per batch cross it with nine.
         const batchPages = 8;
-        const pipeline = await loadPipelineWithBatchPages(batchPages);
+        const pipeline = await loadScanCleanupPipelineWithBatchPages(batchPages);
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-streamed-overlay-test-'));
         roots.push(root);
         const sourcePdfPath = join(root, 'source.pdf');
