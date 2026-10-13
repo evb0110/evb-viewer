@@ -1812,12 +1812,7 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version: '1.1.0'}));
         const owner = await loadUpdatesModule();
-        const events: IAppUpdateStatus[][] = [];
-        owner.initializeUpdates(s => events.push([
-            1,
-            2,
-            3,
-        ].map(id => owner.projectUpdateStatusForWindow(s, id))));
+        const events = fanout(owner);
         await owner.triggerManualUpdateCheck({senderId: 1});
         const gate = Promise.withResolvers<undefined>();
         mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
@@ -1878,6 +1873,16 @@ describe('updates robustness', () => {
         await flushPromises();
         const [fresh] = await renderers(owner,[2]);
         expect(fresh!.dialog.value.open).toBe(false);
+        expect(fresh!.status.value).toMatchObject({
+            phase: 'available',
+            percent: null,
+            requestedHere: false,
+        });
+        expect(fresh!.isCheckInProgress.value).toBe(false);
+        expect(owner.getUpdateStatus({senderId: 1})).toMatchObject({
+            phase: 'downloading',
+            requestedHere: true,
+        });
         await fresh!.downloadUpdate();
         gate.resolve(undefined);
         await vi.advanceTimersByTimeAsync(0);
@@ -1951,12 +1956,7 @@ describe('updates robustness', () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => mocks.autoUpdater.emit('update-available', {version:'1.1.0'}));
         const owner = await loadUpdatesModule();
-        const events: IAppUpdateStatus[][] = [];
-        owner.initializeUpdates(s => events.push([
-            1,
-            2,
-            3,
-        ].map(id => owner.projectUpdateStatusForWindow(s, id))));
+        const events = fanout(owner);
         owner.configureUpdateInstallShutdown(() => {});
         await owner.triggerManualUpdateCheck({senderId:1});
         mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {mocks.autoUpdater.emit('update-downloaded',{version:'1.1.0'}); return [];});
