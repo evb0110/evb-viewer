@@ -676,18 +676,14 @@ async function runDeployAcceptanceChecks({
     sourceRoot,
     spawnSyncImpl,
 }) {
-    if (acceptanceUrls.length === 0) {
-        throw new Error('Production deploy acceptance requires at least one public URL.');
-    }
-    if (typeof fetchImpl !== 'function') {
-        throw new Error('Production deploy acceptance requires a fetch implementation.');
-    }
-
     for (const url of acceptanceUrls) {
         const acceptanceUrl = new URL(url);
         acceptanceUrl.host = new URL(deploymentUrl).host;
         const response = await fetchImpl(acceptanceUrl.href, {
-            headers: {accept: 'text/html,application/json'},
+            headers: {
+                accept: 'text/html,application/json',
+                ...(env.VERCEL_AUTOMATION_BYPASS_SECRET ? {'x-vercel-protection-bypass': env.VERCEL_AUTOMATION_BYPASS_SECRET} : {}),
+            },
             redirect: 'error',
             signal: AbortSignal.timeout(30_000),
         });

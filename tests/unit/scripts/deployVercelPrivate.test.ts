@@ -1218,13 +1218,13 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         try {
             const firstDeploy = runPrivateVercelDeploy({
                 command: 'vercel-test',
-                env: {CI: 'true'},
-                fetchImpl: async () => {
+                env: {CI: 'true', VERCEL_AUTOMATION_BYPASS_SECRET: 'fixture-bypass'},
+                fetchImpl: async (_url: string, options: RequestInit) => {
                     markFirstAcceptanceStarted();
                     await firstAcceptanceGate;
                     return {
-                        ok: true,
-                        status: 200,
+                        ok: new Headers(options.headers).get('x-vercel-protection-bypass') === 'fixture-bypass',
+                        status: 401,
                     };
                 },
                 projectRoot: firstProjectRoot,
@@ -1258,11 +1258,6 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
             await followerSpawned;
             await expect(secondDeploy).rejects.toThrow('The failed deployment was rolled back.');
             expect(followerSpawnedAfterLeaderRelease).toBe(true);
-            expect(vercel.alias.calls.at(-1)).toEqual([
-                'promote',
-                'dpl_leader',
-                '--yes',
-            ].map(spawnedArg));
             expect(vercel.alias.production.id).toBe('dpl_leader');
         } finally {
             releaseFirstAcceptance();

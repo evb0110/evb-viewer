@@ -38,7 +38,6 @@
 
 - `pnpm build`
 - `EVB_APP_VERSION=<version> vercel build` (a hosted build refuses to start without the version that `pnpm run deploy:web` otherwise names from the release tag)
-- `pnpm run deploy:web:prod`
 
 ## Analytics
 
@@ -76,7 +75,7 @@ Call `trackWebEvent(name, properties)` from `app/utils/trackWebEvent.ts` in the 
 - The copied `package.json` drops the root `prepare` hook for both targets. It stages desktop runtime binaries into `resources/`, which the deploy excludes; `pnpm build` generates the web build artifacts itself.
 - This avoids sending the commit author email in Vercel CLI Git metadata, which prevents Vercel from treating the GitHub no-reply address as a separate team collaborator. The CLI's Git discovery is also bounded by `GIT_CEILING_DIRECTORIES` set to the temporary directory, so a checkout that contains `TMPDIR` (agent sessions use `.devkit/`) is not picked up either.
 - Production deploys stage with `vercel deploy --prod --skip-domain`, preserving Production build variables without assigning domains. The CLI's own stdout URL is inspected for its immutable deployment ID. While holding the per-project flock, the command checks that production still serves the recorded predecessor, then runs `vercel promote <id>`. If another publisher won during the build, it stops and reports the deployment holding production.
-- Acceptance paths run against that immutable deployment's URL, including `EVB_DEPLOY_ACCEPTANCE_URL` paths. Redirects are refused. An optional `EVB_DEPLOY_ACCEPTANCE_COMMAND` receives that URL as `EVB_DEPLOYMENT_URL`. On failure, the predecessor is promoted only if a fresh production read still names this run's ID.
+- Acceptance paths run against that immutable deployment's URL, including `EVB_DEPLOY_ACCEPTANCE_URL` paths. Redirects are refused. For protected deployment URLs, supply the target project’s automation bypass secret as `VERCEL_AUTOMATION_BYPASS_SECRET`; acceptance sends it in the `x-vercel-protection-bypass` header. An optional `EVB_DEPLOY_ACCEPTANCE_COMMAND` receives that URL as `EVB_DEPLOYMENT_URL`. On failure, the predecessor is promoted only if a fresh production read still names this run's ID.
 - The flock descriptor is inherited by every Vercel CLI child. A killed deploy parent cannot release the lock while its surviving CLI can still promote. The lock is local to each host; it does not serialize independent fleet hosts.
 - Vercel has no conditional promote. A publisher on another host can change production between the final authority read and Vercel applying either promotion or rollback. Staging removes the remote build from that window but cannot eliminate the read-to-promote race. Avoid simultaneous production commands across hosts; all production publishers must use this procedure.
 - The format-2 cutover retires PID/hostname interpretation at the new lock path. A pre-format-2 record is reported and ignored only after acquiring the free flock. Before the first deploy with this version, the owner must make sure no deploy started from an older checkout is still running on any host. Deploys are run by hand by the owner. Older versions used session-specific TMPDIR locks, so this command cannot detect or serialize them; do not run an older checkout after cutover. Previews retain their normal alias behavior.
