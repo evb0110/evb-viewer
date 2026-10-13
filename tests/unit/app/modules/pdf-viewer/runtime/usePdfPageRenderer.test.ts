@@ -13,6 +13,7 @@ import {
 } from 'vitest';
 import {
     computed,
+    nextTick,
     ref,
     render,
 } from 'vue';
@@ -110,6 +111,7 @@ function createDocumentFixture(page: TPdfLeasedPage, release: () => void): TPdfD
             openSurfaceGeneration: 0,
         }),
         isCurrent: () => true,
+        registerDisposable: vi.fn<(dispose: () => void | Promise<void>) => void>(),
         leasePage: vi.fn(async () => ({
             page,
             release,
@@ -287,6 +289,44 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             await Promise.resolve();
             expect(retry).toHaveBeenCalledOnce();
         } finally {harness.root.remove();}
+    });
+
+    it.each([
+        false,
+        true,
+    ])('delays a buffered raster failure until it is visible and still current (superseded: %s)', async (superseded) => {
+        const harness = createHarness();
+        const visible = ref(false);
+        const retry = vi.fn(async () => undefined);
+        const pageNumber = requirePageNumber(1);
+        harness.pageRenderState.beginRender(pageNumber, 1, 11, 'document-a', 1);
+        harness.pageRenderState.markRenderFailed(pageNumber, 1, 11);
+        try {
+            harness.renderer.presentPageRenderFailure(pageNumber, new Error('buffer preparation failed'), retry, () => visible.value);
+            expect(toastAdd).not.toHaveBeenCalled();
+            if (superseded) harness.pageRenderState.clearPage(pageNumber);
+            visible.value = true;
+            await nextTick();
+            if (superseded) {
+                expect(toastAdd).not.toHaveBeenCalled();
+            } else {
+                expect(toastAdd).toHaveBeenCalledOnce();
+                const toast = toastAdd.mock.calls[0]![0];
+                const description = document.createElement('div');
+                render(toast.description(), description);
+                expect(description.textContent).toContain('common.pageRenderFailed');
+                toast.actions.find((action: {label: string}) => action.label === 'common.retry').onClick();
+                await vi.waitFor(() => expect(retry).toHaveBeenCalledOnce());
+                visible.value = false;
+                await nextTick();
+                visible.value = true;
+                await nextTick();
+                expect(toastAdd).toHaveBeenCalledOnce();
+            }
+        } finally {
+            for (const [dispose] of vi.mocked(harness.document.registerDisposable).mock.calls) await dispose();
+            harness.root.remove();
+        }
     });
 
     it('does not promote or cancel an annotations-first text layer already in flight', async () => {

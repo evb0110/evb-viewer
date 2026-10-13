@@ -1,3 +1,4 @@
+import {watchOnce} from '@vueuse/core';
 import {useFailureToast} from '@app/composables/useFailureToast';
 import {getErrorMessage} from '@app/utils/error';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
@@ -107,35 +108,19 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         requestId: number;
         controller: AbortController;
     }>();
-    const activeOptionalTextLayerTasks = new Map<TPageNumber, {
-        version: number;
-        requestId: number;
-        promise: Promise<void>;
-    }>();
+    const activeOptionalTextLayerTasks = new Map<TPageNumber, Promise<void>>();
     const queuedPrioritizedTextLayerPromotions = new Map<TPageNumber, IRenderVisiblePagesOptions>();
     function trackOptionalTextLayerTask(
         pageNumber: TPageNumber,
-        version: number,
-        requestId: number,
         task: Promise<unknown>,
     ) {
-        const promise = task.catch(() => undefined).then(() => undefined).finally(() => {
-            const current = activeOptionalTextLayerTasks.get(pageNumber);
-            if (current?.version === version && current.requestId === requestId) {
+        const promise: Promise<void> = task.catch(() => undefined).then(() => undefined).finally(() => {
+            if (activeOptionalTextLayerTasks.get(pageNumber) === promise) {
                 activeOptionalTextLayerTasks.delete(pageNumber);
             }
         });
-        activeOptionalTextLayerTasks.set(pageNumber, {
-            version,
-            requestId,
-            promise,
-        });
+        activeOptionalTextLayerTasks.set(pageNumber, promise);
         return promise;
-    }
-    function waitForOptionalTextLayerTasksToSettle() {
-        return Promise.all(
-            Array.from(activeOptionalTextLayerTasks.values(), task => task.promise),
-        ).then(() => undefined);
     }
     async function flushQueuedPrioritizedTextLayerPromotion(pageNumber: TPageNumber) {
         const renderOptions = queuedPrioritizedTextLayerPromotions.get(pageNumber);
@@ -268,7 +253,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
     function cleanupAllLayers() {
-        const pending = waitForOptionalTextLayerTasksToSettle();
+        const pending = Promise.all(activeOptionalTextLayerTasks.values()).then(() => undefined);
         queuedPrioritizedTextLayerPromotions.clear();
         annotationLayerController.cancelAll();
         for (const pageNumber of new Set([
@@ -526,7 +511,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     options.onRenderedPageStateChanged?.();
                 }
             });
-            await trackOptionalTextLayerTask(pageNumber, version, requestId, task);
+            await trackOptionalTextLayerTask(pageNumber, task);
         } finally {
             if (pageRenderState.markLayersCanvasOnly(pageNumber, version, requestId, container)) {
                 container.dataset.pageLayerReadiness = 'canvas-only';
@@ -707,16 +692,21 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
         renderCommittedPageLayers,
         renderLayerPromotions,
-        presentPageRenderFailure(pageNumber: TPageNumber, error: unknown, retry: () => Promise<unknown>) {
+        presentPageRenderFailure(pageNumber: TPageNumber, error: unknown, retry: () => Promise<unknown>, isVisible: () => boolean = () => true) {
             const receipt = logNonCriticalStageError(pageNumber, 'canvas', error);
-            if (receipt) {
-                presentPageFailure(pageNumber, {
-                    receipt,
-                    error,
-                    description: t('common.pageRenderFailed'),
-                    retry,
-                });
-            }
+            if (!receipt) return;
+            const present = () => presentPageFailure(pageNumber, {
+                receipt,
+                error,
+                description: t('common.pageRenderFailed'),
+                retry,
+            });
+            if (isVisible()) return present();
+            const failure = pageRenderState.getSlot(pageNumber);
+            options.document.registerDisposable(watchOnce(isVisible, () => {
+                if (pageRenderState.getSlot(pageNumber) !== failure || failure.version !== options.getRenderVersion()) return;
+                present();
+            }));
         },
         resolveLayerPromotionDemand,
         queuePrioritizedTextLayerPromotions,

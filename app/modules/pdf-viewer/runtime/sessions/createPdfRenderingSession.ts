@@ -334,7 +334,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             resolveViewportRasterWaiters(pageNumber);
             renderedPageStateVersion.value += 1;
             if (outcome.status !== 'failed') return queueFrame();
-            if (demand.lane !== 'navigation-target' && demand.lane !== 'viewport-visible') return;
             initialVisual.handlePageRasterFailed({
                 openSurfaceGeneration: job.renderOptions.openSurfaceGeneration ?? 0,
                 documentRevision: job.renderOptions.openSurfaceRevision ?? documentSession.openSurfaceRevision,
@@ -345,7 +344,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             pageRenderer.presentPageRenderFailure(pageNumber, outcome.error, () => cancelInFlightRenders().then(() => renderVisiblePages({
                 start: pageNumber,
                 end: pageNumber,
-            }, {bufferOverride: 0})));
+            }, {bufferOverride: 0})), () => demand.lane === 'navigation-target' || viewport.demand.value.requiredPages.includes(pageNumber));
         },
         commit(prepared, demand) {
             if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand
