@@ -368,6 +368,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         'no-links-in-place',
         'no-links-replacement',
         'no-links-ebusy-replacement',
+        'no-links-exfat-in-place',
     ])('retains the bytes displaced by a last-instant %s edit', async mutation => {
         const fs = await import('node:fs/promises');
         let originalPath = '';
@@ -402,7 +403,8 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             ...fs,
             rename: renameWithEdit,
             link: async (...args: Parameters<typeof fs.link>) => {
-                if (mutation.startsWith('no-links')) throw Object.assign(new Error('No hard links'), {code: 'ENOTSUP'});
+                // Windows reports a FAT32 or exFAT volume's missing hard links as EISDIR.
+                if (mutation.startsWith('no-links')) throw Object.assign(new Error('No hard links'), {code: mutation.includes('exfat') ? 'EISDIR' : 'ENOTSUP'});
                 return fs.link(...args);
             },
         }));

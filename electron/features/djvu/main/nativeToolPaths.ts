@@ -23,7 +23,7 @@ import {
     runNativeCommand,
     type IRunCommandOptions,
 } from '@electron/native-tools/runNativeCommand';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import { isNoHardLinkError } from '@electron/utils/isNoHardLinkError';
 import { getCommandDirectory } from '@electron/native-tools/toolRegistry';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { createLogger } from '@electron/utils/createLogger';
@@ -272,7 +272,7 @@ export async function runDjvuSourceCommand(
                 } else {
                     const linkFile = async (source: string, alias: string) => {
                         await link(source, alias).catch(async (error: unknown) => {
-                            if (!isErrnoException(error) || error.code !== 'EXDEV') throw error;
+                            if (!isNoHardLinkError(error)) throw error;
                             await copyFile(source, alias);
                         });
                     };

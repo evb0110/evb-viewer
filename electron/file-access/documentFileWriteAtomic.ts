@@ -6,7 +6,7 @@ import {
     unlink,
 } from 'fs/promises';
 import {dirname} from 'path';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import { isNoHardLinkError } from '@electron/utils/isNoHardLinkError';
 import {attemptWorkingCopyClone} from '@electron/file-access/workingCopyDirectory';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -22,18 +22,6 @@ import {
 const log = createLogger('documentFileWriteAtomic');
 
 const MAX_IPC_WRITE_BYTES = 16 * 1024 * 1024;
-const RECOVERABLE_IMMUTABLE_LINK_CODES = new Set([
-    'EXDEV',
-    'ENOTSUP',
-    'EOPNOTSUPP',
-    'EPERM',
-    'EMLINK',
-]);
-
-function isRecoverableImmutableLinkError(error: unknown) {
-    return isErrnoException(error) && typeof error.code === 'string' && RECOVERABLE_IMMUTABLE_LINK_CODES.has(error.code);
-}
-
 function assertWithinIpcWriteBudget(byteLength: number) {
     if (byteLength > MAX_IPC_WRITE_BYTES) {
         throw new Error(`Invalid data: exceeds max size (${MAX_IPC_WRITE_BYTES} bytes)`);
@@ -132,7 +120,7 @@ export async function copyFileAtomic(
                         linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath));
                     linked = true;
                 } catch (error) {
-                    if (!isRecoverableImmutableLinkError(error)) {
+                    if (!isNoHardLinkError(error)) {
                         throw error;
                     }
                 }
@@ -189,7 +177,7 @@ export async function linkOrCopyFileDurably(
         await link(resolvedSourcePath, resolvedTargetPath);
         await fsyncDirectoryBestEffort(dirname(resolvedTargetPath));
     } catch (error) {
-        if (!isRecoverableImmutableLinkError(error)) {
+        if (!isNoHardLinkError(error)) {
             throw error;
         }
         await copyFileAtomic(resolvedSourcePath, resolvedTargetPath);
@@ -213,7 +201,7 @@ export async function publishImmutableFileAtomic(
     try {
         await linkImmutableSourceForAtomicCopy(resolvedSourcePath, temporaryPath);
     } catch (error) {
-        if (!isRecoverableImmutableLinkError(error)) {
+        if (!isNoHardLinkError(error)) {
             throw error;
         }
         return copyFileAtomic(resolvedSourcePath, resolvedTargetPath, options);

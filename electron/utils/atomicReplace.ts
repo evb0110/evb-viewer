@@ -17,6 +17,7 @@ import {
     join,
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import { isNoHardLinkError } from '@electron/utils/isNoHardLinkError';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
 import { createLogger } from '@electron/utils/createLogger';
@@ -356,13 +357,7 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
     try {
         await link(sourcePath, destinationPath);
     } catch (error) {
-        if (!isErrnoException(error) || ![
-            'EXDEV',
-            'ENOTSUP',
-            'EOPNOTSUPP',
-            'EPERM',
-            'EMLINK',
-        ].includes(String(error.code))) throw error;
+        if (!isNoHardLinkError(error)) throw error;
         await rename(sourcePath, destinationPath);
         return;
     }
