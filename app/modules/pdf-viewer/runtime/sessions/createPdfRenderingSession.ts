@@ -342,13 +342,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 requestId: job.requestId,
                 pageNumber,
             }, getErrorMessage(outcome.error));
-            pageRenderer.presentPageRenderFailure(pageNumber, outcome.error, () => renderVisiblePages({
+            pageRenderer.presentPageRenderFailure(pageNumber, outcome.error, () => cancelInFlightRenders().then(() => renderVisiblePages({
                 start: pageNumber,
                 end: pageNumber,
-            }, {
-                bufferOverride: 0,
-                forceRerender: true,
-            }));
+            }, {bufferOverride: 0})));
         },
         commit(prepared, demand) {
             if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand

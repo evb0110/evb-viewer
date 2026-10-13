@@ -540,7 +540,10 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
-    it('explains an invalid viewport without re-demanding it, and redraws it on Retry', async () => {
+    it.each([
+        false,
+        true,
+    ])('explains an invalid viewport without re-demanding it, and redraws it on Retry (relayout: %s)', async (relayout) => {
         toasts.length = 0;
         vi.mocked(BrowserLogger.error).mockReturnValue({
             eventId: '0123456789abcdef0123456789abcdef',
@@ -549,6 +552,11 @@ describe('PdfViewportSession behavior', () => {
             severity: 'error',
         });
         let invalid = true;
+        let hold = false;
+        const held = Promise.withResolvers<undefined>();
+        const started = Promise.withResolvers<undefined>();
+        const cancelled = new Error('Render cancelled by Retry');
+        cancelled.name = 'RenderingCancelledException';
         const page = cast<IPdfPage>({
             pageNumber: 1,
             rotate: 0,
@@ -561,10 +569,17 @@ describe('PdfViewportSession behavior', () => {
                     pageHeight: 900,
                 },
             }),
-            render: () => ({
-                promise: Promise.resolve(),
-                cancel() {},
-            }),
+            render: () => {
+                if (!hold) return {
+                    promise: Promise.resolve(),
+                    cancel() {},
+                };
+                started.resolve(undefined);
+                return {
+                    promise: held.promise,
+                    cancel: () => held.reject(cancelled),
+                };
+            },
         });
         const scheduler = createPdfPageRasterScheduler({
             documentFence: {
@@ -608,11 +623,24 @@ describe('PdfViewportSession behavior', () => {
             expect(toasts).toHaveLength(1);
             expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(true);
             invalid = false;
+            if (relayout) {
+                hold = true;
+                fixture.zoomMode.value = 'custom';
+                fixture.zoom.value = 2;
+                await nextTick();
+                void fixture.rendering!.renderVisiblePages({
+                    start: 1,
+                    end: 1,
+                });
+                await started.promise;
+                hold = false;
+            }
             retry!.onClick();
             await expect.poll(() => fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
             expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(false);
             expect(fixture.container.querySelector('canvas')!.width).toBeGreaterThan(0);
         } finally {
+            if (relayout) held.reject(cancelled);
             await fixture.dispose();
             await scheduler.dispose();
             fixture.container.remove();

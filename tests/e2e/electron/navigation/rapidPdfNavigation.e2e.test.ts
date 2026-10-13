@@ -53,6 +53,7 @@ import {
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { waitForViewportQuiet } from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {
     clickAsUser,
     clickFoundAsUser,
@@ -3641,7 +3642,16 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         }
     }, 150_000);
 
-    it('ends an open whose first page keeps failing, and redraws that page on Retry', async () => {
+    it.each([
+        {
+            name: 'Retry',
+            relayout: false,
+        },
+        {
+            name: 'Retry after relayout',
+            relayout: true,
+        },
+    ])('redraws a failed first page on $name', async ({relayout}) => {
         const session = sessionFixture.getSession();
         const pdfPath = await createLargeScannedFixturePdf(`failed-first-page-${Date.now()}.pdf`, 4, 0);
         await enableBufferedPdfTrace(session);
@@ -3683,6 +3693,16 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
                 text: 'Unable to render this page',
             });
             expect(toasts.filter(toast => toast.buttons.includes('Retry')), JSON.stringify(outcome)).toHaveLength(1);
+            if (relayout) {
+                await session.command('windowResize', [
+                    960,
+                    672,
+                ]);
+                await waitForViewportQuiet(session.page);
+                await session.page.waitForFunction(() => (
+                    ((window as IPageRenderGateWindow).__evbHeldPageRenderGate?.pending ?? 0) > 0
+                ), {timeout: 10_000});
+            }
         } finally {
             await openPdfPageRenderGate(session);
         }
@@ -3690,8 +3710,20 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         await clickFoundAsUser(session.page, () => Array.from(
             document.querySelectorAll<HTMLButtonElement>('.app-toast-failure button'),
         ).find(button => button.textContent?.trim() === 'Retry'), undefined, {description: 'page 1 Retry'});
-        const painted = await waitForVisiblePageCanvas(session, 1, 15_000);
-        expect(painted, JSON.stringify(await readViewerPageOutcome(session, 1))).toBe(true);
+        const retryAt = Date.now();
+        const painted = await waitForVisiblePageCanvas(session, 1, relayout ? 10_000 : 15_000);
+        const retryOutcome = {
+            relayout,
+            elapsedMs: Date.now() - retryAt,
+            painted,
+            gate: await readPdfPageRenderGate(session),
+            ...await readViewerPageOutcome(session, 1),
+        };
+        const evidence = resolve(process.cwd(), '.devkit/rasterstall-r3');
+        mkdirSync(evidence, {recursive: true});
+        writeFileSync(resolve(evidence, `retry-${relayout}-${process.pid}.json`), JSON.stringify(retryOutcome, null, 2));
+        await session.page.screenshot({path: resolve(evidence, `retry-${relayout}-${process.pid}.png`)});
+        expect(painted, JSON.stringify(retryOutcome)).toBe(true);
         await waitForScannedFixturePageIdentity(session.page, 1, 5_000);
         // The open itself recovers: its viewport reaches ready on the page.
         await session.page.waitForFunction(() => document.querySelector<HTMLElement>(
