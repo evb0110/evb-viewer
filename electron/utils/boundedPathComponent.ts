@@ -11,10 +11,6 @@ import { isSameFile } from '@electron/utils/fileIdentity';
 
 export const MAX_PATH_COMPONENT_BYTES = 255;
 
-function getUtf8ByteLength(value: string) {
-    return Buffer.byteLength(value, 'utf8');
-}
-
 /** Keeps the longest prefix whose UTF-8 form fits in `maxBytes`, never splitting a code point; this also bounds the UTF-16 units NTFS counts. */
 export function truncateUtf8PathComponent(value: string, maxBytes = MAX_PATH_COMPONENT_BYTES) {
     if (maxBytes < 0) {
@@ -24,7 +20,7 @@ export function truncateUtf8PathComponent(value: string, maxBytes = MAX_PATH_COM
     let byteLength = 0;
     let result = '';
     for (const character of value) {
-        const characterByteLength = getUtf8ByteLength(character);
+        const characterByteLength = Buffer.byteLength(character);
         if (byteLength + characterByteLength > maxBytes) {
             break;
         }
@@ -39,7 +35,7 @@ export function buildOutputPathWithSuffix(targetPath: string, suffix: string) {
     const outputExtension = extname(targetPath);
     const outputStem = basename(targetPath, outputExtension);
     const suffixWithExtension = `${suffix}${outputExtension}`;
-    const suffixByteLength = getUtf8ByteLength(suffixWithExtension);
+    const suffixByteLength = Buffer.byteLength(suffixWithExtension);
     if (suffixByteLength > MAX_PATH_COMPONENT_BYTES) {
         throw new Error('Output filename suffix exceeds the filesystem component limit');
     }
@@ -53,13 +49,15 @@ export function buildOutputPathWithSuffix(targetPath: string, suffix: string) {
 /**
  * Keeps a file beside `targetPath` as "<stem> (original)<ext>", then "(original 2)" and on, within the filename limit,
  * never over another file. A taken name that already is this file, linked by a move a crash cut short before it
- * unlinked `sourcePath`, is used, and only `sourcePath` goes. Returns where the file is kept.
+ * unlinked `sourcePath`, is used, and only `sourcePath` goes. `beforeMove` hears the name before the file moves there,
+ * so what it records survives a crash in the move. Returns where the file is kept.
  */
-export async function keepOriginalBeside(sourcePath: string, targetPath: string) {
+export async function keepOriginalBeside(sourcePath: string, targetPath: string, beforeMove?: (keptPath: string) => Promise<void>) {
     for (let copy = 1; ; copy += 1) {
         const keptPath = buildOutputPathWithSuffix(targetPath, copy === 1 ? ' (original)' : ` (original ${copy})`);
         const taken = existsSync(keptPath);
         if (!taken || await isSameFile(keptPath, sourcePath)) {
+            await beforeMove?.(keptPath);
             await (taken ? rm(sourcePath, {force: true}) : moveFileToMissingPath(sourcePath, keptPath));
             return keptPath;
         }

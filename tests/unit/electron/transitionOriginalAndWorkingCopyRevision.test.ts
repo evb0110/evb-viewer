@@ -773,18 +773,16 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
     it('retains combined recovery evidence when working-copy rollback fails', async () => {
         let failWorkingRollback = false;
-        vi.doMock('@electron/file-access/documentFileWriteAtomic', async (importOriginal) => {
-            const actual = await importOriginal<typeof DocumentFileWriteAtomicModule>();
-            return {
-                ...actual,
-                copyFileAtomic: async (source: string, destination: string, options?: Parameters<typeof actual.copyFileAtomic>[2]) => {
-                    if (failWorkingRollback && destination.endsWith('working.pdf')) {
-                        throw new Error('working rollback publication failed');
-                    }
-                    return actual.copyFileAtomic(source, destination, options);
-                },
-            };
-        });
+        const fs = await import('node:fs/promises');
+        vi.doMock('node:fs/promises', () => ({
+            ...fs,
+            rename: async (...args: Parameters<typeof fs.rename>) => {
+                if (failWorkingRollback && String(args[1]).endsWith('working.pdf')) {
+                    throw new Error('working rollback publication failed');
+                }
+                return fs.rename(...args);
+            },
+        }));
         let workingCopyPath = '';
         try {
             const prepared = await prepare('old-original', 'old-working');
@@ -829,7 +827,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
             await expect(readFile(prepared.originalPath, 'utf8')).resolves.toBe('old-original');
         } finally {
-            vi.doUnmock('@electron/file-access/documentFileWriteAtomic');
+            vi.doUnmock('node:fs/promises');
         }
     });
 
@@ -1113,6 +1111,13 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
 
             await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({token});
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            // Later reads of the same revision find the working copy restored and write nothing.
+            const restored = await stat(workingCopyPath, {bigint: true});
+            for (let read = 0; read < 3; read += 1) await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({token});
+            expect(await stat(workingCopyPath, {bigint: true})).toMatchObject({
+                ino: restored.ino,
+                mtimeNs: restored.mtimeNs,
+            });
             await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 68))).rejects.toMatchObject({code: 'EBUSY'});
             await expect(readFile(originalPath, 'utf8')).resolves.toBe(publishedContent);
 
@@ -1206,6 +1211,54 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const {takeKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
         await expect(takeKeptOriginal(originalPath)).resolves.toBe(keptPath);
         await expect(takeKeptOriginal(originalPath)).resolves.toBeUndefined();
+    });
+
+    it('still tells the next open where recovery kept the file when a second crash follows its move', async () => {
+        const fs = await import('node:fs/promises');
+        let crashAfter = '';
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            // Recovery stops right after the hidden name goes, before anything else runs.
+            rm: async (...args: Parameters<typeof fs.rm>) => {
+                await fs.rm(...args);
+                if (String(args[0]) === crashAfter) throw new Error('EVB stopped');
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath,
+            } = await prepare('saved-by-evb', 'old-working');
+            const {
+                prepareWorkingCopyTransition, recoverWorkingCopyTransition,
+            } = await import('@electron/file-access/workingCopyJournal');
+            const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+            const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+            const journal = await prepareWorkingCopyTransition(workingCopyPath, requireDocumentRevisionToken('drt1:crash:2:next'));
+            const backupPath = `${originalPath}.evb-transition-crash.bak`;
+            await writeFile(backupPath, 'other-program');
+            await writeFile(getWorkingCopyJournalPath(workingCopyPath), JSON.stringify({
+                ...journal,
+                original: {
+                    path: originalPath,
+                    backupPath,
+                    state: 'conflicted',
+                },
+            }));
+            const keptPath = join(tempRoot, 'original (original).pdf');
+            await link(backupPath, keptPath);
+            crashAfter = backupPath;
+
+            await recoverWorkingCopyTransition(workingCopyPath).catch(() => undefined);
+            crashAfter = '';
+            await recoverWorkingCopyTransition(workingCopyPath);
+
+            await expect(readFile(keptPath, 'utf8')).resolves.toBe('other-program');
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('saved-by-evb');
+            const {takeKeptOriginal} = await import('@electron/file-access/keptOriginalNotices');
+            await expect(takeKeptOriginal(originalPath)).resolves.toBe(keptPath);
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
     });
 
     it('keeps an external edit made while recovery checks the original, and the file before the save beside it', async () => {
@@ -1862,8 +1915,13 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             // The refusal names the file as it is on disk when it is shown, not after a later read.
             await expect(readFile(keptFilePath, 'utf8')).resolves.toBe('old-original');
             expect((await readFile(originalPath)).subarray(262144, 262152).toString()).toBe('EXTERNAL');
-            expect((await readdir(tempRoot)).filter(name => !before.includes(name))).toEqual(['original (original).pdf']);
+            expect((await readdir(tempRoot)).filter(name => !before.includes(name))).toEqual([
+                'kept-original-notices.json',
+                'original (original).pdf',
+            ]);
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            // The next open of the PDF repeats where that file is, until the person dismisses it.
+            await expect((await import('@electron/file-access/keptOriginalNotices')).takeKeptOriginal(originalPath)).resolves.toBe(keptFilePath);
         } finally {
             vi.doUnmock('fs/promises');
         }

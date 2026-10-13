@@ -3,6 +3,7 @@ import {existsSync} from 'node:fs';
 import {
     open as openFileHandle,
     readFile,
+    rename,
     rm,
     stat,
 } from 'node:fs/promises';
@@ -38,7 +39,9 @@ import {
     getWorkingCopyJournalBackupPath,
     getWorkingCopyJournalPath,
 } from '@electron/file-access/workingCopyDirectory';
-import {writeJsonAtomic} from '@electron/utils/atomicReplace';
+import {
+    fsyncParentDirectory, writeJsonAtomic,
+} from '@electron/utils/atomicReplace';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import * as v from 'valibot';
@@ -63,17 +66,11 @@ const journalRecordSchema = v.object({
     previousLength: v.optional(v.unknown()),
     original: v.optional(originalSchema),
 });
-// Copy-mode journals historically ignore an irrelevant previousLength field; the mode-dependent omission is a semantic normalization.
+// Copy-mode journals historically carry an irrelevant previousLength field; only an append-mode journal's is read.
 const journalSchema = v.pipe(
     journalRecordSchema,
     v.check(value => value.backupMode !== 'append-hard-link'
         || typeof value.previousLength === 'number' && Number.isSafeInteger(value.previousLength) && value.previousLength >= 0),
-    v.transform(({
-        previousLength, ...journal
-    }) => ({
-        ...journal,
-        ...(journal.backupMode === 'append-hard-link' ? {previousLength: previousLength as number} : {}),
-    })),
 );
 
 export type IWorkingCopyJournal = v.InferOutput<typeof journalSchema>;
@@ -124,7 +121,8 @@ export async function prepareWorkingCopyTransition(
 /**
  * Records the original a transition publishes, before and after publication. An earlier transition's original carried
  * here is removed first, so a file another program still holds refuses this one. A conflicted save is recorded before
- * its displaced original moves to a visible "<name> (original).pdf", so recovery finishes a move a crash cut short.
+ * its displaced original moves to a visible "<name> (original).pdf", so recovery finishes a move a crash cut short,
+ * and the notice the next open of the PDF gives is recorded before the move, so a crash after it still yields it.
  */
 export async function recordWorkingCopyJournalOriginal(
     journal: IWorkingCopyJournal,
@@ -133,17 +131,18 @@ export async function recordWorkingCopyJournalOriginal(
     if (journal.original && journal.original.backupPath !== original?.backupPath) await rm(journal.original.backupPath, {force: true});
     journal.original = original;
     await writeJsonAtomic(getWorkingCopyJournalPath(journal.workingCopyPath), journal, {markMutationCommitStarted: false});
-    if (original?.state === 'conflicted') original.backupPath = await keepOriginalBeside(original.backupPath, original.path).catch(() => original.backupPath);
+    if (original?.state === 'conflicted') original.backupPath = await keepOriginalBeside(original.backupPath, original.path, keptPath => rememberKeptOriginal(original.path, keptPath)).catch(() => original.backupPath);
 }
 
-// A working copy that is still the backup's inode was never replaced; only a replaced one needs the backup copied
-// back. An append-mode backup is a hard link to the appended file, so either way the append is cut off afterwards.
+// A working copy that is still the backup's inode was never replaced; a replaced one gets the backup moved back, once:
+// a backup already gone was moved there. An append-mode backup is a hard link to the appended file, so it stays, and
+// the append is cut off afterwards.
 async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
-    if (!await isSameFile(journal.workingCopyPath, journal.backupPath)) await copyFileAtomic(journal.backupPath, journal.workingCopyPath);
-    if (journal.previousLength === undefined) return;
+    if (existsSync(journal.backupPath) && !await isSameFile(journal.workingCopyPath, journal.backupPath)) await rename(journal.backupPath, journal.workingCopyPath).then(() => fsyncParentDirectory(journal.workingCopyPath));
+    if (journal.backupMode !== 'append-hard-link') return;
     const handle = await openFileHandle(journal.workingCopyPath, 'r+');
     try {
-        await handle.truncate(journal.previousLength);
+        await handle.truncate(journal.previousLength as number);
         await handle.sync();
     } finally {
         await handle.close().catch(() => undefined);
@@ -156,7 +155,7 @@ async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
  * name): nothing beside the original outlives the journal that names it.
  * A conflicted original's backup is the file kept beside the PDF, so it stays.
  * The working-copy backup goes after the journal, because recovering an
- * unfinished rollback copies from it; a crash leaves it unreferenced.
+ * unfinished rollback moves it back; a crash leaves it unreferenced.
  */
 export async function completeWorkingCopyTransition(journal: IWorkingCopyJournal) {
     if (journal.original && journal.original.state !== 'conflicted') await rm(journal.original.backupPath, {force: true});
@@ -204,8 +203,7 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     if (journal && (await readWorkingCopyManifest(workingCopyPath))?.revision.token !== journal.nextRevisionToken) {
         await restoreWorkingCopyContent(journal);
         const pending = journal.original && await restoreTransitionOriginal(journal, journal.original).then(() => null, (error: unknown) => {
-            // A file recovery keeps beside the PDF is told once, at the next open of that PDF.
-            if (error instanceof OriginalPathSaveConflictError) return error.keptFilePath ? rememberKeptOriginal(journal.original!.path, error.keptFilePath).then(() => null) : null;
+            if (error instanceof OriginalPathSaveConflictError) return null;
             log.warn('Kept an interrupted save\'s journal: its PDF cannot be restored yet', {error: getErrorMessage(error)});
             return error instanceof Error ? error : new Error(getErrorMessage(error));
         });
