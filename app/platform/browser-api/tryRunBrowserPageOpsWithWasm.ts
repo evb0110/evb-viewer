@@ -27,7 +27,10 @@ import {
     type IBrowserPageOpsWorkerResultMap,
     type IBrowserPageOpsWasmFailure,
 } from '@contracts/browserPageOpsWorker';
-import {BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS} from '@contracts/browserPageOpsWorker';
+import {
+    BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS,
+    isBrowserPageOpsWasmFailure,
+} from '@contracts/browserPageOpsWorker';
 import {
     BROWSER_PDF_CATALOG_MAX_WASM_PAGE_LABELS,
     decodeBrowserPdfCatalog,
@@ -41,6 +44,7 @@ import {
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import {splitPdfNativeMutationSetIntoBoundedChunks} from '@pdf-core/nativePdfMutationPolicy';
 import {
     getCheckedWasmMemoryView,
     WASM_REQUEST_ALLOCATION_ABI_VERSION,
@@ -610,19 +614,11 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     return parsed?.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
 }
 
-export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasmRequestType>(
+function runWasmRequest<K extends TBrowserPageOpsWasmRequestType>(
+    exports: IPdfPageOpsWasmExports,
     type: K,
     payload: IBrowserPageOpsWasmRequestMap[K],
-): Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure | null> {
-    if (!canUsePdfPageOpsWasm()) {
-        return null;
-    }
-
-    const exports = await loadPdfPageOpsWasm();
-    if (!exports) {
-        return null;
-    }
-
+): IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure {
     let pointer: number | null = null;
     let requestByteLength = 0;
     let request: Uint8Array<ArrayBuffer> | null = null;
@@ -692,5 +688,51 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
                 exports.evb_pdf_page_ops_free(pointer, requestByteLength);
             }
         }
+    }
+}
+
+export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasmRequestType>(
+    type: K,
+    payload: IBrowserPageOpsWasmRequestMap[K],
+): Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure | null> {
+    if (!canUsePdfPageOpsWasm()) return null;
+    const exports = await loadPdfPageOpsWasm();
+    if (!exports) return null;
+
+    const request = {
+        type,
+        payload,
+    } as TBrowserPageOpsWasmRequest;
+    if (request.type !== 'saveMutations') return runWasmRequest(exports, type, payload);
+
+    try {
+        const [
+            first,
+            ...continuations
+        ] = splitPdfNativeMutationSetIntoBoundedChunks(request.payload.mutations);
+        let saved = runWasmRequest(exports, 'saveMutations', {
+            ...request.payload,
+            mutations: first!,
+        });
+        if (isBrowserPageOpsWasmFailure(saved)) return saved;
+        const identityBindings = [...saved.identityBindings];
+        for (const mutations of continuations) {
+            const result: IBrowserPageOpsWasmResultMap['saveMutations'] | IBrowserPageOpsWasmFailure = runWasmRequest(exports, 'saveMutations', {
+                ...request.payload,
+                data: saved.data,
+                mutations,
+            });
+            if (isBrowserPageOpsWasmFailure(result)) return result;
+            identityBindings.push(...result.identityBindings);
+            saved = result;
+        }
+        // Intermediate PDFs remain local to this request. The caller can stage
+        // and publish only after every continuation has succeeded.
+        return {
+            ...saved,
+            identityBindings,
+        } as IBrowserPageOpsWasmResultMap[K];
+    } catch (error) {
+        return createWasmFailure('invalid-request', getErrorMessage(error));
     }
 }

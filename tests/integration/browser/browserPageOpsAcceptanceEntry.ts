@@ -2,18 +2,24 @@
 
 import {
     PDFDocument,
+    PDFDict,
+    PDFHexString,
     PDFName,
     PDFNumber,
     PDFString,
 } from 'pdf-lib';
 import type {
     PDFArray,
-    PDFDict,
     PDFRef,
 } from 'pdf-lib';
 import {createBrowserPageOpsCapability} from '@app/platform/browser-api/createBrowserPageOpsCapability';
 import {readPdfCatalog} from '@app/platform/browser-api/browserPageOpsCore';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {
+    tryRunBrowserPageOpsWithWasm, isBrowserPageOpsWasmFailure,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
+import * as v from 'valibot';
 
 interface IBrowserPageOpsAcceptanceResult {
     operation: 'delete' | 'reorder' | 'insert';
@@ -290,3 +296,73 @@ async function runBrowserCatalogPartsAcceptance() {
 
 Reflect.set(globalThis, '__evbRunBrowserPageOpsAcceptance', runBrowserPageOpsAcceptance);
 Reflect.set(globalThis, '__evbRunBrowserCatalogPartsAcceptance', runBrowserCatalogPartsAcceptance);
+
+// Read the writer's saved bytes independently, including every unchanged title.
+async function runBrowserBookmarkSaveAcceptance() {
+    const results = [];
+    for (const count of [
+        3,
+        10_000,
+    ]) {
+        const source = await PDFDocument.create();
+        const page = source.addPage([
+            200,
+            100,
+        ]);
+        const outline = source.context.nextRef();
+        const entries = Array.from({length: count}, (_, index) => source.context.obj({
+            Title: PDFString.of(`Section${index + 1}`),
+            Parent: outline,
+            Dest: [
+                page.ref,
+                PDFName.of('Fit'),
+            ],
+        }));
+        const refs = entries.map(entry => source.context.register(entry));
+        entries.forEach((entry, index) => {
+            if (index > 0) entry.set(PDFName.of('Prev'), refs[index - 1]!);
+            if (index + 1 < count) entry.set(PDFName.of('Next'), refs[index + 1]!);
+        });
+        source.context.assign(outline, source.context.obj({
+            Type: PDFName.of('Outlines'),
+            First: refs[0],
+            Last: refs.at(-1),
+            Count: count,
+        }));
+        source.catalog.set(PDFName.of('Outlines'), outline);
+        const input = new Uint8Array(await source.save());
+        const catalog = await readPdfCatalog(input);
+        const items = v.parse(v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA), catalog.bookmarks);
+        items[items.length - 1] = {
+            ...items.at(-1)!,
+            title: 'Large web saved',
+        };
+        const saved = await tryRunBrowserPageOpsWithWasm('saveMutations', {
+            data: input,
+            mutations: {bookmarks: {
+                items,
+                totalPages: 1,
+                untitledLabel: 'Untitled',
+            }},
+            modifiedAt: 'D:20261013000000Z',
+        });
+        if (saved === null || isBrowserPageOpsWasmFailure(saved)) {
+            throw new Error(`Bookmark save failed: ${JSON.stringify(saved)}`);
+        }
+        const reopened = await PDFDocument.load(saved.data);
+        let row = reopened.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookupMaybe(PDFName.of('First'), PDFDict);
+        const titles: string[] = [];
+        while (row) {
+            titles.push(row.lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText());
+            row = row.lookupMaybe(PDFName.of('Next'), PDFDict);
+        }
+        results.push({
+            count,
+            reopenedCount: titles.length,
+            renamedTitle: titles.at(-1),
+            unchangedTitles: titles.slice(0, -1).every((title, index) => title === `Section${index + 1}`),
+        });
+    }
+    return results;
+}
+Reflect.set(globalThis, '__evbRunBrowserBookmarkSaveAcceptance', runBrowserBookmarkSaveAcceptance);

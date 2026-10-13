@@ -25,6 +25,7 @@ import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA} from '@contracts/pdfBookmarkEntry';
 import type {IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
+import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
 
 const NativeWebAssembly = WebAssembly;
 const loggerWarn = vi.hoisted(() => vi.fn());
@@ -349,6 +350,46 @@ describe('browser page-ops WASM fast path', () => {
         vi.clearAllMocks();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+    });
+
+    it.each([
+        false,
+        true,
+    ])('publishes a complete bounded note save, or no bytes when a continuation fails: %s', async (failContinuation) => {
+        const input = await createPdf({pageWidths: [200]});
+        const original = input.slice();
+        const mutations = normalizePdfNativeMutationSet({freeTextNotes: Array.from({length: 257}, (_, index) => ({
+            stableKey: `new-browser-note-${index}`,
+            pageIndex: failContinuation && index === 256 ? 1 : 0,
+            text: `Note ${index}`,
+            markerRect: {
+                left: 0.1,
+                top: 0.1,
+                width: 0.1,
+                height: 0.1,
+            },
+        }))}, 'Browser continuation notes');
+        const wasm = await loadWasmRunner();
+        const result = await wasm.run('saveMutations', {
+            data: input,
+            mutations,
+            modifiedAt: 'D:20261013000000Z',
+        });
+        expect(input).toEqual(original);
+        if (failContinuation) {
+            expect(result).toMatchObject({status: 'failed'});
+            expect(result).not.toHaveProperty('data');
+            return;
+        }
+        if (result === null || 'status' in result) throw new Error('Expected all note continuations to save');
+        expect(result.identityBindings.map(binding => binding.annotationId).sort())
+            .toEqual(mutations.freeTextNotes!.map(note => note.stableKey).sort());
+        const reopened = await PDFDocument.load(result.data);
+        const annotations = reopened.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+        const texts = Array.from({length: annotations.size()}, (_, index) => annotations.lookup(index, PDFDict))
+            .filter(annotation => annotation.get(PDFName.of('Subtype')) === PDFName.of('Text'))
+            .map(annotation => annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText());
+        expect(texts.sort()).toEqual(mutations.freeTextNotes!.map(note => note.text).sort());
     });
 
     it('keeps one exact live request allocation across repeated awkward lengths', async () => {

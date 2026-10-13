@@ -135,6 +135,20 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                     outlineDestinationWasDeleted: true,
                 },
             ]);
+            const bookmarks = await page.evaluate(async () => {
+                const run = Reflect.get(globalThis, '__evbRunBrowserBookmarkSaveAcceptance');
+                if (typeof run !== 'function') throw new Error('Browser bookmark save entry point was not installed');
+                return run();
+            });
+            expect(bookmarks).toEqual([
+                3,
+                10_000,
+            ].map(count => ({
+                count,
+                reopenedCount: count,
+                renamedTitle: 'Large web saved',
+                unchangedTitles: true,
+            })));
         } finally {
             await browser.close();
         }
