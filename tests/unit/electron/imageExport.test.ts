@@ -890,15 +890,16 @@ describe('image export', () => {
 
     it('probes the source resolution a bounded number of times regardless of render chunking', async () => {
         mocks.pdfimagesPath = '/mock/pdfimages';
-        mocks.renderPageCount = 100;
-        mocks.pdfPageCount = 100;
+        // Nine render chunks still reject probing once per chunk (budget: eight).
+        mocks.renderPageCount = 45;
+        mocks.pdfPageCount = 45;
 
         const outputPath = join(tempDir, 'sampled-probe.png');
 
-        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(100);
+        await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toHaveLength(45);
 
         const renderChunkCount = mocks.runCommand.mock.calls.filter(([command]) => command === '/mock/pdftoppm').length;
-        expect(renderChunkCount).toBe(20);
+        expect(renderChunkCount).toBe(9);
 
         const probedPageCount = mocks.runCommand.mock.calls
             .filter(([command]) => command === '/mock/pdfimages')

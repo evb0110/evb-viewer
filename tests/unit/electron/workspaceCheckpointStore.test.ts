@@ -13,7 +13,9 @@ import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+    afterAll,
     afterEach,
+    beforeAll,
     beforeEach,
     describe,
     expect,
@@ -234,7 +236,11 @@ function reloadRenderer(window: Electron.WebContents) {
 }
 
 describe('workspace checkpoint store', () => {
+    beforeAll(() => vi.useFakeTimers({toFake: ['Date']}));
+    afterAll(() => vi.useRealTimers());
+
     beforeEach(async () => {
+        vi.setSystemTime(Date.now() + 1_000);
         state.userDataPath = await mkdtemp(join(tmpdir(), 'evb-workspace-checkpoint-'));
         state.backingEntries.clear();
         state.owners.clear();
@@ -249,7 +255,6 @@ describe('workspace checkpoint store', () => {
     });
 
     afterEach(async () => {
-        vi.useRealTimers();
         await rm(state.userDataPath, {
             force: true,
             recursive: true,
@@ -417,7 +422,6 @@ describe('workspace checkpoint store', () => {
 
         // Saves inside the debounce window wait for its real timer. The test
         // clock moves past the window instead, so each save commits directly.
-        vi.useFakeTimers({toFake: ['Date']});
         const saveSettled = async () => {
             vi.setSystemTime(Date.now() + 1_000);
             await saveWorkspaceCheckpoint(twoTabs, 11, window);

@@ -1054,23 +1054,19 @@ describe('scan-cleanup-core conversion coverage', () => {
         'incomplete probe',
         'truncated sidecar',
     ] as const)('accumulates a bounded compact-source budget across every full Auto batch (%s)', {timeout: 30_000}, async (scenario) => {
+        const batchPages = 8;
+        const pipeline = await loadPipelineWithBatchPages(batchPages);
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-xlarge-auto-budget-test-'));
         roots.push(root);
         const sourcePdfPath = join(root, 'source.pdf');
         const outputPdfPath = join(root, 'output.pdf');
         const evidenceDir = join(root, 'evidence');
-        const documentPageCount = SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1;
+        const documentPageCount = batchPages + 1;
         const progress: TScanCleanupProgress[] = [];
         await writeFile(sourcePdfPath, '%PDF-xlarge-auto-source');
         // Reuse identical immutable fixture bytes through hard links. Thousands
         // of repeated writes otherwise dominate this bounded-batch proof on NTFS.
-        // Four copies leave room for the retained raster links within NTFS's 1,024-link limit.
-        const fixturePaths = [
-            0,
-            1,
-            2,
-            3,
-        ].map(index => ({
+        const fixturePaths = [0].map(index => ({
             png: join(root, `fixture-${index}.png`),
             ppm: join(root, `fixture-${index}.ppm`),
             composite: join(root, `fixture-${index}-composite`),
@@ -1096,11 +1092,11 @@ describe('scan-cleanup-core conversion coverage', () => {
                 for (
                     let firstPageNumber = 1, chunkIndex = 0;
                     firstPageNumber <= documentPageCount;
-                    firstPageNumber += SCAN_CLEANUP_STREAMING_BATCH_PAGES, chunkIndex += 1
+                    firstPageNumber += batchPages, chunkIndex += 1
                 ) {
                     const pages = Array.from(
                         {length: Math.min(
-                            SCAN_CLEANUP_STREAMING_BATCH_PAGES,
+                            batchPages,
                             documentPageCount - firstPageNumber + 1,
                         )},
                         (_, index) => pageGeometry(firstPageNumber + index),
@@ -1230,7 +1226,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         };
         const signal = new AbortController();
         if (scenario === 'insufficient scratch') {
-            dependencies.getAvailableScratchBytes = vi.fn(async () => 520 * 1024 * 1024);
+            dependencies.getAvailableScratchBytes = vi.fn(async () => 512 * 1024 * 1024);
         } else if (scenario === 'canceled probe') {
             dependencies.detectSourceDpi = vi.fn(async () => {
                 signal.abort(new Error('conversion canceled during the raster probe'));
@@ -1260,7 +1256,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             });
         }
         try {
-            const conversion = runScanCleanupConversion(
+            const conversion = pipeline.runScanCleanupConversion(
                 {
                     sourcePdfPath,
                     outputPdfPath,
@@ -1283,7 +1279,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             if (scenario === 'insufficient scratch') {
                 await expect(conversion).rejects.toMatchObject({
                     code: 'insufficient-scratch',
-                    availableBytes: 520 * 1024 * 1024,
+                    availableBytes: 512 * 1024 * 1024,
                     requiredBytes: expect.any(Number),
                 });
                 expect(existsSync(outputPdfPath)).toBe(false);

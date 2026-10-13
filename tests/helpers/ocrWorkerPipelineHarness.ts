@@ -32,6 +32,7 @@ export async function createOcrWorkerPipelineHarness(options: {
     failPage?: number;
     growOutputKb?: number;
     jobMaxTempMb?: number;
+    pageCount?: number;
     stallPage?: number;
     tempRoot?: string;
 } = {}): Promise<IOcrWorkerPipelineHarness> {
@@ -41,7 +42,8 @@ export async function createOcrWorkerPipelineHarness(options: {
     await writeFile(join(root, 'eng.traineddata'), Buffer.alloc(1_024));
     const sourcePdfPath = join(root, 'source.pdf');
     const document = await PDFDocument.create();
-    for (let page = 0; page < 3; page += 1) {
+    const pages = Array.from({length: options.pageCount ?? 3}, (_, index) => index + 1);
+    for (const _page of pages) {
         document.addPage([
             600,
             800,
@@ -151,11 +153,7 @@ process.exit(0);
                 contentRevision: 1,
                 mintedAt: 1,
             } as Parameters<typeof runOcrJob>[0]['documentRevision'],
-            pages: [
-                1,
-                2,
-                3,
-            ].map(pageNumber => ({
+            pages: pages.map(pageNumber => ({
                 pageNumber: requirePageNumber(pageNumber),
                 languages: ['eng'],
             })),
