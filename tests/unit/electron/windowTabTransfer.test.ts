@@ -135,7 +135,10 @@ describe('WindowTabTransferBroker', () => {
         } satisfies Partial<IWindowTabTransferResult>);
     });
 
-    it('rolls back a restored PDF snapshot when source finalization fails', async () => {
+    it.each([
+        'rejected',
+        'missing',
+    ])('rolls back a restored PDF snapshot when source finalization is %s', async (decisionKind) => {
         const targetWindow = createWindow(22);
         windowsById.set(targetWindow.id, targetWindow);
         const prepare = vi.fn(() => 7);
@@ -177,10 +180,18 @@ describe('WindowTabTransferBroker', () => {
             transferId: sentPayload.transferId,
             success: false,
         })).toBe(false);
-        expect(broker.acknowledgeTransfer(11, {
-            transferId: sentPayload.transferId,
-            success: false,
-        })).toBe(true);
+        if (decisionKind === 'missing') {
+            await vi.advanceTimersByTimeAsync(12_000);
+            expect(broker.acknowledgeTransfer(11, {
+                transferId: sentPayload.transferId,
+                success: true,
+            })).toBe(false);
+        } else {
+            expect(broker.acknowledgeTransfer(11, {
+                transferId: sentPayload.transferId,
+                success: false,
+            })).toBe(true);
+        }
         await expect(decision).resolves.toBe(false);
         expect(revoke).toHaveBeenCalledWith('/tmp/demo-snapshot.pdf', 11, targetWindow.id, 7);
     });

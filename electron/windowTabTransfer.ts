@@ -192,6 +192,11 @@ export class WindowTabTransferBroker {
         }
         if (success) {
             this.deps.clearTimer(pending.timeoutHandle);
+            pending.timeoutHandle = this.armTransferTimer(
+                ack.transferId,
+                pending.timeoutMs,
+                'Transfer timed out while waiting for the source window decision.',
+            );
             const decision = new Promise<boolean>((resolve) => { pending.decide = resolve; });
             // Restoration lends the target its provisional copy. Only the source,
             // after validating and finalizing under its lease, commits this decision.
