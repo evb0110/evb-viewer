@@ -2344,4 +2344,110 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it('keeps an aged folder whose journal another program still holds, and removes it once that journal is finished', async () => {
+        const fs = await import('node:fs/promises');
+        let holding = false;
+        let originalDirectory = '';
+        vi.doMock('node:fs/promises', () => ({
+            ...fs,
+            // Windows refuses to delete a file another program holds without delete sharing.
+            rm: async (...args: Parameters<typeof fs.rm>) => {
+                const path = String(args[0]);
+                if (holding && dirname(path) === originalDirectory && path.includes('.evb-transition-') && existsSync(path)) {
+                    throw Object.assign(new Error('EBUSY: resource busy or locked'), {code: 'EBUSY'});
+                }
+                return fs.rm(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-held-aged');
+            const before = await readdir(dirname(originalPath));
+            originalDirectory = dirname(originalPath);
+            const saved = Buffer.alloc(2 * 1024 * 1024, 67);
+            holding = true;
+            await expect(saveAnnotations(saved)).resolves.toMatchObject({applied: true});
+            const {getWorkingCopyJournalPath} = await import('@electron/file-access/workingCopyDirectory');
+            // EVB stopped inside close before it dropped the document; the folder then sat for two days.
+            vi.resetModules();
+            const old = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+            await fs.utimes(dirname(workingCopyPath), old, old);
+            await (await import('@electron/file-access/workingCopyCleanup')).cleanupStaleWorkingCopyDirectories();
+            expect(existsSync(getWorkingCopyJournalPath(workingCopyPath))).toBe(true);
+            expect((await readdir(originalDirectory)).filter(name => !before.includes(name))).toHaveLength(1);
+
+            holding = false;
+            await fs.utimes(dirname(workingCopyPath), old, old);
+            vi.resetModules();
+            await (await import('@electron/file-access/workingCopyCleanup')).cleanupStaleWorkingCopyDirectories();
+            expect((await readdir(originalDirectory)).sort()).toEqual([...before].sort());
+            expect(existsSync(dirname(workingCopyPath))).toBe(false);
+            expect((await readFile(originalPath)).equals(saved)).toBe(true);
+        } finally {
+            vi.doUnmock('node:fs/promises');
+        }
+    });
+
+    it('keeps nothing extra when the person reopens and saves a PDF a closed document could not yet restore after a crash', async () => {
+        const fs = await import('node:fs/promises');
+        let lockedPath = '';
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            // Another program holds the PDF open without delete sharing, so nothing can replace it.
+            rename: async (...args: Parameters<typeof fs.rename>) => {
+                if (lockedPath && String(args[1]) === lockedPath) throw Object.assign(new Error('EBUSY: resource busy or locked, rename'), {code: 'EBUSY'});
+                return fs.rename(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, stagedPath, workingCopyPath,
+            } = await prepareAnnotationSaves('pdf-work-closed-pending');
+            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+            const {
+                prepareWorkingCopyTransition, recordWorkingCopyJournalOriginal,
+            } = await import('@electron/file-access/workingCopyJournal');
+            const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+            const before = await readdir(tempRoot);
+
+            // A save published the PDF and synced the working copy, then EVB died before the commit.
+            const journal = await prepareWorkingCopyTransition(workingCopyPath, requireDocumentRevisionToken('drt1:crash:9:next'));
+            const backupPath = `${originalPath}.evb-transition-crash.bak`;
+            await writeFile(backupPath, 'old-original');
+            const preparedSnapshot = (await capturePathSaveWitness(originalPath))!.getSnapshotForJournal();
+            const publishedContent = await readFile(stagedPath, 'utf8');
+            await recordWorkingCopyJournalOriginal(journal, {
+                path: originalPath,
+                backupPath,
+                state: 'prepared',
+                preparedSnapshot,
+                intendedFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(Buffer.byteLength(publishedContent))
+                    .update(publishedContent)
+                    .digest('hex')}`,
+            });
+            await fs.rename(stagedPath, originalPath);
+            await writeFile(workingCopyPath, publishedContent);
+            // The PDF stays locked while the person closes the tab, so its journal stays.
+            lockedPath = originalPath;
+            await (await import('@electron/file-access/workingCopyCleanup')).cleanupWorkingCopy(workingCopyPath, 7);
+            expect(existsSync(dirname(workingCopyPath))).toBe(true);
+
+            // The lock ends; the person reopens the PDF and saves it again before a restart.
+            lockedPath = '';
+            const reopened = await prepareAnnotationSaves('pdf-work-reopened');
+            const saved = Buffer.alloc(2 * 1024 * 1024, 68);
+            await expect(reopened.saveAnnotations(saved)).resolves.toMatchObject({applied: true});
+            await (await import('@electron/file-access/workingCopyCleanup')).cleanupWorkingCopy(reopened.workingCopyPath, 7);
+
+            vi.resetModules();
+            await (await import('@electron/file-access/workingCopyCleanup')).cleanupStaleWorkingCopyDirectories();
+            expect((await readFile(originalPath)).equals(saved)).toBe(true);
+            expect((await readdir(tempRoot)).filter(name => !before.includes(name) && name !== 'staged.pdf')).toEqual([]);
+            await expect((await import('@electron/file-access/keptOriginalNotices')).findKeptOriginal(originalPath)).resolves.toBeUndefined();
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+    });
 });

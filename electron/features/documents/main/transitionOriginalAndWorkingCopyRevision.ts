@@ -17,6 +17,7 @@ import {
 } from '@electron/file-access/originalPathSaveWitness';
 import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {explainWriteRefusal} from '@electron/file-access/explainWriteRefusal';
+import {supersedeClosedWorkingCopyJournals} from '@electron/file-access/workingCopyCleanup';
 
 export async function transitionOriginalAndWorkingCopyRevision(input: {
     workingCopyPath: string;
@@ -47,11 +48,12 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             return null;
         }
         const admittedExpectation = witness.getOriginalFileExpectation();
+        // The person saves the PDF they see, which ends what a closed document's interrupted save of it had to undo.
+        await supersedeClosedWorkingCopyJournals(input.originalPath);
         const originalBackupPath = createOriginalTransitionBackupPath(input.originalPath, input.workingCopyPath);
-        let committed = false as boolean;
         let journal = null as IWorkingCopyJournal | null;
         try {
-            const event = await transitionWorkingCopyContentRevision(
+            return await transitionWorkingCopyContentRevision(
                 input.workingCopyPath,
                 input.reason,
                 async (_nextRevision, transitionJournal) => {
@@ -102,28 +104,24 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
                 input.onPhase,
                 'hard-link',
             );
-            committed = true;
-            return event;
         } catch (error) {
-            if (error instanceof OriginalPathSaveConflictError && journal?.original) {
-                if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(journal.original.backupPath);
-                return null;
-            }
-            throw error;
-        } finally {
             try {
-                if (!committed && journal?.original
-                    && (journal.original.state === 'prepared' || journal.original.state === 'published')) {
+                if (journal?.original && (journal.original.state === 'prepared' || journal.original.state === 'published')) {
                     await restoreTransitionOriginal(journal, journal.original);
                     await recordWorkingCopyJournalOriginal(journal, Object.assign(journal.original, {state: 'restored' as const}))
                         .finally(() => input.refreshOriginalExpectation?.(admittedExpectation));
                 }
             } finally {
-                if (!committed && (!journal?.original || journal.original.state === 'restored' || journal.original.state === 'conflicted')) {
+                if (!journal?.original || journal.original.state === 'restored' || journal.original.state === 'conflicted') {
                     // Recovery owns the journaled backups and keeps failed rollbacks.
                     await (journal && recoverWorkingCopyTransition(input.workingCopyPath).catch(() => undefined));
                 }
             }
+            if (error instanceof OriginalPathSaveConflictError && journal?.original) {
+                if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(journal.original.backupPath);
+                return null;
+            }
+            throw error;
         }
     }).catch(async (error: unknown) => {
         // Only once the save has rolled back can a refusal tell a read-only PDF from an unwritable folder.

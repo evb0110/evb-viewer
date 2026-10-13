@@ -76,7 +76,7 @@ const journalSchema = v.pipe(
 export type IWorkingCopyJournal = v.InferOutput<typeof journalSchema>;
 const journalFileSchema = v.pipe(v.string(), v.parseJson(), journalSchema);
 
-async function readJournal(workingCopyPath: string) {
+export async function readJournal(workingCopyPath: string) {
     const journalPath = getWorkingCopyJournalPath(workingCopyPath);
     const raw = await readFile(journalPath, 'utf8').catch((error: unknown) => {
         if (!isErrnoException(error) || error.code !== 'ENOENT') throw new Error(`Working-copy journal could not be read: ${journalPath}`, {cause: error});
@@ -170,9 +170,7 @@ export async function completeWorkingCopyTransition(journal: IWorkingCopyJournal
  */
 export async function rollbackWorkingCopyTransition(journal: IWorkingCopyJournal) {
     await restoreWorkingCopyContent(journal);
-    if (!journal.original) {
-        await completeWorkingCopyTransition(journal);
-    }
+    if (!journal.original) await completeWorkingCopyTransition(journal);
 }
 
 /**
@@ -192,16 +190,16 @@ export async function restoreTransitionOriginal(journal: IWorkingCopyJournal, or
 /**
  * Completes committed journals and rolls back others; unreadable journals fail closed. A finished transition whose
  * displaced original another program holds open returns that original, still journaled, for the next transition's
- * journal to carry, so the hold fails no read and blocks no edit. An unfinished one restores the working copy first,
- * so a read always matches the manifest; when its PDF cannot be restored yet (locked, or a foreign replace journal),
- * the journal stays, the log says so, and the cause is returned for a save or edit to refuse with.
+ * journal to carry, so the hold fails no read and blocks no edit. An unfinished one first restores the working copy of
+ * a document still open, so a read always matches the manifest; when its PDF cannot be restored yet (locked, or a
+ * foreign replace journal), the journal stays, the log says so, and the cause is returned for a save or edit to refuse.
  */
 export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     const journal = await readJournal(workingCopyPath);
     // A publication's temporary name is never needed once its transition ends, whatever the outcome.
     if (journal?.original) await rm(getPublicationTemporaryPath(journal.original.path, journal.original.backupPath), {force: true});
     if (journal && (await readWorkingCopyManifest(workingCopyPath))?.revision.token !== journal.nextRevisionToken) {
-        await restoreWorkingCopyContent(journal);
+        if (existsSync(workingCopyPath)) await restoreWorkingCopyContent(journal);
         const pending = journal.original && await restoreTransitionOriginal(journal, journal.original).then(() => null, (error: unknown) => {
             if (error instanceof OriginalPathSaveConflictError) return null;
             log.warn('Kept an interrupted save\'s journal: its PDF cannot be restored yet', {error: getErrorMessage(error)});
