@@ -69,7 +69,7 @@
                 :auto-size-draft="autoSizeTextBoxIds.has(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
                 :display-font-size="displayFontSizeFor(entity)"
-                @pointer-down="handleTextBoxPointerDown(entity, $event)"
+                @pointer-down="handleEntityPointerDown(entity, $event)"
                 @edit="beginTextBoxEdit(entity.identity.id, $event)"
                 @draft-change="surface.setTextBoxDraftPending(entity.identity.id, $event)"
                 @commit="commitTextBox(entity.identity.id, $event)"
@@ -81,7 +81,7 @@
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
                 :display-rect="displayRectForNote(entity)"
-                @pointer-down="handleNotePointerDown(entity, $event)"
+                @pointer-down="handleEntityPointerDown(entity, $event)"
                 @activate="handleNoteActivate(entity)"
             />
             <PdfStampAnnotation
@@ -700,9 +700,13 @@ function commitActiveTextBoxDraftForSave() {
     }
 }
 
-function handleTextBoxPointerDown(entity: ITextBoxEntity, event: PointerEvent, allowEditing = false) {
+function handleEntityPointerDown(entity: ITextBoxEntity | INoteEntity, event: PointerEvent, allowEditing = false) {
     clearClickSuppression();
     if (event.button !== 0 || (editingId.value === entity.identity.id && !allowEditing)) {
+        return;
+    }
+    if (!allowEditing && createsOverEntity(surface.activeTool.value, entity)) {
+        handleSurfacePointerDown(event);
         return;
     }
     // The child stops pointerdown so text editing controls do not trigger the
@@ -710,34 +714,6 @@ function handleTextBoxPointerDown(entity: ITextBoxEntity, event: PointerEvent, a
     // needs the child identity for the surface's selection fallback.
     capturedClickAnnotationId = entity.identity.id;
     if (editingId.value !== entity.identity.id) focusLayer();
-    const point = pointFromEvent(event);
-    if (!point) {
-        return;
-    }
-    const wasSelected = surface.selectedIds.value.has(entity.identity.id);
-    if (!wasSelected || event.shiftKey) {
-        surface.select([entity.identity.id], {additive: event.shiftKey});
-    }
-    if (event.shiftKey) {
-        return;
-    }
-    if (pointerGesture.beginMove(entity.identity.id, point, event)) {
-        surface.beginPointerInteraction(props.pageIndex);
-        draggedAnnotationId.value = entity.identity.id;
-        event.preventDefault();
-        capturePointer(event);
-    }
-}
-
-function handleNotePointerDown(entity: INoteEntity, event: PointerEvent) {
-    clearClickSuppression();
-    if (event.button !== 0) {
-        return;
-    }
-    // The child stops pointerdown and the move gesture captures the pointer on
-    // the layer. Preserve the identity for the captured follow-up click.
-    capturedClickAnnotationId = entity.identity.id;
-    focusLayer();
     const point = pointFromEvent(event);
     if (!point) {
         return;
@@ -782,7 +758,7 @@ function handleMoveStart(event: PointerEvent) {
     prepareTextBoxGeometryChange();
     const entity = selectedEntity.value;
     if (entity?.kind === 'text-box') {
-        handleTextBoxPointerDown(entity, event, true);
+        handleEntityPointerDown(entity, event, true);
     }
 }
 
@@ -810,6 +786,14 @@ function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent)
     }
 }
 
+// Matching entities keep their selection/move path, including all shape tools
+// over existing geometry. A different creation kind owns the press instead.
+function createsOverEntity(tool: TAnnotationTool, entity: AnnotationEntity | undefined) {
+    return (tool === 'note' && entity?.kind !== 'note')
+        || (tool === 'text' && entity?.kind !== 'text-box')
+        || (isShapeTool(tool) && entity?.kind !== 'shape');
+}
+
 function handleSurfacePointerDown(event: PointerEvent) {
     clearClickSuppression();
     if (event.button !== 0 || (event.pointerType === 'touch' && !event.isPrimary)) {
@@ -817,9 +801,10 @@ function handleSurfacePointerDown(event: PointerEvent) {
     }
     const wasEditingText = editingId.value !== null;
     focusLayer();
+    const tool = surface.activeTool.value;
     const id = entityIdFromEvent(event);
     capturedClickAnnotationId = id;
-    if (id) {
+    if (id && !createsOverEntity(tool, entities.value.find(candidate => candidate.identity.id === id))) {
         const wasSelected = surface.selectedIds.value.has(id);
         if (!wasSelected || event.shiftKey) {
             surface.select([id], {additive: event.shiftKey});
@@ -853,16 +838,11 @@ function handleSurfacePointerDown(event: PointerEvent) {
         surface.clearSelection();
         return;
     }
-    if (
-        surface.activeTool.value !== 'text'
-        && surface.activeTool.value !== 'note'
-        && !isShapeTool(surface.activeTool.value)
-    ) {
+    if (tool !== 'text' && tool !== 'note' && !isShapeTool(tool)) {
         surface.clearSelection();
         return;
     }
     const point = pointFromEvent(event);
-    const tool = surface.activeTool.value;
     const draft = point && isShapeTool(tool)
         ? creationTools.beginShape(props.pageIndex, tool, point)
         : null;
@@ -1083,11 +1063,6 @@ function handleSurfaceClick(event: MouseEvent) {
     surface.select([id], {additive: event.shiftKey});
     const entity = entities.value.find(candidate => candidate.identity.id === id);
     if (entity?.kind === 'note') {
-        if (suppressNextClick) {
-            suppressNextClick = false;
-            capturedClickAnnotationId = null;
-            return;
-        }
         surface.openNote(id);
     }
 }
