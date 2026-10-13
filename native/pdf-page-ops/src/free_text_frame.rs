@@ -189,7 +189,7 @@ impl FreeTextFrame {
 }
 
 /// Whether a label's normal appearance can paint a fill: a filled path, a
-/// shading or a form. One that is absent or unread is unknown, so it can.
+/// shading, an image or a form. One absent or unread is unknown, so it can.
 fn appearance_fills(document: &impl PdfObjectSource, annotation: &Dictionary) -> bool {
     let ap = entry(document, annotation, b"AP").and_then(|ap| ap.as_dict().ok());
     let normal = ap.and_then(|ap| entry(document, ap, b"N")?.as_stream().ok());
@@ -197,7 +197,7 @@ fn appearance_fills(document: &impl PdfObjectSource, annotation: &Dictionary) ->
     let bytes = normal.and_then(|n| plain_stream_with_limit(n, limit).ok());
     let content = bytes.and_then(|bytes| lopdf::content::Content::decode(&bytes).ok());
     let fills = |o: &lopdf::content::Operation| {
-        ["f", "F", "f*", "B", "B*", "b", "b*", "sh", "Do"].contains(&o.operator.as_str())
+        ["f", "F", "f*", "B", "B*", "b", "b*", "sh", "Do", "BI"].contains(&o.operator.as_str())
     };
     content.is_none_or(|c| c.operations.iter().any(fills))
 }
@@ -227,11 +227,9 @@ pub(crate) fn free_text_frame(
         };
     let background = background.filter(|_| !stale_fill);
     let (x, y, w, h) = (inner.x1, inner.y1, inner.width(), inner.height());
-    let mut content = String::new();
-    if let Some(background) = &background {
-        let area = format_operands(&[x, y, w, h]);
-        content.push_str(&format!("q {} {area} re f Q\n", colour(background, true)));
-    }
+    let area = format_operands(&[x, y, w, h]);
+    let fill = |background: &Vec<f64>| format!("q {} {area} re f Q\n", colour(background, true));
+    let mut content = background.as_ref().map(fill).unwrap_or_default();
     let width = shape_stroke_width(document, annotation).filter(|w| w.is_finite() && *w > 0.0);
     let border = width.map(|_| da.stroke.or(da.fill).unwrap_or_else(|| vec![0.0]));
     if let Some(colour) = &border {

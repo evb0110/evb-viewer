@@ -2350,6 +2350,34 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         assert!(!content.contains(" re f") && content.contains("0 G 2 w 1 J 0 j"), "{content}");
         assert_eq!(frame_of(&unfilled), (2.0, Some("#000000".to_string()), None), "it reopens unfilled");
     }
+    // An inline image paints a real background (review-b8f, r12-make-variants
+    // inline-image): /C stays the label's fill, on screen and through Save.
+    let mut inline = loaded.clone();
+    let painted = inline.add_object(Stream::new(
+        dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(), 0.into(), 140.into(), 55.into()]},
+        b"q 140 0 0 55 0 0 cm BI /W 1 /H 1 /BPC 8 /CS /RGB ID \0\0\0 EI Q BT /Helv 12 Tf 1 1 1 rg 8 13 Td (Fill probe) Tj ET".to_vec(),
+    ));
+    let label = inline.get_dictionary_mut(foreign_id).unwrap();
+    label.set("C", vec![0.into(), 0.into(), 0.into()]);
+    label.set("DA", Object::string_literal("/Helv 12 Tf 1 1 1 rg"));
+    label.set("BS", dictionary! {"W" => 2, "S" => "S"});
+    label.remove(b"Border");
+    label.remove(b"EVBTextGeometry");
+    label.get_mut(b"AP").unwrap().as_dict_mut().unwrap().set("N", painted);
+    assert_eq!(frame_of(&inline).2.as_deref(), Some("#000000"), "the inline image is the label's fill");
+    let edit = TextBoxMutation {
+        page_index: 0, stable_key: "foreign-text-box".to_string(),
+        annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: "Fill probe".to_string(),
+        rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 12.0, color: [245, 158, 11],
+        author: None, created_at: None, modified_at: None,
+    };
+    let edit = NativeMutationsFile { text_boxes: vec![edit], ..NativeMutationsFile::default() };
+    apply_native_mutations(&mut inline, &edit, "D:20260831140000Z").unwrap();
+    let label = inline.get_dictionary(foreign_id).unwrap();
+    assert!(label.get(b"C").is_ok(), "the filled label keeps its /C");
+    let normal = label.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
+    let content = String::from_utf8(inline.get_object(normal).unwrap().as_stream().unwrap().content.clone()).unwrap();
+    assert!(content.starts_with("q 0 0 0 rg 20 25 140 55 re f Q"), "{content}");
 }
 
 #[test]
