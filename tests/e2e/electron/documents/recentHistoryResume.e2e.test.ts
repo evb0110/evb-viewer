@@ -266,13 +266,16 @@ describe('recent history and retained PDF tabs', () => {
         await clickAsUser(session.page, '.recent-row--data .recent-open');
         await waitForPdfLoaded(session.page);
         await waitForViewerInteractive(session.page);
+        // A page is marked rendered when its canvas commits, and its text layer is filled in right after.
+        // A person sees page 27 with its text, so wait for that state rather than read the moment between.
+        const page27Shown = await session.page.waitForFunction(() => (
+            Array.from(document.querySelectorAll('.workspace-host[data-workspace-active="true"] .page_container--rendered')).some(page => (
+                page.getAttribute('data-page') === '27' && page.textContent?.includes('27/40')
+            ))
+        )).then(() => true).catch(() => false);
         const observation = {
             currentPage: await getToolbarCurrentPage(session.page),
-            renderedPage27: await session.page.$eval('.workspace-host[data-workspace-active="true"]', host => (
-                Array.from(host.querySelectorAll('.page_container--rendered')).some(page => (
-                    page.getAttribute('data-page') === '27' && page.textContent?.includes('27/40')
-                ))
-            )),
+            renderedPage27: page27Shown,
         };
         expect(observation).toEqual({
             currentPage: 27,
