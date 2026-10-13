@@ -70,6 +70,7 @@ import {
 } from '@electron/utils/nativeTerminationProof';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
+    commitManagedScratchRecord,
     recordManagedScratchBackup,
     recordManagedScratchComplete,
     recordManagedScratchPath,
@@ -510,6 +511,7 @@ export async function promoteStagedFiles(
     const {scratchPath} = batchLedger;
     try {
         const targetPaths = new Set(sharedLedger?.promotedFiles.map(file => normalizePathForLookup(file.targetPath)));
+        const backupTemporaryPaths: string[] = [];
         for (const file of stagedFiles) {
             const targetPath = normalizePathForLookup(file.targetPath);
             if (targetPaths.has(targetPath)) {
@@ -519,33 +521,40 @@ export async function promoteStagedFiles(
                 throw new Error(`Image export staged output is not beside its target: ${file.targetPath}`);
             }
             targetPaths.add(targetPath);
-        }
-        for (const stagedFile of stagedFiles) {
-            throwIfAborted(signal);
-            const original = await readFileIdentity(stagedFile.targetPath);
-            const promotedFile: IStagedFilePublication = {
-                targetPath: stagedFile.targetPath,
-                backupPath: original ? makeSiblingTempPath(stagedFile.targetPath) : null,
+            const original = await readFileIdentity(file.targetPath);
+            const published = await readFileIdentity(file.stagedPath);
+            if (!published) throw new Error(`Image export staged output is missing for ${file.targetPath}`);
+            const backupPath = original ? makeSiblingTempPath(file.targetPath) : null;
+            batchLedger.promotedFiles.push({
+                targetPath: file.targetPath,
+                backupPath,
                 original,
-                published: null,
-            };
-            batchLedger.promotedFiles.push(promotedFile);
-            if (promotedFile.backupPath && original) {
-                const temporaryPath = makeSiblingTempPath(promotedFile.backupPath);
-                await recordManagedScratchBackup(scratchPath, promotedFile.backupPath, stagedFile.targetPath, original);
-                await recordManagedScratchPath(scratchPath, 'writer', temporaryPath);
-                await copyFileAtomic(stagedFile.targetPath, promotedFile.backupPath, {
+                published,
+            });
+            if (backupPath && original) {
+                backupTemporaryPaths.push(makeSiblingTempPath(backupPath));
+                await recordManagedScratchBackup(scratchPath, backupPath, file.targetPath, original);
+                await recordManagedScratchPath(scratchPath, 'writer', backupTemporaryPaths.at(-1)!);
+            }
+            await recordManagedScratchPublish(scratchPath, file.targetPath, published);
+        }
+        // One fsync makes the whole batch's record durable before any file of it
+        // is replaced; recovery settles a recorded file that was not replaced yet.
+        await commitManagedScratchRecord(scratchPath);
+        for (const [
+            index,
+            promotedFile,
+        ] of batchLedger.promotedFiles.entries()) {
+            throwIfAborted(signal);
+            if (promotedFile.backupPath) {
+                await copyFileAtomic(promotedFile.targetPath, promotedFile.backupPath, {
                     durable: true,
-                    temporaryPath,
+                    temporaryPath: backupTemporaryPaths.shift()!,
                 });
             }
             throwIfAborted(signal);
-            const published = await readFileIdentity(stagedFile.stagedPath);
-            if (!published) throw new Error(`Image export staged output is missing for ${stagedFile.targetPath}`);
-            promotedFile.published = published;
-            await recordManagedScratchPublish(scratchPath, stagedFile.targetPath, published);
-            await atomicReplace(stagedFile.stagedPath, stagedFile.targetPath);
-            promotedFile.published = await readFileIdentity(stagedFile.targetPath);
+            await atomicReplace(stagedFiles[index]!.stagedPath, promotedFile.targetPath);
+            promotedFile.published = await readFileIdentity(promotedFile.targetPath);
         }
         throwIfAborted(signal);
         if (!sharedLedger) {

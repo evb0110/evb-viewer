@@ -170,21 +170,19 @@ type TManagedScratchRecordEntry =
     | IManagedScratchPublishEntry
     | {kind: 'complete'};
 
-// Each line reaches the disk before the step it names, so a power cut keeps
-// it. The first also makes the marker and both directory entries durable: the
-// sweep applies a record only beside its marker, which a caller's own scratch
-// does not have.
 async function appendManagedScratchRecord(scratchPath: string | null, entry: TManagedScratchRecordEntry) {
-    if (!scratchPath) {
-        return;
+    if (scratchPath) {
+        await appendFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE), `${JSON.stringify(entry)}\n`, 'utf8');
     }
-    const recordPath = join(scratchPath, MANAGED_SCRATCH_RECORD_FILE);
-    const isFirstLine = await lstat(recordPath).then(() => false, () => true);
-    await appendFile(recordPath, `${JSON.stringify(entry)}\n`, {
-        encoding: 'utf8',
-        flush: true,
-    });
-    if (isFirstLine) {
+}
+
+// Makes every line so far durable, so a power cut keeps them: once before a
+// batch replaces any file its lines name, and with the completion line, before
+// a backup goes. The marker and both directory entries go too, since the sweep
+// applies a record only beside its marker (a caller's own scratch has none).
+export async function commitManagedScratchRecord(scratchPath: string | null) {
+    if (scratchPath) {
+        await fsyncFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE));
         await fsyncFile(join(scratchPath, MANAGED_SCRATCH_MARKER_FILE)).catch((error: unknown) => {
             if (!isErrnoException(error) || error.code !== 'ENOENT') throw error;
         });
@@ -224,6 +222,7 @@ export async function recordManagedScratchPublish(scratchPath: string | null, ta
 
 export async function recordManagedScratchComplete(scratchPath: string | null) {
     await appendManagedScratchRecord(scratchPath, {kind: 'complete'});
+    await commitManagedScratchRecord(scratchPath);
 }
 
 function isFileIdentityRecord(value: unknown): value is IFileIdentity {
