@@ -1828,3 +1828,114 @@ syncBuiltinESMExports();
     }, E2E_TIMEOUT_MS);
 
 });
+
+interface IPageLabelProbeComponent {
+    provides: Record<PropertyKey, unknown>;
+    parent?: IPageLabelProbeComponent | null;
+    subTree?: IPageLabelProbeVNode;
+}
+interface IPageLabelProbeVNode {
+    component?: IPageLabelProbeComponent;
+    children?: IPageLabelProbeVNode[] | string;
+    ssContent?: IPageLabelProbeVNode;
+    ssFallback?: IPageLabelProbeVNode;
+}
+interface IPageLabelProbeMetadata {metadata: {pageLabelState: {
+    pageLabelsResolved: {value: boolean};
+    pageLabelRanges: {value: Array<{startNumber: number}>};
+    labelAt(page: number): string | null;
+    readPageLabelWindow(start: number, end: number): string[];
+}};}
+
+describe('[crpart3core] huge imported numbering', () => {
+    it.each([
+        {
+            style: 'A',
+            startNumber: 1_000_000_000,
+        },
+        {
+            style: 'R',
+            startNumber: 1_000_000,
+        },
+    ])('CR19 bounds $style label reads and preserves /St on save', async ({
+        style, startNumber,
+    }) => {
+        const fixture = await createMultiPageTextFixturePdf(`crpart3core-huge-${style}-${Date.now()}.pdf`, 128);
+        const pdf = await PDFDocument.load(await readFile(fixture));
+        pdf.catalog.set(PDFName.of('PageLabels'), pdf.context.obj({Nums: [
+            0,
+            {
+                S: PDFName.of(style),
+                St: startNumber,
+            },
+        ]}));
+        await writeFile(fixture, await pdf.save({useObjectStreams: false}));
+        const run = await startElectronE2ESession(`e2e-crpart3core-labels-${style}-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [fixture],
+        });
+        onTestFinished(() => run.stop());
+        const {page} = run;
+        await waitForOpenedPdf(page, fixture);
+        const {readToolbarPageIndicator} = await import('@tests/e2e/electron/helpers/toolbarPageIndicator');
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 20_000}).toContain('…');
+        const shown = await readToolbarPageIndicator(page);
+        expect(shown.primaryText?.length).toBeLessThanOrEqual(65);
+        expect(shown.renderedPage).toBe(1);
+        const reads = await page.evaluate(() => {
+            let state: IPageLabelProbeMetadata['metadata']['pageLabelState'] | null = null;
+            const seen = new Set<IPageLabelProbeVNode>();
+            const visit = (vnode: IPageLabelProbeVNode | undefined) => {
+                if (!vnode || seen.has(vnode) || state) return;
+                seen.add(vnode);
+                const component = vnode.component;
+                if (component) {
+                    for (const key of Reflect.ownKeys(component.provides)) {
+                        if (typeof key === 'symbol' && key.description === 'documentContext') {
+                            state = (component.provides[key] as IPageLabelProbeMetadata).metadata.pageLabelState;
+                        }
+                    }
+                    visit(component.subTree);
+                }
+                if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                visit(vnode.ssContent);
+                visit(vnode.ssFallback);
+            };
+            visit((document.querySelector('#__nuxt') as HTMLElement & {_vnode?: IPageLabelProbeVNode} | null)?._vnode);
+            if (!state) throw new Error('The real document page-label owner is unavailable');
+            const owner = state as IPageLabelProbeMetadata['metadata']['pageLabelState'];
+            const firstLength = owner.labelAt(1)?.length ?? 0;
+            // Avoid asking the old code to serialize a multi-gigabyte window.
+            const labels = firstLength <= 65 ? owner.readPageLabelWindow(1, 128) : [];
+            return {
+                resolved: owner.pageLabelsResolved.value,
+                sourceStart: owner.pageLabelRanges.value[0]?.startNumber,
+                firstLength,
+                windowLength: labels.length,
+                maximumLength: Math.max(0, ...labels.map(label => label.length)),
+                payloadBytes: new TextEncoder().encode(JSON.stringify(labels)).byteLength,
+            };
+        });
+        expect(reads.resolved).toBe(true);
+        expect(reads.sourceStart).toBe(startNumber);
+        expect(reads.firstLength).toBeLessThanOrEqual(65);
+        expect(reads.windowLength).toBe(128);
+        expect(reads.maximumLength).toBeLessThanOrEqual(65);
+        expect(reads.payloadBytes).toBeLessThan(9_000);
+        await createStickyNoteWithPointer(page, 'Save keeps imported numbering', {
+            x: 0.62,
+            y: 0.3,
+        });
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await saveFromWorkspace(page, fixture);
+        const {
+            PDFArray, PDFDict, PDFNumber,
+        } = await import('pdf-lib');
+        const saved = await PDFDocument.load(await readFile(fixture));
+        const tree = saved.catalog.lookup(PDFName.of('PageLabels'), PDFDict);
+        const range = tree.lookup(PDFName.of('Nums'), PDFArray).lookup(1, PDFDict);
+        expect(range.lookup(PDFName.of('St'), PDFNumber).asNumber()).toBe(startNumber);
+        expect((await readPdfTextAnnotationRecords(fixture)).map(note => note.contents)).toContain('Save keeps imported numbering');
+    }, E2E_TIMEOUT_MS);
+});
