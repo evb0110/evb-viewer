@@ -1,9 +1,11 @@
 import {
-    copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
+    copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    join, resolve,
+} from 'node:path';
 import {deflateSync} from 'node:zlib';
 import {
     PDFDocument, StandardFonts, rgb,
@@ -16,6 +18,7 @@ import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/v
 import {readPdfTextAnnotationRecords} from '@tests/e2e/electron/helpers/fixtures';
 import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
 import {
+    activateMenuItemAsUser,
     clickAsUser,
     clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
@@ -167,6 +170,137 @@ async function waitForTransferredViewSettled(page: Page) {
 }
 
 describe('Move Tab to New Window view state', () => {
+
+    it.each([
+        [
+            'ack',
+            true,
+        ],
+        [
+            'cleanup',
+            true,
+        ],
+        [
+            'ack',
+            false,
+        ],
+        [
+            'cleanup',
+            false,
+        ],
+    ] as const)('preserves unsaved work across %s finalization with native close=%s', async (boundary, closeSource) => {
+        const home = mkdtempSync(join(tmpdir(), 'transfer-native-close-'));
+        const gate = join(home, 'handoff');
+        const preload = join(home, 'hold-finalization.cjs');
+        onTestFinished(async () => {
+            writeFileSync(`${gate}.release`, '');
+            // Required preloads must outlive the main process and its workers.
+            await sessions.restart({
+                clean: true,
+                hard: true,
+            });
+            rmSync(home, {
+                recursive: true,
+                force: true,
+            });
+        });
+        // Timing setup at the same IPC boundaries as the reviewed loss. The
+        // native close and all document edits use their ordinary input paths.
+        writeFileSync(preload, `
+            const fs = require('node:fs');
+            if (process.versions.electron && process.type === 'browser') setImmediate(function install() {
+                const electron = require('electron');
+                if (!electron.ipcMain) return setImmediate(install);
+                const gate = ${JSON.stringify(gate)};
+                electron.ipcMain.on('window:closeResponse', (event, response) => {
+                    if (electron.BrowserWindow.fromWebContents(event.sender)?.id === 1
+                        && response.status === 'acknowledged') fs.writeFileSync(gate + '.close-requested', '');
+                });
+                const channel = ${JSON.stringify(boundary === 'ack' ? 'tabs:transferAck' : 'file:cleanup')};
+                const wrap = handler => async (event, payload) => {
+                    if (electron.BrowserWindow.fromWebContents(event.sender)?.id === 1
+                        && fs.existsSync(gate + '.arm')
+                        && (${JSON.stringify(boundary)} === 'ack' ? payload.success
+                            : String(payload) === fs.readFileSync(gate + '.arm', 'utf8'))) {
+                        fs.writeFileSync(gate + '.held', '');
+                        await new Promise(resolve => {
+                            const poll = setInterval(() => {
+                                if (fs.existsSync(gate + '.release')) {clearInterval(poll); resolve();}
+                            }, 25);
+                        });
+                    }
+                    return handler(event, payload);
+                };
+                const existing = electron.ipcMain._invokeHandlers?.get(channel);
+                if (existing) electron.ipcMain._invokeHandlers.set(channel, wrap(existing));
+                const register = electron.ipcMain.handle.bind(electron.ipcMain);
+                electron.ipcMain.handle = (name, handler) => register(name, name === channel ? wrap(handler) : handler);
+            });
+        `);
+        await sessions.restart({
+            clean: true,
+            hard: true,
+            extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(preload)}`},
+        });
+        const {page: source} = sessions.getSession();
+        const fixture = join(home, 'unsaved-handoff.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/test-scanned.pdf'), fixture);
+        await openPdfInApp(source, fixture);
+        await createFreeTextAnnotationWithPointer(source, 'Unsaved handoff edit', {
+            x: 0.3,
+            y: 0.3,
+        }, 1);
+        await clickAsUser(source, '.tab-new');
+        await clickAsUser(source, '.tab-list .tab:first-child');
+        // Only the original source's cleanup is delayed, never the incoming copy.
+        const workingCopy = await source.evaluate(() => (window as IE2EWindow).__evbTestApi!
+            .collectWorkspaceDebugState().activeWorkspaceState?.workingCopyPath);
+        expect(workingCopy).toBeTruthy();
+        writeFileSync(`${gate}.arm`, boundary === 'cleanup' ? workingCopy! : '');
+        const oldPages = new Set(await source.browser().pages());
+        await clickAsUser(source, '.tab.is-active', {button: 'right'});
+        await clickAsUser(source, '[role="menuitem"][data-tab-command="move-to-new-window"]');
+        await vi.waitFor(() => expect(existsSync(`${gate}.held`)).toBe(true), {timeout: 30_000});
+        const destination = (await source.browser().pages()).find(page => !oldPages.has(page))!;
+        if (closeSource) {
+            // Hidden macOS cannot route OS Close input; this addresses the
+            // same BrowserWindow.close that native Close invokes.
+            if (process.platform === 'darwin') {
+                await source.evaluate(() => (window as IE2EWindow).electronAPI!.windowTabs!.closeCurrentWindow());
+            } else {
+                await activateMenuItemAsUser(source, {accelerator: 'Ctrl+Shift+W'});
+            }
+            await vi.waitFor(() => expect(existsSync(`${gate}.close-requested`)).toBe(true), {timeout: 15_000});
+            // Observe the provisional edited copy before allowing finalization.
+            // Native Close must keep its source alive throughout this interval.
+            await destination.screenshot({path: join(home, 'pending-close.png')});
+            expect(source.isClosed()).toBe(false);
+        }
+        writeFileSync(`${gate}.release`, '');
+        if (closeSource) await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
+        await vi.waitFor(async () => expect(await destination.$('.workspace-transfer-state')).toBeNull(), {timeout: 30_000});
+        const texts = await destination.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
+            node.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim()
+        )));
+        expect(texts).toContain('Unsaved handoff edit');
+        await clickFoundAsUser(destination, () => Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'))
+            .find(button => /^Save(?: \(|$)/u.test(button.getAttribute('aria-label') ?? '') && !button.disabled), undefined, {description: 'Save surviving document'});
+        await vi.waitFor(async () => expect(await destination.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
+        const saved = await readPdfTextAnnotationRecords(fixture);
+        console.log('TRANSFER_NATIVE_CLOSE_RESULT', JSON.stringify({
+            boundary,
+            closeSource,
+            sourceClosed: source.isClosed(),
+            texts,
+            saved,
+        }));
+        expect(saved).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Unsaved handoff edit'})]));
+        if (process.env.EVB_R3_EVIDENCE_DIR) {
+            await destination.screenshot({path: join(process.env.EVB_R3_EVIDENCE_DIR, `${boundary}-close-${closeSource}.png`)});
+            copyFileSync(fixture, join(process.env.EVB_R3_EVIDENCE_DIR, `${boundary}-close-${closeSource}-saved.pdf`));
+        }
+    }, 120_000);
+
     it.each([
         'annotation',
         'save',
