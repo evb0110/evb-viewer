@@ -37,6 +37,9 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
             reason: 'first-mutation',
         }));
     return withOriginalPathMutationLock(input.originalPath, async () => {
+        // An interrupted save is finished first: a PDF that cannot be restored yet refuses this save with its cause.
+        const pending = await recoverWorkingCopyTransition(input.workingCopyPath);
+        if (pending instanceof Error) throw pending;
         const witness = await measurePhase('transition-admit-original', input.captureOriginalWitness);
         input.signal?.throwIfAborted();
         if (!witness) {
@@ -106,10 +109,6 @@ export async function transitionOriginalAndWorkingCopyRevision(input: {
         } catch (error) {
             if (error instanceof OriginalPathSaveConflictError && journal?.original) {
                 if (journal.original.state === 'conflicted') throw new OriginalPathSaveConflictError(journal.original.backupPath);
-                await recordWorkingCopyJournalOriginal(journal, {
-                    ...journal.original,
-                    state: 'restored',
-                });
                 return null;
             }
             throw error;

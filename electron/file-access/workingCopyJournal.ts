@@ -38,6 +38,8 @@ import {
     getWorkingCopyJournalPath,
 } from '@electron/file-access/workingCopyDirectory';
 import {writeJsonAtomic} from '@electron/utils/atomicReplace';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 import * as v from 'valibot';
 
 export type TWorkingCopyContentBackupMode = 'copy-on-write' | 'hard-link' | 'append';
@@ -89,9 +91,7 @@ async function readJournal(workingCopyPath: string) {
     return result.output;
 }
 
-function writeJournal(journal: IWorkingCopyJournal) {
-    return writeJsonAtomic(getWorkingCopyJournalPath(journal.workingCopyPath), journal, {markMutationCommitStarted: false});
-}
+const log = createLogger('workingCopyJournal');
 
 export async function prepareWorkingCopyTransition(
     workingCopyPath: string,
@@ -100,6 +100,7 @@ export async function prepareWorkingCopyTransition(
     backupMode: TWorkingCopyContentBackupMode = 'copy-on-write',
 ) {
     const heldOriginal = await measureOperationPhase(() => recoverWorkingCopyTransition(workingCopyPath), durationMs => onPhase?.('content-recover', durationMs));
+    if (heldOriginal instanceof Error) throw heldOriginal;
     const backupPath = getWorkingCopyJournalBackupPath(workingCopyPath, `${process.pid}-${randomUUID()}`);
     const appendSourceStat = backupMode === 'append' ? await stat(workingCopyPath) : null;
     await measureOperationPhase(() => backupMode === 'copy-on-write'
@@ -115,7 +116,7 @@ export async function prepareWorkingCopyTransition(
         ...(appendHardLink ? {previousLength: appendSourceStat.size} : {}),
         ...(typeof heldOriginal === 'object' ? {original: heldOriginal} : {}),
     };
-    await measureOperationPhase(() => writeJournal(journal), durationMs => onPhase?.('content-write-journal', durationMs));
+    await measureOperationPhase(() => recordWorkingCopyJournalOriginal(journal, journal.original), durationMs => onPhase?.('content-write-journal', durationMs));
     return journal;
 }
 
@@ -126,12 +127,12 @@ export async function prepareWorkingCopyTransition(
  */
 export async function recordWorkingCopyJournalOriginal(
     journal: IWorkingCopyJournal,
-    original: IWorkingCopyJournalOriginal,
+    original: IWorkingCopyJournalOriginal | undefined,
 ) {
-    if (journal.original && journal.original.backupPath !== original.backupPath) await rm(journal.original.backupPath, {force: true});
+    if (journal.original && journal.original.backupPath !== original?.backupPath) await rm(journal.original.backupPath, {force: true});
     journal.original = original;
-    await writeJournal(journal);
-    if (original.state === 'conflicted') original.backupPath = await keepOriginalBeside(original.backupPath, original.path).catch(() => original.backupPath);
+    await writeJsonAtomic(getWorkingCopyJournalPath(journal.workingCopyPath), journal, {markMutationCommitStarted: false});
+    if (original?.state === 'conflicted') original.backupPath = await keepOriginalBeside(original.backupPath, original.path).catch(() => original.backupPath);
 }
 
 async function truncateWorkingCopy(workingCopyPath: string, length: number) {
@@ -194,17 +195,22 @@ export async function restoreTransitionOriginal(journal: IWorkingCopyJournal, or
 /**
  * Completes committed journals and rolls back others; unreadable journals fail closed. A finished transition whose
  * displaced original another program holds open returns that original, still journaled, for the next transition's
- * journal to carry, so the hold fails no read and blocks no edit.
+ * journal to carry, so the hold fails no read and blocks no edit. An unfinished one restores the working copy first,
+ * so a read always matches the manifest; when its PDF cannot be restored yet (locked, or a foreign replace journal),
+ * the journal stays, the log says so, and the cause is returned for a save or edit to refuse with.
  */
 export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     const journal = await readJournal(workingCopyPath);
     // A publication's temporary name is never needed once its transition ends, whatever the outcome.
     if (journal?.original) await rm(getPublicationTemporaryPath(journal.original.path, journal.original.backupPath), {force: true});
     if (journal && (await readWorkingCopyManifest(workingCopyPath))?.revision.token !== journal.nextRevisionToken) {
-        if (journal.original) await restoreTransitionOriginal(journal, journal.original).catch((error: unknown) => {
-            if (!(error instanceof OriginalPathSaveConflictError)) throw error;
-        });
         await restoreWorkingCopyContent(journal);
+        const pending = journal.original && await restoreTransitionOriginal(journal, journal.original).then(() => null, (error: unknown) => {
+            if (error instanceof OriginalPathSaveConflictError) return null;
+            log.warn('Kept an interrupted save\'s journal: its PDF cannot be restored yet', {error: getErrorMessage(error)});
+            return error instanceof Error ? error : new Error(getErrorMessage(error));
+        });
+        if (pending) return pending;
     }
     return journal !== null && completeWorkingCopyTransition(journal).then(() => true, (error: unknown) => {
         if (!isErrnoException(error) || error.code !== 'EBUSY' || !journal.original) throw error;
@@ -213,21 +219,14 @@ export async function recoverWorkingCopyTransition(workingCopyPath: string) {
     });
 }
 
-const UUID_LENGTH = 36;
 const NAME_MAX_BYTES = 255;
 
 /**
- * An original backup is named for the working copy whose transition made it:
- * the `pdf-work-*` directory key is part of the name, so a sweep can tell its
- * own orphans from a backup another working copy's journal still names. The
- * original basename leads only as far as the name stays within NAME_MAX.
+ * An original backup is named for the working copy whose transition made it: the `pdf-work-*` directory key is part of
+ * the name. The original basename leads only as far as the name, with its publication suffix, stays within NAME_MAX.
  */
-function getOriginalBackupNamePrefix(originalPath: string, workingCopyPath: string) {
-    const ownerSegment = `.evb-transition-${basename(dirname(workingCopyPath))}-`;
-    const basenameBudget = NAME_MAX_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - UUID_LENGTH - '.bak.tmp'.length;
-    return `${truncateUtf8PathComponent(basename(originalPath), basenameBudget)}${ownerSegment}`;
-}
-
 export function createOriginalTransitionBackupPath(originalPath: string, workingCopyPath: string) {
-    return join(dirname(originalPath), `${getOriginalBackupNamePrefix(originalPath, workingCopyPath)}${randomUUID()}.bak`);
+    const ownerSegment = `.evb-transition-${basename(dirname(workingCopyPath))}-${randomUUID()}`;
+    const basenameBudget = NAME_MAX_BYTES - Buffer.byteLength(ownerSegment, 'utf8') - '.bak.tmp'.length;
+    return join(dirname(originalPath), `${truncateUtf8PathComponent(basename(originalPath), basenameBudget)}${ownerSegment}.bak`);
 }

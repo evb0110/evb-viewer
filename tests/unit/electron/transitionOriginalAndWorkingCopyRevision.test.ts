@@ -1029,6 +1029,66 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
     });
 
+    it('keeps one revision per content and refuses Save as in use while a locked PDF waits to be restored after a crash', async () => {
+        const fs = await import('node:fs/promises');
+        let lockedPath = '';
+        vi.doMock('fs/promises', () => ({
+            ...fs,
+            // Another program holds the PDF open without delete sharing, so nothing can replace it.
+            rename: async (...args: Parameters<typeof fs.rename>) => {
+                if (lockedPath && String(args[1]) === lockedPath) throw Object.assign(new Error('EBUSY: resource busy or locked, rename'), {code: 'EBUSY'});
+                return fs.rename(...args);
+            },
+        }));
+        try {
+            const {
+                originalPath, stagedPath, workingCopyPath, saveAnnotations,
+            } = await prepareAnnotationSaves('pdf-work-locked-recovery');
+            const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+            const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+            const {
+                prepareWorkingCopyTransition, recordWorkingCopyJournalOriginal,
+            } = await import('@electron/file-access/workingCopyJournal');
+            const {getWorkingCopyRevision} = await import('@electron/file-access/documentRevisionStore');
+            const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+            const {token} = await getWorkingCopyRevision(workingCopyPath, 7);
+            const before = await readdir(tempRoot);
+
+            // A save published the PDF and synced the working copy, then EVB died before the commit.
+            const journal = await prepareWorkingCopyTransition(workingCopyPath, requireDocumentRevisionToken('drt1:crash:9:next'));
+            const backupPath = `${originalPath}.evb-transition-crash.bak`;
+            await writeFile(backupPath, 'old-original');
+            const preparedSnapshot = (await capturePathSaveWitness(originalPath))!.getSnapshotForJournal();
+            const publishedContent = await readFile(stagedPath, 'utf8');
+            await recordWorkingCopyJournalOriginal(journal, {
+                path: originalPath,
+                backupPath,
+                state: 'prepared',
+                preparedSnapshot,
+                intendedFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(Buffer.byteLength(publishedContent))
+                    .update(publishedContent)
+                    .digest('hex')}`,
+            });
+            await fs.rename(stagedPath, originalPath);
+            await writeFile(workingCopyPath, publishedContent);
+            lockedPath = originalPath;
+
+            await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({token});
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 68))).rejects.toMatchObject({code: 'EBUSY'});
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe(publishedContent);
+
+            lockedPath = '';
+            await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({token});
+            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+            expect((await readdir(tempRoot)).filter(name => !before.includes(name))).toEqual([]);
+            await expect(saveAnnotations(Buffer.alloc(2 * 1024 * 1024, 69))).resolves.toMatchObject({applied: true});
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+    });
+
     it('finishes keeping the file as it was before a save when a crash cut its move short', async () => {
         const {
             originalPath, workingCopyPath,

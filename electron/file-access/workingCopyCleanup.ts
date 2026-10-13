@@ -45,6 +45,7 @@ import {
 } from '@electron/file-access/documentRevisionStore';
 import {cleanupStaleAtomicReplaceBackups} from '@electron/utils/atomicReplace';
 import {recoverWorkingCopyTransition} from '@electron/file-access/workingCopyJournal';
+import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
 import {
     cancelWorkingCopyMaterialization,
     ensureWorkingCopyMaterialized,
@@ -325,11 +326,13 @@ async function cleanupWorkingCopyDirectory(
             }
             // The journal names what a save left beside the original; finish it before its folder goes. While
             // another program holds that file, the journal stays for the next start, and only the document goes.
-            const held = await recoverWorkingCopyTransition(normalizedPath).catch((error: unknown) => {
+            const recover = () => recoverWorkingCopyTransition(normalizedPath);
+            // Recovery at close takes the same original-path lock a save holds, so it cannot interleave with one.
+            const held = await (originalPath ? withOriginalPathMutationLock(originalPath, recover) : recover()).catch((error: unknown) => {
                 logger.warn('Could not finish a working-copy journal before closing', {error: getErrorMessage(error)});
             });
             if (typeof held === 'object') {
-                logger.warn('Kept a closed document\'s journal while another program holds its save leftover', {workDir});
+                logger.warn('Kept a closed document\'s journal until its PDF or save leftover can be finished', {workDir});
                 await rm(normalizedPath, {force: true});
                 return;
             }
