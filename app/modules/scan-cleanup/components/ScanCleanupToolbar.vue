@@ -1,7 +1,6 @@
 <template>
     <header
         class="toolbar scan-cleanup-toolbar"
-        :class="{'scan-cleanup-toolbar-metered': meterVisible}"
         :aria-label="t('scanCleanup.workspaceTitle')"
     >
         <div class="scan-cleanup-toolbar-zone scan-cleanup-toolbar-zone-left">
@@ -387,28 +386,19 @@ const detectionCancelLabel = computed(() => t(detectionCancelRequested
 
 @media (width <= 64rem) {
     .scan-cleanup-toolbar {
-        grid-template-columns:
-            minmax(0, 1fr)
-            minmax(0, var(--app-scan-toolbar-primary-width))
-            minmax(0, 1fr);
-        gap: var(--app-space-3xl);
-    }
-
-    /* While the meter shows, Done, the title and the primary action share the
-       first row and the meter takes the whole second row, so the phase, step
-       and count keep their room without squeezing Done out (#976). The title
-       gives way first. Idle, the settings badges keep the side room. */
-    .scan-cleanup-toolbar-metered {
         height: auto;
         max-height: none;
         flex-basis: auto;
         grid-template-columns:
-            minmax(0, 1fr)
+            minmax(var(--app-scan-toolbar-primary-width), 1fr)
             minmax(var(--app-scan-toolbar-primary-width), auto);
+        grid-template-rows: repeat(2, var(--app-control-height-sm));
+        gap: var(--app-space-3xl);
     }
 
-    /* Left and right fill the first row in source order. */
-    .scan-cleanup-toolbar-metered .scan-cleanup-toolbar-zone-center {
+    /* Analysis can finish during a settings click. Keep its row reserved so
+       the controls below it do not move between aiming and pressing. */
+    .scan-cleanup-toolbar-zone-center {
         grid-column: 1 / -1;
         grid-row: 2;
     }
