@@ -1,4 +1,7 @@
-import {stat} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
+import {
+    rename, stat,
+} from 'node:fs/promises';
 import {
     atomicReplace, moveFileToMissingPath, recoverWindowsAtomicReplace,
 } from '@electron/utils/atomicReplace';
@@ -43,16 +46,9 @@ export async function captureIntendedContentFingerprint(sourcePath: string, sign
  * guard the rollback: a replacement made while hashing is never overwritten.
  */
 async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
-    try {
-        const witness = original.intendedFingerprint !== undefined && await capturePathSaveWitness(original.path);
-        if (!witness || await captureIntendedContentFingerprint(original.path) !== original.intendedFingerprint) {
-            return null;
-        }
-        await witness.assertCurrent();
-        return witness;
-    } catch {
-        return null;
-    }
+    const witness = original.intendedFingerprint === undefined ? null : await capturePathSaveWitness(original.path);
+    const fingerprint = witness && await captureIntendedContentFingerprint(original.path).catch(() => null);
+    return witness && fingerprint === original.intendedFingerprint ? witness.assertCurrent().then(() => witness, () => null) : null;
 }
 
 /**
@@ -61,10 +57,11 @@ async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
  * keeps them. A present destination must match the journal first.
  */
 export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
-    if (original.state === 'restored' || original.state === 'conflicted' || !await stat(original.backupPath).then(() => true, () => false)
-        || original.preparedSnapshot !== undefined && await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true}).then(() => true, () => false)) {
-        return;
-    }
+    if (original.state === 'restored' || original.state === 'conflicted' || !await stat(original.backupPath).then(() => true, () => false)) return;
+    // Each decision below reads the whole PDF afresh. A PDF another program holds refuses its restore, and renaming it
+    // onto itself, which changes nothing, says so first, so a held PDF is not read in full at every revision read.
+    await rename(original.path, original.path).catch((error: unknown) => existsSync(original.path) ? Promise.reject(error) : undefined);
+    if (original.preparedSnapshot !== undefined && await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true}).then(() => true, () => false)) return;
     // A replace journal left by EVB's Windows fallback is applied only for an original EVB is about to restore.
     if (process.platform === 'win32') await recoverWindowsAtomicReplace(original.path);
     // EVB's own bytes, recorded as published or not yet, are rolled back even when only their metadata changed.
