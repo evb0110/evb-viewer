@@ -756,6 +756,7 @@ export default {
         'stroke': 'Contour',
         'textSize': 'Taille du texte',
         'moveTextBox': 'Faire glisser pour déplacer le bloc de texte',
+        'readOnlyBorderStyle': 'Le style de bordure de cette étiquette ne peut pas être modifié ici ; elle garde son aspect d\'origine.',
         'textResizeHint': 'Faites glisser la poignée pour déplacer le bloc. Double-cliquez sur le texte pour le modifier. Les coins redimensionnent le texte et les côtés ajustent les retours à la ligne.',
         'penType': 'Type de stylo',
         'pen': 'Stylo',

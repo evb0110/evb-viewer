@@ -46,6 +46,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import {
     asAnnotationId,
+    isReadOnlyAnnotation,
     normalizeAnnotationText,
     type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -245,9 +246,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         const nextRetiredPdfAnnotationIds = new Set(retiredPdfAnnotationIds.value);
         snapshotIncludingDeleted.forEach((entity) => {
             const pdfJsAnnotationId = normalizePdfJsAnnotationId(entity.identity.pdfRef);
-            if (!pdfJsAnnotationId) {
-                return;
-            }
+            if (!pdfJsAnnotationId || isReadOnlyAnnotation(entity)) return;
             nextStoreOwnedPdfAnnotationIds.add(pdfJsAnnotationId);
             if (entity.deleted) {
                 nextRetiredPdfAnnotationIds.add(pdfJsAnnotationId);

@@ -191,10 +191,11 @@
                 </template>
                 </button>
                 <button
+                    v-if="!virtualComment.data.readOnly"
                     type="button"
                     class="note-item-delete"
                     :aria-label="t('annotations.delete')"
-                    @click="deleteComment(virtualComment.data)"
+                    @click="emit('delete-comment', virtualComment.data)"
                     @dblclick.stop.prevent
                 >
                     <UIcon name="i-ph-trash" />
@@ -643,10 +644,6 @@ function openComment(comment: IAnnotationCommentSummary) {
     } else if (isNoteEligibleComment(comment)) {
         emit('open-note', comment);
     }
-}
-
-function deleteComment(comment: IAnnotationCommentSummary) {
-    emit('delete-comment', comment);
 }
 
 </script>

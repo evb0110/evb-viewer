@@ -18,12 +18,11 @@ import * as v from 'valibot';
 const SHA256_PATTERN = /^[0-9a-f]{64}$/iu;
 
 function finiteNumber(fieldName: string, min?: number, max?: number) {
-    const bounds = `${min === undefined ? '' : ` >= ${min}`}${max === undefined ? '' : ` <= ${max}`}`;
+    const message = `${fieldName} must be a finite number${min === undefined ? '' : ` >= ${min}`}${max === undefined ? '' : ` <= ${max}`}`;
     return v.pipe(
-        v.number(`${fieldName} must be a finite number${bounds}`),
-        v.finite(`${fieldName} must be a finite number${bounds}`),
-        v.check(value => (min === undefined || value >= min) && (max === undefined || value <= max),
-            `${fieldName} must be a finite number${bounds}`),
+        v.number(message),
+        v.finite(message),
+        v.check(value => (min === undefined || value >= min) && (max === undefined || value <= max), message),
     );
 }
 
@@ -36,11 +35,8 @@ function nonNegativeInteger(fieldName: string) {
 }
 
 function nonEmptyString(fieldName: string, allowEmpty = false) {
-    return v.pipe(
-        v.string(`${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`),
-        v.check(value => allowEmpty || value.length > 0,
-            `${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`),
-    );
+    const message = `${fieldName} must be ${allowEmpty ? '' : 'a non-empty '}string`;
+    return v.pipe(v.string(message), v.check(value => allowEmpty || value.length > 0, message));
 }
 
 function nullableString(fieldName: string, allowEmpty = true) {
@@ -167,6 +163,8 @@ const textBoxSchema = v.pipe(
             borderColor: v.nullable(rgbColorSchema('annotation parse text-box.frame.borderColor')),
             background: v.nullable(rgbColorSchema('annotation parse text-box.frame.background')),
         }, 'contains unsupported field')),
+        // A label whose border style the editor cannot draw: selectable, never edited.
+        readOnly: v.optional(v.literal(true)),
     }, 'contains unsupported field'),
     v.check(({
         rect, rotation,

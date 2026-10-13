@@ -236,6 +236,7 @@ export default {
         'stroke': 'Stroke',
         'textSize': 'Text Size',
         'moveTextBox': 'Drag to move text box',
+        'readOnlyBorderStyle': 'This label\'s border style can\'t be edited here; it keeps its original look.',
         'textResizeHint': 'Drag the grip to move. Double-click text to edit. Drag a corner to scale text, or a side to change wrapping.',
         'penType': 'Pen Type',
         'pen': 'Pen',

@@ -756,6 +756,7 @@ export default {
         'stroke': 'Lijnkleur',
         'textSize': 'Tekstgrootte',
         'moveTextBox': 'Sleep om het tekstvak te verplaatsen',
+        'readOnlyBorderStyle': 'De randstijl van dit label kan hier niet worden bewerkt; het behoudt zijn oorspronkelijke uiterlijk.',
         'textResizeHint': 'Sleep de greep om het tekstvak te verplaatsen. Dubbelklik op de tekst om deze te bewerken. Hoeken schalen de tekst, zijkanten wijzigen de regelafbreking.',
         'penType': 'Pentype',
         'pen': 'Pen',

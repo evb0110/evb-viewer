@@ -221,10 +221,7 @@ pub(crate) fn update_note_geometry(
         }
         let source_page_id = find_note_target_page(document, &target)
             .ok_or("Note geometry target is not referenced from page Annots")?;
-        let page_number = update
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid note geometry page index")?;
+        let page_number = mutation_page_number(update.page_index)?;
         let destination_page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, destination_page_id)?;
         let page_rotation = resolve_page_rotation(document, destination_page_id)?;
@@ -335,10 +332,7 @@ pub(crate) fn update_note_geometry_incremental(
         }
         let source_page_id = find_note_target_page(incremental.get_prev_documents(), &target)
             .ok_or("Note geometry target is not referenced from page Annots")?;
-        let page_number = update
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid note geometry page index")?;
+        let page_number = mutation_page_number(update.page_index)?;
         let destination_page_id =
             page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
         let page_view = resolve_page_view(incremental.get_prev_documents(), destination_page_id)?;
@@ -408,10 +402,7 @@ where
     let mut note_pages = Vec::with_capacity(notes.len());
     let mut annotation_indexes = HashMap::new();
     for note in &notes {
-        let page_number = note
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid Text note page index")?;
+        let page_number = mutation_page_number(note.page_index)?;
         let page_id = page_resolver.page_id(document, page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
@@ -521,10 +512,7 @@ where
     let mut note_pages = Vec::with_capacity(notes.len());
     let mut annotation_indexes = HashMap::new();
     for note in &notes {
-        let page_number = note
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid Text note page index")?;
+        let page_number = mutation_page_number(note.page_index)?;
         let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
@@ -642,10 +630,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
     let mut annotation_indexes = HashMap::new();
     let mut fonts = crate::text_box_font::SharedFonts::default();
     for editor in editors {
-        let page_number = editor
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid FreeText editor page index")?;
+        let page_number = mutation_page_number(editor.page_index)?;
         let page_id = page_resolver.page_id(document, page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
@@ -722,10 +707,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
     let mut annotation_indexes = HashMap::new();
     let mut fonts = crate::text_box_font::SharedFonts::default();
     for editor in editors {
-        let page_number = editor
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid FreeText editor page index")?;
+        let page_number = mutation_page_number(editor.page_index)?;
         let page_id = page_resolver.page_id(incremental.get_prev_documents(), page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {
@@ -800,6 +782,13 @@ pub(crate) fn text_box_name(editor: &TextBoxMutation) -> String {
 
 /// Classify existing targets before any same-save geometry or text updates.
 /// Those updates can temporarily leave canonical layout metadata stale.
+/// The 1-based page number of a mutation's 0-based page index.
+fn mutation_page_number(page_index: u32) -> Result<u32> {
+    Ok(page_index
+        .checked_add(1)
+        .ok_or("Invalid annotation page index")?)
+}
+
 pub(crate) fn validate_text_box_targets(
     document: &impl PdfObjectSource,
     mutations: &NativeMutationsFile,
@@ -810,13 +799,7 @@ pub(crate) fn validate_text_box_targets(
     let pages = PageTreeResolver::new(document)?;
     let mut indexes = HashMap::new();
     for editor in &mutations.text_boxes {
-        let page_id = pages.page_id(
-            document,
-            editor
-                .page_index
-                .checked_add(1)
-                .ok_or("Invalid FreeText editor page index")?,
-        )?;
+        let page_id = pages.page_id(document, mutation_page_number(editor.page_index)?)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = indexes.entry(page_id) {
             entry.insert(build_page_annotation_index(document, page_id)?.0);
         }
@@ -866,6 +849,10 @@ pub(crate) fn validate_text_box_targets(
             resolve_page_rotation(document, source_page)?,
             &name,
         )
+        .and_then(|entry| match entry.read_only {
+            true => Err("its border style is not editable".to_string()),
+            false => Ok(()),
+        })
         .map_err(|reason| format!("FreeText target {}R{} is read-only: {reason}", id.0, id.1))?;
     }
     Ok(())
@@ -1819,10 +1806,7 @@ fn resolve_annotation_delete_page_ids(
 ) -> Result<Vec<ObjectId>> {
     let mut page_ids = HashSet::new();
     for delete in deletes {
-        let page_number = delete
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid annotation delete page index")?;
+        let page_number = mutation_page_number(delete.page_index)?;
         page_ids.insert(page_resolver.page_id(document, page_number)?);
     }
 
@@ -1846,10 +1830,7 @@ pub(crate) fn collect_delete_refs(
     let mut refs_to_delete = HashSet::new();
     let mut annotation_indexes = HashMap::new();
     for delete in deletes {
-        let page_number = delete
-            .page_index
-            .checked_add(1)
-            .ok_or("Invalid annotation delete page index")?;
+        let page_number = mutation_page_number(delete.page_index)?;
         let page_id = page_resolver.page_id(document, page_number)?;
         if let std::collections::hash_map::Entry::Vacant(entry) = annotation_indexes.entry(page_id)
         {

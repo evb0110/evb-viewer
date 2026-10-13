@@ -35,6 +35,8 @@ pub(crate) struct PdfAnnotationParseTextBox {
     pub(crate) color: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) frame: Option<crate::free_text_frame::TextBoxFrame>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) read_only: bool,
     #[serde(default)]
     pub(crate) replies: Vec<PdfAnnotationParseReply>,
 }
@@ -506,7 +508,8 @@ where
                     let contents = read_optional_annotation_text(document, dict, b"Contents")?
                         .unwrap_or_default();
                     let color = read_annotation_color(document, dict);
-                    let open = read_optional_boolean(document, dict, b"Open")?.unwrap_or(false);
+                    let open =
+                        read_optional(document, dict, b"Open", Object::as_bool)?.unwrap_or(false);
                     Ok(PdfAnnotationParseEntry::Note(PdfAnnotationParseNote {
                         recovery_data: None,
                         page_index,
@@ -660,11 +663,11 @@ pub(crate) fn parse_text_box_entry(
     }
     let text = read_optional_annotation_text(document, dict, b"Contents")?.unwrap_or_default();
     let (font_size, color) = parse_default_appearance(document, dict)?;
-    if !crate::free_text_frame::border_is_editable(document, dict) {
-        return Err("FreeText border style is not representable by the editor".to_string());
-    }
+    // The editor draws a solid border; another style keeps its producer's
+    // appearance, and the label is selectable and copyable but not editable.
+    let read_only = !crate::free_text_frame::border_is_editable(document, dict);
     let frame = crate::free_text_frame::free_text_frame(document, dict, rect);
-    let rotation = read_optional_integer(document, dict, b"Rotate")?.unwrap_or(0);
+    let rotation = read_optional(document, dict, b"Rotate", Object::as_i64)?.unwrap_or(0);
     let rotation = rotation.rem_euclid(360);
     if !matches!(rotation, 0 | 90 | 180 | 270) {
         return Err("Imported FreeText rotation is not a quarter turn".to_string());
@@ -690,6 +693,7 @@ pub(crate) fn parse_text_box_entry(
         color,
         // On the page's upright sides: the editor turns them with the box.
         frame: frame.editor(page_rotation),
+        read_only,
     })
 }
 
@@ -710,7 +714,9 @@ fn parse_highlight_entry(
     name: &str,
 ) -> std::result::Result<PdfAnnotationParseHighlight, String> {
     // Keep restricted markup foreign so the reader owns its visibility and permissions.
-    if read_optional_integer(document, dict, b"F")?.unwrap_or(0) & (2 | 32 | 64 | 128 | 512) != 0 {
+    if read_optional(document, dict, b"F", Object::as_i64)?.unwrap_or(0) & (2 | 32 | 64 | 128 | 512)
+        != 0
+    {
         return Err("Text markup has visibility or edit restrictions".to_string());
     }
     let subtype = match subtype.to_ascii_lowercase().as_str() {
@@ -897,7 +903,7 @@ fn parse_stamp_entry(
 /// conventions stay bounded to the previously supported quarter turns.
 fn stamp_rotation(document: &impl PdfObjectSource, dict: &Dictionary) -> Result<f64> {
     let managed = is_managed_placed_image_stamp(dict);
-    let rotate = read_optional_integer(document, dict, b"Rotate")?;
+    let rotate = read_optional(document, dict, b"Rotate", Object::as_i64)?;
     if managed && rotate.is_some_and(|rotation| rotation != 0) {
         return Err("Managed stamp has an unsupported external rotation override".into());
     }
@@ -1231,42 +1237,23 @@ fn read_optional_annotation_author(
     Ok(read_optional_annotation_text(document, dict, b"T")?.filter(|value| !value.is_empty()))
 }
 
-fn read_optional_integer(
+/// An optional entry read by `read`, such as `Object::as_i64`.
+fn read_optional<T>(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
     key: &[u8],
-) -> std::result::Result<Option<i64>, String> {
+    read: fn(&Object) -> lopdf::Result<T>,
+) -> std::result::Result<Option<T>, String> {
     let Some(object) = dict.get(key).ok() else {
         return Ok(None);
     };
     let resolved = document
         .resolved(object)
         .map_err(|error| error.to_string())?;
-    resolved.as_i64().map(Some).map_err(|error| {
-        format!(
-            "/{} must be an integer: {error}",
-            String::from_utf8_lossy(key)
-        )
-    })
-}
-
-fn read_optional_boolean(
-    document: &impl PdfObjectSource,
-    dict: &Dictionary,
-    key: &[u8],
-) -> std::result::Result<Option<bool>, String> {
-    let Some(object) = dict.get(key).ok() else {
-        return Ok(None);
-    };
-    let resolved = document
-        .resolved(object)
-        .map_err(|error| error.to_string())?;
-    resolved.as_bool().map(Some).map_err(|error| {
-        format!(
-            "/{} must be a boolean: {error}",
-            String::from_utf8_lossy(key)
-        )
-    })
+    let key = String::from_utf8_lossy(key);
+    read(resolved)
+        .map(Some)
+        .map_err(|error| format!("/{key}: {error}"))
 }
 
 fn read_annotation_date(

@@ -5,8 +5,18 @@
         class="pdf-annotation-selection-handles"
         :style="handlesStyle"
     >
+        <p
+            v-if="readOnly"
+            ref="moveHandleRef"
+            class="pdf-annotation-read-only-notice"
+            data-pdf-annotation-read-only-notice
+            role="status"
+            :style="{transform: `translate(calc(-50% + ${moveOffset.x}px), ${moveOffset.y}px)`}"
+        >
+            {{ t('annotations.readOnlyBorderStyle') }}
+        </p>
         <AppTooltip
-            v-if="entity?.kind === 'text-box'"
+            v-else-if="entity?.kind === 'text-box'"
             :text="t('annotations.moveTextBox')"
         >
             <button
@@ -37,7 +47,9 @@
 </template>
 
 <script setup lang="ts">
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {
+    isReadOnlyAnnotation, type AnnotationEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 
@@ -51,6 +63,8 @@ const emit = defineEmits<{
     'move-start': [event: PointerEvent];
 }>();
 const {t} = useTypedI18n();
+// A read-only label explains itself where its move grip would be, and has no grips.
+const readOnly = computed(() => Boolean(props.entity && isReadOnlyAnnotation(props.entity)));
 const handlesRef = ref<HTMLElement | null>(null);
 const moveHandleRef = ref<HTMLElement | null>(null);
 const moveOffset = shallowRef({
@@ -147,7 +161,7 @@ const handles = computed(() => ([
     's',
     'sw',
     'w',
-] as const).filter(handle => props.entity?.kind !== 'text-box' || (handle !== 'n' && handle !== 's')));
+] as const).filter(handle => !readOnly.value && (props.entity?.kind !== 'text-box' || (handle !== 'n' && handle !== 's'))));
 
 const rect = computed(() => {
     const entity = props.entity;
@@ -173,3 +187,20 @@ function handlePointerDown(handle: TAnnotationResizeHandle, event: PointerEvent)
     }
 }
 </script>
+
+<style scoped>
+.pdf-annotation-read-only-notice {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    margin: 0 0 var(--app-space-sm);
+    padding: var(--app-space-2xs) var(--app-space-sm);
+    border: 1px solid var(--app-toolbar-focus-ring);
+    border-radius: var(--app-radius-xs);
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    font-size: var(--app-text-size-caption);
+    white-space: nowrap;
+    pointer-events: none;
+}
+</style>

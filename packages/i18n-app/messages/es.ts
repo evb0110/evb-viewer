@@ -756,6 +756,7 @@ export default {
         'stroke': 'Trazo',
         'textSize': 'Tamaño de texto',
         'moveTextBox': 'Arrastra para mover el cuadro de texto',
+        'readOnlyBorderStyle': 'El estilo del borde de esta etiqueta no se puede editar aquí; conserva su aspecto original.',
         'textResizeHint': 'Arrastra el control para mover el cuadro. Haz doble clic en el texto para editarlo. Las esquinas cambian el tamaño del texto; los lados ajustan los saltos de línea.',
         'penType': 'Tipo de pluma',
         'pen': 'Pluma',

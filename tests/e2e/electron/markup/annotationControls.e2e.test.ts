@@ -1370,6 +1370,94 @@ describe('Electron E2E - annotation controls', () => {
         expect(await frameInsets(restarted.page), 'the reopened label keeps the frame it had before Save').toEqual(turned);
     });
 
+    it.each([
+        'dashed',
+        'beveled',
+        'inset',
+        'underlined',
+        'cloudy',
+    ])('lets a person select and copy a %s label it cannot edit', async (style) => {
+        // review-b7s: a label whose border the editor cannot draw keeps its
+        // producer's appearance. It is selectable, says why it is read-only,
+        // copies its text, and no move or delete reaches it.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-read-only-label-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const pdfPath = join(evidence, `${style}.pdf`);
+        copyFileSync(resolve('tests/fixtures/electron/semtext', `${style}.pdf`), pdfPath);
+        const notice = 'This label\'s border style can\'t be edited here; it keeps its original look.';
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, pdfPath);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleAnnotationControl(page, box);
+        // Where the label sits on its page: a scroll moves the page, not the label.
+        const placement = () => page.$eval(box, (element) => {
+            const label = element.getBoundingClientRect();
+            const sheet = element.closest('.pdf-annotation-editor-layer')!.getBoundingClientRect();
+            return [
+                label.left - sheet.left,
+                label.top - sheet.top,
+                label.width,
+                label.height,
+            ];
+        });
+        const before = await placement();
+        // pdf.js draws the label: its text and border are on the page under the box.
+        const ink = async () => {
+            const clip = await page.$eval(box, element => element.getBoundingClientRect().toJSON());
+            const image = await loadImage(Buffer.from(await page.screenshot({clip})));
+            const canvas = createCanvas(image.width, image.height);
+            canvas.getContext('2d').drawImage(image, 0, 0);
+            const pixels = canvas.getContext('2d').getImageData(0, 0, image.width, image.height).data;
+            return Array.from({length: pixels.length / 4}, (_, index) => pixels[index * 4]! < 128).filter(Boolean).length;
+        };
+        await expect.poll(ink, {message: 'the label stays drawn on the page'}).toBeGreaterThan(50);
+        const chrome = await page.evaluate(() => ({
+            notices: Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-pdf-annotation-read-only-notice], .editor-pane.is-active [data-annotation-read-only-notice]'))
+                .filter(element => element.checkVisibility()).map(element => element.textContent?.trim()),
+            grips: document.querySelectorAll('.editor-pane.is-active [data-pdf-annotation-move-handle], .editor-pane.is-active [data-pdf-annotation-resize-handle]').length,
+            swatches: document.querySelectorAll('.editor-pane.is-active .annotation-style-editor .swatch').length,
+            deletes: document.querySelectorAll('.editor-pane.is-active .note-item-delete').length,
+        }));
+        expect.soft(chrome, 'the label explains itself and offers no edit').toEqual({
+            notices: [
+                notice,
+                notice,
+            ],
+            grips: 0,
+            swatches: 0,
+            deletes: 0,
+        });
+        // A drag and the Delete key leave it where and as it was.
+        const grab = await page.$eval(box, element => element.getBoundingClientRect().toJSON());
+        await page.mouse.move(grab.x + grab.width / 2, grab.y + grab.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(grab.x + grab.width / 2 + 60, grab.y + grab.height / 2 + 40, {steps: 8});
+        await page.mouse.up();
+        await page.keyboard.press('Delete');
+        expect.soft(await placement(), 'the label does not move').toEqual(before);
+        // Its context menu copies the text and offers no Delete.
+        const target = await page.$eval(box, element => element.getBoundingClientRect().toJSON());
+        await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2, {button: 'right'});
+        await page.waitForSelector('.annotation-context-menu [data-annotation-read-only-notice]', {visible: true});
+        const menu = await page.$$eval('.annotation-context-menu .pdf-context-menu__action', buttons => buttons
+            .map(button => button.textContent?.trim()));
+        expect.soft(menu.some(label => label?.startsWith('Delete')), 'no Delete in the menu').toBe(false);
+        await clickAsUser(page, {
+            find: (label: unknown) => Array.from(document.querySelectorAll('.annotation-context-menu .pdf-context-menu__action'))
+                .find(button => button.textContent?.trim() === label),
+            arg: 'Copy Text to Clipboard',
+            description: 'the label\'s Copy Text action',
+        });
+        await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`Foreign ${style} label`);
+        expect.soft(readFileSync(pdfPath).equals(readFileSync(resolve('tests/fixtures/electron/semtext', `${style}.pdf`))), 'the file is untouched').toBe(true);
+    });
+
     it('opens a foreign label with a malformed DA at the size it draws', async () => {
         // Its DA ends in "/Helv invalid Tf"; its appearance draws at 22 pt.
         const {page} = sessionFixture.getSession();

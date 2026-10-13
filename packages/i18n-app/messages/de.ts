@@ -756,6 +756,7 @@ export default {
         'stroke': 'Kontur',
         'textSize': 'Textgröße',
         'moveTextBox': 'Ziehen, um das Textfeld zu verschieben',
+        'readOnlyBorderStyle': 'Der Rahmenstil dieser Beschriftung kann hier nicht bearbeitet werden; sie behält ihr ursprüngliches Aussehen.',
         'textResizeHint': 'Am Griff ziehen, um das Textfeld zu verschieben. Zum Bearbeiten auf den Text doppelklicken. Ecken skalieren den Text, seitliche Griffe ändern den Zeilenumbruch.',
         'penType': 'Stiftart',
         'pen': 'Stift',

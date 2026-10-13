@@ -22,7 +22,9 @@ import type {
     ITextBoxEntity,
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {mintAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {
+    isReadOnlyAnnotation, mintAnnotationId,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     annotationPageDimensions,
     annotationRectsEqual,
@@ -342,8 +344,8 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function beginTextEditing(id: AnnotationId, point?: IAnnotationTextEditPoint) {
-        const entity = store().get(id);
-        if (entity?.kind !== 'text-box' || entity.deleted) {
+        const entity = editable(id);
+        if (entity?.kind !== 'text-box') {
             return;
         }
         if (editingId.value !== id) commitTextSession();
@@ -458,10 +460,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function getSelectedAnnotations() {
-        return [...selectedIds.value].flatMap(id => {
-            const entity = store().get(id);
-            return entity && !entity.deleted ? [entity] : [];
-        });
+        return [...selectedIds.value].flatMap(id => editable(id) ?? []);
     }
     // Commands read the store; views read its emissions, which a store batch
     // defers until it ends.
@@ -738,6 +737,12 @@ export const usePdfAnnotationEditorSurface = (
         return options.annotationApplication.value.store;
     }
 
+    /** The live annotation a command may change: a read-only label is only selected and copied. */
+    function editable(id: AnnotationId) {
+        const entity = store().get(id);
+        return entity && !entity.deleted && !isReadOnlyAnnotation(entity) ? entity : null;
+    }
+
     function getEntitiesForPage(pageIndex: number) {
         return entitiesByPage.value.get(pageIndex) ?? [];
     }
@@ -771,13 +776,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function getSelectedTextBox() {
-        for (const id of selectedIds.value) {
-            const entity = store().get(id);
-            if (entity?.kind === 'text-box' && !entity.deleted) {
-                return entity;
-            }
-        }
-        return null;
+        return getSelectedAnnotations().find((entity): entity is ITextBoxEntity => entity.kind === 'text-box') ?? null;
     }
 
     function updateSelectedTextBoxProperties(
@@ -803,8 +802,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function deleteAnnotation(annotationId: AnnotationId) {
-        const entity = store().get(annotationId);
-        if (!entity || entity.deleted) {
+        if (!editable(annotationId)) {
             return false;
         }
         store().delete(annotationId);
@@ -839,7 +837,7 @@ export const usePdfAnnotationEditorSurface = (
         let changed = false;
         const ids = [...selectedIds.value];
         (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => ids.forEach((id) => {
-            const entity = store().get(id);
+            const entity = editable(id);
             if (!entity) {
                 return;
             }
@@ -909,8 +907,8 @@ export const usePdfAnnotationEditorSurface = (
         // Keyboard directions describe the display, while canonical coordinates
         // already include the PDF page's intrinsic rotation.
         const entries = [...selectedIds.value].flatMap(id => {
-            const entity = store().get(id);
-            if (!entity || entity.deleted) {
+            const entity = editable(id);
+            if (!entity) {
                 return [];
             }
             const geometry = options.getPageGeometry?.(entity.pageIndex);
@@ -979,8 +977,8 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function beginGesture(annotationId: AnnotationId, kind: IAnnotationGesture['kind']) {
-        const entity = store().get(annotationId);
-        return entity && !entity.deleted
+        const entity = editable(annotationId);
+        return entity
             ? {
                 annotationId,
                 entity,
@@ -994,8 +992,8 @@ export const usePdfAnnotationEditorSurface = (
         patch: TAnnotationGesturePatch,
     ) {
         const annotationId = typeof gesture === 'string' ? gesture : gesture.annotationId;
-        const entity = store().get(annotationId);
-        if (!entity || entity.deleted) {
+        const entity = editable(annotationId);
+        if (!entity) {
             return null;
         }
         switch (entity.kind) {

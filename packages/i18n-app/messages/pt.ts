@@ -756,6 +756,7 @@ export default {
         'stroke': 'Contorno',
         'textSize': 'Tamanho do Texto',
         'moveTextBox': 'Arraste para mover a caixa de texto',
+        'readOnlyBorderStyle': 'O estilo da margem desta etiqueta não pode ser editado aqui; mantém o aspeto original.',
         'textResizeHint': 'Arraste a alça para mover a caixa. Faça duplo clique no texto para o editar. Os cantos alteram o tamanho do texto e os lados ajustam a quebra de linha.',
         'penType': 'Tipo de Caneta',
         'pen': 'Caneta',

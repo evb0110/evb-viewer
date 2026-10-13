@@ -756,6 +756,7 @@ export default {
         'stroke': 'Tratto',
         'textSize': 'Dimensione testo',
         'moveTextBox': 'Trascina per spostare la casella di testo',
+        'readOnlyBorderStyle': 'Lo stile del bordo di questa etichetta non può essere modificato qui; mantiene l\'aspetto originale.',
         'textResizeHint': 'Trascina la maniglia per spostare la casella. Fai doppio clic sul testo per modificarlo. Gli angoli ridimensionano il testo, i lati cambiano il ritorno a capo.',
         'penType': 'Tipo di penna',
         'pen': 'Penna',

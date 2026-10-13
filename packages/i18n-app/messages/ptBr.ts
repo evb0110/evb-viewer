@@ -756,6 +756,7 @@ export default {
         'stroke': 'Contorno',
         'textSize': 'Tamanho do Texto',
         'moveTextBox': 'Arraste para mover a caixa de texto',
+        'readOnlyBorderStyle': 'O estilo da borda deste rótulo não pode ser editado aqui; ele mantém a aparência original.',
         'textResizeHint': 'Arraste a alça para mover a caixa. Clique duas vezes no texto para editar. Os cantos alteram o tamanho do texto e as laterais ajustam a quebra de linha.',
         'penType': 'Tipo de Caneta',
         'pen': 'Caneta',

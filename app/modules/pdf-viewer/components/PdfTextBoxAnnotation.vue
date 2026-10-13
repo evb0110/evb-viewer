@@ -12,7 +12,7 @@
         data-annotation-kind="text-box"
         :aria-label="entity.text || t('annotations.annotationLabel')"
         @mousedown.stop
-        @pointerdown.stop="handlePointerDown"
+        @pointerdown.stop="emit('pointer-down', $event)"
         @dblclick.stop="handleEdit"
     >
         <span
@@ -317,7 +317,7 @@ interface IPdfTextBoxAnnotationExpose {
 // the page's upright top, right, bottom and left; a box turned clockwise by a
 // quarter faces the next side, as Save draws it.
 const frameInsets = computed(() => {
-    const insets = props.entity.frame?.insets;
+    const insets = props.entity.readOnly ? undefined : props.entity.frame?.insets;
     return insets?.map((_, side) => insets[(side + props.entity.rotation / 90) % 4]!);
 });
 const frameStyle = computed(() => {
@@ -350,15 +350,13 @@ const rectStyle = computed(() => ({
     top: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).top * 100}%`,
     width: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).width * 100}%`,
     height: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).height * 100}%`,
-    color: props.entity.color ?? 'var(--ui-text)',
+    // pdf.js draws a read-only label: its box only takes the pointer.
+    color: props.entity.readOnly ? 'transparent' : props.entity.color ?? 'var(--ui-text)',
+    cursor: props.entity.readOnly ? 'default' : undefined,
     fontSize: toPdfScaledCssLength(props.displayFontSize ?? props.entity.fontSize),
     transform: `rotate(${props.entity.rotation}deg)`,
     ...framePadding.value,
 }));
-
-function handlePointerDown(event: PointerEvent) {
-    emit('pointer-down', event);
-}
 
 function handleEdit(event: MouseEvent) {
     if (!editing.value) {

@@ -22,6 +22,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {
     buildTextMarkupSelectionPlan,
+    isReadOnlyAnnotation,
     normalizeAnnotationText,
     remapSavedSemanticFingerprint,
     saveFrontierEntityBaseline,
@@ -1091,8 +1092,8 @@ export class AnnotationStore {
         update: (entity: T) => T,
     ): T {
         const before = this.#require(id);
-        if (before.deleted) {
-            throw new Error(`Annotation ${id} is deleted`);
+        if (before.deleted || isReadOnlyAnnotation(before)) {
+            throw new Error(`Annotation ${id} is ${before.deleted ? 'deleted' : 'read-only'}`);
         }
         if (expectedKind !== undefined && before.kind !== expectedKind) {
             throw new Error(`Expected a ${expectedKind} annotation, received ${before.kind}`);

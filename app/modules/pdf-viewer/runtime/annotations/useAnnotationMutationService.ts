@@ -89,7 +89,7 @@ export const useAnnotationMutationService = (
     ) {
         return runHistoryTransaction(async () => {
             const id = options.resolveCanonicalAnnotationId?.(input.comment);
-            if (!id) {
+            if (!id || input.comment.readOnly) {
                 return false;
             }
             if (

@@ -1,6 +1,9 @@
 <template>
     <div class="annotation-style-editor flex flex-col gap-2" :class="{ 'is-idle': !hasStyleControls && selectedAnnotations.length === 0 }">
-        <template v-if="selectedAnnotations.length > 0">
+        <p v-if="readOnlySelection" class="text-xs text-muted" data-annotation-read-only-notice>
+            {{ t('annotations.readOnlyBorderStyle') }}
+        </p>
+        <template v-else-if="selectedAnnotations.length > 0">
             <div v-if="selectionHasColor" class="swatch-row">
                 <button
                     v-for="swatch in selectionColorSwatches" :key="swatch" type="button" class="swatch"
@@ -169,9 +172,10 @@ import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
 import { ANNOTATION_PROPERTY_RANGES } from '@app/constants/annotationDefaults';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 import { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
-import type {
-    ITextBoxEntity,
-    AnnotationEntity,
+import {
+    isReadOnlyAnnotation,
+    type ITextBoxEntity,
+    type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TDrawStyle = 'pen' | 'pencil' | 'marker';
@@ -228,6 +232,8 @@ function commonSelectionValue<T>(read: (entity: AnnotationEntity) => T): T | nul
     const values = selectedAnnotations.map(read);
     return values.length > 0 && values.every(value => value === values[0]) ? values[0]! : null;
 }
+// A selection with a read-only label explains it, and offers no edit that would skip it.
+const readOnlySelection = computed(() => selectedAnnotations.some(isReadOnlyAnnotation));
 const selectionHasColor = computed(() => selectedAnnotations.every(entity => entity.kind !== 'placed-image'));
 const selectionColor = computed(() => commonSelectionValue(entity => entity.kind === 'shape' ? entity.strokeColor : entity.kind === 'placed-image' ? null : entity.color));
 const selectionColorSwatches = computed(() => {

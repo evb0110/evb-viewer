@@ -2305,9 +2305,12 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     assert!(legacy.get_dictionary(foreign_id).unwrap().get(b"C").is_err(), "EVB's old /C goes");
     let mut dashed = loaded.clone();
     dashed.get_dictionary_mut(foreign_id).unwrap().set("BS", dictionary! {"W" => 7, "S" => "D"});
+    // A dashed label keeps its producer's appearance: the reader gives it as a
+    // read-only text box, and the writer refuses to edit it (review-b7s).
     let entries = collect_parsed_annotations(&dashed, "D:20260831130000Z").unwrap();
-    assert!(matches!(&entries[0], PdfAnnotationParseEntry::Foreign(_)), "{:?}", entries[0]);
-
+    assert!(matches!(&entries[0], PdfAnnotationParseEntry::TextBox(label) if label.read_only), "{:?}", entries[0]);
+    let refused = apply_native_mutations(&mut dashed, &edit, "D:20260831140000Z").unwrap_err().to_string();
+    assert!(refused.contains("is read-only: its border style is not editable"), "{refused}");
 }
 
 #[test]

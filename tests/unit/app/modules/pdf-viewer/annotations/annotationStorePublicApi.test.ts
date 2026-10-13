@@ -470,6 +470,30 @@ describe('AnnotationStore public API', () => {
         expect(store.get(entity.identity.id)).toMatchObject({deleted: true});
     });
 
+    it('keeps a read-only label exactly as its producer wrote it', () => {
+        // review-b7s: a dashed, beveled, inset, underlined or cloudy label is
+        // selectable and copyable; no edit, move or delete reaches it.
+        const store = new AnnotationStore();
+        const label: ITextBoxEntity = {
+            ...textBox('dashed-label'),
+            identity: {
+                id: asAnnotationId('dashed-label'),
+                pdfRef: '6R',
+            },
+            persistedRevision: 0,
+            readOnly: true,
+        };
+        store.import(label);
+        expect(() => store.updateTextBox(label.identity.id, {color: '#f59e0b'})).toThrow('Annotation dashed-label is read-only');
+        expect(() => store.updateTextBox(label.identity.id, {rect: {
+            ...rect,
+            left: 0.2,
+        }})).toThrow('is read-only');
+        expect(() => store.delete(label.identity.id)).toThrow('is read-only');
+        expect(store.get(label.identity.id)).toEqual(label);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
+    });
+
     it('rejects creators with a non-zero initial revision', () => {
         const store = new AnnotationStore();
         expect(() => store.createTextBox({
