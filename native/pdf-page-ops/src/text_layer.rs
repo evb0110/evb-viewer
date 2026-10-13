@@ -1111,18 +1111,19 @@ fn normalize_greek_micro_sign_in_operations(operations: &mut [ContentOperation])
     }
 }
 
-pub(crate) fn clone_object_graph(
+pub(crate) fn clone_object_graph<F: Fn(&Object) -> Result<Option<Object>>>(
     source: &Document,
     target: &mut Document,
     object: &Object,
     copied: &mut HashMap<ObjectId, ObjectId>,
-    pages: &[OverlayPage<'_>],
+    nav: (&[OverlayPage<'_>], &F),
     transform: &impl Fn(&mut Document, &mut Dictionary) -> Result<()>,
     depth: usize,
 ) -> Result<Object> {
     if depth > MAX_OBJECT_GRAPH_DEPTH {
         return Err("overlay-text object graph exceeded the dereference limit".into());
     }
+    let (pages, remap) = nav;
     match object {
         Object::Reference(source_id) => {
             if let Some(target_id) = copied.get(source_id).copied().or_else(|| {
@@ -1142,7 +1143,7 @@ pub(crate) fn clone_object_graph(
                     format!("overlay-text source object {source_id:?} is missing")
                 })?,
                 copied,
-                pages,
+                nav,
                 transform,
                 depth + 1,
             )?;
@@ -1158,7 +1159,7 @@ pub(crate) fn clone_object_graph(
             items
                 .iter()
                 .map(|item| {
-                    clone_object_graph(source, target, item, copied, pages, transform, depth + 1)
+                    clone_object_graph(source, target, item, copied, nav, transform, depth + 1)
                 })
                 .collect::<Result<Vec<_>>>()?,
         )),
@@ -1188,13 +1189,11 @@ pub(crate) fn clone_object_graph(
             let destination = dictionary.remove(key);
             for (_, value) in dictionary.iter_mut() {
                 *value =
-                    clone_object_graph(source, target, value, copied, pages, transform, depth + 1)?;
+                    clone_object_graph(source, target, value, copied, nav, transform, depth + 1)?;
             }
             // A destination no output shows is dropped; the annotation stays.
             if let Some(destination) = destination {
-                if let Some(remapped) =
-                    crate::split_navigation::split_destination_mapper(source, pages)(&destination)?
-                {
+                if let Some(remapped) = remap(&destination)? {
                     dictionary.set(key, remapped);
                 }
             }
@@ -1705,7 +1704,7 @@ pub(crate) fn append_text_layer(
             target,
             source_font,
             &mut staged_copied,
-            &[],
+            (&[], &|_| Ok(None)),
             &|_, _| Ok(()),
             0,
         ) {
@@ -1768,13 +1767,13 @@ pub(crate) fn append_text_layer(
 
 /// Carry the source annotation graph with the same geometry as its text and
 /// pixels. Source slots bind its thread to the complete final output map.
-pub(crate) fn append_source_annotations(
+pub(crate) fn append_source_annotations<F: Fn(&Object) -> Result<Option<Object>>>(
     target: &mut Document,
     source: &Document,
     target_page_id: ObjectId,
     source_page_id: ObjectId,
     instruction: &TextLayerInstruction,
-    pages: &[OverlayPage<'_>],
+    nav: (&[OverlayPage<'_>], &F),
 ) -> Result<()> {
     let annotations = crate::split_navigation::source_annotation_entries(source, source_page_id);
     let view = resolve_page_view(target, target_page_id)?;
@@ -1840,7 +1839,7 @@ pub(crate) fn append_source_annotations(
             target,
             &Object::Dictionary(annotation),
             &mut copied,
-            pages,
+            nav,
             &transform,
             0,
         )?;
