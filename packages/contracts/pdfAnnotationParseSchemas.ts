@@ -145,6 +145,7 @@ const strokeSchema = v.pipe(
     v.transform((value): TPoint[] => value ?? []),
 );
 
+const frameInset = finiteNumber('annotation parse text-box.frame.insets', 0);
 const textBoxSchema = v.pipe(
     v.strictObject({
         kind: v.literal('text-box'),
@@ -154,6 +155,18 @@ const textBoxSchema = v.pipe(
         rotation: rotationSchema,
         fontSize: finiteNumber('annotation parse text-box.fontSize', Number.MIN_VALUE, 512),
         color: rgbColorSchema('annotation parse text-box.color'),
+        // Insets are /RD's top, right, bottom and left, in PDF points.
+        frame: v.optional(v.strictObject({
+            insets: v.strictTuple([
+                frameInset,
+                frameInset,
+                frameInset,
+                frameInset,
+            ]),
+            borderWidth: finiteNumber('annotation parse text-box.frame.borderWidth', 0),
+            borderColor: v.nullable(rgbColorSchema('annotation parse text-box.frame.borderColor')),
+            background: v.nullable(rgbColorSchema('annotation parse text-box.frame.background')),
+        }, 'contains unsupported field')),
     }, 'contains unsupported field'),
     v.check(({
         rect, rotation,

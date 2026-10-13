@@ -15,6 +15,12 @@
         @pointerdown.stop="handlePointerDown"
         @dblclick.stop="handleEdit"
     >
+        <span
+            v-if="frameStyle"
+            class="pdf-annotation-editor-text-box__frame"
+            :style="frameStyle"
+            aria-hidden="true"
+        ></span>
         <div
             v-if="editing"
             ref="editorRef"
@@ -306,6 +312,34 @@ interface IPdfTextBoxAnnotationExpose {
     fitRectToContent: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect | null;
 }
 
+// A foreign label's frame: its border and background inset by /RD, behind
+// the text, which sits inside both as it does on the saved page.
+const frameStyle = computed(() => {
+    const frame = props.entity.frame;
+    if (!frame) {
+        return null;
+    }
+    return {
+        position: 'absolute' as const,
+        // Top, right, bottom and left, as /RD and the CSS shorthand order them.
+        inset: frame.insets.map(inset => toPdfScaledCssLength(inset)).join(' '),
+        boxSizing: 'border-box' as const,
+        border: frame.borderColor ? `${toPdfScaledCssLength(frame.borderWidth)} solid ${frame.borderColor}` : 'none',
+        background: frame.background ?? 'transparent',
+        zIndex: -1,
+        pointerEvents: 'none' as const,
+    };
+});
+
+const framePadding = computed(() => {
+    const frame = props.entity.frame;
+    return frame
+        ? {padding: frame.insets.map((inset, side) => (
+            `calc(${toPdfScaledCssLength(inset + frame.borderWidth)} + ${side % 2 ? 0.3 : 0.15}em)`
+        )).join(' ')}
+        : {};
+});
+
 const rectStyle = computed(() => ({
     left: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).left * 100}%`,
     top: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).top * 100}%`,
@@ -314,6 +348,7 @@ const rectStyle = computed(() => ({
     color: props.entity.color ?? 'var(--ui-text)',
     fontSize: toPdfScaledCssLength(props.displayFontSize ?? props.entity.fontSize),
     transform: `rotate(${props.entity.rotation}deg)`,
+    ...framePadding.value,
 }));
 
 function handlePointerDown(event: PointerEvent) {

@@ -1243,6 +1243,17 @@ describe('Electron E2E - annotation controls', () => {
             'short Hebrew',
             'short-hebrew.pdf',
         ],
+        // A bordered label keeps its producer's border and background: PyMuPDF
+        // writes /BS and /C; a hand-written Acrobat-style label /Border, /RD,
+        // /C and a stroking colour in its DA.
+        [
+            'bordered PyMuPDF',
+            'bordered-pymupdf.pdf',
+        ],
+        [
+            'bordered hand-written',
+            'bordered-handwritten.pdf',
+        ],
     ])('keeps a %s foreign label whole when only its color changes', async (_label, fixture) => {
         const evidence = mkdtempSync(join(tmpdir(), 'evb-foreign-label-'));
         onTestFinished(() => rmSync(evidence, {
@@ -1257,10 +1268,31 @@ describe('Electron E2E - annotation controls', () => {
         await openAnnotationsTab(page);
         await clickAnnotationTool(page, 'Select');
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active .pdf-annotation-editor-text-box');
+        const source = await PDFDocument.load(readFileSync(saved));
+        const sourceText = source.context.lookup(source.getPage(0).node.Annots()!.get(0), PDFDict);
+        const borderEntries = (dict: PDFDict) => [
+            'BS',
+            'Border',
+            'C',
+            'RD',
+        ].map(key => dict.get(PDFName.of(key))?.toString() ?? null);
+        const rect = sourceText.lookup(PDFName.of('Rect'), PDFArray).asArray().map(value => (value as PDFNumber).asNumber());
+        const borderWidth = (/\/W (\d+(?:\.\d+)?)/u.exec(sourceText.get(PDFName.of('BS'))?.toString() ?? '')
+            ?? /^\[\s*\d+\s+\d+\s+(\d+(?:\.\d+)?)/u.exec(sourceText.get(PDFName.of('Border'))?.toString() ?? ''))?.[1];
+        // On screen the border has the width its producer gave it, relative to the box.
+        const screenBorder = await page.$eval('.editor-pane.is-active .pdf-annotation-editor-text-box', box => {
+            const frame = box.querySelector<HTMLElement>('.pdf-annotation-editor-text-box__frame');
+            return frame ? Number.parseFloat(getComputedStyle(frame).borderTopWidth) / box.getBoundingClientRect().width : 0;
+        });
+        expect.soft(screenBorder, 'the editor draws the label\'s border').toBeCloseTo(Number(borderWidth ?? 0) / (rect[2]! - rect[0]!), 3);
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active .annotation-style-editor .swatch[aria-label="#f59e0b"]');
         await saveViaVisibleToolbar(page, 12_000, saved);
         const pdf = await PDFDocument.load(readFileSync(saved));
         const freeText = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
+        expect.soft(borderEntries(freeText), 'the saved label keeps its border entries').toEqual(borderEntries(sourceText));
+        if (borderWidth) {
+            expect.soft(freeText.lookup(PDFName.of('DA'), PDFString).decodeText(), 'the border keeps its colour').toMatch(/ RG$/u);
+        }
         const normal = pdf.context.lookup(freeText.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
         const drawnSizes = new Set(Array.from(Buffer.from(decodePDFRawStream(normal).decode()).toString('latin1')
             .matchAll(/\/TextFont\d+ ([\d.]+) Tf/gu), match => Number(match[1])));

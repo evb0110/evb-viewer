@@ -62,6 +62,15 @@ interface IAnnotationEntityBase {
     readonly replies?: readonly IAnnotationReply[];
 }
 
+/** A foreign label's border and background, as its producer drew them. */
+export interface ITextBoxFrame {
+    /** /RD's top, right, bottom and left insets, in PDF points. */
+    readonly insets: readonly [number, number, number, number];
+    readonly borderWidth: number;
+    readonly borderColor: string | null;
+    readonly background: string | null;
+}
+
 export interface ITextBoxEntity extends IAnnotationEntityBase {
     readonly kind: 'text-box';
     readonly text: string;
@@ -69,6 +78,7 @@ export interface ITextBoxEntity extends IAnnotationEntityBase {
     readonly rotation: TAnnotationRotation;
     readonly fontSize: number;
     readonly color: string | null;
+    readonly frame?: ITextBoxFrame;
 }
 
 export interface INoteEntity extends IAnnotationEntityBase {

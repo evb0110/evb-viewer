@@ -33,6 +33,8 @@ pub(crate) struct PdfAnnotationParseTextBox {
     pub(crate) rotation: i64,
     pub(crate) font_size: f64,
     pub(crate) color: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) frame: Option<crate::free_text_frame::TextBoxFrame>,
     #[serde(default)]
     pub(crate) replies: Vec<PdfAnnotationParseReply>,
 }
@@ -660,6 +662,10 @@ pub(crate) fn parse_text_box_entry(
     }
     let text = read_optional_annotation_text(document, dict, b"Contents")?.unwrap_or_default();
     let (font_size, color) = parse_default_appearance(document, dict)?;
+    if !crate::free_text_frame::border_is_editable(document, dict) {
+        return Err("FreeText border style is not representable by the editor".to_string());
+    }
+    let frame = crate::free_text_frame::free_text_frame(document, dict, rect).editor;
     let rotation = read_optional_integer(document, dict, b"Rotate")?.unwrap_or(0);
     let rotation = rotation.rem_euclid(360);
     if !matches!(rotation, 0 | 90 | 180 | 270) {
@@ -686,6 +692,7 @@ pub(crate) fn parse_text_box_entry(
         rotation,
         font_size,
         color,
+        frame,
     })
 }
 
@@ -1299,61 +1306,16 @@ fn parse_default_appearance(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
 ) -> std::result::Result<(f64, String), String> {
-    let object = dict
-        .get(b"DA")
-        .map_err(|_| "FreeText is missing /DA".to_string())?;
-    let resolved = document
-        .resolved(object)
-        .map_err(|error| error.to_string())?;
-    let bytes = resolved
-        .as_str()
-        .map_err(|_| "FreeText /DA must be a PDF string".to_string())?;
-    let tokens = String::from_utf8_lossy(bytes)
-        .split_whitespace()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let mut font_size: Option<f64> = None;
-    let mut color = None;
-    for (index, token) in tokens.iter().enumerate() {
-        match token.as_str() {
-            "Tf" => {
-                // The size is the operand right before Tf, as the writer patches it.
-                // A malformed one leaves the last well-formed size, which draws.
-                font_size = tokens[index.saturating_sub(1)].parse().ok().or(font_size);
-            }
-            "rg" | "g" => {
-                let count = if token == "rg" { 3 } else { 1 };
-                let values = previous_numbers(&tokens, index, count);
-                if values.len() == count {
-                    color = Some(pdf_color_to_hex(Some(&values), "#000000"));
-                }
-            }
-            _ => {}
-        }
-    }
-    let font_size = font_size
+    let da = crate::free_text_frame::default_appearance(document, dict)
+        .ok_or_else(|| "FreeText /DA must be a PDF string".to_string())?;
+    let font_size = da
+        .size
         .filter(|value| value.is_finite() && *value > 0.0 && *value <= 512.0)
         .ok_or_else(|| "FreeText /DA has no supported font size".to_string())?;
-    let color = color.ok_or_else(|| "FreeText /DA has no supported color".to_string())?;
-    Ok((font_size, color))
-}
-
-fn previous_numbers(tokens: &[String], operator_index: usize, count: usize) -> Vec<f64> {
-    let mut values = Vec::with_capacity(count);
-    for token in tokens[..operator_index].iter().rev() {
-        let Ok(value) = token.parse::<f64>() else {
-            if !values.is_empty() {
-                break;
-            }
-            continue;
-        };
-        values.push(value);
-        if values.len() == count {
-            break;
-        }
-    }
-    values.reverse();
-    values
+    let color = da
+        .fill
+        .ok_or_else(|| "FreeText /DA has no supported color".to_string())?;
+    Ok((font_size, pdf_color_to_hex(Some(&color), "#000000")))
 }
 
 /// The page-independent part of the legacy FreeText note-marker test: a

@@ -56,6 +56,7 @@ export function mapPdfAnnotationParseEntity(
                 rotation: entry.rotation,
                 fontSize: entry.fontSize,
                 color: entry.color,
+                ...(entry.frame === undefined ? {} : {frame: entry.frame}),
             };
         case 'note':
             return {

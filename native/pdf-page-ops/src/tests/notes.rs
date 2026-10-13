@@ -199,9 +199,15 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
         .get_dictionary_mut(popup_id)
         .unwrap()
         .set("Parent", Object::Reference(target_id));
+    // A FreeText's /C fills its box: its colour belongs to its DA.
+    let label_id = document.add_object(dictionary! {
+        "Type" => "Annot", "Subtype" => "FreeText", "P" => page_one_id,
+        "Rect" => vec![50.into(), 10.into(), 150.into(), 40.into()], "Contents" => Object::string_literal("label"),
+        "DA" => Object::string_literal("/Helv 12 Tf 0 0 0 rg"), "C" => vec![1.into(), 1.into(), 0.85.into()],
+    });
     document.get_dictionary_mut(page_one_id).unwrap().set(
         "Annots",
-        vec![Object::Reference(target_id), Object::Reference(popup_id)],
+        vec![Object::Reference(target_id), Object::Reference(popup_id), Object::Reference(label_id)],
     );
 
     let input_path = temp_pdf_path("append-note-geometry-input");
@@ -228,6 +234,13 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
                 },
                 color: Some(Some("#336699".to_string())),
                 open: Some(true),
+            }, NoteGeometryUpdate {
+                object_number: label_id.0,
+                generation_number: label_id.1,
+                page_index: 0,
+                marker_rect: MarkerRect { left: 0.25, top: 0.6, width: 0.5, height: 0.3 },
+                color: Some(Some("#f59e0b".to_string())),
+                open: None,
             }],
             ..NativeMutationsFile::default()
         },
@@ -236,6 +249,8 @@ fn appends_imported_text_note_geometry_and_linked_popup_to_new_page() {
     .unwrap();
 
     let loaded = Document::load(&output_path).unwrap();
+    let label = loaded.get_dictionary(label_id).unwrap();
+    assert_eq!(label.get(b"C").unwrap(), document.get_dictionary(label_id).unwrap().get(b"C").unwrap());
     let page_one_annots = get_page_annots(&loaded, page_one_id).unwrap();
     let page_two_annots = get_page_annots(&loaded, page_two_id).unwrap();
     assert!(!page_one_annots.iter().any(|object| {
@@ -2173,6 +2188,8 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         "CreationDate" => Object::string_literal("D:20260101000000Z"),
         "M" => Object::string_literal("D:20260102000000Z"),
         "DA" => Object::string_literal("/Courier 12 Tf 0.2 0.3 0.4 rg 2 Tc 3 Tr"),
+        // EVB once wrote the text colour here; as a fill it would hide the text.
+        "C" => vec![0.2.into(), 0.3.into(), 0.4.into()],
         "AP" => dictionary! {
             "N" => old_appearance,
             "R" => Object::string_literal("rollover"),
@@ -2238,7 +2255,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     assert_unowned_keys_unchanged(
         &before,
         after,
-        &[b"Rect", b"Contents", b"M", b"Rotate", b"DA", b"AP", b"EVBTextGeometry"],
+        &[b"Rect", b"Contents", b"M", b"Rotate", b"DA", b"AP", b"EVBTextGeometry", b"C"],
     )
     .unwrap();
     assert_eq!(pdf_string_to_text(after.get(b"T").unwrap()).as_deref(), Some("Foreign author"));
@@ -2255,10 +2272,29 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         before_ap.get(b"UnknownAP").unwrap()
     );
     let da = String::from_utf8_lossy(after.get(b"DA").unwrap().as_str().unwrap());
-    assert!(da.contains("/Courier 18 Tf"));
     assert!(da.contains("2 Tc 3 Tr"));
     assert!(da.contains("0.0667 0.0941 0.1529 rg"));
+    // Its 7 pt border keeps the colour it was drawn in, the old text colour,
+    // and the text fits inside it at the size the DA records.
+    assert!(da.ends_with(" 0.2 0.3 0.4 RG"), "{da}");
+    assert!(after.get(b"C").is_err(), "a fill in the old text colour is dropped");
+    let normal = loaded.get_object(after_ap.get(b"N").unwrap().as_reference().unwrap()).unwrap();
+    let content = String::from_utf8(normal.as_stream().unwrap().decompressed_content().unwrap()).unwrap();
+    assert!(content.starts_with("q\n0.2 0.3 0.4 RG 7 w"), "{content}");
+    let drawn = content.split_once(" Tf").unwrap().0.rsplit(' ').next().unwrap();
+    assert!(drawn.parse::<f64>().unwrap() < 18.0 && da.contains(&format!("/Courier {drawn} Tf")), "{da}");
     assert_eq!(loaded.get_dictionary(popup_id).unwrap(), &before_popup);
+    // The editor reopens it with the same frame. A dashed border is not one
+    // the editor draws, so such a label keeps its producer's appearance.
+    let entries = collect_parsed_annotations(&loaded, "D:20260831130000Z").unwrap();
+    let PdfAnnotationParseEntry::TextBox(reopened) = &entries[0] else { panic!("{:?}", entries[0]) };
+    let frame = reopened.frame.as_ref().unwrap();
+    let border = (frame.border_width, frame.border_color.as_deref(), frame.background.as_deref());
+    assert_eq!((frame.insets, border), ([0.0; 4], (7.0, Some("#334d66"), None)));
+    let mut dashed = loaded.clone();
+    dashed.get_dictionary_mut(foreign_id).unwrap().set("BS", dictionary! {"W" => 7, "S" => "D"});
+    let entries = collect_parsed_annotations(&dashed, "D:20260831130000Z").unwrap();
+    assert!(matches!(&entries[0], PdfAnnotationParseEntry::Foreign(_)), "{:?}", entries[0]);
 
 }
 
@@ -2987,7 +3023,7 @@ fn text_box_appearance_shrinks_text_that_needs_more_lines_than_its_box() {
         let rect = PdfRect { x1: 10.0, y1: 10.0, x2: 10.0 + width, y2: 10.0 + height };
         let mut document = Document::with_version("1.7");
         let mut fonts = crate::text_box_font::SharedFonts::default();
-        let (id, size) = crate::annotations::build_text_box_appearance(&mut document, &editor, rect, 0, &mut fonts).unwrap();
+        let (id, size) = crate::annotations::build_text_box_appearance(&mut document, &editor, rect, 0, &mut fonts, None).unwrap();
         assert_eq!(size < 16.0, shrinks, "the DA records the size the appearance draws");
         let content = String::from_utf8(document.get_object(id).unwrap().as_stream().unwrap().content.clone()).unwrap();
         let numbers = |suffix| content.lines().filter(move |op: &&str| op.ends_with(suffix))

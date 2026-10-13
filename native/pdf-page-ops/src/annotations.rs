@@ -1,4 +1,5 @@
 use super::*;
+use crate::free_text_frame::{free_text_frame, FreeTextFrame};
 use crate::text_box_font::{
     self, baseline_from_top, layout, Geometry, Line, FONTS, LINE_HEIGHT, PADDING_X, PADDING_Y,
 };
@@ -530,26 +531,8 @@ where
             .get_mut(&page_id)
             .expect("Text note page is indexed")
             .append_missing_refs(&recovered);
-        let mut annot_dict = document
-            .get_dictionary(annot_ref)
-            .cloned()
-            .unwrap_or_else(|_| {
-                build_text_note_annotation_dict(note, &note_name, pdf_rect, modified_at)
-            });
-        convert_free_text_marker_to_text(&mut annot_dict, pdf_rect, modified_at);
-        set_text_note_annotation_fields(&mut annot_dict, note, &note_name, pdf_rect, modified_at);
-        annot_dict.set("P", Object::Reference(page_id));
-        annot_dict.set("Popup", Object::Reference(popup_ref));
-        let mut popup_dict = document
-            .get_dictionary(popup_ref)
-            .cloned()
-            .unwrap_or_else(|_| {
-                build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref)
-            });
-        set_popup_annotation_fields(&mut popup_dict, note, pdf_rect, modified_at, annot_ref);
-        popup_dict.set("P", Object::Reference(page_id));
-        document.set_object(annot_ref, Object::Dictionary(annot_dict));
-        document.set_object(popup_ref, Object::Dictionary(popup_dict));
+        let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
+        write_text_note_pair(document, note_fields, page_id, (annot_ref, popup_ref));
         report_annotation_identity_binding(identity_bindings, &note.stable_key, annot_ref);
         annotation_indexes
             .get_mut(&page_id)
@@ -691,32 +674,13 @@ where
             .get_mut(&page_id)
             .expect("Text note page is indexed")
             .append_missing_refs(&recovered);
-        let mut annot_dict = incremental
-            .new_document
-            .get_dictionary(annot_ref)
-            .cloned()
-            .unwrap_or_else(|_| {
-                build_text_note_annotation_dict(note, &note_name, pdf_rect, modified_at)
-            });
-        convert_free_text_marker_to_text(&mut annot_dict, pdf_rect, modified_at);
-        set_text_note_annotation_fields(&mut annot_dict, note, &note_name, pdf_rect, modified_at);
-        annot_dict.set("P", Object::Reference(page_id));
-        annot_dict.set("Popup", Object::Reference(popup_ref));
-        let mut popup_dict = incremental
-            .new_document
-            .get_dictionary(popup_ref)
-            .cloned()
-            .unwrap_or_else(|_| {
-                build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref)
-            });
-        set_popup_annotation_fields(&mut popup_dict, note, pdf_rect, modified_at, annot_ref);
-        popup_dict.set("P", Object::Reference(page_id));
-        incremental
-            .new_document
-            .set_object(annot_ref, Object::Dictionary(annot_dict));
-        incremental
-            .new_document
-            .set_object(popup_ref, Object::Dictionary(popup_dict));
+        let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
+        write_text_note_pair(
+            &mut incremental.new_document,
+            note_fields,
+            page_id,
+            (annot_ref, popup_ref),
+        );
         report_annotation_identity_binding(identity_bindings, &note.stable_key, annot_ref);
         annotation_indexes
             .get_mut(&page_id)
@@ -758,15 +722,18 @@ pub(crate) fn upsert_text_boxes_with_counter(
         let rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let name = text_box_name(editor);
-        let appearance =
-            build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts)?;
-        let existing_annotation_ref = resolve_text_box_target(document, page_id, editor)?;
-        if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
+        let target = resolve_text_box_target(document, page_id, editor)?.or_else(|| {
             annotation_indexes
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
-        }) {
-            let existing = existing_text_box_values(document, annotation_ref)?;
+        });
+        let existing = target
+            .map(|id| existing_text_box_values(document, id, rect))
+            .transpose()?;
+        let frame = existing.as_ref();
+        let appearance =
+            build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts, frame)?;
+        if let Some(annotation_ref) = target {
             let dict = document.get_dictionary_mut(annotation_ref)?;
             set_text_box_fields(
                 dict,
@@ -776,7 +743,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
                 modified_at,
                 appearance,
                 page_rotation,
-                Some(existing),
+                existing,
             );
             continue;
         }
@@ -835,22 +802,19 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
         let rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let name = text_box_name(editor);
-        let appearance = build_text_box_appearance(
-            &mut incremental.new_document,
-            editor,
-            rect,
-            page_rotation,
-            &mut fonts,
-        )?;
-        let existing_annotation_ref =
-            resolve_text_box_target(&AppendedRevision::new(incremental), page_id, editor)?;
-        if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
+        let revision = AppendedRevision::new(incremental);
+        let target = resolve_text_box_target(&revision, page_id, editor)?.or_else(|| {
             annotation_indexes
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
-        }) {
-            let existing =
-                existing_text_box_values(&AppendedRevision::new(incremental), annotation_ref)?;
+        });
+        let existing = target
+            .map(|id| existing_text_box_values(&revision, id, rect))
+            .transpose()?;
+        let (frame, document) = (existing.as_ref(), &mut incremental.new_document);
+        let appearance =
+            build_text_box_appearance(document, editor, rect, page_rotation, &mut fonts, frame)?;
+        if let Some(annotation_ref) = target {
             incremental.opt_clone_object_to_new_document(annotation_ref)?;
             let dict = incremental
                 .new_document
@@ -863,7 +827,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
                 modified_at,
                 appearance,
                 page_rotation,
-                Some(existing),
+                existing,
             );
             continue;
         }
@@ -1137,16 +1101,25 @@ pub(crate) fn build_text_box_appearance(
     rect: PdfRect,
     page_rotation: i64,
     shared: &mut crate::text_box_font::SharedFonts,
+    existing: Option<&ExistingTextBox>,
 ) -> Result<(ObjectId, f64)> {
     let [x1, y1, x2, y2] = editor.rect;
-    let source = PdfRect { x1, y1, x2, y2 };
+    // A framed box fits its text inside the frame, which it draws first.
+    let upright = editor.rotation == 0 && page_rotation % 360 == 0;
+    let frame = existing
+        .and_then(|existing| existing.2.as_ref())
+        .filter(|_| upright);
+    let text = frame.map(|frame| frame.text);
+    let text = text.filter(|text| text.width() > 0.0 && text.height() > 0.0);
+    let source = text.unwrap_or(PdfRect { x1, y1, x2, y2 });
     let geometry = text_box_font::geometry(source, i64::from(editor.rotation), page_rotation)?;
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     let text = |width, size| layout(&editor.text, width, size);
     let (size, lines) = fit_text_box(editor.font_size, &geometry, &FONTS, text);
     let fonts = shared.resources(document, &lines);
     let color = format!("{} rg", format_operands(&color));
-    let content = text_box_content(&geometry, &color, &lines, size);
+    let frame = frame.map_or("", |frame| &frame.content);
+    let content = frame.to_string() + &text_box_content(&geometry, &color, &lines, size);
     Ok((document.add_object(Stream::new(lopdf::dictionary! {
         "Type" => "XObject", "Subtype" => "Form", "FormType" => 1,
         "BBox" => rect_object(rect), "Resources" => lopdf::dictionary! {"Font" => fonts},
@@ -1154,16 +1127,22 @@ pub(crate) fn build_text_box_appearance(
     }, content.into_bytes())), size))
 }
 
+/// An edited box keeps its appearance dictionary, its DA and the frame its
+/// producer gave it, which an upright box draws.
+type ExistingTextBox = (Option<Dictionary>, Option<Vec<u8>>, Option<FreeTextFrame>);
+
 fn existing_text_box_values(
     document: &impl PdfObjectSource,
     annotation_ref: ObjectId,
-) -> Result<(Option<Dictionary>, Option<Vec<u8>>)> {
+    rect: PdfRect,
+) -> Result<ExistingTextBox> {
     let dict = document.dictionary(annotation_ref)?;
     let value = |key: &[u8]| document.resolved(dict.get(key).ok()?).ok();
     let appearance = value(b"AP").and_then(|object| object.as_dict().ok().cloned());
     Ok((
         appearance,
         value(b"DA").and_then(|object| object.as_str().ok().map(ToOwned::to_owned)),
+        Some(free_text_frame(document, dict, rect)),
     ))
 }
 
@@ -1281,10 +1260,10 @@ fn set_text_box_fields(
     modified_at: &str,
     (appearance_ref, font_size): (ObjectId, f64),
     page_rotation: i64,
-    existing: Option<(Option<Dictionary>, Option<Vec<u8>>)>,
+    existing: Option<ExistingTextBox>,
 ) {
     let is_new = existing.is_none();
-    let (existing_appearance, existing_default_appearance) = existing.unwrap_or_default();
+    let (existing_appearance, existing_default_appearance, frame) = existing.unwrap_or_default();
     crate::text_box_font::write_editor_geometry(
         dict,
         editor.rect,
@@ -1307,7 +1286,8 @@ fn set_text_box_fields(
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     // A new box starts from an empty DA, which gains the Tf and rg it lacks.
     let default_appearance = existing_default_appearance.as_deref();
-    let default_appearance = patch_default_appearance(default_appearance, font_size, color);
+    let mut default_appearance = patch_default_appearance(default_appearance, font_size, color);
+    frame.inspect(|frame| frame.keep_in(dict, &mut default_appearance));
     dict.set("DA", Object::string_literal(default_appearance));
     let mut appearance = existing_appearance.unwrap_or_default();
     appearance.set("N", Object::Reference(appearance_ref));
@@ -1321,6 +1301,28 @@ fn set_text_box_fields(
             Object::string_literal(shape_pdf_date(editor.created_at, modified_at).into_bytes()),
         );
     }
+}
+
+/// Writes a note and its Popup in canonical form over any earlier ones on `page_id`.
+fn write_text_note_pair(
+    document: &mut Document,
+    (note, note_name, pdf_rect, modified_at): (&TextNote, &str, PdfRect, &str),
+    page_id: ObjectId,
+    (annot_ref, popup_ref): (ObjectId, ObjectId),
+) {
+    let existing = |id| document.get_dictionary(id).ok().cloned();
+    let mut annot_dict = existing(annot_ref)
+        .unwrap_or_else(|| build_text_note_annotation_dict(note, note_name, pdf_rect, modified_at));
+    convert_free_text_marker_to_text(&mut annot_dict, pdf_rect, modified_at);
+    set_text_note_annotation_fields(&mut annot_dict, note, note_name, pdf_rect, modified_at);
+    annot_dict.set("P", Object::Reference(page_id));
+    annot_dict.set("Popup", Object::Reference(popup_ref));
+    let mut popup_dict = existing(popup_ref)
+        .unwrap_or_else(|| build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref));
+    set_popup_annotation_fields(&mut popup_dict, note, pdf_rect, modified_at, annot_ref);
+    popup_dict.set("P", Object::Reference(page_id));
+    document.set_object(annot_ref, Object::Dictionary(annot_dict));
+    document.set_object(popup_ref, Object::Dictionary(popup_dict));
 }
 
 /// Populate the fields owned by the canonical sticky-note writer. The
@@ -1360,7 +1362,12 @@ pub(crate) fn set_text_note_annotation_fields(
 }
 
 fn apply_note_style_update(dict: &mut Dictionary, update: &NoteGeometryUpdate) {
-    if let Some(color) = update.color.as_ref() {
+    // A FreeText's colour is its DA's, which the text-box writer keeps; /C fills it.
+    let free_text = dict
+        .get(b"Subtype")
+        .and_then(Object::as_name)
+        .is_ok_and(|s| s == b"FreeText");
+    if let Some(color) = update.color.as_ref().filter(|_| !free_text) {
         set_rgb_color(dict, "C", color.as_deref());
     }
     if let Some(open) = update.open {
@@ -1491,16 +1498,6 @@ impl PageAnnotationIndex {
                 self.dirty = true;
             }
         }
-    }
-
-    #[allow(dead_code)]
-    fn append_free_text(&mut self, note_name: &str, annot_ref: ObjectId, popup_ref: ObjectId) {
-        self.first_free_text_by_name
-            .entry(note_name.to_string())
-            .or_insert(annot_ref);
-        self.named_free_text
-            .push((annot_ref, note_name.to_string()));
-        self.append_missing_refs(&[annot_ref, popup_ref]);
     }
 
     fn append_text_note(&mut self, note_name: &str, annot_ref: ObjectId, popup_ref: ObjectId) {
