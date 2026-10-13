@@ -169,14 +169,14 @@ async function commitEdit() {
     });
     await nextTick();
     if (restoreFocus) {
-        rowRef.value?.focus({preventScroll: true});
+        rowRef.value?.focus();
     }
 }
 
 async function cancelEdit() {
     emit('cancel-edit');
     await nextTick();
-    rowRef.value?.focus({preventScroll: true});
+    rowRef.value?.focus();
 }
 
 function detectDropPosition(event: DragEvent): TBookmarkDropPosition {

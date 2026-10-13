@@ -20,7 +20,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {
-    clickAsUser, clickFoundAsUser,
+    activateMenuItemAsUser, clickAsUser, clickFoundAsUser,
 } from '@tests/e2e/electron/helpers/userInput';
 import {
     startElectronE2ESession, type IElectronE2ESession,
@@ -142,12 +142,29 @@ describe('Electron E2E - bookmark destination round trip', () => {
 
     // I1/R2: finishing an edit must not consume the next deliberate click.
     it.each([
-        1,
-        2,
-        3,
-    ])('outlinetree keeps a visible bookmark click after offscreen rename blur (run %i)', async () => {
-        const fixture = await createOutlinePageLabelFixturePdf(`blur-click-${Date.now()}.pdf`, [
-            ...Array.from({length: 119}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
+        [
+            120,
+            1,
+        ],
+        [
+            120,
+            2,
+        ],
+        [
+            120,
+            3,
+        ],
+        [
+            4_000,
+            1,
+        ],
+        [
+            10_000,
+            1,
+        ],
+    ])('outlinetree keeps a visible bookmark click after offscreen rename blur (%i bookmarks, run %i)', async count => {
+        const fixture = await createBookmarkTreeFixturePdf(`blur-click-${Date.now()}.pdf`, [
+            ...Array.from({length: count - 1}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
             fixtureBookmark('Rename source', 0),
         ]);
         const {page} = sessions.getSession();
@@ -186,6 +203,56 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await findBookmarkRow(page, 'Rename committed');
     }, 120_000);
 
+    // I1/R2: completing a retained offscreen input returns visible row focus.
+    it.each([
+        [
+            120,
+            'Enter',
+        ],
+        [
+            4_000,
+            'Enter',
+        ],
+        [
+            10_000,
+            'Enter',
+        ],
+        [
+            120,
+            'Escape',
+        ],
+        [
+            4_000,
+            'Escape',
+        ],
+        [
+            10_000,
+            'Escape',
+        ],
+    ] as const)('outlinetree reveals offscreen rename completion (%i bookmarks, %s)', async (count, key) => {
+        const fixture = await createBookmarkTreeFixturePdf(`rename-offscreen-${count}-${key}-${Date.now()}.pdf`, [
+            ...Array.from({length: count - 1}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
+            fixtureBookmark('Rename source', 0),
+        ]);
+        const {page} = sessions.getSession();
+        await openBookmarkEditor(page, fixture);
+        await wheelBookmarkList(page, 1_000_000);
+        await waitForFunctionInPage(page, () => {
+            const list = document.querySelector('.document-bookmark-tree__list')!;
+            return list.scrollTop > list.scrollHeight - list.clientHeight - 50;
+        });
+        await clickAsUser(page, await findBookmarkRow(page, 'Rename source'), {button: 'right'});
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+        await page.waitForSelector('input.pdf-bookmark-item-input', {visible: true});
+        await page.keyboard.type('Key committed');
+        const beforeWheel = await page.$eval('.document-bookmark-tree__list', list => list.scrollTop);
+        await wheelBookmarkList(page, -3_500);
+        await waitForFunctionInPage(page, (before: number) => document.querySelector('.document-bookmark-tree__list')!.scrollTop < before - 3_000, {}, beforeWheel);
+        expect(await page.evaluate(() => document.activeElement?.matches('input.pdf-bookmark-item-input'))).toBe(true);
+        await page.keyboard.press(key);
+        await expectBookmarkFocus(page, key === 'Enter' ? 'Key committed' : 'Rename source');
+    }, 120_000);
+
     it('outlinetree keeps visible rename Enter and Escape focused in place', async () => {
         const fixture = await createOutlinePageLabelFixturePdf(`rename-keys-${Date.now()}.pdf`, [fixtureBookmark('Rename source', 0)]);
         const {page} = sessions.getSession();
@@ -208,6 +275,8 @@ describe('Electron E2E - bookmark destination round trip', () => {
     // usable rendered row, including when virtual rows or their ids change.
     it.each([
         8,
+        120,
+        4_000,
         10_000,
     ])('outlinetree restores focus after single and multi delete and Undo (%i bookmarks)', async count => {
         const fixture = await createBookmarkTreeFixturePdf(`delete-focus-${count}-${Date.now()}.pdf`, [
@@ -269,9 +338,11 @@ describe('Electron E2E - bookmark destination round trip', () => {
     // WAI-ARIA treeview keyboard contract, including offscreen focus targets.
     it.each([
         8,
+        120,
+        4_000,
         10_000,
     ])('outlinetree traverses and expands with Left and Right (%i bookmarks)', async count => {
-        const childCount = count === 8 ? 3 : 120;
+        const childCount = count === 8 ? 3 : Math.min(120, count - 4);
         const fixture = await createBookmarkTreeFixturePdf(`tree-keys-${count}-${Date.now()}.pdf`, [
             ...Array.from({length: count - childCount - 3}, (_, index) => fixtureBookmark(`Filler ${index + 1}`, index % 4)),
             fixtureBookmark('Parent', 3, Array.from({length: childCount}, (_, index) => fixtureBookmark(`Child ${index + 1}`, 3))),
