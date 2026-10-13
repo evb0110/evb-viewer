@@ -98,6 +98,33 @@ const {
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
 ) as IPrivateDeployModule;
 
+describe('private deploy CLI platform policy', () => {
+    it.each([
+        [
+            [],
+            'Unsupported deploy target: invalid',
+        ],
+        [
+            ['--prod'],
+            'Production deploys require macOS or Linux',
+        ],
+    ])('validates Windows preview arguments and refuses production (%j)', (args, expectedError) => {
+        const entry = resolve('scripts/deployVercelPrivate.mjs');
+        // Invalid target stops before source preparation or any deploy command.
+        const result = spawnSync(process.execPath, [
+            '--input-type=module',
+            '-e',
+            `
+            Object.defineProperty(process, 'platform', {value: 'win32'});
+            process.argv = [process.execPath, ${JSON.stringify(entry)}, '--target=invalid', ...${JSON.stringify(args)}];
+            await import(${JSON.stringify(pathToFileURL(entry).href)});
+        `,
+        ], {encoding: 'utf8'});
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain(expectedError);
+    });
+});
+
 // Injected Windows spawns receive cmd.exe quoting before the target parses argv.
 function spawnedArg(arg: string) {
     return process.platform === 'win32' ? quoteWindowsShellArg(arg) : arg;
