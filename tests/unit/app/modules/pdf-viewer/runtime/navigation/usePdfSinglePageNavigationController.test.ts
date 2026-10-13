@@ -196,6 +196,14 @@ describe('usePdfSinglePageNavigationController', () => {
 
     it('refines a continuous page jump from the mounted page position', async () => {
         const scope = effectScope();
+        const observers = new Set<() => void>();
+        vi.stubGlobal('ResizeObserver', class {
+            constructor(callback: () => void) { this.callback = callback; }
+            callback: () => void;
+            observe() { observers.add(this.callback); }
+            disconnect() { observers.delete(this.callback); }
+        });
+        let targetTop = 2_400;
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
             clientHeight: {value: 700},
@@ -227,18 +235,20 @@ describe('usePdfSinglePageNavigationController', () => {
             page.className = 'page_container page_container--rendered';
             page.dataset.page = String(pageNumber);
             page.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>';
-            const contentTop = pageNumber === 1 ? 20 : 2_400;
-            page.getBoundingClientRect = () => ({
-                bottom: contentTop - viewer.scrollTop + 900,
-                height: 900,
-                left: 150,
-                right: 750,
-                top: contentTop - viewer.scrollTop + 100,
-                width: 600,
-                x: 150,
-                y: contentTop - viewer.scrollTop + 100,
-                toJSON: () => ({}),
-            });
+            page.getBoundingClientRect = () => {
+                const contentTop = pageNumber === 1 ? 20 : targetTop;
+                return ({
+                    bottom: contentTop - viewer.scrollTop + 900,
+                    height: 900,
+                    left: 150,
+                    right: 750,
+                    top: contentTop - viewer.scrollTop + 100,
+                    width: 600,
+                    x: 150,
+                    y: contentTop - viewer.scrollTop + 100,
+                    toJSON: () => ({}),
+                });
+            };
             viewer.append(page);
         }
         const layout = buildPageLayoutMetrics({
@@ -298,8 +308,21 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(requireLayoutPageTop(layout, 1)).toBeLessThan(1_000);
             expect(viewportWrites.writes.at(-1)?.top).toBe(2_380);
             expect(viewer.scrollTop).toBe(2_380);
+            await vi.waitFor(() => expect(controller.isProgrammaticNavigationActive.value).toBe(false));
+            await nextTick();
+            targetTop = 2_700;
+            for (const notify of observers) notify();
+            expect(viewer.scrollTop).toBe(2_680);
+            expect(pageIndicator.value).toBe(2);
+            viewportWrites.port.observeUserInteraction(viewer);
+            controller.cancelProgrammaticNavigation('wheel');
+            viewer.scrollTop = 2_500;
+            targetTop = 2_900;
+            for (const notify of observers) notify();
+            expect(viewer.scrollTop).toBe(2_500);
         } finally {
             scope.stop();
+            vi.unstubAllGlobals();
         }
     });
 

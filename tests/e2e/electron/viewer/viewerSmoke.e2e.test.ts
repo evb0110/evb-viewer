@@ -3683,7 +3683,17 @@ describe('Electron E2E - Viewer Smoke', () => {
             await clickAsUser(session.page, row);
         };
         await inspect(0, 1, 'Inspection 1');
+        const selectedText = await session.page.evaluateHandle(() => {
+            const mark = document.querySelector('.editor-pane.is-active .pdf-search-highlight--current');
+            if (!mark) throw new Error('The initial current match is not painted');
+            const range = document.createRange();
+            range.selectNodeContents(mark);
+            return range;
+        });
         await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
+        await inspect(1, 1, 'Inspection 1');
+        expect(await selectedText.evaluate(range => range.toString())).toBe('valve');
+        await selectedText.dispose();
         await jump(499, 500);
         await clickAsUser(session.page, `${sidebar} button[aria-label="Next match"]`);
         await inspect(500, 1, 'Inspection 63');

@@ -506,12 +506,13 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const signature = buildPageHighlightSignature(pageMatchData, currentMatchValue);
+        const signature = buildPageHighlightSignature(pageMatchData, hasGeometryHighlights ? currentMatchValue : null);
         const previousSignature = pageHighlightState.signatureByPage.get(mountedPageNumber);
         if (
             previousSignature === signature
             && (!hasGeometryHighlights || hasRenderedSearchGeometry(container, currentMatchValue, pageIndex))
         ) {
+            if (!hasGeometryHighlights) highlightPage(textLayerDiv, pageMatchData, currentMatchValue);
             return;
         }
 
@@ -1050,7 +1051,7 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const signature = buildPageHighlightSignature(pageMatchData, currentMatch);
+        const signature = buildPageHighlightSignature(pageMatchData, hasGeometryHighlights ? currentMatch : null);
         if (hasGeometryHighlights) {
             clearHighlights(textLayerDiv);
             renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex, viewport);

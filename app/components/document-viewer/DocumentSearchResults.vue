@@ -345,14 +345,9 @@ function revealVirtualRowSpan(startIndex: number, endIndex: number) {
 }
 
 async function togglePage(pageIndex: number) {
-    const next = new Set(expandedPages.value);
-    const isExpanding = !next.has(pageIndex);
-    if (next.has(pageIndex)) {
-        next.delete(pageIndex);
-    } else {
-        next.add(pageIndex);
-    }
-    expandedPages.value = next;
+    const isExpanding = !expandedPages.value.has(pageIndex);
+    if (isExpanding) expandedPages.value.add(pageIndex);
+    else expandedPages.value.delete(pageIndex);
     if (!isExpanding) {
         return;
     }
@@ -427,7 +422,7 @@ watch(
             return;
         }
 
-        expandedPages.value = new Set(expandedPages.value).add(currentResult.pageIndex);
+        expandedPages.value.add(currentResult.pageIndex);
 
         await nextTick();
         if (nextNavigationId !== currentResultNavigationId) {

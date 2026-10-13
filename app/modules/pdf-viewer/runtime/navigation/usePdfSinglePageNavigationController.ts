@@ -53,7 +53,6 @@ import {
     resolvePagedAnchorFromViewport,
     resolvePagedScrollForAnchor,
 } from '@app/modules/pdf-viewer/runtime/navigation/pdfMountedPageViewportGeometry';
-import {yieldToBrowser} from '@app/utils/yieldToBrowser';
 import {createPdfNavigationCommitRefiner} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationCommitRefiner';
 
 interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePageScrollOptions {
@@ -125,7 +124,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     let navigationRestartRequested = false;
     let navigationReplayTicket: IDocumentNavigationTicket | null = null;
     let navigationReplayCount = 0;
-    let settledAnchorReapplySequence = 0;
+    let stopSettledAnchorObservation: (() => void) | undefined;
     // The anchor of the layout change being flushed; undefined when none is.
     const pendingRelayoutAnchor = shallowRef<IPdfSemanticAnchor | null | undefined>();
     let heldRelayoutAnchor: {
@@ -380,7 +379,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         },
         onPositionCommitted: (commit) => {
             options.onViewportPositionCommitted?.(commit);
-            if (commit.navigationTicket) {
+            if (commit.intentKind === 'navigate' || commit.intentKind === 'search' || commit.intentKind === 'wheel-page') {
                 reapplySettledNavigationAnchor(commit.navigationTicket);
             }
         },
@@ -572,63 +571,51 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function reapplySettledNavigationAnchor(allowedTicket?: IDocumentNavigationTicket) {
+        stopSettledAnchorObservation?.();
         const anchor = viewportAuthority.committedAnchor.value;
-        if (!anchor) {
-            return;
-        }
+        if (!anchor || typeof ResizeObserver === 'undefined') return;
         const interactionEpoch = options.viewportWritePort.getInteractionEpoch();
-        const sequence = ++settledAnchorReapplySequence;
-        let previousLayoutKey: string | null = null;
-        let framesRemaining = 600;
-        const scheduleFrame = (callback: () => void) => {
-            if (typeof requestAnimationFrame === 'function') {
-                requestAnimationFrame(callback);
-            } else {
-                setTimeout(callback, 0);
-            }
-        };
-        const reapplyWhenLayoutChanges = () => {
-            if (
-                sequence !== settledAnchorReapplySequence
-                || (
-                    currentNavigationTicket()
-                    && currentNavigationTicket()?.signal !== allowedTicket?.signal
-                )
-                || options.viewportWritePort.getInteractionEpoch() !== interactionEpoch
-                || framesRemaining <= 0
-                // A relayout that starts afterwards commits its own anchor and
-                // owns the place from then on (contract R3).
-                || viewportAuthority.committedAnchor.value !== anchor
-            ) {
-                return;
-            }
-            const container = options.viewerContainer.value;
-            const targetPage = container?.querySelector<HTMLElement>(
-                `.page_container[data-page="${String(Math.max(1, Math.trunc(anchor.page)))}"]`,
-            );
-            const layoutKey = container && targetPage
-                ? [
-                    targetPage.offsetTop,
-                    targetPage.offsetHeight,
-                    container.scrollHeight,
-                    container.clientHeight,
-                ].join(':')
-                : null;
-            if (viewportAuthority.activeIntent.value === null && layoutKey !== previousLayoutKey) {
-                previousLayoutKey = layoutKey;
-                applyViewportAnchorPreview(anchor);
-            }
-            framesRemaining -= 1;
-            scheduleFrame(reapplyWhenLayoutChanges);
-        };
-        void nextTick(async () => {
-            await yieldToBrowser();
-            // Releasing the semantic navigation ticket lets the virtualization
-            // layer replace preserved outgoing-page geometry. Re-resolve the
-            // same anchor whenever that bounded handoff changes the target
-            // page's physical layout so a late height change cannot move a
-            // revealed annotation or other destination marker.
-            reapplyWhenLayoutChanges();
+        const documentRevision = options.getDocumentRevision();
+        // The physical track publishes its size after virtualization releases
+        // outgoing geometry. Observe that layout instead of polling every frame.
+        stopSettledAnchorObservation = watch([
+            options.viewerContainer,
+            viewportAuthority.committedAnchor,
+            navigationTicket,
+            () => options.getDocumentRevision(),
+        ], ([
+            container,
+            committedAnchor,
+            ticket,
+            revision,
+        ], _previous, onCleanup) => {
+            if (!container || committedAnchor !== anchor || revision !== documentRevision
+                || (ticket && ticket.signal !== allowedTicket?.signal)) return;
+            const observer = new ResizeObserver(() => {
+                if (options.viewportWritePort.getInteractionEpoch() !== interactionEpoch) {
+                    observer.disconnect();
+                    return;
+                }
+                if (viewportAuthority.activeIntent.value !== null) return;
+                const snapshot = refreshGeometry();
+                if (!snapshot) return;
+                options.viewportWritePort.apply(container, {
+                    intent: options.viewportWritePort.beginIntent('pdf-navigation-layout'),
+                    reason: 'navigation-layout',
+                    ...resolveNavigationScrollForViewport(snapshot, anchor),
+                });
+                options.updateVisibleRange(container, options.numPages.value);
+            });
+            const track = container.querySelector<HTMLElement>('[data-pdf-page-track]') ?? container;
+            observer.observe(container);
+            observer.observe(track);
+            // In standalone mode the track is the scrollport. Its row/spacer
+            // sizes still announce a late change to the destination's offset.
+            for (const child of track.children) observer.observe(child);
+            onCleanup(() => observer.disconnect());
+        }, {
+            immediate: true,
+            flush: 'post',
         });
     }
 
@@ -644,9 +631,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         if (!isNavigationTicketCurrent(ticket)) return false;
         if (!isNavigationRuntimeReady()) return false;
         const execution = submitNavigationIntent(ticket).then(result => {
-            if (result?.outcome === 'settled') {
-                reapplySettledNavigationAnchor();
-            }
             // A stale authority attempt is safely cancelled, but the semantic
             // ticket remains live and must be captured against the current
             // load. The authority clears this ticket's cancelled terminal
@@ -726,9 +710,6 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                     top: container.scrollTop,
                     anchor,
                 });
-                if (committed) {
-                    reapplySettledNavigationAnchor();
-                }
                 return committed !== null;
             }
         }
@@ -885,6 +866,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function observeNativeUserScroll(anchorOverride?: IPdfSemanticAnchor) {
+        stopSettledAnchorObservation?.();
         const ticket = currentNavigationTicket();
         const holdOpeningTicket = isUnplacedOpeningTicket(ticket);
         if (ticket && isNavigationTicketCurrent(ticket) && !holdOpeningTicket) {
@@ -1185,6 +1167,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     watch(viewportAuthority.pendingTargetPage, page => options.emitNavigationFeedbackPage?.(page));
 
     tryOnScopeDispose(() => {
+        stopSettledAnchorObservation?.();
         viewportAuthority.dispose();
     });
 

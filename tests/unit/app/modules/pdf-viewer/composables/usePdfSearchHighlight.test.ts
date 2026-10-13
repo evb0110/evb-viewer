@@ -21,6 +21,7 @@ import {
     registerTextLayerTextMapping,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import {
     assembleSearchablePageText, findPdfSearchMatches,
 } from '@pdf-core';
@@ -432,6 +433,202 @@ describe('usePdfSearchHighlight', () => {
 });
 
 describe('pdfSearchHighlightDom text-layer mapping', () => {
+    it.each([
+        false,
+        true,
+    ])('keeps selected text intact while next and previous change the current mark (drift: %s)', async (drift) => {
+        const layer = document.createElement('div');
+        const span = document.createElement('span');
+        span.textContent = 'needle needle needle';
+        layer.append(span);
+        registerTextLayerTextMapping(layer, {
+            textDivs: [span],
+            textContentItemsStr: [span.textContent],
+        });
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: drift ? '' : span.textContent,
+            searchQuery: 'needle',
+            matches: [
+                0,
+                7,
+                14,
+            ].map((start, matchIndex) => ({
+                start: start + (drift ? 100 : 0),
+                end: start + 6 + (drift ? 100 : 0),
+                matchIndex,
+                pageMatchIndex: matchIndex,
+            })),
+        };
+        const highlight = usePdfSearchHighlight();
+        const select = (index: number) => highlight.highlightPage(layer, pageMatches, {
+            pageIndex: pageMatches.pageIndex,
+            matchIndex: index,
+            pageMatchIndex: index,
+            startOffset: pageMatches.matches[index]!.start,
+            endOffset: pageMatches.matches[index]!.end,
+        });
+        select(0);
+        await expect.poll(() => layer.querySelectorAll('.pdf-search-highlight').length).toBe(3);
+        const marks = [...layer.querySelectorAll('.pdf-search-highlight')];
+        const selection = document.createRange();
+        selection.selectNodeContents(marks[0]!);
+        for (const index of [
+            1,
+            2,
+            1,
+            0,
+        ]) {
+            select(index);
+            await expect.poll(() => layer.querySelector('.pdf-search-highlight--current') === layer.querySelectorAll('.pdf-search-highlight')[index]).toBe(true);
+            expect(layer.querySelectorAll('.pdf-search-highlight--current')).toHaveLength(1);
+            expect(selection.toString()).toBe('needle');
+            expect(layer.textContent).toBe('needle needle needle');
+        }
+        highlight.highlightPage(layer, pageMatches, null);
+        await expect.poll(() => layer.querySelectorAll('.pdf-search-highlight--current').length).toBe(0);
+        expect(selection.toString()).toBe('needle');
+        highlight.clearHighlights(layer);
+        expect(layer.querySelector('.pdf-search-highlight')).toBeNull();
+    });
+
+    it.each([
+        {
+            text: 'needle needle',
+            normalized: 'needle needle',
+            query: 'needle',
+            offsets: [
+                {
+                    start: 0,
+                    end: 6,
+                },
+                {
+                    start: 7,
+                    end: 13,
+                },
+            ],
+            steps: [
+                1,
+                0,
+                1,
+            ],
+            paintedText: [
+                'needle',
+                'needle',
+            ],
+            paintedStarts: [
+                0,
+                7,
+            ],
+        },
+        {
+            text: 'ﬃﬃ',
+            normalized: 'ﬃﬃ',
+            query: 'f|if',
+            offsets: [
+                {
+                    start: 0,
+                    end: 1,
+                },
+                {
+                    start: 0,
+                    end: 1,
+                },
+                {
+                    start: 0,
+                    end: 2,
+                },
+                {
+                    start: 1,
+                    end: 2,
+                },
+            ],
+            steps: [
+                2,
+                0,
+                2,
+            ],
+            paintedText: [
+                'ﬃ',
+                'ﬃ',
+                'ﬃﬃ',
+                'ﬃ',
+            ],
+            paintedStarts: [
+                0,
+                0,
+                0,
+                1,
+            ],
+        },
+    ])('moves CSS current paint for $text while keeping the other view', ({
+        text, normalized, query, offsets, steps, paintedText, paintedStarts,
+    }) => {
+        const registry = new Map<string, Set<Range>>();
+        vi.stubGlobal('CSS', {highlights: registry});
+        vi.stubGlobal('Highlight', class extends Set<Range> {});
+        window.localStorage.setItem(STORAGE_KEYS.HIGHLIGHT_MODE, 'css');
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: normalized,
+            searchQuery: query,
+            searchOptions: {useRegex: true},
+            matches: offsets.map((range, matchIndex) => ({
+                ...range,
+                matchIndex,
+            })),
+        };
+        const views = [
+            usePdfSearchHighlight(),
+            usePdfSearchHighlight(),
+        ];
+        const layers = views.map(() => {
+            const layer = document.createElement('div');
+            const span = document.createElement('span');
+            span.textContent = text;
+            layer.append(span);
+            registerTextLayerTextMapping(layer, {
+                textDivs: [span],
+                textContentItemsStr: [text],
+            });
+            return layer;
+        });
+        const current = (index: number): IPdfSearchMatch => ({
+            pageIndex: pageMatches.pageIndex,
+            matchIndex: index,
+            pageMatchIndex: index,
+            startOffset: offsets[index]!.start,
+            endOffset: offsets[index]!.end,
+        });
+        try {
+            views.forEach((view, index) => view.highlightPage(layers[index]!, pageMatches, current(0)));
+            const otherRange = views[1]!.getCurrentMatchRanges(layers[1]!)[0]!;
+            for (const index of steps) {
+                views[0]!.highlightPage(layers[0]!, pageMatches, current(index));
+                const ranges = views[0]!.getCurrentMatchRanges(layers[0]!);
+                expect(ranges[0]!.toString()).toBe(paintedText[index]);
+                expect(ranges[0]!.startOffset).toBe(paintedStarts[index]);
+                const currentRanges = [
+                    ...ranges,
+                    ...views[1]!.getCurrentMatchRanges(layers[1]!),
+                ];
+                expect(registry.get('pdf-search-current-match')?.size).toBe(currentRanges.length);
+                expect(registry.get('pdf-search-current-match')?.has(ranges[0]!)).toBe(true);
+                expect(registry.get('pdf-search-current-match')?.has(otherRange)).toBe(true);
+                expect((registry.get('pdf-search-match')?.size ?? 0) + currentRanges.length).toBe(offsets.length * 2);
+            }
+            views[1]!.clearHighlights(layers[1]!);
+            expect(registry.get('pdf-search-current-match')?.size).toBe(views[0]!.getCurrentMatchRanges(layers[0]!).length);
+            expect(layers[0]!.textContent).toBe(text);
+            views[0]!.clearHighlights(layers[0]!);
+            expect(registry.has('pdf-search-current-match')).toBe(false);
+            expect(registry.has('pdf-search-match')).toBe(false);
+        } finally {
+            window.localStorage.removeItem(STORAGE_KEYS.HIGHLIGHT_MODE);
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('paints a fragmented occurrence from a later result window', async () => {
         const layer = document.createElement('div');
         const items = [
