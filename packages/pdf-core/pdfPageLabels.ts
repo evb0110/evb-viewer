@@ -356,7 +356,9 @@ function readPageLabelWindowFromNormalizedRanges(
             rangeIndex += 1;
             activeRange = ranges[rangeIndex] ?? activeRange;
         }
-        labels[page - bounds.startPage] = getLabelForOffset(activeRange, page - activeRange.startPage);
+        labels[page - bounds.startPage] = activeRange.style === null
+            ? activeRange.prefix
+            : formatPageLabelForDisplay(activeRange, page - activeRange.startPage);
     }
 
     return labels;
@@ -431,7 +433,7 @@ export function createPageLabelModel(
         }
         const range = normalizedRanges[findRangeIndexForPage(page, normalizedRanges)];
         return range
-            ? getLabelForOffset(range, page - range.startPage)
+            ? range.style === null ? range.prefix : formatPageLabelForDisplay(range, page - range.startPage)
             : String(page);
     };
 
@@ -458,21 +460,7 @@ export function getPageLabelAt(
     totalPages: number,
     ranges: readonly IDocumentPageLabelRange[],
 ): string | null {
-    const normalizedTotalPages = Number.isSafeInteger(totalPages)
-        ? Math.max(0, totalPages)
-        : 0;
-    if (
-        !Number.isSafeInteger(page)
-        || page < 1
-        || page > normalizedTotalPages
-    ) {
-        return null;
-    }
-    const normalizedRanges = normalizePageLabelRanges(ranges, normalizedTotalPages);
-    const range = normalizedRanges[findRangeIndexForPage(page, normalizedRanges)];
-    return range
-        ? getLabelForOffset(range, page - range.startPage)
-        : String(page);
+    return createPageLabelModel(totalPages, ranges).labelAt(page);
 }
 function getRangeForPage(
     page: number,

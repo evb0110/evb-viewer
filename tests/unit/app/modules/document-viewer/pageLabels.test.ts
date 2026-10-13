@@ -707,6 +707,43 @@ describe('lossless page-label regressions', () => {
 
 
 describe('page-label presentation and lazy semantics', () => {
+    it.each([
+        {
+            style: 'A',
+            startNumber: 1_000_000_000,
+        },
+        {
+            style: 'a',
+            startNumber: 1_000_000_000,
+        },
+        {
+            style: 'R',
+            startNumber: 1_000_000,
+        },
+        {
+            style: 'r',
+            startNumber: 1_000_000,
+        },
+    ] as const)('bounds huge imported $style numbering in model reads', ({
+        style, startNumber,
+    }) => {
+        const model = createPageLabelModel(128, [{
+            startPage: 1,
+            style,
+            prefix: '',
+            startNumber,
+        }]);
+        expect(model.ranges[0]?.startNumber).toBe(startNumber);
+        const initialHeapBytes = process.memoryUsage().heapUsed;
+        // Check one label before asking for the whole window on the old code.
+        expect(model.labelAt(1)?.length).toBeLessThanOrEqual(65);
+        const labels = model.readWindow(1, 128);
+        expect(labels).toHaveLength(128);
+        expect(labels.every(label => label.length <= 65)).toBe(true);
+        expect(new TextEncoder().encode(JSON.stringify(labels)).byteLength).toBeLessThan(9_000);
+        expect(process.memoryUsage().heapUsed - initialHeapBytes).toBeLessThan(8 * 1024 * 1024);
+    });
+
     it('refuses a shortened literal target shared by two pages', () => {
         const common = 'x'.repeat(80);
         const model = createPageLabelModel(2, [
