@@ -2,7 +2,10 @@ import {existsSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {app} from 'electron';
-import {isRecord} from '@contracts/runtimeGuards';
+import {
+    isErrnoException,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import {safeJsonParse} from '@contracts/safeJsonParse';
 import {normalizePathForLookup} from '@electron/file-access/workingCopyStore';
 import {writeJsonAtomic} from '@electron/utils/atomicReplace';
@@ -16,8 +19,12 @@ function getNoticesPath() {
     return join(app.getPath('userData'), 'kept-original-notices.json');
 }
 
+// Only a missing file holds no notices. Any other failure rejects, so an update never writes over notices it could not read.
 async function readNotices() {
-    const value = safeJsonParse(await readFile(getNoticesPath(), 'utf8').catch(() => '{}'));
+    const value = safeJsonParse(await readFile(getNoticesPath(), 'utf8').catch((error: unknown) => {
+        if (isErrnoException(error) && error.code === 'ENOENT') return '{}';
+        throw error;
+    }));
     return new Map(isRecord(value)
         ? Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
         : []);

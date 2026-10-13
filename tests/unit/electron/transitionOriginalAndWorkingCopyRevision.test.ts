@@ -1219,6 +1219,24 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         expect(JSON.parse(await readFile(join(tempRoot, 'kept-original-notices.json'), 'utf8'))).toEqual({});
     });
 
+    it.skipIf(process.platform === 'win32')('keeps every stored notice when the notices file cannot be read', async () => {
+        const {
+            findKeptOriginal, rememberKeptOriginal,
+        } = await import('@electron/file-access/keptOriginalNotices');
+        const keptPath = join(tempRoot, 'first (original).pdf');
+        const noticesPath = join(tempRoot, 'kept-original-notices.json');
+        await writeFile(keptPath, 'kept');
+        await rememberKeptOriginal(join(tempRoot, 'first.pdf'), keptPath);
+        // A read that fails for a moment (here, no permission) must not erase the notices it could not read.
+        await chmod(noticesPath, 0o000);
+        try {
+            await rememberKeptOriginal(join(tempRoot, 'second.pdf'), join(tempRoot, 'second (original).pdf'));
+        } finally {
+            await chmod(noticesPath, 0o644);
+        }
+        await expect(findKeptOriginal(join(tempRoot, 'first.pdf'))).resolves.toBe(keptPath);
+    });
+
     it('still tells the next open where recovery kept the file when a second crash follows its move', async () => {
         const fs = await import('node:fs/promises');
         let crashAfter = '';
