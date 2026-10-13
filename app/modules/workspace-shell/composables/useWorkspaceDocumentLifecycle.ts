@@ -95,30 +95,28 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
             : null);
     });
 
-    // A document that fails outside an open, such as a reload that did not
-    // load, is told when it fails; an open's failure is told when it ends.
-    watch(options.readOpenFailure, (failure) => {
-        if (failure && !activeOpen.value) {
-            session.reportFailure(failure);
-        }
-    });
-
     watch(
         [
             acceptedTransactionId,
             options.documentOpenSettled,
             options.documentOpenAccepted,
+            options.readOpenFailure,
         ],
         ([
             acceptedId,
             settled,
             accepted,
+            failure,
         ]) => {
             const transaction = activeOpen.value;
             if (!transaction || transaction.id !== acceptedId) {
+                // A page operation owns its reload failure. Unowned failures
+                // are told here; an open's failure is told when it ends.
+                if (!transaction && failure && session.operationLease.activeKind.value !== 'page-operation') {
+                    session.reportFailure(failure);
+                }
                 return;
             }
-            const failure = options.readOpenFailure();
             if (failure) {
                 session.markFailed(failure);
             } else if (settled || (transaction.acceptDocumentWithoutVisual && accepted)) {

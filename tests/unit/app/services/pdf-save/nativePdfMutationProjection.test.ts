@@ -461,8 +461,6 @@ describe('native PDF save route', () => {
         expect(mutations.textBoxes).toHaveLength(1);
         expect(mutations.textBoxes?.[0]?.stableKey).toBe('survivor');
         expect(mutations.deletes).toEqual([expect.objectContaining({objectNumber: 12})]);
-        expect(result.canonical.pendingDeletes).toHaveLength(1);
-        expect(result.canonical.pendingDeletes[0]?.appAnnotationId).toBe('persisted');
     });
 
     function projectRecovery(entity: INoteEntity | IPlacedImageEntity) {

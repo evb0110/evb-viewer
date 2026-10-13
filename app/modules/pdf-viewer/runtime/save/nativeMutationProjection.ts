@@ -17,10 +17,7 @@ import type {
     TSerializationBackend,
 } from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import { selectSerializationBackend } from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
-import {
-    normalizePdfJsAnnotationId,
-    parsePdfAnnotationRef,
-} from '@app/utils/pdfAnnotationRefs';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type {
     INativeAppendSaveRoute,
     TNativePdfMutationSaveMode,
@@ -426,15 +423,7 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
     const hasPendingReplayableEmbeddedChanges = canonical.pendingTexts.size > 0
         || canonical.pendingDeletes.length > 0
         || canonical.replayableEmbeddedAnnotationIds.size > 0;
-    const hasEditorOnlyAnnotationsPendingMaterialization = canonical.comments.some(comment =>
-        comment.source === 'editor'
-        && !parsePdfAnnotationRef(comment.annotationId)
-        && !isReplayableEditorOnlyFreeTextNote(comment)
-        && !isReplayableCanonicalTextBox(comment)
-        && !canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey),
-    );
-
-    if (hasPendingReplayableEmbeddedChanges && !hasEditorOnlyAnnotationsPendingMaterialization) {
+    if (hasPendingReplayableEmbeddedChanges) {
         // Replayable sticky notes stay on the loaded-source writer route. The
         // native writer owns the append and no renderer rewrite is permitted.
         if (!changes.hasChanges) {
@@ -473,15 +462,6 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
             expectedCost: 'full-document',
             reason: 'changed-annotations-not-replayable',
             unreplayableAnnotationIds: Array.from(changes.ids),
-        };
-    }
-
-    if (hasEditorOnlyAnnotationsPendingMaterialization) {
-        return {
-            route: 'writer-save',
-            expectedCost: 'full-document',
-            reason: 'editor-only-annotations-pending-materialization',
-            unreplayableAnnotationIds: [],
         };
     }
 
@@ -800,6 +780,11 @@ function buildClassifiedNativeMutationProjection(
         return 'no-native-mutations-projected';
     }
 
+    // Coverage above targets the committed identities and carries every pending
+    // value. The native projection now owns that work; do not replay the legacy
+    // entries alongside it. The frozen store frontier remains pending until save.
+    canonical.pendingTexts.clear();
+    canonical.pendingDeletes.splice(0);
     return {
         canonicalAnnotationProgram: projectAnnotationBackendMutations(plan, 'native-append'),
         mutations: {
