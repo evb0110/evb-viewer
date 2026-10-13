@@ -1222,16 +1222,35 @@ describe('Electron E2E - annotation controls', () => {
         expect.soft(await editorFontSize(), `${script} reopens at its saved size`).toBeCloseTo(recordedSize, 2);
     });
 
-    it('keeps a compact foreign label whole when only its color changes', async () => {
-        // A 25 x 45 pt FreeText "W" at 22 pt from another program: its glyph is
-        // wider than the box less padding, so the saved size must fit it.
+    it.each([
+        // A 25 x 45 pt FreeText "W" at 22 pt from another program: its glyph
+        // reaches past the box, so the saved size must fit it.
+        [
+            'compact',
+            'compact.pdf',
+        ],
+        // review-b7f: 13.33 pt labels in 150 x 20 pt boxes. Their vowel points
+        // reach below the nominal line, and the saved size must keep them.
+        [
+            'short Arabic',
+            'short-arabic.pdf',
+        ],
+        [
+            'short Syriac',
+            'short-syriac.pdf',
+        ],
+        [
+            'short Hebrew',
+            'short-hebrew.pdf',
+        ],
+    ])('keeps a %s foreign label whole when only its color changes', async (_label, fixture) => {
         const evidence = mkdtempSync(join(tmpdir(), 'evb-foreign-label-'));
         onTestFinished(() => rmSync(evidence, {
             force: true,
             recursive: true,
         }));
         const saved = join(evidence, 'saved.pdf');
-        copyFileSync(resolve('tests/fixtures/electron/semtext/compact.pdf'), saved);
+        copyFileSync(resolve('tests/fixtures/electron/semtext', fixture), saved);
         const {page} = sessionFixture.getSession();
         await openPdfInApp(page, saved);
         await waitForViewerInteractive(page);

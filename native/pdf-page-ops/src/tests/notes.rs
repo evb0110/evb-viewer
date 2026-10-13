@@ -3056,9 +3056,6 @@ fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
         let content = String::from_utf8(normal.as_stream().unwrap().content.clone()).unwrap();
         let drawn: f64 = content.split_once(" Tf").unwrap().0.rsplit(' ').next().unwrap().parse().unwrap();
         assert_eq!((reopened.font_size, drawn == 22.0), (drawn, fits_at_22), "{content}");
-        let ink = crate::text_box_font::layout(text, f64::MAX, drawn)[0].width;
-        let width = rect[2] - rect[0] - 2.0 * crate::text_box_font::PADDING_X * drawn;
-        assert!(fits_at_22 || ink <= width + 0.01, "{text} {ink} > {width}");
     }
 }
 

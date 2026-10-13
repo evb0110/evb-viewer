@@ -1,5 +1,10 @@
 use super::*;
+use crate::text_box_font::{
+    self, baseline_from_top, layout, Geometry, Line, FONTS, LINE_HEIGHT, PADDING_X, PADDING_Y,
+};
 use lopdf::dictionary;
+use skrifa::instance::{LocationRef, Size};
+use skrifa::{FontRef, MetadataProvider};
 
 /// PDF's standard sticky-note icon is a 20 point square. The mutation
 /// protocol still carries the marker's normalized anchor, so the writer
@@ -1005,12 +1010,8 @@ pub(crate) fn validate_text_box_rect(
     if !editor.font_size.is_finite() || editor.font_size <= 0.0 || editor.font_size > 512.0 {
         return Err("Invalid FreeText editor font size".into());
     }
-    let source = PdfRect {
-        x1: editor.rect[0],
-        y1: editor.rect[1],
-        x2: editor.rect[2],
-        y2: editor.rect[3],
-    };
+    let [x1, y1, x2, y2] = editor.rect;
+    let source = PdfRect { x1, y1, x2, y2 };
     // Rotating around the center can put the unrotated canonical box outside
     // the page while all visible corners remain inside it.
     let rect = crate::text_box_font::geometry(source, i64::from(editor.rotation), 0)?.bounds;
@@ -1030,24 +1031,40 @@ pub(crate) fn validate_text_box_rect(
     Ok(rect)
 }
 
-/// The editor grows a box to the text it shows. Lines fit when the box holds
-/// their count and their visible width: spaces hanging at line ends do not
-/// count, as on screen, but a grapheme too wide to wrap does. Where the saved
-/// fonts need more room, the size shrinks until they fit. The appearance and
-/// the DA, which the reopened editor reads, both use that size.
-pub(crate) fn fit_text_box(
-    editor: &TextBoxMutation,
-    geometry: &crate::text_box_font::Geometry,
-) -> (f64, Vec<crate::text_box_font::Line>) {
-    use crate::text_box_font::{layout, LINE_HEIGHT, PADDING_X, PADDING_Y};
+/// Where a fitted line starts and sits in its box. RTL lines align right, and
+/// the spaces that hang at their end fall off the start side.
+fn line_origin(geometry: &Geometry, line: &Line, index: usize, size: f64) -> (f64, f64) {
+    let rest = (geometry.width - 2.0 * PADDING_X * size).max(0.0) - line.width;
+    let left = PADDING_X * size + if line.rtl { rest } else { 0.0 };
+    let baseline = geometry.height - baseline_from_top(size) - index as f64 * LINE_HEIGHT * size;
+    (left, baseline)
+}
+
+/// The editor grows a box to its lines. They fit when the box holds their
+/// count and every positioned glyph's ink, marks below the baseline and above
+/// the cap height included, stays inside the box, which clips the appearance.
+/// Where it does not, the size shrinks until it does. The appearance and the
+/// DA, which the reopened editor reads, both use that size.
+pub(crate) fn fit_text_box(editor: &TextBoxMutation, geometry: &Geometry) -> (f64, Vec<Line>) {
+    let faces = FONTS.map(|program| FontRef::from_index(program, 0).expect("bundled font"));
+    let lines = |size: f64| layout(&editor.text, geometry.width - 2.0 * PADDING_X * size, size);
     let fit = |size: f64| {
-        let width = geometry.width - 2.0 * PADDING_X * size + 0.01;
-        let lines = layout(&editor.text, width - 0.01, size);
-        let visible = |line: &crate::text_box_font::Line| {
-            line.width <= width || layout(line.text.trim_end(), f64::MAX, size)[0].width <= width
+        let lines = lines(size);
+        let inside = |(index, line): (usize, &Line)| {
+            let (left, baseline) = line_origin(geometry, line, index, size);
+            line.glyphs.iter().all(|glyph| {
+                let ink = faces[glyph.font].glyph_metrics(Size::new(1.0), LocationRef::default());
+                let ink = ink.bounds(glyph.id.into()).unwrap_or_default();
+                let [x1, y1, x2, y2] =
+                    [ink.x_min, ink.y_min, ink.x_max, ink.y_max].map(|em| f64::from(em) * size);
+                let (x, y) = (left + glyph.x, baseline + glyph.y);
+                // A quarter point keeps ink and the clip's antialiased edge apart at 4x.
+                let [width, height] = [geometry.width, geometry.height].map(|side| side - 0.25);
+                x1 == x2 || (x + x1).min(y + y1) >= 0.25 && x + x2 <= width && y + y2 <= height
+            })
         };
         let height = (lines.len() as f64 * LINE_HEIGHT + PADDING_Y) * size;
-        (height <= geometry.height + 0.01 && lines.iter().all(visible)).then_some(lines)
+        (height <= geometry.height + 0.01 && lines.iter().enumerate().all(inside)).then_some(lines)
     };
     if let Some(lines) = fit(editor.font_size) {
         return (editor.font_size, lines);
@@ -1062,10 +1079,7 @@ pub(crate) fn fit_text_box(
         };
     }
     let size = (range.0 * 100.0).floor() / 100.0;
-    (
-        size,
-        layout(&editor.text, geometry.width - 2.0 * PADDING_X * size, size),
-    )
+    (size, lines(size))
 }
 
 pub(crate) fn build_text_box_appearance(
@@ -1075,38 +1089,22 @@ pub(crate) fn build_text_box_appearance(
     page_rotation: i64,
     shared: &mut crate::text_box_font::SharedFonts,
 ) -> Result<(ObjectId, f64)> {
-    use crate::text_box_font::{self, LINE_HEIGHT, PADDING_X};
-    let source = PdfRect {
-        x1: editor.rect[0],
-        y1: editor.rect[1],
-        x2: editor.rect[2],
-        y2: editor.rect[3],
-    };
+    let [x1, y1, x2, y2] = editor.rect;
+    let source = PdfRect { x1, y1, x2, y2 };
     let geometry = text_box_font::geometry(source, i64::from(editor.rotation), page_rotation)?;
-    let width = geometry.width;
-    let height = geometry.height;
     let color = editor.color.map(|component| f64::from(component) / 255.0);
     let mut content = format!(
         "q\n{} cm\n0 0 {} {} re W n\nBT\n{} rg\n0 Tc\n",
         format_operands(&geometry.matrix),
-        number_to_content(width),
-        number_to_content(height),
+        number_to_content(geometry.width),
+        number_to_content(geometry.height),
         format_operands(&color),
     );
     let (size, lines) = fit_text_box(editor, &geometry);
-    let content_width = (width - 2.0 * PADDING_X * size).max(0.0);
     let fonts = shared.resources(document, &lines);
     let mut font = None;
     for (index, line) in lines.iter().enumerate() {
-        let left = PADDING_X * size
-            + if line.rtl {
-                // Spaces that hang at a line's end fall off its start side.
-                content_width - line.width
-            } else {
-                0.0
-            };
-        let baseline =
-            height - text_box_font::baseline_from_top(size) - index as f64 * LINE_HEIGHT * size;
+        let (left, baseline) = line_origin(&geometry, line, index, size);
         content.push_str(&format!(
             "/Span << /ActualText <{}> >> BDC\n",
             text_box_font::unicode_hex(&line.text, true)

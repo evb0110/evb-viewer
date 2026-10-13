@@ -2271,6 +2271,81 @@ fn authored_semitic_text_boxes_save_harfbuzz_appearances() {
             "printing keeps the authored {script} appearance"
         );
     }
+    // review-b7f: a 150 x 20 pt box at 13.33 pt hid two kasra strokes below
+    // its nominal line. Vowel points below and above the line stay in the box.
+    let render = |pdf: &Path| {
+        // The box and 30 pt around it on the A4 page, at 4x.
+        let crop = "-r 288 -x 160 -y 2160 -W 840 -H 360 -singlefile";
+        let tool = external_tool::tool_path("PDFTOPPM_PATH", "poppler", "pdftoppm");
+        let output = Command::new(tool).args(crop.split(' ')).arg(pdf).output();
+        output.unwrap().stdout
+    };
+    for text in ["بَسْمِ لَا بــِسْمِ", "ܡܲܠܟܹ̈ܐ ܛܵܒܹ̈ܐ", "הַקְּדֻשָּׁה וְהַטָּהֳרָה"]
+    {
+        let temp = TempPaths::new("short-semitic-marks");
+        fs::copy(fixture.join("blank.pdf"), &temp.pdf).unwrap();
+        write_mutations(
+            &temp,
+            &json!({"textBoxes": [{
+                "pageIndex": 0, "stableKey": "short", "text": text,
+                "rect": [70, 250, 220, 270], "rotation": 0, "fontSize": 13.33,
+                "color": [17, 24, 39],
+            }]}),
+        );
+        run_save(&temp);
+        // Unclipped, with room around the box, the page draws the same pixels.
+        let mut saved = Document::load(&temp.pdf).unwrap();
+        let page = saved.get_dictionary(saved.get_pages()[&1]).unwrap();
+        let annotation = page.get(b"Annots").unwrap().as_array().unwrap()[0]
+            .as_reference()
+            .unwrap();
+        let appearance = saved
+            .get_dictionary(annotation)
+            .unwrap()
+            .get(b"AP")
+            .unwrap();
+        let normal = appearance
+            .as_dict()
+            .unwrap()
+            .get(b"N")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let grow = |dict: &mut Dictionary, key: &[u8]| {
+            let side = dict.get(key).unwrap().as_array().unwrap().clone();
+            let side = side.iter().map(|value| value.as_float().unwrap());
+            let grown = side
+                .zip([-100.0, -100.0, 100.0, 100.0])
+                .map(|(v, d)| Object::Real(v + d));
+            dict.set(key, grown.collect::<Vec<_>>());
+        };
+        grow(saved.get_dictionary_mut(annotation).unwrap(), b"Rect");
+        let stream = saved
+            .get_object_mut(normal)
+            .unwrap()
+            .as_stream_mut()
+            .unwrap();
+        stream.decompress().unwrap();
+        let content = String::from_utf8(stream.content.clone()).unwrap();
+        assert!(
+            content.contains(" re W n"),
+            "the appearance clips to its box"
+        );
+        stream.set_content(content.replace(" re W n", " re n").into_bytes());
+        grow(&mut stream.dict, b"BBox");
+        let unclipped = temp.root.join("unclipped.pdf");
+        saved.save(&unclipped).unwrap();
+        let clipped = render(&temp.pdf);
+        assert!(
+            clipped.iter().any(|channel| *channel < 128),
+            "the crop shows {text}"
+        );
+        let unclipped = render(&unclipped);
+        assert!(
+            clipped == unclipped,
+            "{text} keeps every mark inside its box"
+        );
+    }
 }
 
 #[test]
