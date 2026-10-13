@@ -649,6 +649,87 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('lets deliberate navigation present its failure after replacing a failed buffer', async () => {
+        toasts.length = 0;
+        vi.mocked(BrowserLogger.error).mockReturnValue({
+            eventId: '0123456789abcdef0123456789abcdef',
+            code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
+            occurredAt: requireEpochMs(Date.now()),
+            severity: 'error',
+        });
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence: {
+                loadToken: 1,
+                documentVersion: 1,
+                documentRevision: 'revision-1',
+            },
+            leasePage: async pageNumber => ({
+                page: cast<IPdfPage>({
+                    pageNumber,
+                    rotate: 0,
+                    getViewport: ({scale}: {scale: number}) => ({
+                        width: pageNumber === 2 ? Infinity : 600 * scale,
+                        height: pageNumber === 2 ? Infinity : 900 * scale,
+                        userUnit: 1,
+                        rawDims: {
+                            pageWidth: 600,
+                            pageHeight: 900,
+                        },
+                    }),
+                    render: () => ({
+                        promise: Promise.resolve(),
+                        cancel() {},
+                    }),
+                }),
+                release() {},
+            }),
+            surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
+        });
+        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+        const fixture = createViewportFixture({
+            pageCount: 2,
+            bufferPages: 1,
+            isPageFreshlyRenderedForNavigation: () => false,
+            rasterScheduler: scheduler,
+        });
+        document.body.append(fixture.container);
+        appendRasterTarget(fixture.container, 1);
+        appendRasterTarget(fixture.container, 2);
+        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+        fixture.viewport.markPageMounted(requirePageNumber(1));
+        fixture.viewport.markPageMounted(requirePageNumber(2));
+        const navigationMetrics = Promise.withResolvers<boolean>();
+        try {
+            await fixture.rendering!.renderVisiblePages({
+                start: 1,
+                end: 1,
+            });
+            await expect.poll(() => fixture.rendering!.isPageRenderFailed(requirePageNumber(2))).toBe(true);
+            expect(toasts).toHaveLength(0);
+            fixture.documentSession.ensurePageMetricsInRange.mockReturnValue(navigationMetrics.promise);
+            expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(true);
+            await nextTick();
+            expect(toasts).toHaveLength(0);
+            navigationMetrics.resolve(false);
+            await expect.poll(() => toasts.length).toBe(1);
+            await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+            expect(toasts).toHaveLength(1);
+            const description = toasts[0]!.description;
+            if (typeof description !== 'function') throw new Error('Expected a failure description');
+            expect(await renderToString(description())).toContain('Unable to render this page');
+            expect(toasts[0]!.actions?.filter(action => action.label === 'Retry')).toHaveLength(1);
+            expect(fixture.container.querySelector('[data-page="2"] canvas')).toBeNull();
+        } finally {
+            navigationMetrics.resolve(false);
+            fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
+            await fixture.dispose();
+            await scheduler.dispose();
+            fixture.container.remove();
+            context.mockRestore();
+            vi.mocked(BrowserLogger.error).mockReset();
+        }
+    });
+
     it('keeps the opening render authority when annotations become ready before its canvas', async () => {
         const projectionReady = ref(false);
         const firstRender = Promise.withResolvers<undefined>();

@@ -344,7 +344,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             pageRenderer.presentPageRenderFailure(pageNumber, outcome.error, () => cancelInFlightRenders().then(() => renderVisiblePages({
                 start: pageNumber,
                 end: pageNumber,
-            }, {bufferOverride: 0})), () => demand.lane === 'navigation-target' || viewport.demand.value.requiredPages.includes(pageNumber));
+            }, {bufferOverride: 0})), () => demand.lane === 'navigation-target' || viewport.viewportWork.activeWorkKind.value !== 'navigation' && viewport.demand.value.requiredPages.includes(pageNumber));
         },
         commit(prepared, demand) {
             if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand
@@ -591,7 +591,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             : [];
         const requestedJobs = buildViewportRasterJobs(range, renderOptions, scheduler);
         const requestedPages = new Set(requestedJobs.map(job => job.demand.pageNumber));
-        const targetPages = [...requestedPages].filter(page => page >= range.start && page <= range.end);
         const jobs = [
             ...residentJobs.filter(job => (
                 !requestedPages.has(job.demand.pageNumber)
@@ -647,7 +646,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             });
             await Promise.all(waits);
         }
-        await promotePrioritizedTextLayers(pageRenderer, targetPages, renderOptions);
+        await promotePrioritizedTextLayers(pageRenderer, [...requestedPages].filter(page => page >= range.start && page <= range.end), renderOptions);
         // The committed canvas is mounted synchronously, but the page
         // container's rendered class controls its visibility through Vue.
         // Do not release navigation readiness until that projection has
