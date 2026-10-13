@@ -36,6 +36,12 @@ class MockSidecarProcess extends EventEmitter {
     readonly kill = vi.fn();
 }
 
+// Each test re-imports after resetModules; transform the graphs once at
+// collection so a loaded host does not spend a test's budget on it.
+await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+await import('@electron/native-tools/runNativeCommand');
+await import('@electron/utils/nativeTerminationProof');
+
 describe('scan cleanup sidecar abort window', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -54,9 +60,11 @@ describe('scan cleanup sidecar abort window', () => {
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         let childAlive = true;
+        let killedAfterMs: number | undefined;
         // Model a busy native stage that needs force termination. The shared
         // process-tree owner polls at 100 ms intervals after the grace period.
         mocks.terminateDetachedChildProcess.mockImplementation((_proc, graceMs) => new Promise(resolve => {
+            killedAfterMs = graceMs + 100;
             setTimeout(() => {
                 childAlive = false;
                 child.emit('close', null, 'SIGKILL');
@@ -102,7 +110,14 @@ describe('scan cleanup sidecar abort window', () => {
         };
         await phases.runPreservationSteps(context);
         const cleanup = phases.runBestEffortCleanupSteps(context);
-        await vi.advanceTimersByTimeAsync(1_538);
+        await vi.advanceTimersByTimeAsync(0);
+        if (killedAfterMs === undefined) throw new Error('shutdown never terminated the sidecar');
+        // After the kill the run replays its publication journal from disk.
+        // Let that real read finish while fake time stands at the kill, so a
+        // slow host cannot push the clock past the step deadline first.
+        await vi.advanceTimersByTimeAsync(killedAfterMs);
+        await run;
+        await vi.advanceTimersByTimeAsync(Math.max(0, 1_538 - killedAfterMs));
         await cleanup;
         const aliveAtCleanup = childAlive;
         // Finish the simulated child even on the red baseline.
