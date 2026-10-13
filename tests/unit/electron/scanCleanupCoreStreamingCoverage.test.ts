@@ -1278,7 +1278,8 @@ describe('scan-cleanup-core conversion coverage', () => {
                 return;
             }
             if (scenario === 'incomplete probe') {
-                await expect(conversion).rejects.toMatchObject({name: 'ScanCleanupStreamingEvidenceError'});
+                await expect(conversion).rejects.toThrow('test source raster probe was incomplete');
+                expect(existsSync(outputPdfPath)).toBe(false);
                 return;
             }
             if (scenario === 'truncated sidecar') {

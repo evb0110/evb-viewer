@@ -47,9 +47,8 @@ const STREAMING_CACHE_DESCRIPTOR_MAX_BYTES = 1024 * 1024;
 const LEGACY_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const STREAMING_CACHE_RECORDS_SUFFIX = '.jsonl';
 
-// Version 2: each page is analyzed at resolveScanCleanupAnalysisDpi, not at a
-// fixed DETECTION_DPI, so results cached under version 1 no longer apply.
-const DETECTION_ALGORITHM_VERSION = 2 as const;
+// Failed source probes no longer produce a lower-resolution analysis profile.
+const DETECTION_ALGORITHM_VERSION = 3 as const;
 // Detection intentionally enumerates every source page; --pages is consumed
 // only by the subsequent conversion pipeline and therefore is not a key input.
 const DETECTION_SCOPE = 'all-source-pages' as const;

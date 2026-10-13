@@ -48,7 +48,10 @@ import {
 } from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import {createPdfPageSizeStore} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
-import {detectSourceDpiDetails} from '@evb/scan-cleanup/core/sourceDpiDetection';
+import {
+    createScanCleanupPageRasterSource,
+    detectSourceDpiDetails,
+} from '@evb/scan-cleanup/core/sourceDpiDetection';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
 import {
     runScanCleanupDetection,
@@ -66,7 +69,6 @@ import {
     type IScanCleanupRepresentationReport,
 } from '@evb/scan-cleanup/core/index';
 import type {
-    IDetectedPageRaster,
     IScanCleanupProcessResult,
     IScanCleanupDetectionResultStore,
     IScanCleanupPageRasterSource,
@@ -100,7 +102,6 @@ import {
 } from '@scripts/scanCleanupDetectionCache';
 
 const IMAGE_COMBINE_FALLBACK = '__scan_cleanup_cli_image_combine_fallback__';
-const CLI_PAGE_RASTER_CACHE_LIMIT = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 
 const cliDetectionFileSystem: NonNullable<IScanCleanupDetectionDependencies['fileSystem']> = {
     copyFile,
@@ -841,45 +842,17 @@ export async function main() {
         onProgress,
         runCommand,
     );
-    const detectRasterPages = (
+    const detectRasterPages = async (
         pdfPath: string,
         signal: AbortSignal,
-    ): Promise<IScanCleanupPageRasterSource> => {
-        const cache = new Map<number, Promise<IDetectedPageRaster | undefined>>();
-        let documentDpi: number | null = null;
-        const getPageRaster = (pageNumber: number) => {
-            const cached = cache.get(pageNumber);
-            if (cached !== undefined) {
-                return cached;
-            }
-            const pending = (async () => {
-                signal.throwIfAborted();
-                const result = await detectSourceDpi(
-                    pdfPath,
-                    pdfimagesBinary,
-                    log,
-                    undefined,
-                    signal,
-                    [pageNumber],
-                );
-                documentDpi = Math.max(documentDpi ?? 0, result.documentDpi ?? 0) || null;
-                return result.getPageRaster(pageNumber);
-            })();
-            cache.set(pageNumber, pending);
-            if (cache.size > CLI_PAGE_RASTER_CACHE_LIMIT) {
-                const oldest = cache.keys().next().value;
-                if (oldest !== undefined && oldest !== pageNumber) cache.delete(oldest);
-            }
-            return pending;
-        };
-        return Promise.resolve({
-            detected: true,
-            get documentDpi() {
-                return documentDpi;
-            },
-            getPageRaster,
-        });
-    };
+    ): Promise<IScanCleanupPageRasterSource> => createScanCleanupPageRasterSource({
+        pdfPath,
+        pdfimagesBinary,
+        detectSourceDpi,
+        log,
+        signal,
+        documentPageCount: await getPageCount(pdfPath, {signal}),
+    });
     const getPageSizeStoreForDetection = (pdfPath: string, signal: AbortSignal) => Promise.resolve(
         createPdfPageSizeStore(pdfPath, {
             pdfPageOpsBinary: nativePageOpsBinary,

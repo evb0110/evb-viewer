@@ -485,3 +485,19 @@ describe.skipIf(!layeredMaskMagickAvailable)('CLI layered-mask fallback polarity
         ]);
     });
 });
+
+describe('scan cleanup source raster evidence', () => {
+    it('rejects a timed-out source probe instead of using a different analysis DPI', async () => {
+        const {detectSourceDpiDetails} = await import('@evb/scan-cleanup/core/sourceDpiDetection');
+        await expect(detectSourceDpiDetails(
+            '/public-book.pdf',
+            '/bin/pdfimages',
+            () => {},
+            undefined,
+            new AbortController().signal,
+            [1],
+            undefined,
+            async () => { throw new Error('pdfimages(-list) timed out'); },
+        )).rejects.toThrow('pdfimages(-list) timed out');
+    });
+});

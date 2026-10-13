@@ -654,7 +654,7 @@ async function detectExportRenderDpi(
 ) {
     const [
         pageSizes,
-        detection,
+        sourceDpi,
     ] = await Promise.all([
         readExportPageSizes(pdfPath, popplerRuntimePaths, pageCount, signal, cancelGroup),
         detectSourceDpiDetails(
@@ -664,11 +664,15 @@ async function detectExportRenderDpi(
             buildPopplerEnv(popplerRuntimePaths),
             signal,
             selectDpiProbePages(pageCount),
-        ),
+        ).then(result => result.documentDpi).catch(error => {
+            throwIfAborted(signal);
+            logger.debug(`pdfimages export resolution probe failed: ${getErrorMessage(error)}`);
+            return null;
+        }),
     ]);
 
     return {
-        renderDpi: resolveExportRenderDpi(detection.documentDpi, pageSizes),
+        renderDpi: resolveExportRenderDpi(sourceDpi, pageSizes),
         pageSizes,
     };
 }

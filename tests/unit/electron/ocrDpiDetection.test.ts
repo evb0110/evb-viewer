@@ -430,21 +430,9 @@ describe('ocr dpi detection', () => {
         expect((await result.getPageRaster(392))?.dpi).toBe(360);
     });
 
-    it('downgrades recoverable pdfimages runner errors to debug logs', async () => {
-        const log = vi.fn();
-        mocks.runOcrCommand.mockImplementationOnce(async (_command, _args, options) => {
-            options.log?.('error', 'pdfimages(-list) timed out after 30000ms; cmd=/bin/pdfimages -list /tmp/input.pdf');
-            throw new Error('pdfimages(-list) timed out after 30000ms');
-        });
-
-        const result = await detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', log);
-
-        expect(result.documentDpi).toBeNull();
-        expect(await result.getPageRaster(1)).toBeUndefined();
-        expect(log).toHaveBeenCalledWith(
-            'debug',
-            expect.stringContaining('pdfimages(-list) timed out after 30000ms'),
-        );
-        expect(log).not.toHaveBeenCalledWith('error', expect.any(String));
+    it('propagates failed probes instead of inventing source raster facts', async () => {
+        mocks.runOcrCommand.mockRejectedValueOnce(new Error('pdfimages(-list) timed out'));
+        await expect(detectSourceDpiDetails('/tmp/input.pdf', '/bin/pdfimages', vi.fn()))
+            .rejects.toThrow('pdfimages(-list) timed out');
     });
 });
