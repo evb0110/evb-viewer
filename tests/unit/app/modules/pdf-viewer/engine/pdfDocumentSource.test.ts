@@ -212,6 +212,47 @@ describe('createPdfjsDocumentSourceLoader', () => {
         expect(mocks.getDocument).toHaveBeenCalledOnce();
     });
 
+    it.each([
+        {
+            kind: 'blob',
+            source: new Blob(['pending']),
+        },
+        {
+            kind: 'path',
+            source: createPathSource('/tmp/pending.pdf'),
+        },
+    ])('releases a submitted $kind open when cancelled and retains its teardown handle', async ({source}) => {
+        const pending = Promise.withResolvers<Record<string, unknown>>();
+        const task = {
+            promise: pending.promise,
+            destroy: vi.fn(async () => {}),
+        };
+        mocks.getDocument.mockReturnValue(task);
+        const loader = createPdfjsDocumentSourceLoader({
+            getRenderVersion: () => 1,
+            onRangeReadFailure: mocks.onRangeReadFailure,
+        });
+        let completed: {document: unknown} | null = null;
+        const opening = loader.open(source, 1).then(document => {
+            completed = {document};
+            return document;
+        });
+        try {
+            await vi.waitFor(() => expect(mocks.getDocument).toHaveBeenCalledOnce());
+            loader.cancelPendingOpen();
+            await vi.waitFor(() => expect(completed).toEqual({document: null}));
+            loader.destroyLoadingTask('test teardown rejected', 'test teardown failed');
+            await pdfjsDocumentTeardownCoordinator.waitForIdle('');
+            expect(task.destroy).toHaveBeenCalledOnce();
+        } finally {
+            loader.abortTransport('test cleanup');
+            loader.destroyLoadingTask('test cleanup rejected', 'test cleanup failed');
+            pending.resolve({numPages: 1});
+            await opening;
+            await pdfjsDocumentTeardownCoordinator.waitForIdle('');
+        }
+    });
+
     it('preserves native tail range offsets above the signed 32-bit boundary', async () => {
         const size = 3_000_000_000;
         const path = '/tmp/large-document.pdf';

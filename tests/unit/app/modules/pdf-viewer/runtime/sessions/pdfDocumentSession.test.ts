@@ -1652,11 +1652,11 @@ describe('PdfDocumentSession range loading', () => {
         pdfjsState.getDocument
             .mockReturnValueOnce({
                 promise: staleLoad.promise,
-                destroy: vi.fn(() => Promise.resolve()),
+                ...staleDocument.loadingTask,
             })
             .mockReturnValueOnce({
                 promise: Promise.resolve(currentDocument),
-                destroy: vi.fn(() => Promise.resolve()),
+                ...currentDocument.loadingTask,
             });
 
         const documentState = createPdfDocumentSession();

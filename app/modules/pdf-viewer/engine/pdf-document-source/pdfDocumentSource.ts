@@ -642,7 +642,11 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             ...documentOptions,
         });
         const task = loadingTask;
-        const document = await task.promise;
+        const document = await Promise.race([
+            task.promise,
+            cancelled.then(() => null),
+        ]);
+        if (!document) return null;
         if (loadingTask === task) {
             loadingTask = null;
         }
@@ -758,8 +762,10 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         const document = await Promise.race([
             task.promise,
             rangeFailure.rangeReadFailure,
+            cancelled.then(() => null),
         ]);
         rangeFailure.complete();
+        if (!document) return null;
         logPdfRenderTrace('pdf-document-get-document-resolve', {
             version,
             sourceKind: 'path',
