@@ -133,7 +133,7 @@ function clearProgressBroadcastTimer() {
 }
 
 export function projectUpdateStatusForWindow(snapshot: IAppUpdateStatus, senderId: number): IAppUpdateStatus {
-    const requestedHere = statusRequesters === null || statusRequesters.has(senderId);
+    const requestedHere = statusRequesters?.has(senderId) === true;
     return {
         ...snapshot,
         ...(snapshot.phase === 'downloading' && !requestedHere ? {
@@ -144,14 +144,10 @@ export function projectUpdateStatusForWindow(snapshot: IAppUpdateStatus, senderI
     };
 }
 
-function broadcastStatusNow() {
-    emitStatus(status);
-}
-
 function broadcastProgressStatus() {
     clearProgressBroadcastTimer();
     lastProgressBroadcastAt = Date.now();
-    broadcastStatusNow();
+    emitStatus(status);
 }
 
 function updateStatus(next: Partial<IAppUpdateStatus>, requesters = operationRequesters) {
@@ -170,7 +166,7 @@ function updateStatus(next: Partial<IAppUpdateStatus>, requesters = operationReq
 
     if (status.phase !== 'downloading') {
         clearProgressBroadcastTimer();
-        broadcastStatusNow();
+        emitStatus(status);
         return;
     }
 
@@ -858,7 +854,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
 export function initializeUpdates(broadcast: TUpdateStatusBroadcast) {
     isShuttingDown = false;
     emitStatus = broadcast;
-    broadcastStatusNow();
+    emitStatus(status);
 
     if (initialized) {
         return;
@@ -958,13 +954,14 @@ export async function triggerManualUpdateCheck(requester: IUpdateRequester) {
     operationRequesters = requesters;
     requesters.add(requester.senderId);
     if (currentDownloadPromise) {
-        broadcastStatusNow();
+        emitStatus(status);
         await currentDownloadPromise;
     } else {
         try {
             await checkForUpdates('manual');
         } finally {
             if (operationRequesters === requesters && !currentCheckPromise) {
+                requesters.clear();
                 operationRequesters = null;
             }
         }
@@ -981,10 +978,11 @@ export function getUpdateStatus(requester?: IUpdateRequester) {
             requestedHere: true,
         };
     }
-    return status.version !== null ? status : {
+    const snapshot = {
         ...status,
-        version: getCurrentVersion(),
+        version: status.version ?? getCurrentVersion(),
     };
+    return requester ? projectUpdateStatusForWindow(snapshot, requester.senderId) : snapshot;
 }
 
 export function downloadAvailableUpdate(requester: IUpdateRequester) {
@@ -994,7 +992,7 @@ export function downloadAvailableUpdate(requester: IUpdateRequester) {
 
     if (currentDownloadPromise) {
         operationRequesters?.add(requester.senderId);
-        broadcastStatusNow();
+        emitStatus(status);
         return {started: true};
     }
     const requesters = new Set([requester.senderId]);
