@@ -61,20 +61,7 @@ pub(crate) fn synthesized_appearance(
 /// standard icon's own glyph.
 fn synthesized_note_icon(document: &mut Document, annotation: &Dictionary) -> Option<ObjectId> {
     let color = match annotation.get(b"C") {
-        Ok(color) => {
-            let count = document.dereference(color).ok()?.1.as_array().ok()?.len();
-            let operator = match count {
-                1 => "g",
-                3 => "rg",
-                4 => "k",
-                _ => return None,
-            };
-            let components = numbers(document, color, count)?;
-            if components.iter().any(|value| !(0.0..=1.0).contains(value)) {
-                return None;
-            }
-            format!("{} {operator}", format_operands(&components))
-        }
+        Ok(_) => colour_operands(&annotation_colour(document, annotation, b"C")??, true),
         Err(_) => "1 1 0 rg".to_string(),
     };
     let content = format!(
@@ -118,10 +105,12 @@ pub(crate) fn synthesized_shape_content(
     let mut content = String::from("q\n");
     if let Some(stroke) = &stroke {
         // A dash needs butt caps: round caps would add half a width to each end
-        // of every dash and fill the gaps.
+        // of every dash and fill the gaps. A rectangle keeps PDF's default
+        // mitred corners, as stock readers and producers draw it.
         let cap = if dash.is_some() { 0 } else { 1 };
+        let join = if subtype == b"Square" { 0 } else { 1 };
         content.push_str(&format!(
-            "{} {} w {cap} J 1 j\n",
+            "{} {} w {cap} J {join} j\n",
             colour_operands(stroke, false),
             format_operands(&[width])
         ));

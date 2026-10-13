@@ -2287,6 +2287,11 @@ fn print_freetext_tabs_use_the_painted_font_units() {
         actual[band.clone()] == reference[band],
         "tab stops use the same font units as the painted Latin glyphs"
     );
+    // The whole page: the bordered label's mitred frame and the text inside it too.
+    assert!(
+        actual == reference,
+        "the printed page matches its reference"
+    );
 }
 
 #[test]

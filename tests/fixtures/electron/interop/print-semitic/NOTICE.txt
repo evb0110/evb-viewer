@@ -13,7 +13,7 @@ Noto Sans Hebrew Regular 3.001: copyright 2022 The Noto Project Authors
 License: public/fonts/annotation/NotoSansHebrew-OFL.txt.
 
 The input reproduces partial font joining, pointed/cantillated Hebrew, and
-red DA border/green background with an empty padded text area. Reference
+red DA border/green background around a padded text area. Reference
 coordinates use a 32-point font, 0.3-em insets and DejaVu's shared baseline.
 Each paragraph takes the direction of its first strong character, as EVB shows,
 saves and prints it: RTL lines end 0.3 em inside the right edge. They were moved
@@ -43,8 +43,12 @@ every U+0591-U+05AF mark attached separately to Beth. All five lines use the
 same independently shaped Noto Sans Hebrew positions. The mixed-script source
 uses one multiline annotation, plus a separate collapsed-color annotation.
 
-The border reference uses round joins to preserve the pre-existing synthesized
-FreeText outline style; the regression concerns its DA color and background.
+The border reference uses mitred joins, PDF's default, as the producers'
+frames and EVB's label frames do since semtext round 9; the regression
+concerns its DA color and background. Its text, "ABC", lies inside the border:
+a 140 x 60 pt box with 0.3 em side padding, at the DA's 20 pt in red, shaped
+independently with HarfBuzz in DejaVu Sans and drawn from a GID-stable subset
+of that font keeping A, B and C (add_collapsed_text.py, semtext round 9).
 The fourth line, a TAB b, uses independent four-space DejaVu tab placement.
 This guards against reading a preferred/partial font's space advance in the
 units of another font that actually paints the text.
