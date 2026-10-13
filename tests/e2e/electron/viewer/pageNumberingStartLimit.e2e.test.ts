@@ -12,12 +12,15 @@ import {
     PDFDocument,
     PDFName,
     PDFNumber,
+    PDFRef,
     PDFString,
 } from 'pdf-lib';
 import {
     createMultiPageTextFixturePdf,
     createPageLabelRangesFixturePdf,
+    readPdfCatalogWithPdfjs,
 } from '@tests/e2e/electron/helpers/fixtures';
+import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
     clickAsUser, clickFoundAsUser,
@@ -34,6 +37,102 @@ const PAGES_PANEL = '.workspace-host[data-workspace-active="true"]';
 
 describe('Electron E2E - page numbering start limit', () => {
     const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-page-start-limit-${Date.now()}`});
+
+    it('deletes pages with recoverable page-label trees and preserves the labels PDF.js displays', async () => {
+        const {page} = sessions.getSession();
+        for (const variant of [
+            'duplicates',
+            'dangling-kids',
+            'empty',
+        ] as const) {
+            const fixture = await createMultiPageTextFixturePdf(`label-tree-${variant}-${Date.now()}.pdf`, 3);
+            const pdf = await PDFDocument.load(await readFile(fixture));
+            const {context} = pdf;
+            const label = context.obj({
+                S: 'r',
+                P: PDFString.of('x-'),
+            });
+            const deep = context.register(context.obj({Nums: [
+                0,
+                label,
+            ]}));
+            const tree = variant === 'duplicates'
+                ? context.obj({Nums: [
+                    0,
+                    {S: 'D'},
+                    0,
+                    5,
+                    0,
+                    label,
+                ]})
+                : variant === 'empty'
+                    ? context.obj({Nums: []})
+                    : context.obj({Kids: [
+                        context.register(context.obj({
+                            Kids: [deep],
+                            Nums: [
+                                0,
+                                5,
+                            ],
+                        })),
+                        context.register(context.obj({Nums: [
+                            0,
+                            {S: 'D'},
+                        ]})),
+                        PDFRef.of(999_999),
+                        context.register(PDFNumber.of(5)),
+                        context.register(context.obj({Nums: []})),
+                    ]});
+            pdf.catalog.set(PDFName.of('PageLabels'), tree);
+            await writeFile(fixture, await pdf.save({useObjectStreams: false}));
+            const before = (await readPdfCatalogWithPdfjs(fixture)).pageLabels;
+            expect(before).toEqual(variant === 'empty' ? [
+                '',
+                '',
+                '',
+            ] : [
+                'x-i',
+                'x-ii',
+                'x-iii',
+            ]);
+            await openPdfInApp(page, fixture);
+            await waitForPdfLoaded(page);
+            await openDocumentSidebarTab(page, 'Pages');
+            const renderedLabels = () => page.$$eval('.editor-pane.is-active [data-document-thumbnail-label]',
+                nodes => nodes.map(node => node.textContent?.trim() ?? ''));
+            // The native read finishes before page operations can proceed. The
+            // action below must still succeed when that read sees a broken tree.
+            await goToPageViaToolbar(page, 3);
+            await waitForToolbarCurrentPage(page, 3);
+            const labelsBefore = await renderedLabels();
+            await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]', {button: 'right'});
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(element => element.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete page 2'});
+            await expect.poll(() => page.$eval('.page-controls-total', node => node.textContent?.trim()),
+                {timeout: 15_000}).toBe('2');
+            expect(labelsBefore).toEqual(before?.map((label, index) => label ? `${label} (${index + 1})` : String(index + 1)));
+            const workingCopy = await getActiveWorkspaceWorkingCopyPath(page);
+            const after = (await readPdfCatalogWithPdfjs(workingCopy)).pageLabels;
+            const retainedLabels = variant === 'empty' ? [
+                '1',
+                '3',
+            ] : [
+                'x-i',
+                'x-iii',
+            ];
+            expect(after).toEqual(retainedLabels);
+            await expect.poll(renderedLabels, {timeout: 15_000})
+                .toEqual(variant === 'empty' ? [
+                    '1',
+                    '3 (2)',
+                ] : [
+                    'x-i (1)',
+                    'x-iii (2)',
+                ]);
+            await saveViaVisibleToolbar(page, 30_000, fixture);
+            expect((await readPdfCatalogWithPdfjs(fixture)).pageLabels).toEqual(retainedLabels);
+        }
+    }, 180_000);
 
     it('opens huge imported alphabetic labels without formatting the dense PDF.js label', async () => {
         const {page} = sessions.getSession();

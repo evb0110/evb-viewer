@@ -1659,7 +1659,7 @@ fn document_catalog_reads_each_part_whatever_happens_to_the_other() {
     let (mut document, _page_id) = create_source_intent_outline();
     let root_id = document.root_id().unwrap();
     let catalog = document.get_dictionary_mut(root_id).unwrap();
-    catalog.set("PageLabels", dictionary! {"Nums" => Vec::<Object>::new()});
+    catalog.set("PageLabels", dictionary! {"Nums" => vec![0.into(), Object::Integer(5)]});
     let parts = serde_json::to_value(read_pdf_document_catalog(&document)).unwrap();
     assert_eq!(parts["bookmarks"].as_array().unwrap().len(), 6);
     assert!(parts["pageLabelsError"].is_string() && parts.get("pageLabels").is_none());

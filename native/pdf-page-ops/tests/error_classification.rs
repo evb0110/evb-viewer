@@ -896,7 +896,7 @@ fn read_document_catalog_reads_the_outline_and_page_labels_independently() {
             "Type" => "Catalog", "Pages" => pages_id,
             "Outlines" => if broken == "outline" { Object::Integer(5) } else { outlines_id.into() },
             "PageLabels" => if broken == "page labels" {
-                dictionary! {"Nums" => Vec::<Object>::new()}
+                dictionary! {"Nums" => vec![0.into(), Object::Integer(5)]}
             } else {
                 dictionary! {"Nums" => vec![0.into(), dictionary! {"S" => "r"}.into()]}
             },
@@ -923,5 +923,147 @@ fn read_document_catalog_reads_the_outline_and_page_labels_independently() {
             !run_catalog_read("read-catalog", &input).status.success(),
             "{broken}"
         );
+    }
+}
+
+#[test]
+fn read_catalog_matches_pdfjs_for_recoverable_page_label_trees() {
+    for variant in [
+        "duplicates",
+        "dangling-kids",
+        "empty",
+        "dangling-root",
+        "scalar-root",
+    ] {
+        let input = path(&format!("label-tree-{variant}"), "pdf");
+        let _cleanup = RemovePdfFilesOnDrop([input.clone()]);
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let pages = (0..3)
+            .map(|_| {
+                document
+                    .add_object(dictionary! {
+                        "Type" => "Page", "Parent" => pages_id,
+                    })
+                    .into()
+            })
+            .collect::<Vec<Object>>();
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages", "Kids" => pages, "Count" => 3,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+            },
+        );
+        let labels: Object = match variant {
+            "duplicates" => dictionary! {"Nums" => vec![
+                0.into(), dictionary! {"S" => "D"}.into(),
+                0.into(), Object::Integer(5),
+                0.into(), dictionary! {"S" => "r", "P" => Object::string_literal("x-")}.into(),
+            ]}
+            .into(),
+            "dangling-kids" => {
+                let deep = document.add_object(dictionary! {"Nums" => vec![
+                    0.into(), dictionary! {"S" => "r", "P" => Object::string_literal("x-")}.into(),
+                ]});
+                let branch = document.add_object(dictionary! {"Kids" => vec![deep.into()],
+                "Nums" => vec![0.into(), Object::Integer(5)]});
+                let shallow = document.add_object(dictionary! {"Nums" => vec![
+                    0.into(), dictionary! {"S" => "D"}.into(),
+                ]});
+                let empty = document.add_object(dictionary! {"Nums" => Vec::<Object>::new()});
+                let scalar = document.add_object(Object::Integer(5));
+                dictionary! {"Kids" => vec![
+                    branch.into(), shallow.into(), Object::Reference((999_999, 0)),
+                    scalar.into(), empty.into(),
+                ]}
+                .into()
+            }
+            "empty" => dictionary! {"Nums" => Vec::<Object>::new()}.into(),
+            "dangling-root" => Object::Reference((999_999, 0)),
+            "scalar-root" => Object::Integer(5),
+            _ => unreachable!(),
+        };
+        let root = document.add_object(dictionary! {
+            "Type" => "Catalog", "Pages" => pages_id, "PageLabels" => labels,
+        });
+        document.trailer.set("Root", root);
+        document.save(&input).unwrap();
+        let expected = if matches!(variant, "duplicates" | "dangling-kids") {
+            serde_json::json!([{"pageIndex": 0, "style": "r", "prefix": "x-"}])
+        } else {
+            serde_json::json!([])
+        };
+        for command in ["read-catalog", "read-document-catalog"] {
+            let read = run_catalog_read(command, &input);
+            assert!(
+                read.status.success(),
+                "{variant}: {}",
+                String::from_utf8_lossy(&read.stderr)
+            );
+            let catalog: Value = serde_json::from_slice(&read.stdout).unwrap();
+            assert_eq!(catalog["pageLabels"], expected, "{variant}: {catalog}");
+            assert!(
+                catalog.get("pageLabelsError").is_none(),
+                "{variant}: {catalog}"
+            );
+        }
+    }
+}
+
+#[test]
+fn read_catalog_refuses_invalid_visible_labels_and_unbounded_trees() {
+    let input = path("label-tree-strict", "pdf");
+    let _cleanup = RemovePdfFilesOnDrop([input.clone()]);
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page = document.add_object(dictionary! {"Type" => "Page", "Parent" => pages_id});
+    document.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+        },
+    );
+    let root = document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
+    document.trailer.set("Root", root);
+    let cycle = document.new_object_id();
+    document.set_object(cycle, dictionary! {"Kids" => vec![cycle.into()]});
+    let mut deep = document.add_object(dictionary! {"Nums" => Vec::<Object>::new()});
+    for _ in 0..256 {
+        deep = document.add_object(dictionary! {"Kids" => vec![Object::Reference(deep)]});
+    }
+    let broad = dictionary! {"Kids" => vec![Object::Null; 100_000]};
+    for labels in [
+        Object::Integer(5),
+        Object::Reference((999_999, 0)),
+        dictionary! {"Type" => "Wrong", "S" => "D"}.into(),
+        dictionary! {"S" => "unknown"}.into(),
+        dictionary! {"S" => "D", "St" => 0}.into(),
+        dictionary! {"P" => Object::Integer(5)}.into(),
+    ]
+    .into_iter()
+    .map(|label| dictionary! {"Nums" => vec![0.into(), label]}.into())
+    .chain([
+        dictionary! {"Nums" => vec![Object::Integer(0)]}.into(),
+        dictionary! {"Nums" => vec![(-1).into(), dictionary! {"S" => "D"}.into()]}.into(),
+        Object::Reference(cycle),
+        Object::Reference(deep),
+        broad.into(),
+    ]) {
+        document
+            .get_dictionary_mut(root)
+            .unwrap()
+            .set("PageLabels", labels);
+        document.save(&input).unwrap();
+        let read = run_catalog_read("read-document-catalog", &input);
+        assert!(
+            read.status.success(),
+            "{}",
+            String::from_utf8_lossy(&read.stderr)
+        );
+        let catalog: Value = serde_json::from_slice(&read.stdout).unwrap();
+        assert!(catalog["pageLabelsError"].is_string(), "{catalog}");
+        assert!(catalog.get("pageLabels").is_none(), "{catalog}");
     }
 }

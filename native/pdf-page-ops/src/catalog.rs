@@ -292,23 +292,24 @@ pub(crate) fn read_page_label_ranges(
     let mut entries = Vec::new();
     let mut state = CatalogWalkState::new();
     read_number_tree(document, page_labels_object, 0, &mut state, &mut entries)?;
-    if entries.is_empty() {
-        return Err("PageLabels has no usable ranges".into());
-    }
-    entries.sort_by_key(|(page_index, _)| *page_index);
-    let mut output = Vec::new();
-    let mut previous_page_index = None;
+    let entries = entries.into_iter().collect::<BTreeMap<_, _>>();
+    let mut output = Vec::with_capacity(entries.len());
     for (page_index, value) in entries {
         let page_index = u32::try_from(page_index)
             .map_err(|_| "PageLabels range index is outside the supported bounds")?;
-        if previous_page_index == Some(page_index) {
-            return Err("PageLabels contains duplicate range indices".into());
-        }
-        previous_page_index = Some(page_index);
         let dictionary = resolve_catalog_dictionary(document, &value, "PageLabel")?;
+        if dictionary.has(b"Type")
+            && document.resolved(dictionary.get(b"Type")?)?.as_name()? != b"PageLabel"
+        {
+            return Err("Invalid type in PageLabel dictionary".into());
+        }
         let style = match dictionary.get(b"S") {
             Ok(value) => {
-                Some(String::from_utf8_lossy(document.resolved(value)?.as_name()?).into_owned())
+                let name = document.resolved(value)?.as_name()?;
+                if !matches!(name, b"D" | b"R" | b"r" | b"A" | b"a") {
+                    return Err("Invalid style in PageLabel dictionary".into());
+                }
+                Some(String::from_utf8_lossy(name).into_owned())
             }
             Err(_) => None,
         };
@@ -317,15 +318,12 @@ pub(crate) fn read_page_label_ranges(
             Err(_) => None,
         };
         let start = match dictionary.get(b"St") {
-            Ok(value) => {
-                let start = document.resolved(value)?.as_i64()?;
-                Some(
-                    u32::try_from(start)
-                        .map_err(|_| "PageLabels start number is outside the supported bounds")?,
-                )
-            }
+            Ok(value) => Some(u32::try_from(document.resolved(value)?.as_i64()?)?),
             Err(_) => None,
         };
+        if start == Some(0) {
+            return Err("PageLabels start number must be positive".into());
+        }
         output.push(PdfCombinePageLabelRange {
             page_index,
             style,
@@ -361,36 +359,44 @@ pub(crate) fn read_number_tree(
     state: &mut CatalogWalkState,
     output: &mut Vec<(i64, Object)>,
 ) -> Result<()> {
-    if depth >= CATALOG_WALK_DEPTH_LIMIT {
-        return Err("PageLabels number tree exceeds the depth limit".into());
-    }
-    if output.len() >= CATALOG_WALK_NODE_LIMIT {
-        return Err("PageLabels number tree exceeds the node limit".into());
-    }
-    if !state.enter(node_object) {
-        return Err("PageLabels number tree contains a cycle or exceeds the node limit".into());
-    }
-    let node = resolve_catalog_dictionary(document, node_object, "PageLabels")?;
-    if let Ok(nums_object) = node.get(b"Nums") {
-        let nums = document.resolved(nums_object)?.as_array()?;
-        if nums.is_empty() || nums.len() % 2 != 0 {
-            return Err("PageLabels Nums must contain key/value pairs".into());
+    // PDF.js visits siblings before descendants and reads /Nums only on leaves.
+    let mut queue = std::collections::VecDeque::from([(node_object, depth)]);
+    while let Some((node_object, depth)) = queue.pop_front() {
+        if depth >= CATALOG_WALK_DEPTH_LIMIT || !state.enter(node_object) {
+            return Err(
+                "PageLabels number tree contains a cycle or exceeds the traversal limits".into(),
+            );
         }
-        for pair in nums.chunks_exact(2) {
-            if output.len() >= CATALOG_WALK_NODE_LIMIT {
+        let node = node_object
+            .as_reference()
+            .ok()
+            .and_then(|id| document.stored_object(id))
+            .unwrap_or(node_object);
+        let Ok(node) = node.as_dict() else {
+            continue;
+        };
+        if let Ok(kids_object) = node.get(b"Kids") {
+            let kids = document.resolved(kids_object)?.as_array()?;
+            let remaining_nodes = CATALOG_WALK_NODE_LIMIT.saturating_sub(state.nodes + queue.len());
+            if kids.len() > remaining_nodes {
                 return Err("PageLabels number tree exceeds the node limit".into());
             }
-            let start_page = pair[0].as_i64()?;
-            if start_page < 0 {
-                return Err("PageLabels range index must not be negative".into());
+            queue.extend(kids.iter().map(|kid| (kid, depth + 1)));
+        } else if let Ok(nums_object) = node.get(b"Nums") {
+            let nums = document.resolved(nums_object)?.as_array()?;
+            if nums.len() % 2 != 0 {
+                return Err("PageLabels Nums must contain key/value pairs".into());
             }
-            output.push((start_page, pair[1].clone()));
-        }
-    }
-    if let Ok(kids_object) = node.get(b"Kids") {
-        let kids = document.resolved(kids_object)?.as_array()?;
-        for kid in kids {
-            read_number_tree(document, kid, depth + 1, state, output)?;
+            if output.len().saturating_add(nums.len() / 2) > CATALOG_WALK_NODE_LIMIT {
+                return Err("PageLabels number tree exceeds the node limit".into());
+            }
+            for pair in nums.chunks_exact(2) {
+                let start_page = document.resolved(&pair[0])?.as_i64()?;
+                if start_page < 0 {
+                    return Err("PageLabels range index must not be negative".into());
+                }
+                output.push((start_page, pair[1].clone()));
+            }
         }
     }
     Ok(())
@@ -418,16 +424,8 @@ pub(crate) fn normalize_page_label_ranges(
 
     let mut deduped = std::collections::BTreeMap::new();
     for range in ranges {
-        let start_page = clamp_u32(range.start_page.max(1), 1, total_pages);
-        deduped.insert(
-            start_page,
-            PageLabelRange {
-                start_page,
-                style: normalize_page_label_style(range.style.as_deref()),
-                prefix: range.prefix.clone(),
-                start_number: range.start_number.max(1),
-            },
-        );
+        let normalized = normalize_page_label_range_for_continuation(range, total_pages);
+        deduped.insert(normalized.start_page, normalized);
     }
     deduped.entry(1).or_insert_with(|| PageLabelRange {
         start_page: 1,
