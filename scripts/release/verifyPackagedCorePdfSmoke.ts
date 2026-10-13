@@ -421,22 +421,21 @@ async function run() {
         process.off('SIGINT', stopOnSignal);
         process.off('SIGTERM', stopOnSignal);
         if (launchStopped) {
-            try {
-                await rm(workDirectory, {
-                    force: true,
-                    maxRetries: 10,
-                    recursive: true,
-                    retryDelay: 200,
-                });
-                await rm(fixtureDirectory, {
-                    force: true,
-                    maxRetries: 10,
-                    recursive: true,
-                    retryDelay: 200,
-                });
-                await assertPathAbsent(workDirectory, 'temporary smoke directory');
-            } catch (error) {
-                console.warn(`Packaged smoke cleanup left temporary files at ${workDirectory}:`, error);
+            for (const directory of [
+                workDirectory,
+                fixtureDirectory,
+            ]) {
+                try {
+                    await rm(directory, {
+                        force: true,
+                        maxRetries: 10,
+                        recursive: true,
+                        retryDelay: 200,
+                    });
+                    await assertPathAbsent(directory, 'temporary smoke directory');
+                } catch (error) {
+                    console.warn(`Packaged smoke cleanup left temporary files at ${directory}:`, error);
+                }
             }
         } else {
             console.error(`Packaged smoke launch did not stop; preserving ${workDirectory} and ${fixtureDirectory}`);
