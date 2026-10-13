@@ -430,14 +430,6 @@ async function openPathInApp(
     let openTriggered = false;
     let openBaselineEventId = 0;
 
-    try {
-        await waitForActiveDocumentSource(page, sourcePath, 300);
-        await waitForLoaded(page, timeoutMs);
-        return;
-    } catch {
-        // The requested document is not already active; proceed with a new open transaction.
-    }
-
     while (Date.now() - startedAt < timeoutMs) {
         const remainingMs = Math.max(1_000, timeoutMs - (Date.now() - startedAt));
 

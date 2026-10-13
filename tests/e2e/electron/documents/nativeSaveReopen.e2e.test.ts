@@ -22,6 +22,7 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     openAnnotationsTab,
+    openPdfInApp,
     saveViaWindowHandle,
     waitForActiveDocumentSource,
     waitForPdfLoaded,
@@ -543,6 +544,9 @@ describe('Electron E2E - native save and reopen', () => {
         });
         expect(await readFile(sourcePath)).toEqual(sourceBytes);
         expect(await readPdfTextAnnotationRecords(destinationPath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Save As first text'})]));
+        await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
+        await openPdfInApp(session.page, destinationPath);
+        await waitForOpenedPdf(session, destinationPath);
         await session.stop();
         session = await startElectronE2ESession(`e2e-native-save-as-reopen-${Date.now()}`, {
             clean: true,
