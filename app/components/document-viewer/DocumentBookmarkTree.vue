@@ -164,6 +164,10 @@ async function handleKeydown(event: KeyboardEvent) {
         return;
     }
     const index = visibleRows.value.findIndex(row => row.item.id === currentRow.dataset.bookmarkId);
+    const current = visibleRows.value[index];
+    if (!current) {
+        return;
+    }
     let nextIndex: number;
     if (event.key === 'Tab') {
         const controls = currentRow.querySelectorAll<HTMLElement>('button, input');
@@ -181,6 +185,27 @@ async function handleKeydown(event: KeyboardEvent) {
         switch (event.key) {
             case 'ArrowDown': nextIndex = index + 1; break;
             case 'ArrowUp': nextIndex = index - 1; break;
+            case 'ArrowRight':
+                if (!current.item.children.length) {
+                    return;
+                }
+                if (!current.isExpanded) {
+                    event.preventDefault();
+                    emit('toggle-expand', current.item.id);
+                    await focusRow(current.item.id);
+                    return;
+                }
+                nextIndex = index + 1;
+                break;
+            case 'ArrowLeft':
+                if (current.isExpanded) {
+                    event.preventDefault();
+                    emit('toggle-expand', current.item.id);
+                    await focusRow(current.item.id);
+                    return;
+                }
+                nextIndex = visibleRows.value.findLastIndex((row, rowIndex) => rowIndex < index && row.depth < current.depth);
+                break;
             case 'Home': nextIndex = 0; break;
             case 'End': nextIndex = visibleRows.value.length - 1; break;
             default: return;
@@ -191,12 +216,7 @@ async function handleKeydown(event: KeyboardEvent) {
         return;
     }
     event.preventDefault();
-    await revealRow(row.item.id);
-    await nextTick();
-    const nextRow = treeRef.value?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(row.item.id)}"]`);
-    const controls = nextRow?.querySelectorAll<HTMLElement>('button, input');
-    const target = event.key === 'Tab' && event.shiftKey ? controls?.item(controls.length - 1) ?? nextRow : nextRow;
-    target?.focus({preventScroll: true});
+    await focusRow(row.item.id, event.key === 'Tab' && event.shiftKey);
 }
 
 const revealRowIndex = computed(() => resolveDocumentBookmarkRevealRowIndex(
@@ -222,6 +242,39 @@ async function revealRow(rowId: string) {
     }
 }
 
+async function focusRow(rowId: string | null, lastControl = false) {
+    if (!rowId) {
+        return;
+    }
+    await revealRow(rowId);
+    await nextTick();
+    const row = treeRef.value?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(rowId)}"]`);
+    const controls = row?.querySelectorAll<HTMLElement>('button, input');
+    const target = lastControl ? controls?.item(controls.length - 1) ?? row : row;
+    target?.focus({preventScroll: true});
+}
+
+// Undo can replace a focused row or hide it behind a collapsed parent. Capture
+// DOM ownership before Vue removes it, then focus a surviving visible neighbor.
+watch(visibleRows, async (rows, previousRows) => {
+    const element = document.activeElement;
+    if (!element || !treeRef.value?.contains(element) || props.editingId) {
+        return;
+    }
+    const index = previousRows.findIndex(row => row.item.id === focusedId.value);
+    const ids = new Set(rows.map(row => row.item.id));
+    const survives = (row: typeof rows[number]) => ids.has(row.item.id);
+    const row = rows.find(candidate => candidate.item.id === focusedId.value)
+        ?? previousRows.slice(index + 1).find(survives)
+        ?? previousRows.slice(0, index).findLast(survives);
+    await nextTick();
+    if (row && (document.activeElement === element || (!element.isConnected && document.activeElement === document.body))) {
+        await focusRow(row.item.id);
+    }
+});
+
+defineExpose({focusActiveRow: () => focusRow(revealRowId.value)});
+
 // Follow the active bookmark whenever it moves, and whenever a display-mode or
 // expansion change moves which row stands in for it. Expansion itself stays
 // under the user's control: nothing here rewrites `expandedIds`.
@@ -229,10 +282,13 @@ watch(
     [
         () => props.activeId,
         revealRowId,
-        () => props.editingId,
     ],
     () => {
-        const rowId = props.editingId ?? revealRowId.value;
+        // Passive page resolution after Undo must not scroll away from the
+        // row the person is using. A clicked row already owns DOM focus.
+        const rowId = props.editMode && treeRef.value?.contains(document.activeElement)
+            ? focusedId.value
+            : revealRowId.value;
         if (!rowId) {
             return;
         }

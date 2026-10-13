@@ -9,7 +9,7 @@
             @set-display-mode="setDisplayMode"
             @toggle-edit-mode="toggleEditMode"
             @add-root-bookmark="addRootBookmark"
-            @remove-selected-bookmarks="removeSelectedBookmarks"
+            @remove-selected-bookmarks="removeBookmark()"
         />
 
         <template v-if="bookmarkStatus === 'loading'">
@@ -60,6 +60,7 @@
         <!-- A loading outline shows no rows: they are not in their final layout yet. -->
         <DocumentBookmarkTree
             v-else-if="bookmarkStatus !== 'loading'"
+            ref="bookmarkTreeRef"
             :class="{'pdf-bookmarks-tree': isEditMode}"
             :items="sharedBookmarkItems"
             :active-id="activeItemId"
@@ -182,6 +183,7 @@ function toggleEditMode() {
 
 const { t } = useTypedI18n();
 
+const bookmarkTreeRef = useTemplateRef<{focusActiveRow: () => Promise<void>}>('bookmarkTreeRef');
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
 const isLoadingIndicatorVisible = ref(false);
@@ -554,12 +556,15 @@ function setBookmarkColor(payload: {
     editing.setBookmarkColor(payload.id, payload.color);
 }
 
-function removeBookmark(id: string) {
-    editing.removeBookmark(id);
-}
-
-function removeSelectedBookmarks() {
-    editing.removeSelectedBookmarks();
+async function removeBookmark(id?: string) {
+    if (id) {
+        activeItemId.value = id;
+        editing.removeBookmark(id);
+    } else {
+        editing.removeSelectedBookmarks();
+    }
+    await nextTick();
+    await bookmarkTreeRef.value?.focusActiveRow();
 }
 
 const selectedBookmarkDeleteCount = computed(() => (

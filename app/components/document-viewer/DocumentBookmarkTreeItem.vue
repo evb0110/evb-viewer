@@ -227,6 +227,7 @@ function handleDrop(event: DragEvent) {
 .document-bookmark-item__row {
     position: relative;
     box-sizing: border-box;
+    scroll-margin-block: var(--app-space-xs);
 
     /* Fixed row height shared with DocumentBookmarkTree. */
     height: calc(var(--app-sidebar-action-size) + 2 * var(--app-sidebar-row-padding-block) + 2px);
