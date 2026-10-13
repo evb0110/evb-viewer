@@ -110,10 +110,6 @@ export function preparePackagedAutomationLaunch(options: {
     mkdirSync(options.workDirectory, {recursive: true});
     const workDirectory = realpathSync(options.workDirectory);
 
-    // Records that earlier copies left are removed at prepare too, not only at stop,
-    // so a record written after an earlier run ended cannot outlive the next run.
-    removeMacOSAutomationCopyRecords(bundleIdentifier);
-
     // A unique APFS clone belongs to this run. Never reuse another artifact or
     // prune a concurrent run's bundle. The original signed package stays intact.
     const bundleDirectory = mkdtempSync(join(workDirectory, 'hidden-packaged-app-'));
@@ -141,30 +137,19 @@ export function preparePackagedAutomationLaunch(options: {
     }
 }
 
-function escapeRegExp(text: string) {
-    return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-}
-
 /**
- * Deletes the defaults of a launched copy, and its records and the records earlier
- * copies of the same installed app left, from the folders where a copy keeps them.
- * A name belongs to a copy when it is the copy's identifier, optionally followed by
- * a dot and more, or when it is <installed id>.automation-<8 hex digits> followed by
- * the end of the name or a dot. Nothing else matches: the installed app's records
- * and any other name stay where they are.
+ * Deletes only the launched copy's defaults and records after its owner stops it.
+ * The installed app and concurrent automation copies keep their own records.
  */
 export function removeMacOSAutomationCopyRecords(
     bundleIdentifier: string,
     libraryDirectory = join(homedir(), 'Library'),
 ) {
-    const installedIdentifier = bundleIdentifier.replace(AUTOMATION_COPY_SUFFIX, '');
-    if (installedIdentifier === bundleIdentifier) {
+    if (!AUTOMATION_COPY_SUFFIX.test(bundleIdentifier)) {
         throw new Error(`Not an automation copy identifier: ${bundleIdentifier}`);
     }
-    const earlierCopyRecord = new RegExp(`^${escapeRegExp(installedIdentifier)}\\.automation-[0-9a-f]{8}(?:\\.|$)`, 'u');
     const isCopyRecord = (name: string) => name === bundleIdentifier
-        || name.startsWith(`${bundleIdentifier}.`)
-        || earlierCopyRecord.test(name);
+        || name.startsWith(`${bundleIdentifier}.`);
     try {
         execFileSync('/usr/bin/defaults', [
             'delete',

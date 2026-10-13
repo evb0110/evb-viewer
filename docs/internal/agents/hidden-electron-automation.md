@@ -152,10 +152,10 @@ On macOS the clone also gets its own bundle identifier, `<installed id>.automati
 helper app in `Contents/Frameworks` gets that identifier plus the suffix it had after the installed one
 (for example `.helper` or `.helper.Renderer`), and the helpers are signed before the app. A clone whose
 helper keeps an installed identifier is refused. Its defaults, saved state, caches and recent-document
-records never share the installed app's records. Records named for the clone, and records left by earlier
-clones, are removed from the folders where a copy keeps them, when a clone is prepared and again when it
-stops. Those folders are read one level deep, and a folder that cannot be read is reported while the
-others are still cleaned. Entries named for the installed
+records never share the installed app's records. After a run's owner stops its processes, it removes
+only records named for that run's clone from the folders where a copy keeps them. Preparing another
+clone leaves concurrent copies' records intact. Those folders are read one level deep, and a folder
+that cannot be read is reported while the others are still cleaned. Entries named for the installed
 identifier itself are never matched.
 
 The original package remains unchanged. The automation copy has modified

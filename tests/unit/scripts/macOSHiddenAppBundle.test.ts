@@ -301,22 +301,23 @@ describe('macOS copy records', () => {
         writeFileSync(path, 'record');
     }
 
-    it('removes the records of this copy and of earlier copies from the folders where a copy keeps them, and nothing else', () => {
+    it('removes only the owned copy records and preserves concurrent copies', () => {
         const library = mkdtempSync(join(tmpdir(), 'evb-copy-records-test-'));
         roots.push(library);
         const recent = join(library, 'Application Support', 'com.apple.sharedfilelist', 'com.apple.LSSharedFileList.ApplicationRecentDocuments');
-        const folderRecord = join(library, 'Caches', 'com.evb.viewer.automation-22222222');
+        const copyIdentifier = 'com.evb.viewer.automation-44444444';
+        const folderRecord = join(library, 'Caches', copyIdentifier);
         mkdirSync(folderRecord, {recursive: true});
         writeFileSync(join(folderRecord, 'cache.db'), 'record');
         const removed = [
             folderRecord,
-            join(library, 'Preferences', 'com.evb.viewer.automation-11111111.plist'),
-            join(library, 'Saved Application State', 'com.evb.viewer.automation-33333333.savedState'),
-            join(library, 'HTTPStorages', 'com.evb.viewer.automation-44444444'),
-            join(library, 'WebKit', 'com.evb.viewer.automation-55555555.helper'),
-            join(library, 'Application Support', 'com.evb.viewer.automation-66666666'),
-            join(recent, 'com.evb.viewer.automation-77777777.sfl4'),
-            join(recent, 'com.evb.viewer.automation-88888888.helper.sfl4'),
+            join(library, 'Preferences', `${copyIdentifier}.plist`),
+            join(library, 'Saved Application State', `${copyIdentifier}.savedState`),
+            join(library, 'HTTPStorages', copyIdentifier),
+            join(library, 'WebKit', `${copyIdentifier}.helper`),
+            join(library, 'Application Support', copyIdentifier),
+            join(recent, `${copyIdentifier}.sfl4`),
+            join(recent, `${copyIdentifier}.helper.sfl4`),
         ];
         const kept = [
             join(library, 'Preferences', 'com.evb.viewer.plist'),
@@ -325,6 +326,13 @@ describe('macOS copy records', () => {
             join(library, 'Application Support', 'com.evb.viewer'),
             join(recent, 'com.evb.viewer.sfl4'),
             join(recent, 'com.evb.viewer.helper.sfl4'),
+            join(library, 'Preferences', 'com.evb.viewer.automation-11111111.plist'),
+            join(library, 'Caches', 'com.evb.viewer.automation-22222222'),
+            join(library, 'Saved Application State', 'com.evb.viewer.automation-33333333.savedState'),
+            join(library, 'HTTPStorages', 'com.evb.viewer.automation-55555555'),
+            join(library, 'WebKit', 'com.evb.viewer.automation-66666666.helper'),
+            join(library, 'Application Support', 'com.evb.viewer.automation-77777777'),
+            join(recent, 'com.evb.viewer.automation-88888888.helper.sfl4'),
             join(library, 'Preferences', 'com.evb.viewer.automation-5555555.plist'),
             join(library, 'Preferences', 'com.evb.viewer.automation-666666666.plist'),
             join(library, 'Preferences', 'com.evb.viewer.dev.automation-77777777.plist'),
@@ -348,9 +356,9 @@ describe('macOS copy records', () => {
         const library = mkdtempSync(join(tmpdir(), 'evb-copy-records-unreadable-test-'));
         roots.push(library);
         const caches = join(library, 'Caches');
-        const cachedRecord = join(caches, 'com.evb.viewer.automation-16161616');
-        const preference = join(library, 'Preferences', 'com.evb.viewer.automation-17171717.plist');
-        const storage = join(library, 'HTTPStorages', 'com.evb.viewer.automation-18181818');
+        const cachedRecord = join(caches, 'com.evb.viewer.automation-19191919');
+        const preference = join(library, 'Preferences', 'com.evb.viewer.automation-19191919.plist');
+        const storage = join(library, 'HTTPStorages', 'com.evb.viewer.automation-19191919');
         mkdirSync(cachedRecord, {recursive: true});
         plantRecord(preference);
         mkdirSync(storage, {recursive: true});
