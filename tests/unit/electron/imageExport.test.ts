@@ -126,7 +126,7 @@ vi.mock('fs/promises', async () => {
             if (String(path) === '/tmp/input.pdf') {
                 return Buffer.from('%PDF-1.7\n%%EOF\n');
             }
-            if (String(path).includes('/render-pages-') && /\.tif{1,2}$/u.test(String(path))) {
+            if (basename(dirname(String(path))).startsWith('render-pages-') && /\.tif{1,2}$/u.test(String(path))) {
                 mocks.tiffDescriptorReadCount += 1;
             }
             if (mocks.holdReads?.(String(path))) {
@@ -2256,7 +2256,7 @@ describe('image export', () => {
         mocks.pdfPageCount = 2;
         mocks.makeSiblingTempPath.mockImplementation(realAtomicReplace.makeSiblingTempPath);
         // The writer's first page read stops once its temporary file exists.
-        mocks.holdReads = path => path.includes('/render-pages-') && listStagedNames(tempDir).length > 0;
+        mocks.holdReads = path => basename(dirname(path)).startsWith('render-pages-') && listStagedNames(tempDir).length > 0;
         const outputPath = join(tempDir, 'interrupted-writer.tiff');
         void exportPdfAsMultiPageTiff('/tmp/input.pdf', outputPath);
         await vi.waitFor(() => expect(listStagedNames(tempDir)).toHaveLength(1));
@@ -2474,7 +2474,8 @@ describe('image export', () => {
             first, second, recordPath,
         } = await crashAfterFirstReplacement(appTempRoot);
         const lines = (await readFile(recordPath, 'utf8')).split('\n');
-        const firstBackupLine = lines.findIndex(line => line.includes('"kind":"backup"') && line.includes(first));
+        const firstBackupLine = lines.findIndex(line => line.includes('"kind":"backup"') && JSON.parse(line).target === first);
+        expect(firstBackupLine).toBeGreaterThanOrEqual(0);
         lines[firstBackupLine] = '{"kind":"backup","path":';
         await writeFile(recordPath, lines.join('\n'));
 
