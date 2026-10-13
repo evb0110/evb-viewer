@@ -323,8 +323,8 @@ const frameStyle = computed(() => {
         position: 'absolute' as const,
         // Top, right, bottom and left, as /RD and the CSS shorthand order them.
         inset: frame.insets.map(inset => toPdfScaledCssLength(inset)).join(' '),
-        boxSizing: 'border-box' as const,
-        border: frame.borderColor ? `${toPdfScaledCssLength(frame.borderWidth)} solid ${frame.borderColor}` : 'none',
+        // An inset shadow keeps the stroke's exact width; a CSS border snaps to device pixels.
+        boxShadow: frame.borderColor ? `inset 0 0 0 ${toPdfScaledCssLength(frame.borderWidth)} ${frame.borderColor}` : 'none',
         background: frame.background ?? 'transparent',
         zIndex: -1,
         pointerEvents: 'none' as const,

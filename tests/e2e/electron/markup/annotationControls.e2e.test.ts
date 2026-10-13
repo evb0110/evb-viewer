@@ -1282,7 +1282,9 @@ describe('Electron E2E - annotation controls', () => {
         // On screen the border has the width its producer gave it, relative to the box.
         const screenBorder = await page.$eval('.editor-pane.is-active .pdf-annotation-editor-text-box', box => {
             const frame = box.querySelector<HTMLElement>('.pdf-annotation-editor-text-box__frame');
-            return frame ? Number.parseFloat(getComputedStyle(frame).borderTopWidth) / box.getBoundingClientRect().width : 0;
+            // The frame strokes its border as an inset shadow: "<colour> 0px 0px 0px <width> inset".
+            const spread = frame ? /([\d.]+)px inset$/u.exec(getComputedStyle(frame).boxShadow)?.[1] : undefined;
+            return Number(spread ?? 0) / box.getBoundingClientRect().width;
         });
         expect.soft(screenBorder, 'the editor draws the label\'s border').toBeCloseTo(Number(borderWidth ?? 0) / (rect[2]! - rect[0]!), 3);
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active .annotation-style-editor .swatch[aria-label="#f59e0b"]');
@@ -1290,7 +1292,7 @@ describe('Electron E2E - annotation controls', () => {
         const pdf = await PDFDocument.load(readFileSync(saved));
         const freeText = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
         expect.soft(borderEntries(freeText), 'the saved label keeps its border entries').toEqual(borderEntries(sourceText));
-        if (borderWidth) {
+        if (Number(borderWidth ?? 0) > 0) {
             expect.soft(freeText.lookup(PDFName.of('DA'), PDFString).decodeText(), 'the border keeps its colour').toMatch(/ RG$/u);
         }
         const normal = pdf.context.lookup(freeText.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef) as PDFRawStream;
