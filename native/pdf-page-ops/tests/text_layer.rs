@@ -3213,18 +3213,35 @@ fn overlay_split_notes_belong_to_source_regions_before_canvas_padding() {
                 "{}",
                 String::from_utf8_lossy(&compact.stderr)
             );
+            // Notes count only where a person sees them: in an output page's /Annots, owned by that page.
             let saved = Document::load(&inspected).unwrap();
-            let notes = saved
-                .objects
-                .values()
-                .filter_map(|object| object.as_dict().ok())
-                .filter_map(|annotation| {
-                    annotation
-                        .get(b"Contents")
-                        .ok()
-                        .and_then(|value| value.as_str().ok())
-                })
-                .collect::<Vec<_>>();
+            let mut notes = Vec::new();
+            for page in saved.get_pages().into_values() {
+                let Ok((_, annots)) = saved
+                    .get_dictionary(page)
+                    .unwrap()
+                    .get(b"Annots")
+                    .and_then(|annots| saved.dereference(annots))
+                else {
+                    continue;
+                };
+                for annot in annots.as_array().unwrap() {
+                    let annotation = match annot {
+                        Object::Reference(id) => saved.get_dictionary(*id).unwrap(),
+                        Object::Dictionary(annotation) => annotation,
+                        _ => continue,
+                    };
+                    if let Ok(contents) = annotation.get(b"Contents").and_then(Object::as_str) {
+                        assert_eq!(
+                            annotation.get(b"P").and_then(Object::as_reference).ok(),
+                            Some(page),
+                            "{}",
+                            String::from_utf8_lossy(contents)
+                        );
+                        notes.push(contents);
+                    }
+                }
+            }
             for contents in ["Root note", "Reply note", "Seam note", "Legacy seam note"] {
                 assert!(
                     notes.contains(&contents.as_bytes()),
