@@ -479,6 +479,8 @@ describe('createDocumentOpenFlow', () => {
             + 'want: if this PDF is right, delete /documents/book (original).pdf. This notice comes back each time you open this '
             + 'PDF until you dismiss it.');
         expect(notice.duration).toBe(Number.POSITIVE_INFINITY);
+        // Reopening the PDF before dismissing it shows the same notice again rather than a second one.
+        expect(notice.id).toBe('kept-original:/documents/book.pdf');
         expect(mocks.documentOpen.forgetKeptOriginal).not.toHaveBeenCalled();
         (notice['onUpdate:open'] as (open: boolean) => void)(false);
         expect(mocks.documentOpen.forgetKeptOriginal).toHaveBeenCalledWith('/documents/book.pdf');

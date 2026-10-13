@@ -333,9 +333,10 @@ export function createDocumentOpenFlow(
         options: IPdfRasterDisplayProfileOpenOptions = {},
     ) {
         if (result.keptOriginalPath) {
-            // A save kept a file beside the PDF; every open says so until the person dismisses it.
+            // A save kept a file beside the PDF; every open says so until the person dismisses it, as one notice per PDF.
             const originalPath = result.originalPath;
             presentNoticeToast({
+                id: `kept-original:${originalPath}`,
                 tone: 'warning',
                 title: deps.t('errors.file.recoveryKeptOriginalTitle'),
                 description: deps.t('errors.file.recoveryKeptOriginal', {path: result.keptOriginalPath}),
