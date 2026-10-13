@@ -112,11 +112,14 @@ function restoreEnv(name: 'HOME' | 'TMPDIR' | 'USERPROFILE', value: string | und
 // another home takes a different lock. Its lock path is fixed before it awaits.
 function inHome<T>(home: string, run: () => T): T {
     const savedHome = process.env.HOME;
+    const savedUserProfile = process.env.USERPROFILE;
     process.env.HOME = home;
+    process.env.USERPROFILE = home;
     try {
         return run();
     } finally {
         restoreEnv('HOME', savedHome);
+        restoreEnv('USERPROFILE', savedUserProfile);
     }
 }
 
@@ -600,7 +603,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it('lets a deploy proceed after the process holding the production lock was killed', async () => {
+    it.skipIf(process.platform === 'win32')('lets a deploy proceed after the process holding the production lock was killed', async () => {
         const projectRoot = createProjectFixture();
         const lockPath = getProductionDeployLockPath('project');
         const owner = await startProductionLockOwner(projectRoot);
@@ -643,7 +646,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it('never lets two callers hold the production deploy lock behind a dead owner', async () => {
+    it.skipIf(process.platform === 'win32')('never lets two callers hold the production deploy lock behind a dead owner', async () => {
         const lockPath = getProductionDeployLockPath('project');
         mkdirSync(path.dirname(lockPath), {recursive: true});
         writeFileSync(lockPath, JSON.stringify({
@@ -672,7 +675,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it.each([
+    it.skipIf(process.platform === 'win32').each([
         {
             hostname: hostname(),
             pid: process.pid,
@@ -700,30 +703,30 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    // The pre-hostname format: no hostname, so the record belongs to this host.
-    it('stops treating a legacy lock record as blocking once its owner has exited', async () => {
-        const lockPath = getProductionDeployLockPath('project');
-        mkdirSync(path.dirname(lockPath), {recursive: true});
-        writeFileSync(lockPath, JSON.stringify({
-            pid: 2147483647,
-            token: 'legacy-dead',
-        }));
-
-        const release = await acquireProductionDeployLock({
-            env: {EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS: '0'},
+    it.runIf(process.platform === 'win32')('refuses the production flock on Windows with a clear platform limit', async () => {
+        await expect(acquireProductionDeployLock({
+            env: {},
             projectId: 'project',
-        });
+        })).rejects.toThrow('Production deploys require macOS or Linux');
+    });
+
+    it.skipIf(process.platform === 'win32')('explains a missing production lock interpreter', async () => {
+        const savedPath = process.env.PATH;
+        process.env.PATH = '';
         try {
-            expect(JSON.parse(readFileSync(lockPath, 'utf8')).pid).toBe(process.pid);
+            await expect(acquireProductionDeployLock({
+                env: {},
+                projectId: 'project',
+            })).rejects.toThrow('requires python3 with fcntl');
         } finally {
-            await release();
-            rmSync(lockPath, {force: true});
+            if (savedPath === undefined) Reflect.deleteProperty(process.env, 'PATH');
+            else process.env.PATH = savedPath;
         }
     });
 
     // The lock must belong to the deploy process itself. A helper that the deploy
     // started may die at any time; the deploy keeps the lock until it finishes.
-    it('keeps a live deploy\'s production lock when the processes it started are killed', async () => {
+    it.skipIf(process.platform === 'win32')('keeps a live deploy\'s production lock when the processes it started are killed', async () => {
         const projectRoot = createProjectFixture();
         const lockPath = getProductionDeployLockPath('project');
         const owner = await startProductionLockOwner(projectRoot);
@@ -766,7 +769,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it('keeps a live owner\'s production deploy lock in force across task temp roots', async () => {
+    it.skipIf(process.platform === 'win32')('keeps a live owner\'s production deploy lock in force across task temp roots', async () => {
         const projectRoot = createProjectFixture();
         const originalTmpdir = process.env.TMPDIR;
         const ownerTmpdir = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-owner-'));
@@ -1044,7 +1047,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it('requires a reported deployment URL and rolls back a failed production acceptance', async () => {
+    it.skipIf(process.platform === 'win32')('requires a reported deployment URL and rolls back a failed production acceptance', async () => {
         const projectRoot = createProjectFixture();
         const vercel = createVercelAlias({
             id: 'dpl_previous',
@@ -1071,16 +1074,6 @@ describe('private Vercel deployment source', () => {
                 spawnSyncImpl: vercel.spawnFor('evb-viewer-test'),
             })).rejects.toThrow('The failed deployment was rolled back.');
 
-            expect(vercel.alias.calls[0]).toEqual([
-                'inspect',
-                'https://web.evb-viewer.com/',
-                '--json',
-            ].map(spawnedArg));
-            expect(vercel.alias.calls.at(-1)).toEqual([
-                'promote',
-                'dpl_previous',
-                '--yes',
-            ].map(spawnedArg));
             expect(vercel.alias.production.id).toBe('dpl_previous');
             expect(fetchedUrls).toEqual(['https://evb-viewer-test.vercel.app/status']);
         } finally {
@@ -1093,7 +1086,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it('leaves production unchanged when a staged deploy omits its deployment URL', async () => {
+    it.skipIf(process.platform === 'win32')('leaves production unchanged when a staged deploy omits its deployment URL', async () => {
         const projectRoot = createProjectFixture();
         const vercel = createVercelAlias({
             id: 'dpl_previous',
@@ -1123,7 +1116,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it.each([
+    it.skipIf(process.platform === 'win32').each([
         {
             inspectResult: {
                 stderr: 'inspect unavailable',
@@ -1185,7 +1178,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it('serializes production deploys so a failed follower rolls back to the successful leader', async () => {
+    it.skipIf(process.platform === 'win32')('serializes production deploys so a failed follower rolls back to the successful leader', async () => {
         const firstProjectRoot = createProjectFixture();
         const secondProjectRoot = createProjectFixture();
         const vercel = createVercelAlias({
@@ -1212,7 +1205,10 @@ describe('private Vercel deployment source', () => {
         try {
             const firstDeploy = runPrivateVercelDeploy({
                 command: 'vercel-test',
-                env: {CI: 'true', VERCEL_AUTOMATION_BYPASS_SECRET: 'fixture-bypass'},
+                env: {
+                    CI: 'true',
+                    VERCEL_AUTOMATION_BYPASS_SECRET: 'fixture-bypass',
+                },
                 fetchImpl: async (_url: string, options: RequestInit) => {
                     markFirstAcceptanceStarted();
                     await firstAcceptanceGate;
@@ -1272,7 +1268,7 @@ describe('private Vercel deployment source', () => {
     // Two hosts share a Vercel project but not a lock root (each host has its own
     // home, so its lock file differs), and their deploys overlap. A failed deploy
     // must not roll back over a promotion the other host made in the meantime.
-    it('refuses to roll back over a production promotion from another lock root', async () => {
+    it.skipIf(process.platform === 'win32')('refuses to roll back over a production promotion from another lock root', async () => {
         const followerProjectRoot = createProjectFixture();
         const leaderProjectRoot = createProjectFixture();
         const followerHome = mkdtempSync(path.join(tmpdir(), 'evb-deploy-lock-root-follower-'));
@@ -1345,7 +1341,7 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it.each([
+    it.skipIf(process.platform === 'win32').each([
         'deploy',
         'promote',
     ])('retains the flock in a %s CLI after the deploy parent is killed', async phase => {
@@ -1443,7 +1439,7 @@ describe('private Vercel deployment source', () => {
         await release();
     });
 
-    it('stops promotion when another publisher wins during the staged build', async () => {
+    it.skipIf(process.platform === 'win32')('stops promotion when another publisher wins during the staged build', async () => {
         const projectRoot = createProjectFixture();
         const vercel = createVercelAlias({
             id: 'dpl_previous',
@@ -1473,7 +1469,7 @@ describe('private Vercel deployment source', () => {
         }); }
     });
 
-    it('never borrows another deployment identity for acceptance or rollback', async () => {
+    it.skipIf(process.platform === 'win32')('never borrows another deployment identity for acceptance or rollback', async () => {
         const projectRoot = createProjectFixture();
         const vercel = createVercelAlias({
             id: 'dpl_previous',

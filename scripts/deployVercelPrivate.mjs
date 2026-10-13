@@ -608,7 +608,7 @@ function takeProductionDeployLock(fd, {waitMs}) {
         helper.stderr.on('data', (chunk) => {
             stderr += chunk;
         });
-        helper.once('error', reject);
+        helper.once('error', error => reject(new Error('Production deploy locking requires python3 with fcntl on macOS or Linux.', {cause: error})));
         helper.once('close', (code) => {
             if (locked && code === 0) {
                 resolve();
@@ -625,6 +625,9 @@ export async function acquireProductionDeployLock({
     env,
     projectId,
 }) {
+    if (process.platform === 'win32') {
+        throw new Error('Production deploys require macOS or Linux for the inherited flock; previews support Windows.');
+    }
     const lockPath = getProductionDeployLockPath(projectId);
     const configuredWaitMs = Number(env.EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS);
     const waitMs = Number.isSafeInteger(configuredWaitMs) && configuredWaitMs >= 0
@@ -637,12 +640,6 @@ export async function acquireProductionDeployLock({
     const fd = openSync(lockPath, constants.O_RDWR | constants.O_CREAT, 0o600);
     try {
         await takeProductionDeployLock(fd, {waitMs});
-        const record = readFileSync(lockPath, 'utf8').trim();
-        let format;
-        try { format = JSON.parse(record)?.format; } catch { /* An incomplete record has no authority. */ }
-        if (record && format !== 2) {
-            console.warn(`Ignoring a pre-format-2 production lock record at ${lockPath}: the flock is free.`);
-        }
         ftruncateSync(fd, 0);
         writeSync(fd, JSON.stringify({
             acquiredAt: Date.now(),
