@@ -268,7 +268,7 @@ export async function openDocumentPageSource(
             directImageExport: Boolean(nextSource.rasterProvider),
             outline: Boolean(nextSource.outlineProvider),
             pageEdits: false,
-            search: Boolean(nextSource.searchProvider ?? nextSource.textProvider),
+            search: Boolean(nextSource.searchProvider),
             text: Boolean(nextSource.textProvider),
         });
         const normalizePage = () => Math.min(nextSource.pageCount, readOpeningPage());
