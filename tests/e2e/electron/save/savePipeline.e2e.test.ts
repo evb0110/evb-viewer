@@ -1829,11 +1829,128 @@ syncBuiltinESMExports();
 
 });
 
+describe('[crpart3core] replacement lifecycle', () => {
+    it('CR2 keeps the old document alive until queued cancellation finishes', async () => {
+        const fixture = await createMultiPageTextFixturePdf(`crpart3core-replacement-${Date.now()}.pdf`, 2);
+        const run = await startElectronE2ESession(`e2e-crpart3core-replacement-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [fixture],
+        });
+        onTestFinished(() => run.stop());
+        const {page} = run;
+        await waitForOpenedPdf(page, fixture);
+        await page.evaluate(() => {
+            const element = document.querySelector<HTMLElement & {__vueParentComponent?: IPageLabelProbeComponent}>('.editor-pane .page_container');
+            let component = element?.__vueParentComponent;
+            let slot: IReplacementSessionSlot | undefined;
+            while (component && !slot) {
+                for (const key of Reflect.ownKeys(component.provides ?? {})) {
+                    if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') slot = component.provides[key] as IReplacementSessionSlot;
+                }
+                component = component.parent;
+            }
+            if (!slot) {
+                const seen = new Set<IPageLabelProbeVNode>();
+                const visit = (vnode: IPageLabelProbeVNode | undefined) => {
+                    if (!vnode || seen.has(vnode) || slot) return;
+                    seen.add(vnode);
+                    const owner = vnode.component;
+                    if (owner) {
+                        for (const key of Reflect.ownKeys(owner.provides ?? {})) {
+                            if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') slot = owner.provides[key] as IReplacementSessionSlot;
+                        }
+                        visit(owner.subTree);
+                    }
+                    if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                    visit(vnode.ssContent);
+                    visit(vnode.ssFallback);
+                };
+                visit(document.querySelector<HTMLElement & {_vnode?: IPageLabelProbeVNode}>('#__nuxt')?._vnode);
+            }
+            if (!slot) throw new Error('No real document session slot is reachable for the fault seam');
+            const session = slot.resolve(() => {throw new Error('An existing session is required');});
+            const pdfDocument = session.pdfDocument.value;
+            if (!pdfDocument) throw new Error('The initial PDF must be loaded before holding cancellation');
+            let release!: () => void;
+            const gate = new Promise<void>(resolve => {release = resolve;});
+            const probe = {
+                entered: false,
+                destroys: 0,
+                release,
+            };
+            (window as IReplacementProbeWindow).__crpart3core = probe;
+            const attachView = session.attachView.bind(session);
+            session.attachView = (...args: unknown[]) => {
+                const view = attachView(...args);
+                view.subscribe((transition: {reason: string}) => {
+                    if (transition.reason !== 'deactivated') return;
+                    probe.entered = true;
+                    return gate;
+                });
+                session.attachView = attachView;
+                return view;
+            };
+            const destroy = pdfDocument.loadingTask.destroy.bind(pdfDocument.loadingTask);
+            pdfDocument.loadingTask.destroy = (...args: unknown[]) => {probe.destroys += 1; return destroy(...args);};
+        });
+        await splitActiveTabFromTabMenu(page, 'right');
+        await waitForViewerInteractive(page, 60_000);
+        const panes = await page.$$eval('.editor-pane', nodes => nodes.map(node => (node as HTMLElement).dataset.editorPaneId!));
+        try {
+            await clickAsUser(page, `.editor-pane[data-editor-pane-id="${panes[1]}"] .tab-new`);
+            await page.waitForFunction(() => (window as IReplacementProbeWindow).__crpart3core?.entered, {timeout: 10_000});
+            await activatePaneByTab(page, panes[0]!);
+            const {openDocumentSidebarTab} = await import('@tests/e2e/electron/helpers/viewerCore');
+            await openDocumentSidebarTab(page, 'Pages', 60_000);
+            const workingPath = await getActiveWorkspaceWorkingCopyPath(page);
+            await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(item => item.textContent?.toLowerCase().includes('rotate counterclockwise')), null, {description: 'Rotate counterclockwise'});
+            await expect.poll(async () => (await readPdfPageSnapshots(workingPath))[0]?.rotation, {timeout: 60_000}).toBe(270);
+            await waitForAnimationFrames(page, 12);
+            expect(await page.evaluate(() => (window as IReplacementProbeWindow).__crpart3core?.destroys)).toBe(0);
+        } finally {
+            await page.evaluate(() => (window as IReplacementProbeWindow).__crpart3core?.release());
+        }
+        await waitForViewerInteractive(page, 60_000);
+        const layout = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', node => {
+            const rect = node.getBoundingClientRect();
+            return {
+                width: rect.width,
+                height: rect.height,
+                canvas: Boolean(node.querySelector('canvas')),
+            };
+        });
+        expect(layout.canvas).toBe(true);
+        expect(layout.width).toBeGreaterThan(layout.height);
+        await page.waitForFunction(() => {
+            const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container[data-page="1"] .page_canvas__render-layer canvas');
+            const context = canvas?.getContext('2d');
+            if (!canvas || !context || canvas.width === 0 || canvas.height === 0) return false;
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+            for (let index = 0; index < pixels.length; index += 4) {
+                if (pixels[index + 3]! > 0 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 200) return true;
+            }
+            return false;
+        }, {timeout: 20_000});
+    }, E2E_TIMEOUT_MS);
+});
+
 interface IPageLabelProbeComponent {
     provides: Record<PropertyKey, unknown>;
     parent?: IPageLabelProbeComponent | null;
     subTree?: IPageLabelProbeVNode;
 }
+interface IReplacementProbeWindow extends Window {__crpart3core?: {
+    entered: boolean;
+    destroys: number;
+    release(): void
+};}
+interface IReplacementSessionSlot {resolve(create: () => never): {
+    pdfDocument: {value: {loadingTask: {destroy(...args: unknown[]): Promise<void>}} | null};
+    attachView(...args: unknown[]): {subscribe(listener: (transition: {reason: string}) => Promise<void> | undefined): void};
+};}
+
 interface IPageLabelProbeVNode {
     component?: IPageLabelProbeComponent;
     children?: IPageLabelProbeVNode[] | string;
