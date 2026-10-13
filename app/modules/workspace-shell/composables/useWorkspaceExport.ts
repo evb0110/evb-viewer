@@ -24,6 +24,7 @@ import {
 } from '@app/utils/platformDocuments';
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
+import { stripIpcInvocationPrefix } from '@app/utils/stripIpcInvocationPrefix';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import {
     createRequestId,
@@ -232,7 +233,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         presentFailureToast({
             failure,
             title,
-            description: getErrorMessage(error),
+            description: stripIpcInvocationPrefix(getErrorMessage(error)),
         });
     }
 

@@ -13,6 +13,7 @@ import {
     onTestFinished,
 } from 'vitest';
 import {
+    chmod,
     copyFile,
     cp,
     mkdir,
@@ -6836,7 +6837,7 @@ describe('Electron E2E - Document Output', () => {
             force: true,
             recursive: true,
         }));
-        const session = await sessionFixture.restart({
+        let session = await sessionFixture.restart({
             clean: true,
             sessionName: () => `e2e-viewer-smoke-export-image-${Date.now()}`,
             extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: join(exportDirectory, 'exported.png')},
@@ -6845,30 +6846,33 @@ describe('Electron E2E - Document Output', () => {
         await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
         await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
 
-        await openDocumentSidebarTab(session.page, 'Pages');
-        const thumbnailSelector = '.editor-pane.is-active [data-thumbnail-page="1"]';
-        await session.page.waitForSelector(thumbnailSelector, {
-            timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS,
-            visible: true,
-        });
-        const thumbnail = await session.page.$(thumbnailSelector);
-        await clickAsUser(session.page, thumbnail!, {button: 'right'});
-        const exportItem = await session.page.waitForSelector(
-            '::-p-xpath(//*[@role="menuitem"][contains(normalize-space(.), "Export Pages")])',
-            {
-                timeout: 15_000,
+        async function exportFirstPage() {
+            await openDocumentSidebarTab(session.page, 'Pages');
+            const thumbnailSelector = '.editor-pane.is-active [data-thumbnail-page="1"]';
+            await session.page.waitForSelector(thumbnailSelector, {
+                timeout: VIEWER_SMOKE_OPEN_TIMEOUT_MS,
                 visible: true,
-            },
-        );
-        await clickAsUser(session.page, exportItem!);
-        const exportAction = await session.page.waitForSelector(
-            '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Export Images"])',
-            {
-                timeout: 15_000,
-                visible: true,
-            },
-        );
-        await clickAsUser(session.page, exportAction!);
+            });
+            const thumbnail = await session.page.$(thumbnailSelector);
+            await clickAsUser(session.page, thumbnail!, {button: 'right'});
+            const exportItem = await session.page.waitForSelector(
+                '::-p-xpath(//*[@role="menuitem"][contains(normalize-space(.), "Export Pages")])',
+                {
+                    timeout: 15_000,
+                    visible: true,
+                },
+            );
+            await clickAsUser(session.page, exportItem!);
+            const exportAction = await session.page.waitForSelector(
+                '::-p-xpath(//*[@role="dialog"]//button[normalize-space(.)="Export Images"])',
+                {
+                    timeout: 15_000,
+                    visible: true,
+                },
+            );
+            await clickAsUser(session.page, exportAction!);
+        }
+        await exportFirstPage();
 
         await expect.poll(async () => (await readdir(exportDirectory)).filter(name => name.endsWith('.png')), {timeout: 60_000})
             .not.toEqual([]);
@@ -6886,6 +6890,36 @@ describe('Electron E2E - Document Output', () => {
         expect(image.width).toBeGreaterThan(300);
         expect(inkPixels).toBeGreaterThan(100);
         await expect(readFile(fixturePath)).resolves.toEqual(sourceBytes);
+        if (process.platform === 'linux' && process.getuid?.() !== 0) {
+            const readOnlyDirectory = join(exportDirectory, 'read-only');
+            await mkdir(readOnlyDirectory);
+            await chmod(readOnlyDirectory, 0o555);
+            try {
+                session = await sessionFixture.restart({
+                    clean: true,
+                    sessionName: () => `e2e-searchpaint-export-refused-${Date.now()}`,
+                    extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: join(readOnlyDirectory, 'refused.png')},
+                });
+                await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await waitForViewerInteractive(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+                await exportFirstPage();
+                await session.page.waitForSelector('.app-toast-failure', {
+                    visible: true,
+                    timeout: 60_000,
+                });
+                const description = await session.page.$eval('.app-toast-failure', toast => toast.textContent ?? '');
+                const evidenceDirectory = resolve('.devkit/evidence/searchpaint');
+                await mkdir(evidenceDirectory, {recursive: true});
+                await session.page.screenshot({path: join(evidenceDirectory, `export-refusal-${process.env.SEARCHPAINT_PHASE ?? 'after'}.png`)});
+                expect(description).toContain('EVB Viewer was not allowed to write in that folder.');
+                expect(description).not.toMatch(/Error invoking remote method|pdfExport:images|EACCES|copyfile|\.tmp\b/u);
+                expect(await readdir(readOnlyDirectory)).toEqual([]);
+            } finally {
+                await chmod(readOnlyDirectory, 0o755);
+            }
+        }
+
     }, 120_000);
 });
 
