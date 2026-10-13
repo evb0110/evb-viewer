@@ -1089,6 +1089,51 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         }
     });
 
+    it.each([
+        'a touch of the modification time',
+        'a rewrite with the same bytes',
+    ])('rolls back a published save when %s is all that happened while EVB was stopped', async change => {
+        const {
+            originalPath, stagedPath, workingCopyPath,
+        } = await prepare('old-original', 'old-working');
+        const fs = await import('node:fs/promises');
+        const {capturePathSaveWitness} = await import('@electron/file-access/originalPathSaveWitness');
+        const {createOriginalFileContentFingerprintHash} = await import('@electron/file-access/createOriginalFileContentFingerprintHash');
+        const {
+            prepareWorkingCopyTransition, recordWorkingCopyJournalOriginal, recoverWorkingCopyTransition,
+        } = await import('@electron/file-access/workingCopyJournal');
+        const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+        const before = await readdir(tempRoot);
+        const journal = await prepareWorkingCopyTransition(workingCopyPath, requireDocumentRevisionToken('drt1:crash:2:next'));
+        const backupPath = `${originalPath}.evb-transition-crash.bak`;
+        const preparedSnapshot = (await capturePathSaveWitness(originalPath))!.getSnapshotForJournal();
+        await rename(originalPath, backupPath);
+        const publishedContent = await readFile(stagedPath, 'utf8');
+        await rename(stagedPath, originalPath);
+        await recordWorkingCopyJournalOriginal(journal, {
+            path: originalPath,
+            backupPath,
+            state: 'published',
+            preparedSnapshot,
+            publishedSnapshot: (await capturePathSaveWitness(originalPath))!.getSnapshotForJournal(),
+            intendedFingerprint: `sha256-full-v1:${createOriginalFileContentFingerprintHash(Buffer.byteLength(publishedContent))
+                .update(publishedContent)
+                .digest('hex')}`,
+        });
+        // EVB stopped during the working-copy sync; a sync client then touched the file it had published.
+        if (change === 'a touch of the modification time') {
+            await fs.utimes(originalPath, 1700000000, 1700000000);
+        } else {
+            await writeFile(`${originalPath}.sync`, publishedContent);
+            await rename(`${originalPath}.sync`, originalPath);
+        }
+
+        await expect(recoverWorkingCopyTransition(workingCopyPath)).resolves.toBe(true);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('old-original');
+        await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+        expect((await readdir(tempRoot)).filter(name => !before.includes(name))).toEqual([]);
+    });
+
     it('finishes keeping the file as it was before a save when a crash cut its move short', async () => {
         const {
             originalPath, workingCopyPath,

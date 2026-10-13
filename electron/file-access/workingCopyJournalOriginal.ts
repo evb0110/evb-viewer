@@ -57,23 +57,19 @@ async function witnessIntendedContent(original: IWorkingCopyJournalOriginal) {
 
 /**
  * Restores an interrupted publication by moving the displaced backup back; without one, the original was never
- * displaced or is already restored and is not EVB's to restore. A present destination must match the journal first.
+ * displaced or is already restored and is not EVB's to restore, and an original that already holds its pre-save bytes
+ * keeps them. A present destination must match the journal first.
  */
 export async function restoreOriginal(original: IWorkingCopyJournalOriginal) {
-    if (process.platform === 'win32') await recoverWindowsAtomicReplace(original.path);
-    if (original.state === 'restored' || original.state === 'conflicted' || !await stat(original.backupPath).then(() => true, () => false)) {
+    if (original.state === 'restored' || original.state === 'conflicted' || !await stat(original.backupPath).then(() => true, () => false)
+        || original.preparedSnapshot !== undefined && await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true}).then(() => true, () => false)) {
         return;
     }
-    if (original.preparedSnapshot !== undefined) {
-        try {
-            await assertPathMatchesSaveWitnessSnapshot(original.path, original.preparedSnapshot, {contentOnly: true});
-            return;
-        } catch {
-            // The original still contains the published bytes.
-        }
-    }
-    const intendedWitness = original.state === 'prepared' ? await witnessIntendedContent(original) : null;
-    const expectedSnapshot = original.state === 'prepared' && !intendedWitness
+    // A replace journal left by EVB's Windows fallback is applied only for an original EVB is about to restore.
+    if (process.platform === 'win32') await recoverWindowsAtomicReplace(original.path);
+    // EVB's own bytes, recorded as published or not yet, are rolled back even when only their metadata changed.
+    const intendedWitness = await witnessIntendedContent(original);
+    const expectedSnapshot = intendedWitness ? undefined : original.state === 'prepared'
         ? original.preparedSnapshot
         : original.publishedSnapshot;
     if (expectedSnapshot !== undefined) {
