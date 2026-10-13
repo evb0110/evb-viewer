@@ -313,16 +313,21 @@ interface IPdfTextBoxAnnotationExpose {
 }
 
 // A foreign label's frame: its border and background inset by /RD, behind
-// the text, which sits inside both as it does on the saved page.
+// the text, which sits inside both as it does on the saved page. /RD is on
+// the page's upright top, right, bottom and left; a box turned clockwise by a
+// quarter faces the next side, as Save draws it.
+const frameInsets = computed(() => {
+    const insets = props.entity.frame?.insets;
+    return insets?.map((_, side) => insets[(side + props.entity.rotation / 90) % 4]!);
+});
 const frameStyle = computed(() => {
     const frame = props.entity.frame;
-    if (!frame) {
+    if (!frame || !frameInsets.value) {
         return null;
     }
     return {
         position: 'absolute' as const,
-        // Top, right, bottom and left, as /RD and the CSS shorthand order them.
-        inset: frame.insets.map(inset => toPdfScaledCssLength(inset)).join(' '),
+        inset: frameInsets.value.map(inset => toPdfScaledCssLength(inset)).join(' '),
         // An inset shadow keeps the stroke's exact width; a CSS border snaps to device pixels.
         boxShadow: frame.borderColor ? `inset 0 0 0 ${toPdfScaledCssLength(frame.borderWidth)} ${frame.borderColor}` : 'none',
         background: frame.background ?? 'transparent',
@@ -333,8 +338,8 @@ const frameStyle = computed(() => {
 
 const framePadding = computed(() => {
     const frame = props.entity.frame;
-    return frame
-        ? {padding: frame.insets.map((inset, side) => (
+    return frame && frameInsets.value
+        ? {padding: frameInsets.value.map((inset, side) => (
             `calc(${toPdfScaledCssLength(inset + frame.borderWidth)} + ${side % 2 ? 0.3 : 0.15}em)`
         )).join(' ')}
         : {};

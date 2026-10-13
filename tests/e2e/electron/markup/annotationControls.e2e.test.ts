@@ -1318,6 +1318,58 @@ describe('Electron E2E - annotation controls', () => {
         expect.soft((await renderedTextBoxInk(readFileSync(saved), true)).outside, 'the saved label keeps its whole glyph').toBe(0);
     });
 
+    it('turns a foreign label\'s frame with its box through Save and reopen', async () => {
+        // review-b7s: /RD [1 2 7 12] gives a 300 x 40 pt label a different inset
+        // on every side. A box turned clockwise by a quarter faces the next side.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-turned-frame-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const saved = join(evidence, 'saved.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext/asymmetric-frame.pdf'), saved);
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const frameInsets = (page: Page) => page.$eval(box, (element) => {
+            const frame = getComputedStyle(element.querySelector<HTMLElement>('.pdf-annotation-editor-text-box__frame')!);
+            // The box lays out at the label's unturned 300 pt width.
+            const points = 300 / (element as HTMLElement).offsetWidth;
+            return [
+                frame.top,
+                frame.right,
+                frame.bottom,
+                frame.left,
+            ].map(inset => Math.round(Number.parseFloat(inset) * points * 10) / 10);
+        });
+        const openLabel = async (page: Page) => {
+            await openPdfInApp(page, saved);
+            await waitForViewerInteractive(page);
+            await openAnnotationsTab(page);
+            await clickAnnotationTool(page, 'Select');
+            await clickVisibleAnnotationControl(page, box);
+        };
+        const {page} = sessionFixture.getSession();
+        await openLabel(page);
+        expect(await frameInsets(page), 'the upright label').toEqual([
+            12,
+            7,
+            2,
+            1,
+        ]);
+        await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-rotate="cw"]');
+        await page.waitForFunction(() => document.querySelector('.editor-pane.is-active [data-annotation-rotation-value]')?.textContent?.includes('90'));
+        const turned = await frameInsets(page);
+        expect(turned, 'the turned box faces the page\'s next sides').toEqual([
+            7,
+            2,
+            1,
+            12,
+        ]);
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const restarted = await sessionFixture.restart({hard: true});
+        await openLabel(restarted.page);
+        expect(await frameInsets(restarted.page), 'the reopened label keeps the frame it had before Save').toEqual(turned);
+    });
+
     it('opens a foreign label with a malformed DA at the size it draws', async () => {
         // Its DA ends in "/Helv invalid Tf"; its appearance draws at 22 pt.
         const {page} = sessionFixture.getSession();

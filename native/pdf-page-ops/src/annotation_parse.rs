@@ -667,9 +667,7 @@ pub(crate) fn parse_text_box_entry(
     let rotation = read_optional_integer(document, dict, b"Rotate")?.unwrap_or(0);
     let rotation = rotation.rem_euclid(360);
     if !matches!(rotation, 0 | 90 | 180 | 270) {
-        return Err(
-            "Imported FreeText rotation is not supported by the canonical text editor".to_string(),
-        );
+        return Err("Imported FreeText rotation is not a quarter turn".to_string());
     }
     let (rect, rotation) =
         crate::text_box_font::stored_editor_geometry(document, dict, rect, rotation, page_rotation)
@@ -690,7 +688,8 @@ pub(crate) fn parse_text_box_entry(
         rotation,
         font_size,
         color,
-        frame: frame.editor(page_rotation - rotation),
+        // On the page's upright sides: the editor turns them with the box.
+        frame: frame.editor(page_rotation),
     })
 }
 

@@ -3225,7 +3225,10 @@ fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
             }
             let parsed = collect_parsed_annotations(&document, "D:20260908000000Z").unwrap();
             let text = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::TextBox(value) => Some(value), _ => None }).unwrap();
-            let [top, right, bottom, left] = text.frame.as_ref().unwrap().insets;
+            // The reader gives the page's upright sides; the editor turns them
+            // clockwise with the box, a quarter at a time.
+            let insets = text.frame.as_ref().unwrap().insets;
+            let [top, right, bottom, left] = [0, 1, 2, 3].map(|side| insets[(side + usize::from(rotation / 90)) % 4]);
             let (width, height) = if page_rotation % 180 == 0 { (80.0, 50.0) } else { (50.0, 80.0) };
             assert_approximately(clip[2], width - left - right - 6.0);
             assert_approximately(clip[3], height - top - bottom - 6.0);

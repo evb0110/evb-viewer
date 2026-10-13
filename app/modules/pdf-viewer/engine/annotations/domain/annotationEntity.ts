@@ -64,7 +64,7 @@ interface IAnnotationEntityBase {
 
 /** A foreign label's border and background, as its producer drew them. */
 export interface ITextBoxFrame {
-    /** /RD's top, right, bottom and left insets, in PDF points. */
+    /** /RD's insets on the page's upright top, right, bottom and left, in PDF points. */
     readonly insets: readonly [number, number, number, number];
     readonly borderWidth: number;
     readonly borderColor: string | null;
