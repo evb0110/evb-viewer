@@ -26,6 +26,7 @@ pub(crate) fn split_form(
                 target,
                 field,
                 None,
+                None,
                 annotations,
                 &mut fields,
                 &mut state,
@@ -66,6 +67,7 @@ fn split_form_field(
     target: &mut Document,
     object: &Object,
     parent: Option<ObjectId>,
+    field_type: Option<&[u8]>,
     annotations: &SplitAnnotationMap,
     fields: &mut HashMap<ObjectId, ObjectId>,
     state: &mut CatalogWalkState,
@@ -75,7 +77,14 @@ fn split_form_field(
         return Err("Split field tree contains a cycle or exceeds catalog traversal limits".into());
     }
     let (source_id, field) = source.dereference(object)?;
-    let mut field = field.as_dict()?.clone();
+    let field = field.as_dict()?;
+    let field_type = field
+        .get(b"FT")
+        .ok()
+        .and_then(|value| source.resolved(value).ok())
+        .and_then(|value| value.as_name().ok())
+        .or(field_type);
+    let mut field = field.clone();
     let widget = field
         .get(b"Subtype")
         .ok()
@@ -142,7 +151,7 @@ fn split_form_field(
                 .ok()
                 .and_then(|value| source.resolved(value).ok())
                 .and_then(|value| value.as_array().ok())
-                .filter(|options| options.len() == kids.len());
+                .filter(|options| field_type == Some(b"Btn") && options.len() == kids.len());
             let mut kept = Vec::new();
             let mut kept_options = Vec::new();
             for (index, child) in kids.iter().enumerate() {
@@ -151,6 +160,7 @@ fn split_form_field(
                     target,
                     child,
                     Some(id),
+                    field_type,
                     annotations,
                     fields,
                     state,
