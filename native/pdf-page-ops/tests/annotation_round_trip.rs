@@ -1961,12 +1961,13 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
         ("הַקְּדֻשָּׁה וְהַטָּהֳרָה", None),
         ("Latin label, pp. 12-15", None),
         ("Latin label, pp. 12-15", Some("Helvetica")),
+        ("مرحبا Latin 12 بالعالم", None),
     ] {
         write_print_text_pdf(&temp.pdf, text, font, 0, 0, [100, 450, 400, 480], 28);
         print_annotation_pdf(&temp.pdf, &printed);
         let hidden = clipped_ink(&printed);
-        // The size the first annotation's appearance draws, as Tf records it.
-        let drawn_size = |pdf: &Path| {
+        // The first annotation's appearance content.
+        let appearance = |pdf: &Path| {
             let document = Document::load(pdf).unwrap();
             let page = document.get_dictionary(document.get_pages()[&1]).unwrap();
             let annotation = page.get(b"Annots").unwrap().as_array().unwrap()[0].as_reference();
@@ -1978,16 +1979,20 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
                 .unwrap()
                 .get(b"N")
                 .unwrap();
-            let mut stream = document
-                .get_object(normal.as_reference().unwrap())
-                .unwrap()
-                .as_stream()
-                .unwrap()
-                .clone();
+            let normal = document.get_object(normal.as_reference().unwrap()).unwrap();
+            let mut stream = normal.as_stream().unwrap().clone();
             stream.decompress().unwrap();
-            let content = String::from_utf8(stream.content).unwrap();
+            String::from_utf8(stream.content).unwrap()
+        };
+        // The size its Tf records and where it places each glyph.
+        let drawn = |content: String| {
             let (before, _) = content.split_once(" Tf").unwrap();
-            before.rsplit(' ').next().unwrap().parse::<f64>().unwrap()
+            let size = before.rsplit(' ').next().unwrap().parse::<f64>().unwrap();
+            let glyphs = content
+                .lines()
+                .filter(|op| op.ends_with("> Tj"))
+                .map(str::to_string);
+            (size, glyphs.collect::<Vec<_>>())
         };
         let saved = TempPaths::new("print-text-fit-save");
         let blank = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/semtext/blank.pdf");
@@ -2000,13 +2005,28 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
             }]}),
         );
         run_save(&saved);
-        let (printed_size, saved_size) = (drawn_size(&printed), drawn_size(&saved.pdf));
+        let (printed_size, printed_glyphs) = drawn(appearance(&printed));
+        let (saved_size, saved_glyphs) = drawn(appearance(&saved.pdf));
+        // Glyph placements, RTL right alignment included; a simple Latin font
+        // prints its text as strings.
+        let placed_alike = font.is_some() || printed_glyphs == saved_glyphs;
         let again = temp.root.join("again.pdf");
         print_annotation_pdf(&printed, &again);
-        rows.push((text, font, hidden, printed_size, saved_size, again.exists()));
+        rows.push((
+            text,
+            font,
+            hidden,
+            printed_size,
+            saved_size,
+            placed_alike,
+            again.exists(),
+        ));
     }
-    // Whole, at the size Save fits, and unchanged once it has an appearance.
-    let whole = |row: &&(_, _, usize, f64, f64, bool)| row.2 == 0 && row.3 == row.4 && !row.5;
+    // Whole, at the size and glyph positions Save gives it, and unchanged once
+    // it has an appearance.
+    let whole = |row: &&(_, _, usize, f64, f64, bool, bool)| {
+        row.2 == 0 && row.3 == row.4 && row.5 && !row.6
+    };
     assert!(rows.iter().all(|row| whole(&row)), "{rows:#?}");
     // Covered characters must paint their own glyphs, not replacement boxes.
     // The directional mark preserves the RTL paragraph for the comparison.
@@ -2035,15 +2055,16 @@ fn print_freetext_keeps_supported_runs_and_replaces_unknown_glyphs() {
             "covered glyphs: {text}"
         );
     }
-    // PDF.js and MuPDF display foreign mixed-script FreeText in an LTR
-    // paragraph. An explicit LTR mark must produce the same visible ordering.
+    // Each paragraph takes the direction of its first strong character, as
+    // the editor shows it and Save lays it out. An explicit RTL mark must
+    // produce the same visible ordering.
     let mixed = "שלום abc 123\nمرحبا xyz";
     write_print_text_pdf(&temp.pdf, mixed, None, 0, 0, [100, 450, 400, 700], 20);
     print_annotation_pdf(&temp.pdf, &printed);
     let automatic = poppler_pixels(&printed);
     let marked = mixed
         .split('\n')
-        .map(|line| format!("\u{200e}{line}"))
+        .map(|line| format!("\u{200f}{line}"))
         .collect::<Vec<_>>()
         .join("\n");
     write_print_text_pdf(&temp.pdf, &marked, None, 0, 0, [100, 450, 400, 700], 20);

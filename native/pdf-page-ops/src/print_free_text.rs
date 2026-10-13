@@ -171,8 +171,7 @@ pub(super) fn missing_free_text_appearance(
                 .map(Vec::as_slice)
                 .chain(crate::text_box_font::FONTS)
                 .collect();
-            let level = Some(unicode_bidi::Level::ltr());
-            let lay_out = |width, size| layout_with_fonts(&text, width, size, &programs, level);
+            let lay_out = |width, size| layout_with_fonts(&text, width, size, &programs, None);
             let (size, lines) =
                 crate::annotations::fit_text_box(size, &geometry, &programs, lay_out);
             let fonts = crate::text_box_font::embed_fonts(document, &lines, &programs)?;
