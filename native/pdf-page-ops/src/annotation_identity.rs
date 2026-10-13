@@ -1,6 +1,48 @@
 use super::*;
 use sha2::{Digest, Sha256};
 
+pub(crate) fn format_pdfjs_annotation_ref(object_id: ObjectId) -> String {
+    if object_id.1 == 0 {
+        format!("{}R", object_id.0)
+    } else {
+        format!("{}R{}", object_id.0, object_id.1)
+    }
+}
+
+pub(crate) fn normalize_pdfjs_annotation_id(value: &str) -> Option<String> {
+    parse_pdfjs_annotation_object_id(value).map(format_pdfjs_annotation_ref)
+}
+
+/// Accept PDF.js's compact identity and the canonical reference emitted by
+/// the app and native identity-binding reports through the same parser.
+pub(crate) fn parse_pdfjs_annotation_object_id(value: &str) -> Option<ObjectId> {
+    let mut parts = value.trim().split_ascii_whitespace();
+    let first = parts.next()?;
+    let (object, generation) = match (parts.next(), parts.next(), parts.next()) {
+        (Some(generation), Some("R"), None) => (first, generation),
+        (None, None, None) => {
+            let (object, generation) = first.split_once('R')?;
+            (
+                object,
+                if generation.is_empty() {
+                    "0"
+                } else {
+                    generation
+                },
+            )
+        }
+        _ => return None,
+    };
+    if !object.bytes().all(|byte| byte.is_ascii_digit())
+        || !generation.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let object = object.parse::<u32>().ok()?;
+    let generation = generation.parse::<u16>().ok()?;
+    (object > 0).then_some((object, generation))
+}
+
 /// Read the document's durable annotation name, treating an empty or
 /// whitespace-only PDF string as absent while preserving every character of
 /// a nonblank name.

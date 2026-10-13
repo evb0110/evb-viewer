@@ -577,11 +577,10 @@ pub(crate) fn dedupe_markup_subtype_hints(
 }
 
 pub(crate) fn can_use_geometry_only_subtype_hint(hint: &MarkupSubtypeHint) -> bool {
-    hint.subtype == "Highlight"
-        || match hint.source.as_deref() {
-            Some(source) => source == "editor-live",
-            None => true,
-        }
+    match hint.source.as_deref() {
+        Some(source) => source == "editor-live",
+        None => true,
+    }
 }
 
 pub(crate) fn score_subtype_hint_for_candidate(

@@ -41,7 +41,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                     },
                     markup_geometry: None,
                     app_annotation_id: None,
-                    annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                    annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                     color: Some("#00ff00".to_string()),
                     opacity: Some(0.45),
                     author: None,
@@ -115,7 +115,7 @@ fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
                 },
                 markup_geometry: None,
                 app_annotation_id: None,
-                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: Some("#00ff00".to_string()),
                 author: None,
                 contents: Some("updated contents".to_string()),
@@ -215,7 +215,7 @@ fn rewrites_existing_markup_geometry_for_all_text_markup_subtypes() {
                     marker_rect,
                     markup_geometry: Some(vec![marker_rect]),
                     app_annotation_id: None,
-                    annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                    annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                     color: None,
                     opacity: None,
                     author: None,
@@ -275,7 +275,7 @@ fn keeps_existing_multiline_geometry_for_style_only_markup_hints() {
                 },
                 markup_geometry: None,
                 app_annotation_id: None,
-                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: Some("#00ff00".to_string()),
                 opacity: None,
                 author: None,
@@ -734,7 +734,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                     },
                     markup_geometry: None,
                     app_annotation_id: None,
-                    annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                    annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                     color: Some("#ff0000".to_string()),
                     author: None,
                     contents: None,
@@ -796,7 +796,7 @@ fn appends_existing_markup_geometry_for_all_text_markup_subtypes() {
                         marker_rect,
                         markup_geometry: Some(vec![marker_rect]),
                         app_annotation_id: None,
-                        annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                        annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                         color: None,
                         opacity: None,
                         author: None,
@@ -852,7 +852,7 @@ fn opacity_only_markup_rewrite_updates_a_foreign_appearance() {
                 },
                 markup_geometry: None,
                 app_annotation_id: None,
-                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: None,
                 opacity: Some(0.45),
                 author: None,
@@ -1011,7 +1011,7 @@ fn imported_markup_note_mutation(markup_id: ObjectId) -> NativeMutationsFile {
                 },
                 markup_geometry: None,
                 app_annotation_id: None,
-                annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+                annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
                 color: None,
                 author: None,
                 contents: Some("edited imported markup note".to_string()),
@@ -1232,7 +1232,7 @@ fn stale_markup_page_hint_uses_the_annotation_owner_without_a_page_walk() {
             },
             markup_geometry: None,
             app_annotation_id: None,
-            annotation_id: Some(format_pdfjs_annotation_ref(markup_id)),
+            annotation_id: Some(format!("{} {} R", markup_id.0, markup_id.1)),
             color: Some("#00ff00".to_string()),
             author: None,
             contents: None,
@@ -1503,7 +1503,12 @@ fn preserves_distinct_markup_identities_when_geometry_is_identical() {
 
 #[test]
 fn validates_each_distinct_new_markup_identity_after_save() {
-    let (document, page_id) = create_test_document();
+    let (mut document, page_id, foreign_id) = create_test_markup_pdf("Highlight");
+    let foreign = document.get_dictionary_mut(foreign_id).unwrap();
+    foreign.set("Rect", vec![0.into(), 0.into(), 200.into(), 100.into()]);
+    foreign.set("NM", Object::string_literal("foreign-highlight"));
+    foreign.set("Contents", Object::string_literal("Foreign highlight"));
+    let foreign_before = foreign.clone();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
     let mut first = test_markup_hint(0);
     first.app_annotation_id = Some("highlight-app-first".to_string());
@@ -1529,7 +1534,9 @@ fn validates_each_distinct_new_markup_identity_after_save() {
         .filter_map(|object_id| revision.dictionary(object_id).ok())
         .filter_map(|dict| dict.get(b"NM").ok().and_then(pdf_string_to_text))
         .collect();
-    assert_eq!(names.len(), 2);
+    assert_eq!(names.len(), 3);
+    assert!(names.iter().any(|name| name == "foreign-highlight"));
+    assert_eq!(revision.dictionary(foreign_id).unwrap(), &foreign_before);
     assert!(names.iter().any(|name| name == "highlight-first"));
     assert!(names.iter().any(|name| name == "highlight-second"));
 }
@@ -1835,7 +1842,7 @@ fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_docum
             total_pages: 1,
             rewrite_shape_state: true,
             shapes: Vec::new(),
-            deleted_annotation_ids: vec![format_pdfjs_annotation_ref(shape_id)],
+            deleted_annotation_ids: vec![format!("{} {} R", shape_id.0, shape_id.1)],
             deleted_stable_keys: Vec::new(),
         },
         "D:20260831130000Z",
@@ -1862,7 +1869,7 @@ fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_docum
             total_pages: 1,
             rewrite_shape_state: true,
             shapes: Vec::new(),
-            deleted_annotation_ids: vec![format_pdfjs_annotation_ref(shape_id)],
+            deleted_annotation_ids: vec![format!("{} {} R", shape_id.0, shape_id.1)],
             deleted_stable_keys: Vec::new(),
         },
         "D:20260831130000Z",
@@ -1889,7 +1896,7 @@ fn patches_a_bare_shape_without_dropping_rich_text_review_reply_or_unknown_keys(
         .set("Annots", vec![Object::Reference(shape_id)]);
     let before = document.get_dictionary(shape_id).unwrap().clone();
     let mut requested = rectangle_shape("bare-shape", "#112233");
-    requested.annotation_id = Some(format_pdfjs_annotation_ref(shape_id));
+    requested.annotation_id = Some(format!("{} {} R", shape_id.0, shape_id.1));
 
     apply_shape_annotations(
         &mut document,

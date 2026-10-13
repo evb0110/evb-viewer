@@ -1387,18 +1387,6 @@ pub(crate) fn validate_shape_semantics(
     validate_saved_shape_style(document, dict, shape)
 }
 
-pub(crate) fn parse_pdfjs_annotation_object_id(value: &str) -> Option<ObjectId> {
-    let normalized = normalize_pdfjs_annotation_id(value)?;
-    let (object_number, generation_number) = normalized.split_once('R')?;
-    let object_number = object_number.parse::<u32>().ok()?;
-    let generation_number = if generation_number.is_empty() {
-        0
-    } else {
-        generation_number.parse::<u16>().ok()?
-    };
-    Some((object_number, generation_number))
-}
-
 pub(crate) fn validate_markup_target(
     document: &impl PdfObjectSource,
     object_id: ObjectId,

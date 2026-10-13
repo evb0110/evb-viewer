@@ -55,41 +55,6 @@ pub(crate) fn write_managed_shape_stable_key(
     modified
 }
 
-pub(crate) fn format_pdfjs_annotation_ref(object_id: ObjectId) -> String {
-    if object_id.1 == 0 {
-        format!("{}R", object_id.0)
-    } else {
-        format!("{}R{}", object_id.0, object_id.1)
-    }
-}
-
-pub(crate) fn normalize_pdfjs_annotation_id(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    let (object, generation) = trimmed.split_once('R')?;
-    if object.is_empty() || !object.chars().all(|character| character.is_ascii_digit()) {
-        return None;
-    }
-    let object_number = object.parse::<u32>().ok()?;
-    if object_number == 0 {
-        return None;
-    }
-    if generation.is_empty() {
-        return Some(format!("{object_number}R"));
-    }
-    if !generation
-        .chars()
-        .all(|character| character.is_ascii_digit())
-    {
-        return None;
-    }
-    let generation_number = generation.parse::<u16>().ok()?;
-    if generation_number == 0 {
-        Some(format!("{object_number}R"))
-    } else {
-        Some(format!("{object_number}R{generation_number}"))
-    }
-}
-
 pub(crate) fn shape_annotation_subtype_for_create(shape: &ShapeAnnotation) -> Option<&'static str> {
     match shape.shape_type.as_str() {
         "rectangle" => Some("Square"),

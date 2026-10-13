@@ -2117,7 +2117,7 @@ fn refuses_foreign_freetext_targets_before_rewrite_or_append() {
                     }],
                     "textBoxes": [{
                         "pageIndex": destination_page, "stableKey": "foreign-text",
-                        "annotationId": by_reference.then(|| format_pdfjs_annotation_ref(id)),
+                        "annotationId": by_reference.then(|| format!("{} {} R", id.0, id.1)),
                         "text": "must not replace the appearance",
                         "rect": [100.0, 400.0, 400.0, 440.0], "rotation": 0, "fontSize": 12.0,
                         "color": [0, 0, 0],
@@ -2234,7 +2234,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
             text_boxes: vec![TextBoxMutation {
                 page_index: 0,
                 stable_key: "foreign-text-box".to_string(),
-                annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)),
+                annotation_id: Some(format!("{} {} R", foreign_id.0, foreign_id.1)),
                 text: "edited foreign text".to_string(),
                 rect: [20.0, 25.0, 160.0, 80.0],
                 rotation: 0,
@@ -3099,7 +3099,7 @@ fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
         assert_eq!(untouched.font_size, 22.0, "{da}");
         let editor = TextBoxMutation {
             page_index: 0, stable_key: "foreign".to_string(),
-            annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: text.to_string(), rect: rect.map(|v| v + 1e-5),
+            annotation_id: Some(format!("{} {} R", foreign_id.0, foreign_id.1)), text: text.to_string(), rect: rect.map(|v| v + 1e-5),
             rotation: 0, font_size: 22.0, color: [245, 158, 11], author: None, created_at: None, modified_at: None,
         };
         let mutations = NativeMutationsFile { text_boxes: vec![editor], ..NativeMutationsFile::default() };

@@ -180,7 +180,7 @@
         let updated_path = updated.bytes_path.clone();
         let mut updated = updated;
         updated.stable_key = Some("stamp-preserve".to_string());
-        updated.annotation_id = Some(format_pdfjs_annotation_ref(stamp_ref));
+        updated.annotation_id = Some(format!("{} {} R", stamp_ref.0, stamp_ref.1));
         updated.x = 0.5;
         let updated_bytes = read(&updated_path).unwrap();
         apply_placed_images(
@@ -474,7 +474,7 @@
 
         let mut mismatched = placed_jpeg_mutation();
         mismatched.stable_key = Some("placed-image-other".to_string());
-        mismatched.annotation_id = Some(format_pdfjs_annotation_ref(stamp_ref));
+        mismatched.annotation_id = Some(format!("{} {} R", stamp_ref.0, stamp_ref.1));
         let error = append_native_mutations(
             &pdf_path,
             &pdf_path,
@@ -489,7 +489,7 @@
 
         let mut updated = placed_jpeg_mutation();
         updated.stable_key = Some("placed-image-app-1".to_string());
-        updated.annotation_id = Some(format_pdfjs_annotation_ref(stamp_ref));
+        updated.annotation_id = Some(format!("{} {} R", stamp_ref.0, stamp_ref.1));
         updated.x = 0.5;
         updated.width = 0.2;
         append_native_mutations(

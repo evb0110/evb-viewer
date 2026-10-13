@@ -264,9 +264,7 @@ fn apply_native_mutations_internal(
     if !mutations.updates.is_empty() {
         update_note_text(document, &mutations.updates, modified_at)?;
     }
-    if !mutations.geometry_updates.is_empty() {
-        update_note_geometry(document, &mutations.geometry_updates, modified_at)?;
-    }
+    update_note_geometry(document, &mutations.geometry_updates, modified_at)?;
     if !mutations.notes.is_empty() || !mutations.free_text_notes.is_empty() {
         upsert_text_notes_with_counter(
             document,
@@ -279,18 +277,14 @@ fn apply_native_mutations_internal(
             &mut identity_bindings,
         )?;
     }
-    if !mutations.text_boxes.is_empty() {
-        upsert_text_boxes_with_counter(
-            document,
-            &mutations.text_boxes,
-            modified_at,
-            &mut annotation_visits,
-            &mut identity_bindings,
-        )?;
-    }
-    if !mutations.deletes.is_empty() {
-        delete_annotations(document, &mutations.deletes)?;
-    }
+    upsert_text_boxes_with_counter(
+        document,
+        &mutations.text_boxes,
+        modified_at,
+        &mut annotation_visits,
+        &mut identity_bindings,
+    )?;
+    delete_annotations(document, &mutations.deletes)?;
     if !mutations.page_rotations.is_empty() {
         rotate_pages(document, &mutations.page_rotations)?;
     }
@@ -330,6 +324,7 @@ fn apply_native_mutations_internal(
             &mut identity_bindings,
         )?;
     }
+    document.max_id = document.objects.keys().next_back().map_or(0, |id| id.0);
     Ok(())
 }
 
