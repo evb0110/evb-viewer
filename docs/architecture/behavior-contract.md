@@ -196,14 +196,19 @@ Recovery leaves no file of its own beside the PDF. When a save, or recovery
 after a crash, finds the PDF changed elsewhere after the save displaced it, the
 version that was on disk just before that save stays beside the PDF as
 "<name> (original).pdf", then "<name> (original 2).pdf" and on, never replacing
-an existing file. A live save's refusal names that file; after recovery, the
-next open of that PDF says so once. While another program holds the PDF after a
+an existing file. A live save's refusal names that file, and every later open
+of that PDF names it again and says to compare the two and keep one, until the
+person dismisses that notice. While another program holds the PDF after a
 crash, the document still opens with its last saved revision, and Save is
-refused, saying another program is using the file, until it lets go. While
-another program holds open a file a finished save left beside the PDF, reading
-and editing continue; Save is refused the same way until it lets go, and the
-next save then removes the file. A save into a folder that cannot be written is
-refused with that reason and an offer to Save As.
+refused, saying another program is using the file, until it lets go. If the
+person closes that document, reopens the PDF and saves it, that save stands and
+nothing more is kept beside it. While another program holds open a file a
+finished save left beside the PDF, reading and editing continue; Save is
+refused the same way until it lets go, and the next save then removes the file.
+When the document was closed first, the next start after the program lets go
+removes it; EVB never deletes its own record of an unfinished save before that
+save is finished. A save refused because the PDF is read-only or locked, or
+because its folder cannot be written, says which, with an offer to Save As.
 
 **T4. A split shows one document in two views.** Applies to a PDF split from
 its tab with Split Right or Split Down; New Pane and a separately opened copy
