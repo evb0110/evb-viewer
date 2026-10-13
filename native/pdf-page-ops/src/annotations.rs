@@ -211,7 +211,6 @@ pub(crate) fn update_note_geometry(
         return Ok(());
     }
     let page_resolver = PageTreeResolver::new(document)?;
-    let mut updated_count = 0;
     for update in updates {
         let target_id = (update.object_number, update.generation_number);
         let target = resolve_note_target(document, target_id)?;
@@ -248,28 +247,19 @@ pub(crate) fn update_note_geometry(
 
         let target_dict = document.get_dictionary_mut(target.annotation_id)?;
         let placement = (destination_page_id, pdf_rect, modified_at);
-        place_note_target(target_dict, marker_form, placement, update);
+        let pdf_rect = place_note_target(target_dict, marker_form, placement, update);
         if let Some(popup_id) = target.popup_ref {
             let popup_dict = document.get_dictionary_mut(popup_id)?;
             set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect, modified_at);
         }
 
-        let mut refs = vec![target.annotation_id];
-        if let Some(popup_id) = target.popup_ref {
-            refs.push(popup_id);
-        }
+        let refs: Vec<_> = std::iter::once(target.annotation_id)
+            .chain(target.popup_ref)
+            .collect();
         if source_page_id != destination_page_id {
             remove_annotation_refs_from_page(document, source_page_id, &refs)?;
         }
         append_missing_annotation_refs_to_page(document, destination_page_id, &refs)?;
-        updated_count += 1;
-    }
-    if updated_count != updates.len() {
-        return Err(format!(
-            "Updated {updated_count} of {} requested note geometry annotation(s)",
-            updates.len()
-        )
-        .into());
     }
     Ok(())
 }
@@ -379,17 +369,16 @@ pub(crate) fn update_note_geometry_incremental(
             .new_document
             .get_dictionary_mut(target.annotation_id)?;
         let placement = (destination_page_id, pdf_rect, modified_at);
-        place_note_target(target_dict, marker_form, placement, update);
+        let pdf_rect = place_note_target(target_dict, marker_form, placement, update);
         if let Some(popup_id) = target.popup_ref {
             incremental.opt_clone_object_to_new_document(popup_id)?;
             let popup_dict = incremental.new_document.get_dictionary_mut(popup_id)?;
             set_annotation_geometry_dict(popup_dict, destination_page_id, pdf_rect, modified_at);
         }
 
-        let mut refs = vec![target.annotation_id];
-        if let Some(popup_id) = target.popup_ref {
-            refs.push(popup_id);
-        }
+        let refs: Vec<_> = std::iter::once(target.annotation_id)
+            .chain(target.popup_ref)
+            .collect();
         if source_page_id != destination_page_id {
             remove_annotation_refs_from_page_incremental(incremental, source_page_id, &refs)?;
         }
@@ -453,24 +442,14 @@ where
                 )
             };
             let popup_ref = popup_ref.unwrap_or_else(|| document.new_object_id());
-            {
-                let annot_dict = document.get_dictionary_mut(annot_id)?;
-                if subtype == "freetext" {
-                    convert_free_text_marker_to_text(annot_dict, pdf_rect, modified_at);
-                } else {
-                    annot_dict.remove(b"AP");
-                    annot_dict.remove(b"DA");
-                }
-                set_text_note_annotation_fields(
-                    annot_dict,
-                    note,
-                    &note_name,
-                    pdf_rect,
-                    modified_at,
-                );
-                annot_dict.set("Popup", Object::Reference(popup_ref));
-                annot_dict.set("P", Object::Reference(page_id));
-            }
+            let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
+            let annot_dict = document.get_dictionary_mut(annot_id)?;
+            rewrite_text_note(
+                annot_dict,
+                subtype == "freetext",
+                note_fields,
+                (page_id, popup_ref),
+            );
             if document.get_object(popup_ref).is_err() {
                 let mut popup_dict =
                     build_popup_annotation_dict(note, pdf_rect, modified_at, annot_id);
@@ -581,24 +560,14 @@ where
                 None => incremental.new_document.new_object_id(),
             };
             incremental.opt_clone_object_to_new_document(annot_id)?;
-            {
-                let annot_dict = incremental.new_document.get_dictionary_mut(annot_id)?;
-                if subtype == "freetext" {
-                    convert_free_text_marker_to_text(annot_dict, pdf_rect, modified_at);
-                } else {
-                    annot_dict.remove(b"AP");
-                    annot_dict.remove(b"DA");
-                }
-                set_text_note_annotation_fields(
-                    annot_dict,
-                    note,
-                    &note_name,
-                    pdf_rect,
-                    modified_at,
-                );
-                annot_dict.set("Popup", Object::Reference(popup_ref));
-                annot_dict.set("P", Object::Reference(page_id));
-            }
+            let note_fields = (*note, note_name.as_str(), pdf_rect, modified_at);
+            let annot_dict = incremental.new_document.get_dictionary_mut(annot_id)?;
+            rewrite_text_note(
+                annot_dict,
+                subtype == "freetext",
+                note_fields,
+                (page_id, popup_ref),
+            );
             if incremental
                 .get_prev_documents()
                 .get_object(popup_ref)
@@ -687,7 +656,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
             entry.insert(index);
         }
         let page_view = resolve_page_view(document, page_id)?;
-        let rect = validate_text_box_rect(editor, page_view)?;
+        let mut rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(document, page_id)?;
         let name = text_box_name(editor);
         let target = resolve_text_box_target(document, page_id, editor)?.or_else(|| {
@@ -696,7 +665,7 @@ pub(crate) fn upsert_text_boxes_with_counter(
                 .and_then(|index| index.first_free_text_named(&name))
         });
         let existing = target
-            .map(|id| existing_text_box_values(document, id, rect))
+            .map(|id| existing_text_box_values(document, id, editor, &mut rect))
             .transpose()?;
         let frame = existing.as_ref();
         let appearance =
@@ -767,7 +736,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
             entry.insert(index);
         }
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
-        let rect = validate_text_box_rect(editor, page_view)?;
+        let mut rect = validate_text_box_rect(editor, page_view)?;
         let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
         let name = text_box_name(editor);
         let revision = AppendedRevision::new(incremental);
@@ -777,7 +746,7 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
                 .and_then(|index| index.first_free_text_named(&name))
         });
         let existing = target
-            .map(|id| existing_text_box_values(&revision, id, rect))
+            .map(|id| existing_text_box_values(&revision, id, editor, &mut rect))
             .transpose()?;
         let (frame, document) = (existing.as_ref(), &mut incremental.new_document);
         let appearance =
@@ -1096,21 +1065,25 @@ pub(crate) fn build_text_box_appearance(
 }
 
 /// An edited box keeps its appearance dictionary, its DA and the frame its
-/// producer gave it, which an upright box draws.
+/// producer gave it; an unmoved box keeps its written geometry.
 type ExistingTextBox = (Option<Dictionary>, Option<Vec<u8>>, Option<FreeTextFrame>);
 
 fn existing_text_box_values(
     document: &impl PdfObjectSource,
     annotation_ref: ObjectId,
-    rect: PdfRect,
+    editor: &TextBoxMutation,
+    rect: &mut PdfRect,
 ) -> Result<ExistingTextBox> {
     let dict = document.dictionary(annotation_ref)?;
+    let [x1, y1, x2, y2] = editor.rect;
+    let source = crate::text_box_font::settled(dict, PdfRect { x1, y1, x2, y2 });
+    *rect = crate::text_box_font::geometry(source, i64::from(editor.rotation), 0)?.bounds;
     let value = |key: &[u8]| document.resolved(dict.get(key).ok()?).ok();
     let appearance = value(b"AP").and_then(|object| object.as_dict().ok().cloned());
     Ok((
         appearance,
         value(b"DA").and_then(|object| object.as_str().ok().map(ToOwned::to_owned)),
-        Some(free_text_frame(document, dict, rect)),
+        Some(free_text_frame(document, dict, *rect)),
     ))
 }
 
@@ -1271,6 +1244,24 @@ fn set_text_box_fields(
     }
 }
 
+/// Rewrites an existing note, or a legacy FreeText marker, in canonical form.
+fn rewrite_text_note(
+    dict: &mut Dictionary,
+    marker: bool,
+    (note, note_name, pdf_rect, modified_at): (&TextNote, &str, PdfRect, &str),
+    (page_id, popup_ref): (ObjectId, ObjectId),
+) {
+    if marker {
+        convert_free_text_marker_to_text(dict, pdf_rect, modified_at);
+    } else {
+        dict.remove(b"AP");
+        dict.remove(b"DA");
+    }
+    set_text_note_annotation_fields(dict, note, note_name, pdf_rect, modified_at);
+    dict.set("Popup", Object::Reference(popup_ref));
+    dict.set("P", Object::Reference(page_id));
+}
+
 /// Writes a note and its Popup in canonical form over any earlier ones on `page_id`.
 fn write_text_note_pair(
     document: &mut Document,
@@ -1336,7 +1327,9 @@ fn place_note_target(
     marker_form: bool,
     (page_id, pdf_rect, modified_at): (ObjectId, PdfRect, &str),
     update: &NoteGeometryUpdate,
-) {
+) -> PdfRect {
+    // A note that did not move keeps its written numbers, as a text box does.
+    let pdf_rect = crate::text_box_font::settled(dict, pdf_rect);
     if marker_form {
         convert_free_text_marker_to_text(dict, pdf_rect, modified_at);
     }
@@ -1345,6 +1338,7 @@ fn place_note_target(
     if let Ok(Object::Dictionary(popup)) = dict.get_mut(b"Popup") {
         set_annotation_geometry_dict(popup, page_id, pdf_rect, modified_at);
     }
+    pdf_rect
 }
 
 fn apply_note_style_update(dict: &mut Dictionary, update: &NoteGeometryUpdate) {

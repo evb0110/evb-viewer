@@ -175,13 +175,15 @@ pub(crate) fn geometry(source: PdfRect, rotation: i64, page_rotation: i64) -> Re
         center_x - a * width / 2.0 - c * height / 2.0,
         center_y - b * width / 2.0 - d * height / 2.0,
     ];
+    // A quarter turn about the centre swaps the bounds' sides.
+    let turned = if b == 0.0 {
+        (width, height)
+    } else {
+        (height, width)
+    };
+    let bounds = centred(center_x, center_y, turned.0, turned.1);
     Ok(Geometry {
-        bounds: crate::split_pages::PdfMatrix::from_values(matrix).bounds(PdfRect {
-            x1: 0.0,
-            y1: 0.0,
-            x2: width,
-            y2: height,
-        }),
+        bounds,
         width,
         height,
         matrix,
@@ -197,15 +199,46 @@ pub(crate) fn write_editor_geometry(
     page_rotation: i64,
     bounds: PdfRect,
 ) {
+    let [x1, y1, x2, y2] = rect;
+    let stored = rect_object(settled(annotation, PdfRect { x1, y1, x2, y2 }));
     annotation.set("Rect", rect_object(bounds));
     annotation.set("Rotate", rotation);
     annotation.set(
         "EVBTextGeometry",
         dictionary! {
-            "Version" => 1, "Rotation" => rotation, "PageRotation" => page_rotation,
-            "Rect" => Object::Array(rect.into_iter().map(number_object).collect()),
+            "Version" => 1, "Rotation" => rotation, "PageRotation" => page_rotation, "Rect" => stored,
         },
     );
+}
+
+/// The rectangle of `width` by `height` centred on (`x`, `y`).
+fn centred(x: f64, y: f64, width: f64, height: f64) -> PdfRect {
+    let (x1, y1, x2, y2) = (
+        x - width / 2.0,
+        y - height / 2.0,
+        x + width / 2.0,
+        y + height / 2.0,
+    );
+    PdfRect { x1, y1, x2, y2 }
+}
+
+/// The layout rectangle `annotation` was written with, EVB's or else its
+/// /Rect, when `rect` lies within a thousandth of a point of it, so a box or
+/// note that did not move keeps its numbers and never drifts.
+pub(crate) fn settled(annotation: &Dictionary, rect: PdfRect) -> PdfRect {
+    let stored = editor_geometry(annotation).and_then(|g| g.as_dict().ok()?.get(b"Rect").ok());
+    let written = stored.or(annotation.get(b"Rect").ok());
+    written
+        .and_then(|written| parse_rect(written).ok())
+        .filter(|written| near(*written, rect, 1e-3))
+        .unwrap_or(rect)
+}
+
+/// Whether two rectangles agree within `tolerance` points on every side.
+fn near(a: PdfRect, b: PdfRect, tolerance: f64) -> bool {
+    [a.x1 - b.x1, a.y1 - b.y1, a.x2 - b.x2, a.y2 - b.y2]
+        .iter()
+        .all(|d| d.abs() <= tolerance)
 }
 
 /// EVB's private layout geometry. PDF reads a key whose value is null as absent.
@@ -270,17 +303,14 @@ pub(crate) fn transform_editor_geometry(
         }
         annotation.set("DA", Object::string_literal(bytes));
     }
+    let PdfRect { x1, y1, x2, y2 } = centred(x, y, width, height);
+    let bounds = transform.bounds(visible);
     write_editor_geometry(
         annotation,
-        [
-            x - width / 2.0,
-            y - height / 2.0,
-            x + width / 2.0,
-            y + height / 2.0,
-        ],
+        [x1, y1, x2, y2],
         rotation,
         page_rotation,
-        transform.bounds(visible),
+        bounds,
     );
     Ok(())
 }
@@ -312,29 +342,16 @@ pub(crate) fn stored_editor_geometry(
     let metadata_page_rotation = metadata.get(b"PageRotation")?.as_i64()?.rem_euclid(360);
     let source = parse_rect(document.resolved(metadata.get(b"Rect")?)?)?;
     let expected = geometry(source, rotation, metadata_page_rotation)?.bounds;
-    if [
-        expected.x1 - visible_rect.x1,
-        expected.y1 - visible_rect.y1,
-        expected.x2 - visible_rect.x2,
-        expected.y2 - visible_rect.y2,
-    ]
-    .iter()
-    .any(|delta| delta.abs() > 0.01)
-    {
+    if !near(expected, visible_rect, 0.01) {
         return Err("Text box geometry metadata does not match the visible rectangle".into());
     }
     // The source rectangle describes unrotated text layout in its authored
     // page frame. Keep those layout dimensions when the page's axes swap;
     // rotating only its bounding rectangle would rewrap upright text.
-    let source = if metadata_page_rotation % 180 != page_rotation % 180 {
-        let center_x = (source.x1 + source.x2) / 2.0;
-        let center_y = (source.y1 + source.y2) / 2.0;
-        PdfRect {
-            x1: center_x - source.height() / 2.0,
-            y1: center_y - source.width() / 2.0,
-            x2: center_x + source.height() / 2.0,
-            y2: center_y + source.width() / 2.0,
-        }
+    let (x, y) = ((source.x1 + source.x2) / 2.0, (source.y1 + source.y2) / 2.0);
+    let swapped = metadata_page_rotation % 180 != page_rotation % 180;
+    let source = if swapped {
+        centred(x, y, source.height(), source.width())
     } else {
         source
     };
@@ -365,36 +382,15 @@ mod tests {
                         document.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages_id});
                     document.trailer.set("Root", catalog_id);
                     let page = document.get_dictionary_mut(page_id).unwrap();
-                    page.set(
-                        "MediaBox",
-                        rect_object(PdfRect {
-                            x1: 0.0,
-                            y1: 0.0,
-                            x2: 620.0,
-                            y2: 840.0,
-                        }),
-                    );
-                    page.set(
-                        "CropBox",
-                        rect_object(PdfRect {
-                            x1: 10.0,
-                            y1: 20.0,
-                            x2: 610.0,
-                            y2: 820.0,
-                        }),
-                    );
+                    page.set("MediaBox", rect_object(centred(310.0, 420.0, 620.0, 840.0)));
+                    page.set("CropBox", rect_object(centred(310.0, 420.0, 600.0, 800.0)));
                     page.set("Rotate", authored_page_rotation);
                     let (width, height) = if authored_page_rotation % 180 == 0 {
                         (360.0, 36.0)
                     } else {
                         (36.0, 360.0)
                     };
-                    let source = PdfRect {
-                        x1: 340.0 - width / 2.0,
-                        y1: 440.0 - height / 2.0,
-                        x2: 340.0 + width / 2.0,
-                        y2: 440.0 + height / 2.0,
-                    };
+                    let source = centred(340.0, 440.0, width, height);
                     let mut editor = TextBoxMutation {
                         page_index: 0,
                         stable_key: "page-rotated-text".to_string(),
@@ -468,12 +464,8 @@ mod tests {
                     for (actual, expected) in rewritten.matrix.iter().zip(original.matrix) {
                         assert!((actual - expected).abs() < 1e-9);
                     }
-                    editor.rect = [
-                        rewritten_source.x1,
-                        rewritten_source.y1,
-                        rewritten_source.x2,
-                        rewritten_source.y2,
-                    ];
+                    let PdfRect { x1, y1, x2, y2 } = rewritten_source;
+                    editor.rect = [x1, y1, x2, y2];
                     editor.rotation = u16::try_from(parsed.rotation).unwrap();
                     editor.text.push_str(" edited");
                     let mutations = NativeMutationsFile {

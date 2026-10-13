@@ -3099,7 +3099,7 @@ fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
         assert_eq!(untouched.font_size, 22.0, "{da}");
         let editor = TextBoxMutation {
             page_index: 0, stable_key: "foreign".to_string(),
-            annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: text.to_string(), rect,
+            annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: text.to_string(), rect: rect.map(|v| v + 1e-5),
             rotation: 0, font_size: 22.0, color: [245, 158, 11], author: None, created_at: None, modified_at: None,
         };
         let mutations = NativeMutationsFile { text_boxes: vec![editor], ..NativeMutationsFile::default() };
@@ -3108,6 +3108,13 @@ fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
         let entries = collect_parsed_annotations(&saved, "D:20261012000000Z").unwrap();
         let PdfAnnotationParseEntry::TextBox(reopened) = &entries[0] else { panic!("{:?}", entries[0]) };
         let annotation = saved.get_dictionary(foreign_id).unwrap();
+        // The editor resent it a hundred-thousandth of a point off; /Rect and
+        // EVB's first layout rectangle keep the producer's numbers (review-b7s).
+        let stored = annotation.get(b"EVBTextGeometry").unwrap().as_dict().unwrap().get(b"Rect").unwrap();
+        for written in [annotation.get(b"Rect").unwrap(), stored] {
+            let PdfRect { x1, y1, x2, y2 } = parse_rect(written).unwrap();
+            assert_eq!([x1, y1, x2, y2], rect, "{da}");
+        }
         let normal = saved.resolved(saved.resolved(annotation.get(b"AP").unwrap()).unwrap().as_dict().unwrap().get(b"N").unwrap()).unwrap();
         let content = String::from_utf8(normal.as_stream().unwrap().content.clone()).unwrap();
         let drawn: f64 = content.split_once(" Tf").unwrap().0.rsplit(' ').next().unwrap().parse().unwrap();
@@ -3181,14 +3188,22 @@ fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
             dict.set("BS", dictionary! {"W" => 3});
             dict.set("C", vec![1.into(), 1.into(), 0.85.into()]);
             dict.set("RD", vec![1.into(), 2.into(), 3.into(), 4.into()]);
+            // The editor resends the unmoved box, and its marker as a note's
+            // geometry, a hundred-thousandth of a point off (review-b7s); its
+            // written geometry stays exactly as it was.
+            let geometry = |dict: &Dictionary| (dict.get(b"Rect").unwrap().clone(), dict.get(b"EVBTextGeometry").unwrap().clone());
+            let written = geometry(dict);
             let recolour = TextBoxMutation {
                 page_index: 0, stable_key: "rotated-text".to_string(), annotation_id: None,
-                text: "Привет שלום".to_string(), rect: [60.0, 25.0, 140.0, 75.0], rotation,
+                text: "Привет שלום".to_string(), rect: [60.00001, 25.0, 139.99998, 75.0], rotation,
                 font_size: 10.0, color: [200, 0, 0], author: None, created_at: None, modified_at: None,
             };
-            let recolour = NativeMutationsFile { text_boxes: vec![recolour], ..Default::default() };
+            let marker_rect = MarkerRect { left: text.rect.left + 2e-8, ..text.rect };
+            let marker = NoteGeometryUpdate { object_number: id.0, generation_number: id.1, page_index: 0, marker_rect, color: None, open: None };
+            let recolour = NativeMutationsFile { geometry_updates: vec![marker], text_boxes: vec![recolour], ..Default::default() };
             apply_native_mutations(&mut document, &recolour, "D:20260908000000Z").unwrap();
             let dict = document.get_dictionary(id).unwrap();
+            assert_eq!(geometry(dict), written);
             let normal = dict.get(b"AP").unwrap().as_dict().unwrap().get(b"N").unwrap().as_reference().unwrap();
             let content = String::from_utf8(document.get_object(normal).unwrap().as_stream().unwrap().content.clone()).unwrap();
             // /RD and the border apply to /Rect's own left, bottom, right and top.
