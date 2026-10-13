@@ -68,7 +68,20 @@ describe('browser document lifecycle UI', () => {
             await page.locator('.notes-panel [data-tool="note"]').click();
             const markup = page.locator('.page_container [data-annotation-kind="text-markup"]').first();
             await markup.waitFor({state: 'visible'});
-            const original = await markup.boundingBox();
+            // Page fitting may change screen bounds without moving an annotation.
+            const readMarkupBounds = () => markup.evaluate(element => {
+                if (!(element instanceof SVGGraphicsElement)) throw new Error('The Highlight is not SVG markup');
+                const {
+                    x, y, width, height,
+                } = element.getBBox();
+                return {
+                    x,
+                    y,
+                    width,
+                    height,
+                };
+            });
+            const original = await readMarkupBounds();
             await markup.click();
             const input = page.getByRole('textbox', {
                 name: 'Write annotation note',
@@ -81,10 +94,21 @@ describe('browser document lifecycle UI', () => {
             await input.pressSequentially('Note over foreign highlight');
             expect(await input.inputValue()).toBe('Note over foreign highlight');
             expect(await page.locator('.page_container [data-annotation-kind="note"]').count()).toBe(1);
-            expect(await markup.boundingBox()).toEqual(original);
-            const marker = await page.locator('.page_container [data-annotation-kind="note"]').boundingBox();
-            expect(Math.abs(marker!.x + marker!.width / 2 - original!.x - original!.width / 2)).toBeLessThan(1);
-            expect(Math.abs(marker!.y + marker!.height / 2 - original!.y - original!.height / 2)).toBeLessThan(1);
+            expect(await readMarkupBounds()).toEqual(original);
+            const placementError = await markup.evaluate((element, bounds) => {
+                if (!(element instanceof SVGGraphicsElement)) throw new Error('The Highlight is not SVG markup');
+                const matrix = element.getScreenCTM();
+                const marker = element.closest('.pdf-annotation-editor-layer')
+                    ?.querySelector('[data-annotation-kind="note"]')?.getBoundingClientRect();
+                if (!matrix || !marker) throw new Error('The note placement is not rendered');
+                const center = new DOMPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2).matrixTransform(matrix);
+                return {
+                    x: marker.x + marker.width / 2 - center.x,
+                    y: marker.y + marker.height / 2 - center.y,
+                };
+            }, original);
+            expect(Math.abs(placementError.x)).toBeLessThan(1);
+            expect(Math.abs(placementError.y)).toBeLessThan(1);
         } finally {
             await context.close();
         }
