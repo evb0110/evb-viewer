@@ -1005,9 +1005,12 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
         const {publishImmutableFileAtomic} = await import('@electron/file-access/documentFileWriteAtomic');
         const {transitionOriginalAndWorkingCopyRevision} = await import('@electron/features/documents/main/transitionOriginalAndWorkingCopyRevision');
 
+        const {enqueueWorkingCopyMutation} = await import('@electron/file-access/workingCopyMutationQueue');
+
         // A read here once took the live journal for a crash's and rolled the
-        // published save back while the save still reported success.
-        await expect(transitionOriginalAndWorkingCopyRevision({
+        // published save back while the save still reported success. Saves run
+        // as working-copy mutations, which tell the read not to wait for them.
+        await expect(enqueueWorkingCopyMutation(workingCopyPath, () => transitionOriginalAndWorkingCopyRevision({
             captureOriginalWitness: async () => (await import('@electron/file-access/originalPathSaveWitness')).captureOriginalPathSaveWitness(workingCopyPath, originalPath, 7),
             workingCopyPath,
             originalPath,
@@ -1021,7 +1024,7 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
                 });
                 await ensureWorkingCopyRevision(workingCopyPath, 7);
             },
-        })).resolves.toMatchObject({contentRevision: 2});
+        }))).resolves.toMatchObject({contentRevision: 2});
 
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('new-committed-pdf');
         await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('new-committed-pdf');
@@ -1109,8 +1112,28 @@ describe('transitionOriginalAndWorkingCopyRevision', () => {
             await writeFile(workingCopyPath, publishedContent);
             lockedPath = originalPath;
 
-            await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({token});
-            await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('old-working');
+            // Two reads arrive together before any recovery: the second joins the first one's repair, so each caller
+            // sees the restored working copy under the revision it is given.
+            const coldReads = await Promise.all([
+                0,
+                1,
+            ].map(async () => {
+                const revision = await getWorkingCopyRevision(workingCopyPath, 7);
+                return {
+                    token: revision.token,
+                    content: await readFile(workingCopyPath, 'utf8'),
+                };
+            }));
+            expect(coldReads).toEqual([
+                {
+                    token,
+                    content: 'old-working',
+                },
+                {
+                    token,
+                    content: 'old-working',
+                },
+            ]);
             // Later reads of the same revision find the working copy restored and write nothing.
             const restored = await stat(workingCopyPath, {bigint: true});
             for (let read = 0; read < 3; read += 1) await expect(getWorkingCopyRevision(workingCopyPath, 7)).resolves.toMatchObject({token});

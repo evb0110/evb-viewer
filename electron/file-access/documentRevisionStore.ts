@@ -11,10 +11,7 @@ import type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {
     createStaleRevisionError,
     createWorkingCopySyncRequiredError,
@@ -44,7 +41,8 @@ import {
     isManagedWorkingCopyPath,
 } from '@electron/file-access/workingCopyDirectory';
 import {createKeyedSerialQueue} from '@electron/utils/createKeyedSerialQueue';
-import {withIdleOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
+import {withOriginalPathMutationLock} from '@electron/file-access/withOriginalPathMutationLock';
+import {snapshotMainOperations} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {
     completeWorkingCopyTransition,
     prepareWorkingCopyTransition,
@@ -66,24 +64,21 @@ const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyR
 const runContentTransitionSerially = createKeyedSerialQueue();
 
 // A transition repairs its own journal and original backup. A reader repairs
-// only what an ended or failed transition left behind: while the working copy
-// or its original is mid-transition it skips the repair, so it neither waits
-// for that transition nor rolls it back or deletes its backup.
+// only what an ended or failed transition left behind: while a mutation of the
+// working copy or of another copy of its original is under way it skips the
+// repair, so it neither waits for that transition nor rolls it back or deletes
+// its backup. Otherwise it queues behind any repair already running, so no
+// reader exposes a revision before its bytes are repaired.
 function repairEndedTransition(workingCopyPath: string, originalPath: string | undefined) {
     const key = getRevisionQueueKey(workingCopyPath);
     const repair = () => runContentTransitionSerially(key, () => recoverWorkingCopyTransition(workingCopyPath).then(() => undefined));
-    if (!runContentTransitionSerially.isIdle(key)) {
+    if (snapshotMainOperations().some(({
+        kind, workingCopyPath: path,
+    }) => kind === 'critical-write' && path !== undefined
+        && (getRevisionQueueKey(path) === key || originalPath !== undefined && getWorkingCopyOriginalPath(path)?.originalPath === originalPath))) {
         return Promise.resolve();
     }
-    return originalPath ? withIdleOriginalPathMutationLock(originalPath, repair) : repair();
-}
-
-function requireDocumentRef(value: string): TDocumentRef {
-    const parsed = parseDocumentRef(value);
-    if (parsed === null) {
-        throw new TypeError('Working copy path must be an absolute document ref');
-    }
-    return parsed;
+    return originalPath ? withOriginalPathMutationLock(originalPath, repair) : repair();
 }
 
 function getRevisionQueueKey(workingCopyPath: string) {
