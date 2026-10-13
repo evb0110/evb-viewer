@@ -1245,7 +1245,7 @@ describe('image export', () => {
             .toThrow('TIFF combine worker unavailable and local fallback is disabled for exports larger than 2 pages or 16MB');
     });
 
-    it('uses sibling temp and atomic replace for image export EXDEV fallback', async () => {
+    it('copies a page rendered on another device into its stage beside the target', async () => {
         mocks.renderPageCount = 1;
         mocks.pdfPageCount = 1;
         mocks.rename.mockRejectedValue(Object.assign(new Error('Cross-device link'), {code: 'EXDEV'}));
@@ -1255,9 +1255,6 @@ describe('image export', () => {
 
         await expect(exportPdfPagesAsImages('/tmp/input.pdf', outputPath)).resolves.toEqual([outputPath]);
 
-        expect(mocks.makeSiblingTempPath).toHaveBeenCalledWith(outputPath);
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(`${tempPath}.tmp`, tempPath);
-        expect(mocks.atomicReplace).toHaveBeenCalledWith(tempPath, outputPath);
         expectSinglePixelPng(new Uint8Array(await readFile(outputPath)), [
             1,
             0,

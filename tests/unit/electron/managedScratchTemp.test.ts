@@ -247,7 +247,7 @@ describe('managed scratch temp cleanup', () => {
         })).rejects.toThrow('conversion failed');
     });
 
-    it('removes exactly the complete stage names a dead owner recorded, whatever the age of its scratch', async () => {
+    it('removes exactly the complete temporary names a dead owner recorded, whatever the age of its scratch', async () => {
         const ownerPath = await createManagedScratchTempDir('pdfExport-', mocks.appTempDir);
         await writeFile(join(ownerPath, '.evb-managed-scratch.json'), `${JSON.stringify({
             createdAt: Date.now(),
@@ -260,8 +260,11 @@ describe('managed scratch temp cleanup', () => {
         const reportPath = join(folder, 'report.pdf');
         const unrecordedPath = join(folder, '.fedcba9876543210.tmp');
         const truncatedPath = join(folder, '.1111111111111111.tmp');
+        // An earlier version named a writer's temporary file this way.
+        const writerPath = join(folder, '.2222222222222222.tmp');
         for (const path of [
             stagePath,
+            writerPath,
             reportPath,
             unrecordedPath,
             truncatedPath,
@@ -269,15 +272,16 @@ describe('managed scratch temp cleanup', () => {
             await writeFile(path, 'x', 'utf8');
         }
         // The last append was cut short: its line has no newline, so it names nothing.
-        const stageEntry = (path: string) => JSON.stringify({
-            kind: 'stage',
+        const entry = (kind: string, path: string) => JSON.stringify({
+            kind,
             path,
         });
-        await writeFile(join(ownerPath, '.evb-scratch-record'), `${stageEntry(stagePath)}\n${stageEntry(truncatedPath)}`, 'utf8');
+        await writeFile(join(ownerPath, '.evb-scratch-record'), `${entry('stage', stagePath)}\n${entry('writer', writerPath)}\n${entry('stage', truncatedPath)}`, 'utf8');
 
         await sweepStaleManagedScratchTempDirs(mocks.appTempDir);
 
         expect(existsSync(stagePath)).toBe(false);
+        expect(existsSync(writerPath)).toBe(false);
         expect(existsSync(reportPath)).toBe(true);
         expect(existsSync(unrecordedPath)).toBe(true);
         expect(existsSync(truncatedPath)).toBe(true);

@@ -32,7 +32,7 @@ import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import {
-    recordManagedScratchPath,
+    recordManagedScratchPaths,
     type TManagedScratchPrefix,
     usingManagedScratchScope,
 } from '@electron/utils/managedScratchTemp';
@@ -164,8 +164,11 @@ async function renderDjvuImagePages(
         let stagedBytes = 0;
         const stagedFiles: IStagedImageFile[] = [];
         const publicationLedger = createStagedFilePublicationLedger(tempDirectory);
-        const outputPaths: string[] = [];
         const totalPages = getExportPageCount(pageCount, pages);
+        const format = options.format ?? 'png';
+        const exportPages = [...iterateExportPages(pageCount, pages)];
+        const outputPaths = exportPages.map(page => resolveOutputPathConflicts([buildImageOutputPath(outputTemplatePath, page, totalPages, format)], totalPages === 1)[0]!);
+        const siblings = outputPaths.map(outputPath => makeSiblingTempPath(outputPath));
         const promoteBatch = async () => {
             if (stagedFiles.length === 0) {
                 return;
@@ -182,17 +185,14 @@ async function renderDjvuImagePages(
                 total: totalPages,
                 percent: 0,
             });
-            for (const page of iterateExportPages(pageCount, pages)) {
+            await recordManagedScratchPaths(tempDirectory, siblings);
+            for (const [
+                index,
+                page,
+            ] of exportPages.entries()) {
+                const outputPath = outputPaths[index]!;
+                const sibling = siblings[index]!;
                 throwIfAborted(options.signal);
-                const format = options.format ?? 'png';
-                const plannedOutputPath = buildImageOutputPath(
-                    outputTemplatePath,
-                    page,
-                    totalPages,
-                    format,
-                );
-                const outputPath = resolveOutputPathConflicts([plannedOutputPath], totalPages === 1)[0];
-                if (!outputPath) throw new Error('DjVu image export target is missing');
                 const brokerLease = await mainJobBroker.acquire({
                     ownerId: options.cancelGroup ?? `djvu-image-export:${djvuPath}`,
                     kind: 'djvu-image-export-page',
@@ -237,9 +237,7 @@ async function renderDjvuImagePages(
                     );
                 })().finally(() => brokerLease.release());
                 await mkdir(dirname(outputPath), {recursive: true});
-                const sibling = makeSiblingTempPath(outputPath);
                 try {
-                    await recordManagedScratchPath(tempDirectory, 'stage', sibling);
                     await copyFile(imagePath, sibling);
                     throwIfAborted(options.signal);
                     stagedFiles.push({
@@ -253,12 +251,11 @@ async function renderDjvuImagePages(
                     await rm(ppmPath, {force: true}).catch(() => undefined);
                     await rm(imagePath, {force: true}).catch(() => undefined);
                 }
-                outputPaths.push(outputPath);
                 options.onProgress?.({
                     phase: 'rendering',
-                    processed: outputPaths.length,
+                    processed: index + 1,
                     total: totalPages,
-                    percent: (outputPaths.length / totalPages) * 100,
+                    percent: ((index + 1) / totalPages) * 100,
                 });
             }
             throwIfAborted(options.signal);
@@ -330,10 +327,12 @@ export async function exportDjvuAsMultiPageTiff(
             stagedBytes = 0;
             try {
                 const stagedPath = makeSiblingTempPath(targetPath);
-                await recordManagedScratchPath(tempDirectory, 'stage', stagedPath);
-                stagedGroups.push({stagedPath});
                 const nativeTempPath = makeSiblingTempPath(stagedPath);
-                await recordManagedScratchPath(tempDirectory, 'writer', nativeTempPath);
+                await recordManagedScratchPaths(tempDirectory, [
+                    stagedPath,
+                    nativeTempPath,
+                ]);
+                stagedGroups.push({stagedPath});
                 const combineLease = await mainJobBroker.acquire({
                     ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
                     kind: 'djvu-tiff-combine',

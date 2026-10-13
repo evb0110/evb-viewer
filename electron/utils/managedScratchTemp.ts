@@ -30,10 +30,7 @@ import {
 } from '@electron/utils/fileIdentity';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 import { keepOriginalBeside } from '@electron/utils/boundedPathComponent';
-import {
-    isErrnoException,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 
 const logger = createLogger('managed-scratch-temp');
@@ -145,42 +142,53 @@ export async function removeManagedScratchTempDir(
     return true;
 }
 
-interface IManagedScratchBackupEntry {
-    kind: 'backup';
-    path: string;
-    target: string;
-    original: IFileIdentity;
-}
-
-interface IManagedScratchPublishEntry {
-    kind: 'publish';
-    target: string;
-    published: IFileIdentity;
-}
+const absolutePathSchema = v.pipe(v.string(), v.check(isAbsolute));
+const tempPathSchema = v.pipe(absolutePathSchema, v.check(path => MANAGED_SCRATCH_TEMP_NAME_PATTERN.test(basename(path))));
+const fileIdentitySchema = v.object({
+    dev: v.number(),
+    ino: v.number(),
+    size: v.number(),
+    mtimeMs: v.number(),
+});
 
 // One line per record. Each entry is written before the file it names is
 // created or replaced, so a crash leaves it for the next startup sweep. A null
 // scratch path records nothing, which is how an export without a scratch runs.
-type TManagedScratchRecordEntry =
-    | {
-        kind: 'stage' | 'writer';
-        path: string
-    }
-    | IManagedScratchBackupEntry
-    | IManagedScratchPublishEntry
-    | {kind: 'complete'};
+const managedScratchRecordEntrySchema = v.variant('kind', [
+    v.object({
+        kind: v.picklist([
+            'stage',
+            'writer',
+        ]),
+        path: tempPathSchema,
+    }),
+    v.object({
+        kind: v.literal('backup'),
+        path: tempPathSchema,
+        target: absolutePathSchema,
+        original: fileIdentitySchema,
+    }),
+    v.object({
+        kind: v.literal('publish'),
+        target: absolutePathSchema,
+        published: fileIdentitySchema,
+    }),
+    v.object({kind: v.literal('complete')}),
+]);
 
-async function appendManagedScratchRecord(scratchPath: string | null, entry: TManagedScratchRecordEntry) {
+type TManagedScratchRecordEntry = v.InferOutput<typeof managedScratchRecordEntrySchema>;
+
+async function appendManagedScratchRecord(scratchPath: string | null, ...entries: TManagedScratchRecordEntry[]) {
     if (scratchPath) {
-        await appendFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE), `${JSON.stringify(entry)}\n`, 'utf8');
+        await appendFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE), entries.map(entry => `${JSON.stringify(entry)}\n`).join(''), 'utf8');
     }
 }
 
-// Makes every line so far durable, so a power cut keeps them: once before a
-// batch replaces any file its lines name, and with the completion line, before
-// a backup goes. The marker and both directory entries go too, since the sweep
-// applies a record only beside its marker (a caller's own scratch has none).
-export async function commitManagedScratchRecord(scratchPath: string | null) {
+// Makes every line so far durable, so a power cut keeps them: before a batch
+// creates any temporary file or replaces any file its lines name, and with the
+// completion line, before a backup goes. The marker and both directory entries
+// go too, since the sweep applies a record only beside its marker.
+async function commitManagedScratchRecord(scratchPath: string | null) {
     if (scratchPath) {
         await fsyncFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE));
         await fsyncFile(join(scratchPath, MANAGED_SCRATCH_MARKER_FILE)).catch((error: unknown) => {
@@ -191,11 +199,14 @@ export async function commitManagedScratchRecord(scratchPath: string | null) {
     }
 }
 
-export async function recordManagedScratchPath(scratchPath: string | null, kind: 'stage' | 'writer', path: string) {
-    await appendManagedScratchRecord(scratchPath, {
-        kind,
+// Names the temporary files a batch will create beside its targets, and commits
+// the batch before any of them exists. Older records also name them 'writer'.
+export async function recordManagedScratchPaths(scratchPath: string | null, paths: string[]) {
+    await appendManagedScratchRecord(scratchPath, ...paths.map(path => ({
+        kind: 'stage' as const,
         path,
-    });
+    })));
+    await commitManagedScratchRecord(scratchPath);
 }
 
 export async function recordManagedScratchBackup(
@@ -225,58 +236,12 @@ export async function recordManagedScratchComplete(scratchPath: string | null) {
     await commitManagedScratchRecord(scratchPath);
 }
 
-function isFileIdentityRecord(value: unknown): value is IFileIdentity {
-    return isRecord(value)
-        && typeof value.dev === 'number'
-        && typeof value.ino === 'number'
-        && typeof value.size === 'number'
-        && typeof value.mtimeMs === 'number';
-}
-
-function isAbsolutePath(value: unknown): value is string {
-    return typeof value === 'string' && isAbsolute(value);
-}
-
-function isTempPath(value: unknown): value is string {
-    return isAbsolutePath(value) && MANAGED_SCRATCH_TEMP_NAME_PATTERN.test(basename(value));
-}
-
-function parseManagedScratchRecordLine(line: string): TManagedScratchRecordEntry | null {
-    let value: unknown;
+function parseManagedScratchRecordLine(line: string) {
     try {
-        value = JSON.parse(line);
+        return v.parse(managedScratchRecordEntrySchema, JSON.parse(line));
     } catch {
         return null;
     }
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (value.kind === 'stage' || value.kind === 'writer') {
-        return isTempPath(value.path) ? {
-            kind: value.kind,
-            path: value.path,
-        } : null;
-    }
-    if (value.kind === 'backup') {
-        return isTempPath(value.path) && isAbsolutePath(value.target) && isFileIdentityRecord(value.original)
-            ? {
-                kind: 'backup',
-                path: value.path,
-                target: value.target,
-                original: value.original,
-            }
-            : null;
-    }
-    if (value.kind === 'publish') {
-        return isAbsolutePath(value.target) && isFileIdentityRecord(value.published)
-            ? {
-                kind: 'publish',
-                target: value.target,
-                published: value.published,
-            }
-            : null;
-    }
-    return value.kind === 'complete' ? {kind: 'complete'} : null;
 }
 
 // Settles one target that an export published, or was about to publish, and
@@ -350,7 +315,7 @@ async function applyManagedScratchRecord(scratchPath: string) {
         return false;
     }
     const complete = entries.some(entry => entry.kind === 'complete');
-    const publishes = new Map<string, IManagedScratchPublishEntry>();
+    const publishes = new Map<string, Extract<TManagedScratchRecordEntry, {kind: 'publish'}>>();
     const backedUp = new Set<string>();
     for (const entry of entries) {
         if (entry.kind === 'publish') {

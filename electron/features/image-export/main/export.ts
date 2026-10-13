@@ -70,10 +70,9 @@ import {
 } from '@electron/utils/nativeTerminationProof';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import {
-    commitManagedScratchRecord,
     recordManagedScratchBackup,
     recordManagedScratchComplete,
-    recordManagedScratchPath,
+    recordManagedScratchPaths,
     recordManagedScratchPublish,
     settlePublishedTarget,
     type TManagedScratchPrefix,
@@ -406,27 +405,16 @@ export async function convertRenderedPpmToImage(
     return outputPath;
 }
 
-async function moveFile(sourcePath: string, targetPath: string, recordDir: string) {
+// The target is a recorded stage, which promotion flushes before it replaces anything.
+async function moveFile(sourcePath: string, targetPath: string) {
     try {
         await rename(sourcePath, targetPath);
     } catch (error) {
         if (!isErrnoException(error) || error.code !== 'EXDEV') {
             throw error;
         }
-
-        const tempPath = makeSiblingTempPath(targetPath);
-        await recordManagedScratchPath(recordDir, 'writer', tempPath);
-        let replaced = false;
-        try {
-            await copyFile(sourcePath, tempPath);
-            await atomicReplace(tempPath, targetPath);
-            replaced = true;
-            await unlink(sourcePath);
-        } finally {
-            if (!replaced) {
-                await rm(tempPath, { force: true }).catch(() => undefined);
-            }
-        }
+        await copyFile(sourcePath, targetPath);
+        await unlink(sourcePath);
     }
 }
 
@@ -534,13 +522,12 @@ export async function promoteStagedFiles(
             if (backupPath && original) {
                 backupTemporaryPaths.push(makeSiblingTempPath(backupPath));
                 await recordManagedScratchBackup(scratchPath, backupPath, file.targetPath, original);
-                await recordManagedScratchPath(scratchPath, 'writer', backupTemporaryPaths.at(-1)!);
             }
             await recordManagedScratchPublish(scratchPath, file.targetPath, published);
         }
         // One fsync makes the whole batch's record durable before any file of it
-        // is replaced; recovery settles a recorded file that was not replaced yet.
-        await commitManagedScratchRecord(scratchPath);
+        // is copied or replaced; recovery settles a recorded file that was not replaced yet.
+        await recordManagedScratchPaths(scratchPath, backupTemporaryPaths);
         for (const [
             index,
             promotedFile,
@@ -1039,6 +1026,8 @@ export async function exportPdfPagesAsImages(
         })));
 
         return usingExportScratch(options, 'pdfExport-', async stageDir => {
+            const stagedPaths = exportedPaths.map(path => makeSiblingTempPath(path));
+            await recordManagedScratchPaths(stageDir, stagedPaths);
             const stagedFiles: IStagedImageFile[] = [];
             let processedPages = 0;
             emitExportProgress(options, {
@@ -1066,14 +1055,13 @@ export async function exportPdfPagesAsImages(
                         );
                         for (const source of pageFiles) {
                             const targetPath = exportedPaths[processedPages];
-                            if (!targetPath) {
+                            const stagedPath = stagedPaths[processedPages];
+                            if (!targetPath || !stagedPath) {
                                 throw new Error('Image export target path is missing');
                             }
-                            const stagedPath = makeSiblingTempPath(targetPath);
-                            await recordManagedScratchPath(stageDir, 'stage', stagedPath);
 
                             throwIfAborted(options.signal);
-                            await moveFile(source.path, stagedPath, stageDir);
+                            await moveFile(source.path, stagedPath);
                             stagedBytes = await addStagedImageFileBytes(stagedBytes, stagedPath,
                                 'Image export exceeds the 2 GiB staged-output limit for one render window');
                             stagedFiles.push({
@@ -1142,13 +1130,11 @@ async function runLocalTiffCombine(
 async function combinePagesIntoMultiPageTiff(
     pagePaths: string[],
     outputPath: string,
-    recordDir: string,
+    tempPath: string,
     signal?: AbortSignal,
     deleteSourcePages = false,
     defaultDpi = DEFAULT_RENDER_DPI,
 ) {
-    const tempPath = makeSiblingTempPath(outputPath);
-    await recordManagedScratchPath(recordDir, 'writer', tempPath);
     const workerPath = resolveTiffCombineWorkerPath();
 
     if (!existsSync(workerPath)) {
@@ -1290,12 +1276,16 @@ export async function exportPdfAsMultiPageTiff(
                         for (const tiffPageGroup of tiffPageGroups) {
                             throwIfAborted(options.signal);
                             const stagedPath = makeSiblingTempPath(targetPath);
-                            await recordManagedScratchPath(tempDir, 'stage', stagedPath);
+                            const writerPath = makeSiblingTempPath(stagedPath);
+                            await recordManagedScratchPaths(tempDir, [
+                                stagedPath,
+                                writerPath,
+                            ]);
                             stagedGroupPaths.push(stagedPath);
                             await combinePagesIntoMultiPageTiff(
                                 tiffPageGroup.map(page => page.path),
                                 stagedPath,
-                                tempDir,
+                                writerPath,
                                 options.signal,
                                 true,
                                 renderDpi,
