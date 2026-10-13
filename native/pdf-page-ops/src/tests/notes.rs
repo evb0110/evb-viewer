@@ -2188,7 +2188,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         "CreationDate" => Object::string_literal("D:20260101000000Z"),
         "M" => Object::string_literal("D:20260102000000Z"),
         "DA" => Object::string_literal("/Courier 12 Tf 0.2 0.3 0.4 rg 2 Tc 3 Tr"),
-        // EVB once wrote the text colour here; as a fill it would hide the text.
+        // A producer's fill in the text colour: unusual, but its own (review-b7s).
         "C" => vec![0.2.into(), 0.3.into(), 0.4.into()],
         "AP" => dictionary! {
             "N" => old_appearance,
@@ -2255,7 +2255,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     assert_unowned_keys_unchanged(
         &before,
         after,
-        &[b"Rect", b"Contents", b"M", b"Rotate", b"DA", b"AP", b"EVBTextGeometry", b"C"],
+        &[b"Rect", b"Contents", b"M", b"Rotate", b"DA", b"AP", b"EVBTextGeometry"],
     )
     .unwrap();
     assert_eq!(pdf_string_to_text(after.get(b"T").unwrap()).as_deref(), Some("Foreign author"));
@@ -2277,10 +2277,9 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     // Its 7 pt border keeps the colour it was drawn in, the old text colour,
     // and the text fits inside it at the size the DA records.
     assert!(da.ends_with(" 0.2 0.3 0.4 RG"), "{da}");
-    assert!(after.get(b"C").is_err(), "a fill in the old text colour is dropped");
     let normal = loaded.get_object(after_ap.get(b"N").unwrap().as_reference().unwrap()).unwrap();
     let content = String::from_utf8(normal.as_stream().unwrap().decompressed_content().unwrap()).unwrap();
-    assert!(content.starts_with("q\n0.2 0.3 0.4 RG 7 w"), "{content}");
+    assert!(content.starts_with("q 0.2 0.3 0.4 rg 20 25 140 55 re f Q\nq\n0.2 0.3 0.4 RG 7 w"), "{content}");
     let drawn = content.split_once(" Tf").unwrap().0.rsplit(' ').next().unwrap();
     assert!(drawn.parse::<f64>().unwrap() < 18.0 && da.contains(&format!("/Courier {drawn} Tf")), "{da}");
     assert_eq!(loaded.get_dictionary(popup_id).unwrap(), &before_popup);
@@ -2290,7 +2289,20 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     let PdfAnnotationParseEntry::TextBox(reopened) = &entries[0] else { panic!("{:?}", entries[0]) };
     let frame = reopened.frame.as_ref().unwrap();
     let border = (frame.border_width, frame.border_color.as_deref(), frame.background.as_deref());
-    assert_eq!((frame.insets, border), ([0.0; 4], (7.0, Some("#334d66"), None)));
+    assert_eq!((frame.insets, border), ([0.0; 4], (7.0, Some("#334d66"), Some("#334d66"))));
+    // A /C in the text colour of a box EVB saved is what EVB once wrote there
+    // as the label's colour, not a fill: the next Save drops it.
+    let mut legacy = loaded.clone();
+    legacy.get_dictionary_mut(foreign_id).unwrap().set("C", vec![0.0667.into(), 0.0941.into(), 0.1529.into()]);
+    let edit = TextBoxMutation {
+        page_index: 0, stable_key: "foreign-text-box".to_string(),
+        annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: "edited foreign text".to_string(),
+        rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 18.0, color: [200, 0, 0],
+        author: None, created_at: None, modified_at: None,
+    };
+    let edit = NativeMutationsFile { text_boxes: vec![edit], ..NativeMutationsFile::default() };
+    apply_native_mutations(&mut legacy, &edit, "D:20260831140000Z").unwrap();
+    assert!(legacy.get_dictionary(foreign_id).unwrap().get(b"C").is_err(), "EVB's old /C goes");
     let mut dashed = loaded.clone();
     dashed.get_dictionary_mut(foreign_id).unwrap().set("BS", dictionary! {"W" => 7, "S" => "D"});
     let entries = collect_parsed_annotations(&dashed, "D:20260831130000Z").unwrap();

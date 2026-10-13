@@ -116,8 +116,8 @@ pub(crate) struct TextBoxFrame {
 pub(crate) struct FreeTextFrame {
     pub(crate) content: String,
     pub(crate) border: Option<Vec<f64>>,
-    /// /C repeats the text colour: EVB once wrote a label's colour there, and
-    /// as a fill it would hide the text, so it is no background.
+    /// /C repeats the text colour of a box EVB saved: EVB once wrote a label's
+    /// colour there, and as a fill it would hide the text, so it is no background.
     pub(crate) stale_fill: bool,
     /// /RD's left, bottom, right and top in page space, and the border width.
     rd: [f64; 4],
@@ -218,8 +218,10 @@ pub(crate) fn free_text_frame(
     })()
     .filter(|v| matches!(v.len(), 1 | 3 | 4) && v.iter().all(|n| (0.0..=1.0).contains(n)));
     let hex = |colour: &Vec<f64>| pdf_color_to_hex(Some(colour), "#000000");
-    let stale_fill =
-        background.is_some() && background.as_ref().map(hex) == da.fill.as_ref().map(hex);
+    // Only a box EVB saved, which carries its private geometry, can hold /C in
+    // the text colour that EVB once wrote there; a producer's /C is its fill.
+    let evb = crate::text_box_font::editor_geometry(annotation).is_some();
+    let stale_fill = evb && background.as_ref().map(hex) == da.fill.as_ref().map(hex);
     let background = background.filter(|_| !stale_fill);
     let (x, y, w, h) = (inner.x1, inner.y1, inner.width(), inner.height());
     let mut content = String::new();
