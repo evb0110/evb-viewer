@@ -97,13 +97,7 @@ async function connectMain(port: number) {
 }
 
 const inspectorPort = await findFreePort();
-const sessions = createElectronE2ESessionFixture({
-    sessionName: () => `e2e-user-input-${Date.now()}`,
-    extraEnv: {
-        EVB_APP_STATE_DIR: join(process.cwd(), '.devkit/selectall-regression/app-state'),
-        EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: `--inspect=127.0.0.1:${inspectorPort}`,
-    },
-});
+
 
 // These are pointer fixtures inside the real hidden window. The helper is the
 // subject: DOM setup supplies the layout, and only trusted input can record
@@ -140,6 +134,7 @@ async function readPointerOutcome(page: Page) {
 }
 
 describe('trusted pointer harness', () => {
+    const sessions = createElectronE2ESessionFixture({sessionName: () => `e2e-user-input-${Date.now()}`});
     it('clicks a child of a visible target with trusted input', async () => {
         const {page} = sessions.getSession();
         await mountPointerFixture(page, '<button data-target="visible" style="margin:40px"><span>Visible target</span></button>');
@@ -300,6 +295,13 @@ describe('trusted pointer harness', () => {
 });
 
 describe('Select All input ordering', () => {
+    const sessions = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-select-all-ordering-${Date.now()}`,
+        extraEnv: {
+            EVB_APP_STATE_DIR: join(process.cwd(), '.devkit/selectall-regression/app-state'),
+            EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: `--inspect=127.0.0.1:${inspectorPort}`,
+        },
+    });
     it('keeps typing after a menu Select All in the focused page-label field', async () => {
         const { page } = sessions.getSession();
         await openPdfInApp(page, await createMultiPageTextFixturePdf('select-all-ordering.pdf', 2));
