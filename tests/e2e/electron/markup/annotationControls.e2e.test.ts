@@ -1506,6 +1506,49 @@ describe('Electron E2E - annotation controls', () => {
         expect.soft(readFileSync(pdfPath).equals(readFileSync(resolve('tests/fixtures/electron/semtext', `${style}.pdf`))), 'the file is untouched').toBe(true);
     });
 
+    it('drags only the editable member of a selection with a read-only label', async () => {
+        // review-b8f: a read-only label in the selection neither moves nor
+        // stops the editable box short of the page edge it never reaches.
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-mixed-drag-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const pdfPath = join(evidence, 'dashed.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext/dashed.pdf'), pdfPath);
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, pdfPath);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        const label = `${box}[data-annotation-id="${await page.$eval(box, element => (element as HTMLElement).dataset.annotationId)}"]`;
+        const editable = `${box}[data-annotation-id="${await createCanonicalTextBoxWithPointer(page, 'Editable beside a label', {
+            x: 0.3,
+            y: 0.35,
+        })}"]`;
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleAnnotationControl(page, editable);
+        await page.keyboard.down('Shift');
+        await clickVisibleAnnotationControl(page, label);
+        await page.keyboard.up('Shift');
+        expect(await page.$$(`${box}.is-selected`)).toHaveLength(2);
+        const rectOf = (selector: string) => page.$eval(selector, element => element.getBoundingClientRect().toJSON());
+        const [
+            labelBefore,
+            before,
+        ] = [
+            await rectOf(label),
+            await rectOf(editable),
+        ];
+        await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(before.x + before.width / 2 - 140, before.y + before.height / 2, {steps: 8});
+        expect.soft(await rectOf(label), 'the label\'s selection stays over it during the drag').toEqual(labelBefore);
+        await page.mouse.up();
+        expect.soft((await rectOf(editable)).x - before.x, 'the editable box goes as far as asked').toBeCloseTo(-140, 0);
+        expect.soft(await rectOf(label), 'the label stays where it is').toEqual(labelBefore);
+    });
+
     it('opens a foreign label with a malformed DA at the size it draws', async () => {
         // Its DA ends in "/Helv invalid Tf"; its appearance draws at 22 pt.
         const {page} = sessionFixture.getSession();

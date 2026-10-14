@@ -100,12 +100,12 @@ function pointer(clientX: number, clientY: number, pointerId = 1) {
 function createHarness(scopes: Set<ReturnType<typeof effectScope>>) {
     const scope = effectScope();
     scopes.add(scope);
-    const surfaceMethods: Pick<IAnnotationEditorSurface, 'beginMove' | 'beginResize' | 'entitiesByPage' | 'selectedIds' | 'getPageGeometry'> = {
+    const surfaceMethods: Pick<IAnnotationEditorSurface, 'beginMove' | 'beginResize' | 'entitiesByPage' | 'movingIds' | 'getPageGeometry'> = {
         entitiesByPage: computed(() => new Map([[
             0,
             [gesture.entity],
         ]])),
-        selectedIds: computed(() => new Set([gesture.annotationId])),
+        movingIds: computed(() => new Set([gesture.annotationId])),
         getPageGeometry: () => ({
             pageView: [
                 0,

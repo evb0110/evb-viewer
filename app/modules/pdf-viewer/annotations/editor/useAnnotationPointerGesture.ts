@@ -219,7 +219,7 @@ export const useAnnotationPointerGesture = (
             return false;
         }
         active.value = {
-            moveBounds: [...options.surface.entitiesByPage.value.values()].flat().filter(entity => options.surface.selectedIds.value.has(entity.identity.id) || entity.identity.id === annotationId).flatMap(entity => {
+            moveBounds: [...options.surface.entitiesByPage.value.values()].flat().filter(entity => options.surface.movingIds.value.has(entity.identity.id) || entity.identity.id === annotationId).flatMap(entity => {
                 const bounds = rectForMovableEntity(entity);
                 return bounds ? [rotatedAnnotationBounds(bounds, 'rotation' in entity ? entity.rotation : 0, pageDimensions(entity.pageIndex))] : [];
             }),

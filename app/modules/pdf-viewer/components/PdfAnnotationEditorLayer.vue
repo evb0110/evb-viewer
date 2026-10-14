@@ -282,9 +282,8 @@ const isInteractive = computed(() => (
     || pointerGesture.isActive.value
 ));
 const entities = computed(() => surface.getEntitiesForPage(props.pageIndex));
-const selectedIds = computed(() => surface.selectedIds.value);
 const selectedEntity = computed(() => {
-    const selectedId = [...selectedIds.value][0];
+    const selectedId = [...surface.selectedIds.value][0];
     return entities.value.find(entity => entity.identity.id === selectedId) ?? null;
 });
 const gestureMoveDelta = computed(() => {
@@ -315,7 +314,7 @@ const selectedDisplayRect = computed(() => {
     const rect = pointerGesture.previewRect.value;
     return rect ? fitTextBoxRect(entity, rect) : undefined;
 });
-const isSelected = (id: AnnotationId) => selectedIds.value.has(id);
+const isSelected = (id: AnnotationId) => surface.selectedIds.value.has(id);
 function handleKeydown(event: KeyboardEvent) {
     keyboardCommands.handleKeydown(event);
 }
@@ -326,7 +325,7 @@ const svgEntities = computed(() => {
             .filter((entity): entity is ITextMarkupEntity => entity.kind === 'text-markup')
             .map(entity => {
                 const delta = moveDelta.value;
-                return delta && selectedIds.value.has(entity.identity.id)
+                return delta && surface.movingIds.value.has(entity.identity.id)
                     ? {
                         ...entity,
                         quadPoints: entity.quadPoints.map(rect => translateRect(rect, delta.x, delta.y)),
@@ -360,7 +359,7 @@ const highlightPaintQuads = computed(() => {
 
 function shapeForRender(entity: IShapeEntity) {
     const delta = moveDelta.value;
-    if (delta && surface.selectedIds.value.has(entity.identity.id)) {
+    if (delta && surface.movingIds.value.has(entity.identity.id)) {
         return transformShapeToRect(entity, translateRect(entity.rect, delta.x, delta.y), 'move');
     }
     const preview = pointerGesture.previewRect.value;
@@ -631,7 +630,7 @@ const textPlacementPreview = computed(() => {
 
 function displayRectFor(entity: ITextBoxEntity | INoteEntity | IPlacedImageEntity) {
     const delta = moveDelta.value;
-    if (delta && surface.selectedIds.value.has(entity.identity.id)) {
+    if (delta && surface.movingIds.value.has(entity.identity.id)) {
         return translateRect(entity.kind === 'note' ? entity.position : entity.rect, delta.x, delta.y);
     }
     if (draggedAnnotationId.value !== entity.identity.id) {

@@ -112,6 +112,8 @@ export interface IAnnotationEditorSurface {
     updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate): boolean;
     readonly entitiesByPage: Readonly<Ref<ReadonlyMap<number, readonly AnnotationEntity[]>>>;
     readonly selectedIds: Readonly<Ref<ReadonlySet<AnnotationId>>>;
+    /** What a move carries: the selection less what no command may change. */
+    readonly movingIds: ComputedRef<ReadonlySet<AnnotationId>>;
     readonly activeTool: ComputedRef<TAnnotationTool>;
     readonly settings: ComputedRef<IAnnotationSettings | null>;
     getEntitiesForPage(pageIndex: number): readonly AnnotationEntity[];
@@ -1161,6 +1163,8 @@ export const usePdfAnnotationEditorSurface = (
         editingId,
         selectionMoveDelta,
         setSelectionMoveDelta: delta => { selectionMoveDelta.value = delta; },
+        // A read-only label stays where it is, and its place bounds no move.
+        movingIds: computed(() => new Set([...selectedIds.value].filter(id => editable(id)))),
         textEditPoint,
         registerPageInteraction,
         beginTextEditing,
