@@ -1800,6 +1800,7 @@ export default {
             },
         },
         'pageOps': {
+            'prepare': 'Het document kon niet veilig worden voorbereid voor deze bewerking. Uw wijzigingen blijven hier geopend.',
             'deleteAll': 'Kan niet alle pagina\'s uit het document verwijderen',
             'delete': 'Kan pagina\'s niet verwijderen',
             'extract': 'Kan pagina\'s niet extraheren',

@@ -1,4 +1,12 @@
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import {createHash} from 'node:crypto';
+import {
+    chmod, readFile, stat, writeFile,
+} from 'node:fs/promises';
+import {dirname} from 'node:path';
+import {
+    PDFDocument, PDFName, PDFString,
+} from 'pdf-lib';
 import {
     afterEach,
     describe,
@@ -21,6 +29,7 @@ import {
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {
     readWorkspaceStateValues,
+    getWorkspaceToolbarSnapshot,
     requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
@@ -42,6 +51,7 @@ import {
 } from '@tests/e2e/electron/helpers/userInput';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
 import {waitForAnimationFrames} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
+import {clickAnnotationTool} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 
 const PAGE_COUNT = 201;
@@ -433,6 +443,222 @@ describe('Electron E2E, compact page labels through structural operations', () =
         session = null;
         preserveFailureArtifacts = false;
     });
+
+    // C4: a refused edit is told once; I1/A3: it keeps bytes, edits and Undo.
+    it('tells a refused page edit once and retains the document and pending edits', async ({onTestFailed}) => {
+        onTestFailed(async (failure) => {
+            preserveFailureArtifacts = true;
+            await session?.captureFailureArtifacts(failure.task.name);
+        }, 15_000);
+        for (const variant of [
+            'duplicate',
+            'unreadable',
+        ] as const) {
+            const pdfPath = await createMultiPageTextFixturePdf(`page-refusal-${variant}-${Date.now()}.pdf`, 3);
+            const pdf = await PDFDocument.load(await readFile(pdfPath));
+            pdf.catalog.set(PDFName.of('PageLabels'), pdf.context.obj({Nums: variant === 'duplicate'
+                ? [
+                    0,
+                    pdf.context.obj({S: 'r'}),
+                    0,
+                    pdf.context.obj({
+                        S: 'r',
+                        P: PDFString.of('x-'),
+                    }),
+                ]
+                : [
+                    0,
+                    pdf.context.obj({S: 'UnreadableStyle'}),
+                ]}));
+            pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+            pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+            await writeFile(pdfPath, await pdf.save());
+            session = await startElectronE2ESession(`e2e-page-refusal-${variant}-${Date.now()}`, {
+                clean: true,
+                initialOpenPaths: [pdfPath],
+                extraEnv: {EVB_RECORD_SESSION: '1'},
+            });
+            const {page} = session;
+            await waitForPdfLoaded(page, 60_000);
+            await waitForViewerInteractive(page, 60_000);
+            const readState = () => readWorkspaceStateValues<{
+                workingCopyPath?: string;
+                pageLabelsResolved?: boolean;
+                totalPages?: number;
+                dirtyState?: {hasPendingUnsavedChanges: boolean};
+            }>(page, [
+                'workingCopyPath',
+                'pageLabelsResolved',
+                'totalPages',
+                'dirtyState',
+            ]);
+            if (variant === 'duplicate') {
+                await waitForSemanticLabels(session, [
+                    'x-i',
+                    'x-ii',
+                    'x-iii',
+                ]);
+            } else {
+                await expect.poll(async () => (await readState()).pageLabelsResolved).toBe(false);
+            }
+            const workingPath = (await readState()).workingCopyPath;
+            expect(workingPath).toBeTruthy();
+            const originalBytes = await readFile(pdfPath);
+            const workingBytes = await readFile(workingPath!);
+            const deleteSecondPage = async () => {
+                await openDocumentSidebarTab(page, 'Pages');
+                await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]', {button: 'right'});
+                await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                    .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete page 2'});
+            };
+            const readToasts = () => page.$$eval('.app-toast-failure', nodes => nodes.map(node => node.textContent?.trim() ?? ''));
+            await deleteSecondPage();
+            if (variant === 'duplicate') {
+                await expect.poll(async () => (await readState()).totalPages, {timeout: 30_000}).toBe(2);
+                await waitForSemanticLabels(session, [
+                    'x-i',
+                    'x-iii',
+                ]);
+                expect(await readToasts()).toEqual([]);
+                await saveViaVisibleToolbar(page, 60_000);
+                expect((await readPdfPageSnapshots(pdfPath)).map(saved => saved.textSnippet)).toEqual([
+                    expect.stringContaining('E2E Multi Page Fixture 1/3'),
+                    expect.stringContaining('E2E Multi Page Fixture 3/3'),
+                ]);
+                const controlSession = session;
+                session = null;
+                await controlSession.stop();
+                continue;
+            }
+            await waitForPageOperationComplete(session);
+            console.log('[core65 refusal]', JSON.stringify({
+                fixtureSha256: createHash('sha256').update(originalBytes).digest('hex'),
+                state: await readState(),
+                toasts: await readToasts(),
+                originalUnchanged: originalBytes.equals(await readFile(pdfPath)),
+                workingUnchanged: workingBytes.equals(await readFile(workingPath!)),
+            }));
+            await expect.poll(readToasts, {timeout: 5_000}).toEqual([expect.stringContaining('Failed to delete pages')]);
+            expect((await readToasts())[0]).toContain('Your edits remain open here.');
+            expect((await readToasts())[0]).not.toContain('UnreadableStyle');
+            expect((await readToasts())[0]).toContain('Error ID:');
+            expect(await readFile(pdfPath)).toEqual(originalBytes);
+            expect(await readFile(workingPath!)).toEqual(workingBytes);
+            await clickAsUser(page, '.app-toast-failure [data-slot="close"]');
+            await page.waitForSelector('.app-toast-failure', {hidden: true});
+
+            // Add a real pending mark, then repeat the refused edit. Preparation
+            // must not publish it, discard it, or advance the user's history.
+            await goToPageViaToolbar(page, 1);
+            await clickAnnotationTool(page, 'Rectangle');
+            const layer = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer';
+            const bounds = await page.$eval(layer, element => element.getBoundingClientRect().toJSON());
+            const start = {
+                x: bounds.left + bounds.width * 0.3,
+                y: bounds.top + bounds.height * 0.3,
+            };
+            expect(await page.evaluate(point => Boolean(document.elementFromPoint(point.x, point.y)?.closest('.pdf-annotation-editor-layer')), start)).toBe(true);
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(start.x + 70, start.y + 45, {steps: 6});
+            await page.mouse.up();
+            await clickAnnotationTool(page, 'Select');
+            const mark = '.editor-pane.is-active [data-annotation-kind="shape"] [data-annotation-visual]';
+            await page.waitForSelector(mark, {visible: true});
+            await expect.poll(async () => (await readState()).dirtyState?.hasPendingUnsavedChanges).toBe(true);
+            const dirtyHistory = await getWorkspaceToolbarSnapshot(page);
+            const paintedMark = await page.$eval(mark, element => element.getBoundingClientRect().toJSON());
+            await deleteSecondPage();
+            await expect.poll(readToasts, {timeout: 10_000}).toEqual([expect.stringContaining('Failed to delete pages')]);
+            await waitForPageOperationComplete(session);
+            const retainedState = await readState();
+            expect(retainedState.totalPages).toBe(3);
+            expect(retainedState.dirtyState?.hasPendingUnsavedChanges).toBe(true);
+            const retainedHistory = await getWorkspaceToolbarSnapshot(page);
+            console.log('[core65 pending retention]', JSON.stringify({
+                state: retainedState,
+                dirtyHistory,
+                retainedHistory,
+                originalUnchanged: originalBytes.equals(await readFile(pdfPath)),
+                workingUnchanged: workingBytes.equals(await readFile(workingPath!)),
+            }));
+            expect(retainedHistory?.canUndo).toBe(dirtyHistory?.canUndo);
+            expect(retainedHistory?.canRedo).toBe(dirtyHistory?.canRedo);
+            expect(await readFile(pdfPath)).toEqual(originalBytes);
+            expect(await readFile(workingPath!)).toEqual(workingBytes);
+            expect(await page.$eval(mark, element => element.getBoundingClientRect().toJSON())).toEqual(paintedMark);
+            await clickAsUser(page, '.app-toast-failure [data-slot="close"]');
+            await clickToolbarButtonWhenEnabled(page, 'Undo');
+            await page.waitForSelector(mark, {hidden: true});
+            await clickToolbarButtonWhenEnabled(page, 'Redo');
+            await page.waitForSelector(mark, {visible: true});
+            expect((await readState()).totalPages).toBe(3);
+        }
+    }, 240_000);
+
+    it('keeps a dispatched page edit failure distinct from preparation refusal', async ({onTestFailed}) => {
+        onTestFailed(async (failure) => {
+            preserveFailureArtifacts = true;
+            await session?.captureFailureArtifacts(failure.task.name);
+        }, 15_000);
+        const pdfPath = await createMultiPageTextFixturePdf(`page-dispatched-refusal-${Date.now()}.pdf`, 3);
+        session = await startElectronE2ESession(`e2e-page-dispatched-refusal-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [pdfPath],
+            extraEnv: {EVB_RECORD_SESSION: '1'},
+        });
+        const {page} = session;
+        await waitForPdfLoaded(page, 60_000);
+        await waitForViewerInteractive(page, 60_000);
+        const readState = () => readWorkspaceStateValues<{
+            workingCopyPath?: string;
+            totalPages?: number
+        }>(page, [
+            'workingCopyPath',
+            'totalPages',
+        ]);
+        const deleteSecondPage = async () => {
+            await openDocumentSidebarTab(page, 'Pages');
+            await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]', {button: 'right'});
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+                .find(item => item.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete page 2'});
+        };
+        // A successful edit and real Undo establish the existing history baseline.
+        await deleteSecondPage();
+        await waitForPageOperationResult(session, 2);
+        await clickToolbarButtonWhenEnabled(page, 'Undo');
+        await expect.poll(async () => (await readState()).totalPages, {timeout: 30_000}).toBe(3);
+        await waitForViewerInteractive(page, 60_000);
+        const workingPath = (await readState()).workingCopyPath;
+        expect(workingPath).toBeTruthy();
+        const originalBytes = await readFile(pdfPath);
+        const workingBytes = await readFile(workingPath!);
+        const beforeToolbar = await getWorkspaceToolbarSnapshot(page);
+        const directory = dirname(workingPath!);
+        const mode = (await stat(directory)).mode;
+        try {
+            await chmod(directory, 0o555);
+            await deleteSecondPage();
+            await waitForPageOperationComplete(session);
+            const readToasts = () => page.$$eval('.app-toast-failure', nodes => nodes.map(node => node.textContent?.trim() ?? ''));
+            await expect.poll(readToasts, {timeout: 5_000}).toEqual([expect.stringContaining('Failed to delete pages')]);
+            const toast = (await readToasts())[0]!;
+            console.log('[core65 dispatched refusal]', JSON.stringify({
+                toast,
+                state: await readState(),
+            }));
+            expect(toast).toContain('Error ID:');
+            expect(toast).not.toContain('The document could not be prepared safely for this operation.');
+            expect(await readFile(pdfPath)).toEqual(originalBytes);
+            expect(await readFile(workingPath!)).toEqual(workingBytes);
+            const afterToolbar = await getWorkspaceToolbarSnapshot(page);
+            expect(afterToolbar?.canUndo).toBe(beforeToolbar?.canUndo);
+            expect(afterToolbar?.canRedo).toBe(beforeToolbar?.canRedo);
+            expect((await readState()).totalPages).toBe(3);
+        } finally {
+            await chmod(directory, mode);
+        }
+    }, 180_000);
 
     // Completion must describe the document a person can act on (A3, I1).
     it('keeps page controls busy until the deleted revision is shown', async () => {

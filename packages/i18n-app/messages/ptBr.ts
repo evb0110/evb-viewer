@@ -1811,6 +1811,7 @@ export default {
             },
         },
         'pageOps': {
+            'prepare': 'Não foi possível preparar o documento com segurança para esta operação. Suas alterações continuam abertas aqui.',
             'deleteAll': 'Não é possível excluir todas as páginas do documento',
             'delete': 'Falha ao excluir páginas',
             'extract': 'Falha ao extrair páginas',

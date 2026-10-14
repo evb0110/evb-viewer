@@ -1800,6 +1800,7 @@ export default {
             },
         },
         'pageOps': {
+            'prepare': 'Non è stato possibile preparare il documento in modo sicuro per questa operazione. Le modifiche rimangono aperte qui.',
             'deleteAll': 'Impossibile eliminare tutte le pagine dal documento',
             'delete': 'Impossibile eliminare le pagine',
             'extract': 'Impossibile estrarre le pagine',

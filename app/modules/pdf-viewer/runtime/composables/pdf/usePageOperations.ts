@@ -74,8 +74,7 @@ type TPageOperationBlockedReason =
     | 'operation-in-progress'
     | 'empty-selection'
     | 'delete-all'
-    | 'preflight'
-    | 'history-baseline';
+    | 'preflight';
 
 type TPageOperationOutcome<TResult extends IPageOpsResult = IPageOpsResult> =
     | {
@@ -221,10 +220,6 @@ export const usePageOperations = (deps: {
         return outcome;
     }
 
-    function getLocalizedError(errorKey: TPageOperationErrorKey) {
-        return t(errorKey, undefined);
-    }
-
     function isCanceledResult(result: IPageOpsResult) {
         return 'canceled' in result
             && result.canceled === true;
@@ -255,7 +250,10 @@ export const usePageOperations = (deps: {
     }
 
     function ensurePageLabelsResolvedForMutation() {
-        return pageLabelsResolved?.value !== false;
+        if (pageLabelsResolved?.value === false) {
+            throw new Error(t('errors.pageOps.prepare', undefined));
+        }
+        return true;
     }
 
     async function ensurePageLabelsAndWorkingCopyFresh() {
@@ -492,59 +490,54 @@ export const usePageOperations = (deps: {
 
         try {
             return await runWithDocumentOperationLease('page-operation', async () => {
-                if (workingCopyPath.value !== path) {
-                    return recordOutcome<TResult>({
-                        status: 'stale',
-                        phase: 'before-run',
-                    });
-                }
-                if (options.shouldReload) {
-                    const didPrimeHistory = await ensureHistoryBaselineForMutation();
-                    if (!didPrimeHistory) {
-                        return recordOutcome<TResult>({
-                            status: 'blocked',
-                            reason: 'history-baseline',
+                if (workingCopyPath.value !== path || cancelRequested) {
+                    return recordOutcome<TResult>(cancelRequested
+                        ? {status: 'canceled'}
+                        : {
+                            status: 'stale',
+                            phase: 'before-run',
                         });
-                    }
+                }
+                // Refuse unknown metadata before annotation preparation writes.
+                for (const [
+                    phase,
+                    prepare,
+                ] of [
+                        [
+                            'before-run',
+                            options.beforeRun,
+                        ],
+                        [
+                            'history-baseline',
+                            options.shouldReload ? ensureHistoryBaselineForMutation : undefined,
+                        ],
+                        [
+                            'before-run',
+                            options.shouldReload ? saveAnnotationsForPageMutation : undefined,
+                        ],
+                    ] as const) {
+                    if (!prepare) continue;
+                    const didPrepare = await prepare();
                     if (workingCopyPath.value !== path) {
                         return recordOutcome<TResult>({
                             status: 'stale',
-                            phase: 'history-baseline',
+                            phase,
                         });
                     }
-                }
-                if (options.shouldReload && saveAnnotationsForPageMutation) {
-                    const didMaterialize = await saveAnnotationsForPageMutation();
-                    if (!didMaterialize) {
+                    if (cancelRequested) {
+                        return recordOutcome<TResult>({status: 'canceled'});
+                    }
+                    if (!didPrepare) {
+                        if (phase === 'history-baseline') {
+                            throw new Error(t('errors.pageOps.prepare', undefined));
+                        }
+                        // Annotation preparation owns its failure report and
+                        // can also defer an edit that is still being saved.
                         return recordOutcome<TResult>({
                             status: 'blocked',
                             reason: 'preflight',
                         });
                     }
-                    if (workingCopyPath.value !== path) {
-                        return recordOutcome<TResult>({
-                            status: 'stale',
-                            phase: 'before-run',
-                        });
-                    }
-                }
-                if (options.beforeRun) {
-                    const canRun = await options.beforeRun();
-                    if (!canRun) {
-                        return recordOutcome<TResult>({
-                            status: 'blocked',
-                            reason: 'preflight',
-                        });
-                    }
-                    if (workingCopyPath.value !== path) {
-                        return recordOutcome<TResult>({
-                            status: 'stale',
-                            phase: 'before-run',
-                        });
-                    }
-                }
-                if (cancelRequested) {
-                    return recordOutcome<TResult>({status: 'canceled'});
                 }
                 runDispatched = true;
                 const result = await options.run(path);
@@ -558,7 +551,7 @@ export const usePageOperations = (deps: {
                     }
                     return recordOutcome({
                         status: 'failed',
-                        error: getLocalizedError(options.errorKey),
+                        error: t(options.errorKey, undefined),
                         result,
                     });
                 }
@@ -617,12 +610,14 @@ export const usePageOperations = (deps: {
                 });
             });
         } catch (e) {
+            const errorMessage = t(options.errorKey, undefined);
             const failure = BrowserLogger.error('page-ops', `${options.operationName} failed`, e, {code: 'RENDERER_PDF_PAGE_OPERATION_FAILED'});
             reportRuntimeError({
                 failure,
-                title: getLocalizedError(options.errorKey),
+                title: errorMessage,
+                ...(!runDispatched ? {description: t('errors.pageOps.prepare', undefined)} : {}),
+                technicalDetails: getErrorMessage(e),
             });
-            const errorMessage = e instanceof Error ? getErrorMessage(e) : getLocalizedError(options.errorKey);
             error.value = errorMessage;
             return recordOutcome<TResult>({
                 status: 'failed',
