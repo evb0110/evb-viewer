@@ -1,6 +1,7 @@
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {
+    copyFileSync,
     existsSync,
     lstatSync,
     mkdirSync,
@@ -48,6 +49,10 @@ const {
 const {readFileIdentity} = await import('@electron/utils/fileIdentity');
 const {getOwnStartTime} = await import('@electron/utils/processIdentity');
 const {registerManagedProcess} = await import('@electron/native-tools/managedProcessRegistry');
+const {
+    forgetWorkingCopyOriginalPath,
+    setWorkingCopyOriginalPath,
+} = await import('@electron/file-access/workingCopyStore');
 
 describe('app temp directory namespace', () => {
     afterEach(() => {
@@ -310,6 +315,97 @@ describe('app temp directory namespace', () => {
             });
         }
     });
+    it.each(process.platform === 'win32' ? ['direct'] : [
+        'direct',
+        'directory alias',
+        'leaf symlink',
+    ])(
+        'keeps registered %s PDF and scratch bytes in this profile\'s aged retired namespace after recovery acknowledgement', async (registration) => {
+            const previousUserDataPath = mocks.paths.userData ?? '/profiles/default';
+            const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-registered-'));
+            const userDataPath = join(tempRoot, 'profile');
+            const staleDate = new Date(Date.now() - (48 * 60 * 60 * 1000));
+            const deadOwner = spawn(process.execPath, [
+                '-e',
+                'process.exit(0);',
+            ], {stdio: 'ignore'});
+            let workingCopyPath = '';
+            let registeredPath = '';
+            try {
+                await new Promise<void>(resolve => deadOwner.once('exit', () => resolve()));
+                vi.stubEnv('EVB_APP_STATE_DIR', join(tempRoot, 'state'));
+                vi.stubEnv('TMPDIR', tempRoot);
+                vi.stubEnv('TEMP', tempRoot);
+                vi.stubEnv('TMP', tempRoot);
+                mocks.paths.userData = userDataPath;
+                initializeAppTempNamespace(userDataPath);
+                const retiredPath = getRetiredAppTempDirPath();
+                const workDir = join(retiredPath, 'pdf-work-restored');
+                workingCopyPath = join(workDir, 'document.pdf');
+                const originalPath = join(userDataPath, 'original.pdf');
+                const scratchPath = join(workDir, 'accepted-scratch.bin');
+                mkdirSync(workDir, {recursive: true});
+                mkdirSync(userDataPath, {recursive: true});
+                copyFileSync(join(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf'), originalPath);
+                const originalBytes = readFileSync(originalPath);
+                const workingBytes = Buffer.concat([
+                    originalBytes,
+                    Buffer.from('\n% accepted unsaved revision\n'),
+                ]);
+                const scratchBytes = Buffer.from([
+                    0,
+                    1,
+                    2,
+                    255,
+                ]);
+                if (registration === 'leaf symlink') {
+                    const backingPath = join(tempRoot, 'accepted-unsaved.pdf');
+                    writeFileSync(backingPath, workingBytes);
+                    symlinkSync(backingPath, workingCopyPath);
+                } else {
+                    writeFileSync(workingCopyPath, workingBytes);
+                }
+                if (registration === 'directory alias') {
+                    const alias = join(tempRoot, 'working-alias');
+                    symlinkSync(workDir, alias);
+                    registeredPath = join(alias, 'document.pdf');
+                } else {
+                    registeredPath = workingCopyPath;
+                }
+                writeFileSync(scratchPath, scratchBytes);
+                writeFileSync(join(retiredPath, '.evb-app-temp-owner.json'), JSON.stringify({
+                    namespace: createAppTempNamespace(userDataPath),
+                    userDataPath,
+                    pid: deadOwner.pid,
+                    startedAt: 0,
+                }));
+                await setWorkingCopyOriginalPath(registeredPath, originalPath, 17);
+                utimesSync(retiredPath, staleDate, staleDate);
+                // Recovery has already adopted the copy and removed its record; the
+                // renderer's next debounced checkpoint has not been written yet.
+                expect(existsSync(join(userDataPath, 'workspace-recovery'))).toBe(false);
+                expect(existsSync(join(userDataPath, 'workspace-checkpoint.json'))).toBe(false);
+
+                await cleanupStaleAppTempNamespaces();
+
+                expect(existsSync(workingCopyPath), 'startup maintenance must retain adopted unsaved PDF bytes').toBe(true);
+                expect(readFileSync(workingCopyPath)).toEqual(workingBytes);
+                expect(readFileSync(scratchPath)).toEqual(scratchBytes);
+                expect(readFileSync(originalPath)).toEqual(originalBytes);
+                forgetWorkingCopyOriginalPath(registeredPath);
+                await expect(cleanupStaleAppTempNamespaces()).resolves.toBe(1);
+                expect(existsSync(retiredPath), 'the same expired namespace can retire after its last registration ends').toBe(false);
+            } finally {
+                forgetWorkingCopyOriginalPath(registeredPath);
+                mocks.paths.userData = previousUserDataPath;
+                rmSync(tempRoot, {
+                    force: true,
+                    recursive: true,
+                });
+            }
+        },
+    );
+
     it('reaps the native tools this profile\'s previous release recorded in its temp namespace', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'evb-app-temp-reap-'));
         const deadOwner = spawn(process.execPath, [

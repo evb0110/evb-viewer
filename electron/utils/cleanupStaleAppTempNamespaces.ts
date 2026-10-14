@@ -21,6 +21,7 @@ import {
     getRetiredAppTempDirPath,
 } from '@electron/utils/appTempDir';
 import {getWorkingCopyJournalPath} from '@electron/file-access/workingCopyDirectory';
+import {isRegisteredWorkingCopyDirectory} from '@electron/file-access/workingCopyCleanup';
 import {
     getManagedProcessRegistryDirectory,
     reapOrphanedManagedProcesses,
@@ -70,14 +71,6 @@ async function readAppTempNamespaceOwner(namespacePath: string) {
     } catch {
         return null;
     }
-}
-
-// A namespace outlives a reboot and its owner's pid can be reused, so its owner
-// is alive only while its pid runs with the start time it recorded; when that
-// cannot be proven, its profile's lock decides. This profile's own retired
-// namespace has no live owner: this process holds the profile.
-function getNamespaceProfile(namespacePath: string, owner: TAppTempNamespaceOwner) {
-    return namespacePath === getRetiredAppTempDirPath() ? OWN_PROFILE : owner.userDataPath;
 }
 
 export interface ICleanupStaleAppTempNamespacesOptions {
@@ -136,7 +129,7 @@ export async function cleanupStaleAppTempNamespaces(
             if (!owner || getAppTempNamespaceDirectoryName(owner.namespace) !== entry.name) {
                 continue;
             }
-            const profile = getNamespaceProfile(namespacePath, owner);
+            const profile = namespacePath === getRetiredAppTempDirPath() ? OWN_PROFILE : owner.userDataPath;
             if (profile !== OWN_PROFILE && await isRecordedProcessRunning(owner.pid, owner.startTime, profile)) {
                 continue;
             }
@@ -159,7 +152,8 @@ export async function cleanupStaleAppTempNamespaces(
                 namespaceStat.mtimeMs,
                 owner.startedAt,
             ));
-            if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
+            if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs
+                || scopes.some(scope => isRegisteredWorkingCopyDirectory(join(namespacePath, scope)))) {
                 continue;
             }
             await rm(namespacePath, {

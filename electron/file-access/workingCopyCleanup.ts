@@ -112,15 +112,12 @@ function getWorkingCopyLogicalPath(
     return logicalPath || mapPath;
 }
 
-function isRegisteredWorkingCopyDirectory(workDir: string) {
+export function isRegisteredWorkingCopyDirectory(workDir: string) {
     const normalizedDirectory = normalizePathForLookup(workDir);
-    return [...workingCopyMap.entries()]
-        .some(([
-            mapPath,
-            entry,
-        ]) => normalizePathForLookup(
-            dirname(getWorkingCopyLogicalPath(mapPath, entry)),
-        ) === normalizedDirectory);
+    for (const registration of workingCopyMap) {
+        if (normalizePathForLookup(dirname(getWorkingCopyLogicalPath(...registration))) === normalizedDirectory) return true;
+    }
+    return false;
 }
 
 // The working copy and PDF a folder's journal names, if it has one; an unreadable journal names document.pdf, and
