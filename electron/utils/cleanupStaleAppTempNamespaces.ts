@@ -55,8 +55,7 @@ type TAppTempNamespaceOwner = v.InferOutput<typeof appTempNamespaceOwnerSchema>;
 
 // Only a checkpoint known to be absent lets the namespace go; a failed read keeps it.
 async function hasWorkspaceRecoveryCheckpoint(owner: TAppTempNamespaceOwner) {
-    const records = await readdir(join(owner.userDataPath, 'workspace-recovery')).catch(() => []);
-    return records.some(name => name.endsWith('.json'))
+    return await readdir(join(owner.userDataPath, 'workspace-recovery')).then(records => records.some(name => name.endsWith('.json')), (error: unknown) => !isErrnoException(error) || error.code !== 'ENOENT')
         || lstat(join(owner.userDataPath, 'workspace-checkpoint.json')).then(() => true, (error: unknown) => !isErrnoException(error) || error.code !== 'ENOENT');
 }
 

@@ -222,6 +222,40 @@ describe('app temp directory namespace', () => {
                 startedAt: 0,
             })}\n`);
             writeFileSync(join(recoveryUserDataPath, 'workspace-checkpoint.json'), '{"checkpoint":true}\n');
+            const recoveryCopies = [
+                'readable',
+                'unreadable',
+            ].map(name => {
+                const profile = join(tempRoot, name);
+                const namespacePath = getAppTempDirPathForUserData(profile, tempRoot);
+                const workingCopy = join(namespacePath, 'pdf-work-dirty', 'document.pdf');
+                mkdirSync(join(namespacePath, 'pdf-work-dirty'), {recursive: true});
+                mkdirSync(profile, {recursive: true});
+                writeFileSync(workingCopy, 'accepted unsaved bytes');
+                writeFileSync(join(profile, 'original.pdf'), 'last saved bytes');
+                const records = join(profile, 'workspace-recovery');
+                if (name === 'readable') {
+                    mkdirSync(records);
+                    writeFileSync(join(records, 'dirty.json'), JSON.stringify({
+                        workingCopyRef: workingCopy,
+                        isDirty: true,
+                    }));
+                } else {
+                    // ENOTDIR is a real read failure on every host, unlike a missing directory.
+                    writeFileSync(records, 'unavailable recovery directory');
+                }
+                writeFileSync(join(namespacePath, '.evb-app-temp-owner.json'), JSON.stringify({
+                    namespace: createAppTempNamespace(profile),
+                    userDataPath: profile,
+                    pid: deadOwnerPid,
+                    startedAt: 0,
+                }));
+                utimesSync(namespacePath, staleDate, staleDate);
+                return {
+                    profile,
+                    workingCopy,
+                };
+            });
             writeFileSync(join(legacyPath, 'pdf-work-live', 'recent.pdf'), 'still in use');
             writeFileSync(join(malformedPath, '.evb-app-temp-owner.json'), '{"namespace":"broken","pid":"unknown"}\n');
             utimesSync(deadPath, staleDate, staleDate);
@@ -233,7 +267,16 @@ describe('app temp directory namespace', () => {
             const recentDate = new Date();
             utimesSync(recentNestedFile, recentDate, recentDate);
 
-            await expect(cleanupStaleAppTempNamespaces({maxAgeMs: 60_000})).resolves.toBe(1);
+            const removed = await cleanupStaleAppTempNamespaces({maxAgeMs: 60_000});
+
+            for (const {
+                profile, workingCopy,
+            } of recoveryCopies) {
+                expect(existsSync(workingCopy), 'recovery-directory inspection cannot discard unsaved bytes').toBe(true);
+                expect(readFileSync(workingCopy, 'utf8')).toBe('accepted unsaved bytes');
+                expect(readFileSync(join(profile, 'original.pdf'), 'utf8')).toBe('last saved bytes');
+            }
+            expect(removed).toBe(1);
 
             expect(existsSync(deadPath)).toBe(false);
             expect(existsSync(activePath)).toBe(true);
