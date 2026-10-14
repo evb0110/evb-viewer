@@ -656,6 +656,15 @@ describe('browser document lifecycle UI', () => {
             }).click();
             await expect.poll(() => input.inputValue()).toBe('Retained RUX06 draft plus newer typing');
             expect(await note.locator('[role="alert"]').count()).toBe(0);
+            // Keep rejection and Retry under pressure until the rendered
+            // document acknowledges the retried draft, beyond the input echo.
+            await expect.poll(() => page.locator('.note-item-text').allTextContents()).toEqual(['Retained RUX06 draft plus newer typing']);
+            observations.push({
+                step: 'retry-committed',
+                text: await page.locator('.note-item-text').allTextContents(),
+            });
+            // The fault/Retry proof is complete; Save As uses normal CPU speed.
+            await cdp.send('Emulation.setCPUThrottlingRate', {rate: 1});
             const download = page.waitForEvent('download');
             await page.getByRole('button',{
                 name:'Save options',
