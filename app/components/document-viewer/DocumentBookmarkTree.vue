@@ -3,6 +3,7 @@
         <div
             v-bind="containerProps"
             class="document-bookmark-tree__list app-scrollbar app-scroll-region--balanced"
+            @wheel="handleWheel"
         >
             <div v-bind="wrapperProps" style="position: relative">
                 <DocumentBookmarkTreeItem
@@ -21,8 +22,8 @@
                     :can-drop="editMode && Boolean(draggingIds?.size)"
                     @activate="(id, event) => emit('activate', id, event)"
                     @open-actions="emit('open-actions', $event)"
-                    @save-edit="emit('save-edit', $event)"
-                    @cancel-edit="emit('cancel-edit')"
+                    @save-edit="completeEdit"
+                    @cancel-edit="completeEdit()"
                     @drag-start="handleDragStart"
                     @drag-hover="emit('drag-hover', $event)"
                     @drop-bookmark="emit('drop-bookmark', $event)"
@@ -45,6 +46,7 @@ import type {
 import {
     getDocumentBookmarkVisibleRows,
     resolveDocumentBookmarkRevealRowIndex,
+    resolveDocumentWheelInteraction,
     type IDocumentBookmarkTreeItem,
     type TDocumentBookmarkDisplayMode,
 } from '@app/modules/document-viewer/public';
@@ -137,11 +139,40 @@ function handleFocusIn(event: FocusEvent) {
 }
 
 function handleFocusOut(event: FocusEvent) {
-    // A rename removes its input before the row restores focus on the next
-    // tick. Retain that row through the temporary body focus in between.
-    if (event.relatedTarget instanceof Node && !treeRef.value?.contains(event.relatedTarget)) {
+    if (!(event.relatedTarget instanceof Node) || !treeRef.value?.contains(event.relatedTarget)) {
         focusedId.value = null;
     }
+}
+
+function completeEdit(payload?: {
+    id: string;
+    title: string
+}) {
+    const rowId = props.editingId ?? null;
+    const input = document.activeElement;
+    const restoreFocus = input?.matches('.pdf-bookmark-item-input')
+        && input.closest<HTMLElement>('[data-bookmark-id]')?.dataset.bookmarkId === rowId;
+    if (payload) emit('save-edit', payload);
+    else emit('cancel-edit');
+    // Pointer blur leaves its next target in charge. Keyboard completion uses
+    // the tree's reveal while the edited row is still retained for this flush.
+    if (restoreFocus) void focusRow(rowId);
+}
+
+function handleWheel(event: WheelEvent) {
+    const list = containerProps.ref.value;
+    if (!props.editingId || !list || !event.cancelable || event.shiftKey) return;
+    if (event.deltaX !== 0 || event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) return;
+    const interaction = resolveDocumentWheelInteraction(event, list);
+    if (interaction.intent !== 'scroll') return;
+    // Apply editing input in event order. The compositor's delayed default can
+    // otherwise overtake the subsequent keyboard completion reveal.
+    event.preventDefault();
+    list.scrollBy({
+        top: interaction.deltaPx,
+        behavior: 'instant',
+    });
+    containerProps.onScroll();
 }
 
 function handleDragStart(payload: {id: string}) {
@@ -226,19 +257,22 @@ const revealRowIndex = computed(() => resolveDocumentBookmarkRevealRowIndex(
 ));
 const revealRowId = computed(() => visibleRows.value[revealRowIndex.value]?.item.id ?? null);
 
-async function revealRow(rowId: string) {
-    await nextTick();
+function revealRow(rowId: string) {
     const renderedRow = treeRef.value
         ?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(rowId)}"]`);
     if (renderedRow) {
         // Preserve the user's scroll position when the row is already rendered;
         // the virtual-list scroll helper aligns to an absolute row instead.
-        renderedRow.scrollIntoView({block: 'nearest'});
+        renderedRow.scrollIntoView({
+            block: 'nearest',
+            behavior: 'instant',
+        });
+        containerProps.onScroll();
         return;
     }
     const rowIndex = visibleRows.value.findIndex(row => row.item.id === rowId);
     if (rowIndex >= 0) {
-        scrollToRow(rowIndex);
+        scrollToRow(rowIndex, {behavior: 'instant'});
     }
 }
 
@@ -246,7 +280,7 @@ async function focusRow(rowId: string | null, lastControl = false) {
     if (!rowId) {
         return;
     }
-    await revealRow(rowId);
+    revealRow(rowId);
     await nextTick();
     const row = treeRef.value?.querySelector<HTMLElement>(`[data-bookmark-id="${CSS.escape(rowId)}"]`);
     const controls = row?.querySelectorAll<HTMLElement>('button, input');

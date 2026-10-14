@@ -1,6 +1,5 @@
 <template>
     <div
-        ref="rowRef"
         class="document-bookmark-item__row"
         :class="{
             'pdf-bookmark-item-row': editMode,
@@ -52,7 +51,7 @@
             @click.stop
             @keydown.stop
             @keydown.enter.prevent="commitEdit"
-            @keydown.escape.prevent="cancelEdit"
+            @keydown.escape.prevent="emit('cancel-edit')"
             @blur="commitEdit"
         >
         <AppTooltip v-else :text="item.title || t('bookmarks.untitled')" :delay-duration="800">
@@ -111,7 +110,6 @@ const emit = defineEmits<{
     'drag-end': [];
 }>();
 const {t} = useTypedI18n();
-const rowRef = ref<HTMLElement | null>(null);
 const titleInputRef = ref<HTMLInputElement | null>(null);
 const editingTitle = ref('');
 const rowStyle = computed(() => ({marginInlineStart: `calc(${String(props.depth)} * var(--app-sidebar-outline-depth-indent))`}));
@@ -158,25 +156,14 @@ function openActionsFromButton(event: MouseEvent) {
     });
 }
 
-async function commitEdit() {
+function commitEdit() {
     if (!props.isEditing) {
         return;
     }
-    const restoreFocus = document.activeElement === titleInputRef.value;
     emit('save-edit', {
         id: props.item.id,
         title: editingTitle.value,
     });
-    await nextTick();
-    if (restoreFocus) {
-        rowRef.value?.focus();
-    }
-}
-
-async function cancelEdit() {
-    emit('cancel-edit');
-    await nextTick();
-    rowRef.value?.focus();
 }
 
 function detectDropPosition(event: DragEvent): TBookmarkDropPosition {

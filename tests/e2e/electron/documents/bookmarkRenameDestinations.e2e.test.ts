@@ -28,6 +28,7 @@ import {
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
 import {decodeMetadataSnapshot} from '@contracts/pageOpsPlatformFeature';
 import {waitForViewportQuiet} from '@tests/e2e/electron/helpers/viewportPageObservation';
+import {delay} from 'es-toolkit/promise';
 import type {Page} from 'puppeteer-core';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
@@ -202,6 +203,162 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await waitForToolbarCurrentPage(page, 3);
         await wheelBookmarkList(page, 1_000_000);
         await findBookmarkRow(page, 'Rename committed');
+    }, 120_000);
+
+    // I1/R2, verify12 item e: the prior wheel must not undo keyboard completion.
+    it.each([
+        [
+            'rapid',
+            'Enter',
+            1,
+        ],
+        [
+            'rapid',
+            'Enter',
+            2,
+        ],
+        [
+            'rapid',
+            'Enter',
+            3,
+        ],
+        [
+            'rapid',
+            'Escape',
+            1,
+        ],
+        [
+            'rapid',
+            'Escape',
+            2,
+        ],
+        [
+            'rapid',
+            'Escape',
+            3,
+        ],
+        [
+            'settled',
+            'Enter',
+            1,
+        ],
+        [
+            'settled',
+            'Escape',
+            1,
+        ],
+    ] as const)('core56 outlinetree completes %s wheel rename with %s (run %i)', async (timing, key, run) => {
+        const fixture = await createBookmarkTreeFixturePdf(`core56-${timing}-${key}-${run}-${Date.now()}.pdf`,
+            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, index % 4,
+                index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, 3)) : [])));
+        const evidence = await mkdtemp(join(tmpdir(), `core56-${timing}-${key}-${run}-`));
+        const original = (await readPdfMetadataWithQpdf(fixture)).outlines;
+        const {page} = sessions.getSession();
+        await openBookmarkEditor(page, fixture);
+        await clickAsUser(page, await findBookmarkRow(page, 'Section 1'));
+        await page.keyboard.press('End');
+        await expectBookmarkFocus(page, 'Section 120');
+        await clickAsUser(page, await findBookmarkRow(page, 'Section 120'), {button: 'right'});
+        await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+        await waitForFunctionInPage(page, () => document.activeElement?.matches('input.pdf-bookmark-item-input') === true);
+        await page.keyboard.type(key === 'Enter' ? 'Last renamed' : 'Discard this name');
+        await wheelBookmarkList(page, -100_000);
+        if (timing === 'settled') {
+            await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
+            await delay(300);
+        }
+        // Rapid has no observation or wait between the genuine wheel ACK and key.
+        const started = Date.now();
+        await page.keyboard.press(key);
+        const immediate = await observeBookmarkFocus(page);
+        await delay(Math.max(0, 1_500 - (Date.now() - started)));
+        const final = await observeBookmarkFocus(page);
+        await page.screenshot({path: join(evidence, 'completion-1500ms.png')});
+        await writeFile(join(evidence, 'completion.json'), JSON.stringify({
+            timing,
+            key,
+            run,
+            immediate,
+            final,
+            elapsedMs: Date.now() - started,
+        }, null, 2));
+        console.info('CORE56_COMPLETION ' + JSON.stringify({
+            timing,
+            key,
+            run,
+            evidence,
+            immediate,
+            final,
+        }));
+        expect(final.tag).toBe('DIV');
+        expect(final.title).toBe(key === 'Enter' ? 'Last renamed' : 'Section 120');
+        expect(final.visible, 'The painted completion must still be visible at the original 1.5 s checkpoint').toBe(true);
+
+        // A new gesture owns its scroll; completion must not keep following focus.
+        await wheelBookmarkList(page, -100_000);
+        await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
+        await delay(300);
+        expect((await observeBookmarkFocus(page)).visible).toBe(false);
+        if (key === 'Escape') {
+            // Make an accepted edit after cancellation so Save is a real write.
+            await clickAsUser(page, await findBookmarkRow(page, 'Section 1'), {button: 'right'});
+            await clickAsUser(page, '.bookmarks-context-menu .pdf-context-menu__action');
+            await waitForFunctionInPage(page, () => document.activeElement?.matches('input.pdf-bookmark-item-input') === true);
+            await page.keyboard.type('Accepted after cancel');
+            await page.keyboard.press('Enter');
+        }
+        await saveViaVisibleToolbar(page, 90_000, fixture);
+        const saved = (await readPdfMetadataWithQpdf(fixture)).outlines;
+        expect(saved[0]?.title).toBe(key === 'Enter' ? 'Section 1' : 'Accepted after cancel');
+        expect(saved.at(-1)?.title).toBe(key === 'Enter' ? 'Last renamed' : 'Section 120');
+        expect(saved.some(entry => entry.title === 'Discard this name')).toBe(false);
+        const targets = (entries: typeof saved) => entries.flatMap(entry => [
+            entry,
+            ...(entry.kids ?? []),
+        ]).map(entry => ({
+            page: entry.destpageposfrom1,
+            destination: entry.dest?.slice(1),
+        }));
+        expect(targets(saved)).toEqual(targets(original));
+        await writeFile(join(evidence, 'saved-metadata.json'), JSON.stringify(saved, null, 2));
+        await copyFile(fixture, join(evidence, 'saved.pdf'));
+        await clickAsUser(page, 'button[aria-label="Close Tab"]');
+        await page.waitForSelector('.page_container', {hidden: true});
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, '.document-bookmarks-toolbar__actions button');
+        await clickFoundAsUser(page, () => document.querySelector('[data-bookmark-id]'), null, {description: 'Reopened bookmark'});
+        await page.keyboard.press('End');
+        await expectBookmarkFocus(page, key === 'Enter' ? 'Last renamed' : 'Section 120');
+    }, 120_000);
+
+    it('core56 outlinetree releases a row after genuine null-target focusout', async () => {
+        const fixture = await createBookmarkTreeFixturePdf(`core56-focusout-${Date.now()}.pdf`,
+            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, index % 4)));
+        const {page} = sessions.getSession();
+        await openBookmarkEditor(page, fixture);
+        await clickAsUser(page, await findBookmarkRow(page, 'Section 1'));
+        await page.keyboard.press('End');
+        await expectBookmarkFocus(page, 'Section 120');
+        const id = await page.evaluate(() => document.activeElement?.getAttribute('data-bookmark-id') ?? null);
+        await page.evaluate(() => {
+            document.querySelector('.document-bookmark-tree')!.addEventListener('focusout', event => {
+                document.body.dataset.core56Focusout = JSON.stringify({
+                    trusted: event.isTrusted,
+                    nullTarget: event instanceof FocusEvent && event.relatedTarget === null,
+                });
+            }, {once: true});
+        });
+        await clickAsUser(page, '.document-bookmarks-toolbar');
+        expect(await page.evaluate(() => JSON.parse(document.body.dataset.core56Focusout ?? '{}'))).toEqual({
+            trusted: true,
+            nullTarget: true,
+        });
+        await wheelBookmarkList(page, -100_000);
+        await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
+        expect(await page.evaluate((rowId: string | null) => Array.from(document.querySelectorAll('[data-bookmark-id]'))
+            .some(row => row.getAttribute('data-bookmark-id') === rowId), id)).toBe(false);
     }, 120_000);
 
     // I1/R2: completing a retained offscreen input returns visible row focus.
@@ -1582,6 +1739,30 @@ async function expectBookmarkFocus(page: Page, title: string) {
         tag: 'DIV',
         title,
         visible: true,
+    });
+}
+
+async function observeBookmarkFocus(page: Page) {
+    return page.evaluate(() => {
+        const row = document.activeElement;
+        const list = document.querySelector('.document-bookmark-tree__list')!;
+        const rect = row!.getBoundingClientRect();
+        const bounds = list.getBoundingClientRect();
+        return {
+            tag: row?.tagName,
+            id: row?.getAttribute('data-bookmark-id'),
+            title: row?.textContent?.trim(),
+            visible: row?.matches('.document-bookmark-item__row') === true && rect.top >= bounds.top - 1 && rect.bottom <= bounds.bottom + 1,
+            row: [
+                rect.top,
+                rect.bottom,
+            ],
+            list: [
+                bounds.top,
+                bounds.bottom,
+            ],
+            scrollTop: list.scrollTop,
+        };
     });
 }
 
