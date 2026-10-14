@@ -14,6 +14,11 @@ import {getErrorMessage} from '@contracts/getErrorMessage';
 
 const mocks = vi.hoisted(() => ({appTempDir: ''}));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.appTempDir}));
+// OS creation-time inspection is covered by the process and scratch-owner tests.
+vi.mock(import('@electron/utils/processIdentity'), async importOriginal => ({
+    ...await importOriginal(),
+    getOwnStartTime: async () => null,
+}));
 const registries = new Set<{dispose: () => Promise<void>}>();
 const teardownAssertions = new Set<() => void>();
 interface IProgress {requestId: string; value: number; status: 'running' | 'completed' | 'canceled' | 'failed';}
