@@ -57,6 +57,7 @@ import {
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
 
+const workingCopyRef = vi.hoisted(() => '/tmp/evb-working/draft.pdf');
 const state = vi.hoisted(() => ({
     // Each registration has its own id, as in the registry.
     lastRegistrationId: 999,
@@ -98,7 +99,9 @@ vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof NodeFs>();
     return {
         ...actual,
-        existsSync: (path: string) => state.presentWorkingCopies.has(path) || actual.existsSync(path),
+        existsSync: (path: string) => path === workingCopyRef
+            ? state.presentWorkingCopies.has(path)
+            : state.presentWorkingCopies.has(path) || actual.existsSync(path),
         readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
             if (state.failNextCheckpointRead) {
                 state.failNextCheckpointRead = false;
@@ -204,7 +207,6 @@ vi.mock('@electron/file-access/workingCopyStore', async (importOriginal_1) => ({
 vi.mock('@electron/file-access/workingCopyCleanup', () => ({blockStaleWorkingCopyDirectoryCleanup: state.blockCleanup}));
 vi.mock('@electron/features/scan-cleanup/public/generatedOutputs', () => ({touchScanCleanupGeneratedOutput: state.touchScanCleanupGeneratedOutput}));
 
-const workingCopyRef = '/tmp/evb-working/draft.pdf';
 const checkpoint: IWorkspaceCheckpoint = {
     version: 1 as const,
     capturedAt: requireEpochMs(123),

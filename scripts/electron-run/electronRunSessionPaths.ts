@@ -74,7 +74,11 @@ export function electronUserDataPath(name = getCurrentSessionName()) {
 
 /** The state folder a launch gives the app: the one the run names in EVB_APP_STATE_DIR, else the session's own. */
 export function electronAppStatePath(name = getCurrentSessionName()) {
-    return process.env.EVB_APP_STATE_DIR ?? join(sessionDir(name), 'app-state');
+    const override = process.env.EVB_APP_STATE_DIR?.trim();
+    if (override) {
+        return override;
+    }
+    return join(sessionDir(name), 'app-state');
 }
 
 export function electronAppTempDirPath(name = getCurrentSessionName()) {

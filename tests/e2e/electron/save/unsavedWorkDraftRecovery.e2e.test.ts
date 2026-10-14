@@ -135,9 +135,16 @@ it('restores focused text draft after a crash checkpoint', async () => {
 
 it('keeps an unsaved page edit through a crash and a reboot that empties the temp folder', async () => {
     const sourcePath = await createMultiPageTextFixturePdf(`reboot-recovery-${Date.now()}.pdf`, 2);
+    const rebootTempDir = mkdtempSync(join(tmpdir(), 'evb-reboot-tmp-'));
+    const extraEnv = {
+        TMPDIR: rebootTempDir,
+        TMP: rebootTempDir,
+        TEMP: rebootTempDir,
+    };
     const sessionName = `e2e-reboot-recovery-${Date.now()}`;
     let session = await startElectronE2ESession(sessionName, {
         clean: true,
+        extraEnv,
         initialOpenPaths: [sourcePath],
     });
     try {
@@ -157,15 +164,18 @@ it('keeps an unsaved page edit through a crash and a reboot that empties the tem
             preserveWorkspaceCheckpoint: true,
             crashElectronBeforeStop: true,
         });
-        // The reboot: the OS empties its temp folder (tmpfs on Linux, at boot
-        // on macOS, a temp cleanup on Windows), here everything EVB put there.
-        for (const entry of readdirSync(tmpdir()).filter(name => name.startsWith('evb-viewer'))) {
-            rmSync(join(tmpdir(), entry), {
+        // Empty this session's OS temp folder, preserving its durable app state
+        // and every other session's scratch.
+        for (const entry of readdirSync(rebootTempDir)) {
+            rmSync(join(rebootTempDir, entry), {
                 recursive: true,
                 force: true,
             });
         }
-        session = await startElectronE2ESession(sessionName, {clean: false});
+        session = await startElectronE2ESession(sessionName, {
+            clean: false,
+            extraEnv,
+        });
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
 
@@ -180,6 +190,10 @@ it('keeps an unsaved page edit through a crash and a reboot that empties the tem
     } finally {
         await session.stop();
         rmSync(sourcePath, {force: true});
+        rmSync(rebootTempDir, {
+            recursive: true,
+            force: true,
+        });
     }
 });
 

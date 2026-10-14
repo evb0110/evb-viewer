@@ -3,8 +3,10 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
+    electronAppStatePath,
     electronFileLogDir,
     getCurrentSessionName,
     releaseCurrentSessionName,
@@ -21,13 +23,27 @@ describe('electron run session paths', () => {
         expect(validateSessionName('smoke-test_1.local')).toBe('smoke-test_1.local');
     });
 
-    it('isolates default automation log directories by session', () => {
+    it('isolates default automation directories by session', () => {
         const first = electronFileLogDir('first-session');
         const second = electronFileLogDir('second-session');
 
         expect(first).not.toBe(second);
         expect(first).toBe(join(sessionsBaseDir, 'first-session', 'electron-logs'));
         expect(second).toBe(join(sessionsBaseDir, 'second-session', 'electron-logs'));
+        try {
+            for (const value of [
+                '',
+                '   ',
+            ]) {
+                vi.stubEnv('EVB_APP_STATE_DIR', value);
+                expect(electronAppStatePath('first-session')).toBe(join(sessionsBaseDir, 'first-session', 'app-state'));
+                expect(electronAppStatePath('second-session')).toBe(join(sessionsBaseDir, 'second-session', 'app-state'));
+            }
+            vi.stubEnv('EVB_APP_STATE_DIR', '  /task/explicit-state  ');
+            expect(electronAppStatePath('first-session')).toBe('/task/explicit-state');
+        } finally {
+            vi.unstubAllEnvs();
+        }
     });
 
     it('uses a safe session directory when the override is unset or empty', () => {
