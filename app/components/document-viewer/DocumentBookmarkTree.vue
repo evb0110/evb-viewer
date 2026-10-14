@@ -11,7 +11,7 @@
                     :key="row.data.item.id"
                     :item="row.data.item"
                     :depth="row.data.depth"
-                    :style="row.pinned ? {position: 'absolute', top: `${(row.index - firstVirtualRowIndex) * BOOKMARK_ROW_HEIGHT_PX}px`, insetInline: 0} : undefined"
+                    :style="row.pinned ? {position: 'absolute', top: `${(row.index - (virtualRows[0]?.index ?? 0)) * BOOKMARK_ROW_HEIGHT_PX}px`, insetInline: 0} : undefined"
                     :is-expanded="row.data.isExpanded"
                     :is-active="row.data.item.id === activeId"
                     :edit-mode="editMode"
@@ -31,7 +31,9 @@
                     @toggle-expand="emit('toggle-expand', $event)"
                 />
             </div>
-            <slot name="after" />
+            <slot name="after">
+                <div style="padding-block-end: var(--app-space-xs)" />
+            </slot>
         </div>
     </div>
 </template>
@@ -104,7 +106,6 @@ const {
 // rows sit at their original list positions while the viewport keeps scrolling.
 const focusedId = ref<string | null>(null);
 const dragSourceId = ref<string | null>(null);
-const firstVirtualRowIndex = computed(() => virtualRows.value[0]?.index ?? 0);
 const mountedRows = computed(() => {
     const rows = virtualRows.value.map(row => ({
         ...row,
@@ -250,12 +251,11 @@ async function handleKeydown(event: KeyboardEvent) {
     await focusRow(row.item.id, event.key === 'Tab' && event.shiftKey);
 }
 
-const revealRowIndex = computed(() => resolveDocumentBookmarkRevealRowIndex(
+const revealRowId = computed(() => visibleRows.value[resolveDocumentBookmarkRevealRowIndex(
     visibleRows.value,
     props.activeId,
     props.activePathIds,
-));
-const revealRowId = computed(() => visibleRows.value[revealRowIndex.value]?.item.id ?? null);
+)]?.item.id ?? null);
 
 function revealRow(rowId: string) {
     const renderedRow = treeRef.value
@@ -320,13 +320,12 @@ watch(
     () => {
         // Passive page resolution after Undo must not scroll away from the
         // row the person is using. A clicked row already owns DOM focus.
-        const rowId = props.editMode && treeRef.value?.contains(document.activeElement)
+        const rowId = treeRef.value?.contains(document.activeElement)
             ? focusedId.value
             : revealRowId.value;
-        if (!rowId) {
-            return;
+        if (rowId) {
+            revealRow(rowId);
         }
-        void revealRow(rowId);
     },
     {flush: 'post'},
 );

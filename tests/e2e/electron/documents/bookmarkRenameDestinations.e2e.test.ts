@@ -333,6 +333,83 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await expectBookmarkFocus(page, key === 'Enter' ? 'Last renamed' : 'Section 120');
     }, 120_000);
 
+    it('core70 reopened read-only bookmarks retain End focus through passive page resolution', async () => {
+        const fixture = await createBookmarkTreeFixturePdf(`core70-reopened-${Date.now()}.pdf`,
+            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, index % 4,
+                index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, 3)) : [])));
+        const evidence = await mkdtemp(join(tmpdir(), 'core70-reopened-'));
+        const original = await readPdfMetadataWithQpdf(fixture);
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await clickAsUser(page, 'button[aria-label="Close Tab"]');
+        await page.waitForSelector('.page_container', {hidden: true});
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickFoundAsUser(page, () => document.querySelector('[data-bookmark-id]'), null, {description: 'Reopened bookmark'});
+        const started = Date.now();
+        await page.keyboard.press('End');
+        await expectBookmarkFocus(page, 'Section 120');
+        await delay(Math.max(0, 1_500 - (Date.now() - started)));
+        const final = await observeBookmarkFocus(page);
+        await page.screenshot({path: join(evidence, 'reopened-End-1500ms.png')});
+        await writeFile(join(evidence, 'reopened-End.json'), JSON.stringify({
+            final,
+            elapsedMs: Date.now() - started,
+        }, null, 2));
+        expect(final.title).toBe('Section 120');
+        expect(final.tag).toBe('DIV');
+        expect(final.row[0]).toBeGreaterThanOrEqual(final.list[0]!);
+        expect(final.row[1]).toBeLessThanOrEqual(final.list[1]!);
+        expect(await readPdfMetadataWithQpdf(fixture)).toEqual(original);
+        console.info('CORE70_REOPENED_END ' + JSON.stringify({
+            evidence,
+            final,
+        }));
+    }, 120_000);
+
+    it('core70 passive navigation reveals different children of the same collapsed ancestor without tree focus', async () => {
+        const fixture = await createBookmarkTreeFixturePdf(`core70-passive-${Date.now()}.pdf`,
+            Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, 0,
+                index === 118 ? Array.from({length: 3}, (_, child) => fixtureBookmark(`Child ${child + 1}`, child + 1)) : [])));
+        const {page} = sessions.getSession();
+        await openPdfInApp(page, fixture);
+        await waitForPdfLoaded(page);
+        await openDocumentSidebarTab(page, 'Bookmarks');
+        await clickAsUser(page, 'button[aria-label="Top level only"]');
+        for (const target of [
+            2,
+            3,
+        ]) {
+            await wheelBookmarkList(page, -100_000);
+            await waitForFunctionInPage(page, () => document.querySelector('.document-bookmark-tree__list')?.scrollTop === 0);
+            await goToPageViaToolbar(page, target);
+            await waitForToolbarCurrentPage(page, target);
+            await expect.poll(() => page.evaluate(() => {
+                const tree = document.querySelector('.document-bookmark-tree');
+                const list = document.querySelector('.document-bookmark-tree__list');
+                const row = Array.from(document.querySelectorAll('.document-bookmark-item__row'))
+                    .find(item => item.textContent?.trim() === 'Section 119');
+                if (!row || !list) return null;
+                const rect = row.getBoundingClientRect();
+                const bounds = list.getBoundingClientRect();
+                return {
+                    focused: tree?.contains(document.activeElement),
+                    visible: rect.top >= bounds.top && rect.bottom <= bounds.bottom,
+                    expanded: row.querySelector('.document-bookmark-item__toggle')?.getAttribute('aria-expanded'),
+                    childRendered: Array.from(document.querySelectorAll('.document-bookmark-item__row'))
+                        .some(item => item.textContent?.trim().startsWith('Child ')),
+                };
+            })).toEqual({
+                focused: false,
+                visible: true,
+                expanded: 'false',
+                childRendered: false,
+            });
+        }
+    }, 120_000);
+
     it('core56 outlinetree releases a row after genuine null-target focusout', async () => {
         const fixture = await createBookmarkTreeFixturePdf(`core56-focusout-${Date.now()}.pdf`,
             Array.from({length: 120}, (_, index) => fixtureBookmark(`Section ${index + 1}`, index % 4)));
