@@ -45,8 +45,9 @@ import {
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
-import {readViewerInvariantReport} from '@tests/e2e/electron/helpers/viewerInvariants';
+import {
+    clickAsUser, revealForPointer,
+} from '@tests/e2e/electron/helpers/userInput';
 import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const POINTER_READY_TIMEOUT_MS = 30_000;
@@ -1010,14 +1011,43 @@ describe('Electron E2E - annotation controls', () => {
         async function paintedTextMatchesBundledProgram(label: string) {
             const box = await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-text-box');
             expect(box).not.toBeNull();
-            // A reopened viewer still restores its place, and a fresh profile loads
-            // the script faces on demand: capture once both have settled.
-            await readViewerInvariantReport(page, {});
             await page.evaluate(async () => {
                 await document.fonts.ready;
                 await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
             });
-            const actual = Buffer.from(await page.screenshot({clip: (await box!.boundingBox())!}));
+            await revealForPointer(page, box!);
+            const camera = await box!.evaluate(element => {
+                const viewer = element.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                const bounds = viewer.getBoundingClientRect();
+                const rect = element.getBoundingClientRect();
+                const y = bounds.top + viewer.clientTop + viewer.clientHeight / 2;
+                return {
+                    x: bounds.left + viewer.clientLeft + viewer.clientWidth / 2,
+                    y,
+                    deltaY: rect.top < y - viewer.clientHeight / 2 || rect.bottom > y + viewer.clientHeight / 2 ? rect.top + rect.height / 2 - y : 0,
+                };
+            });
+            if (camera.deltaY) {
+                await page.mouse.move(camera.x, camera.y);
+                await page.mouse.wheel({deltaY: camera.deltaY});
+                await revealForPointer(page, box!);
+            }
+            const capture = await box!.evaluate(element => {
+                const viewer = element.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                const bounds = viewer.getBoundingClientRect();
+                return {
+                    clip: element.getBoundingClientRect().toJSON(),
+                    viewport: new DOMRect(bounds.left + viewer.clientLeft, bounds.top + viewer.clientTop, viewer.clientWidth, viewer.clientHeight).toJSON(),
+                };
+            });
+            writeFileSync(join(evidence, `${label}-roi.json`), JSON.stringify({
+                camera,
+                ...capture,
+            }));
+            expect(capture.clip.left >= capture.viewport.left && capture.clip.top >= capture.viewport.top
+                && capture.clip.right <= capture.viewport.right && capture.clip.bottom <= capture.viewport.bottom,
+            `The whole text box is inside the document viewport: ${JSON.stringify(capture)}`).toBe(true);
+            const actual = Buffer.from(await page.screenshot({clip: capture.clip}));
             writeFileSync(join(evidence, `${label}-box.png`), actual);
             await page.screenshot({path: join(evidence, `${label}-page.png`)});
             const client = await page.createCDPSession();
