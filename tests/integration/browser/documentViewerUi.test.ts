@@ -14,7 +14,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
+    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -414,13 +414,12 @@ describe('browser document lifecycle UI', () => {
         ]));
         const fixtureBytes = Buffer.from(await pdf.save());
         writeFileSync(resolve(process.cwd(), `.devkit/browser-foreign-attachment-${process.pid}.pdf`), fixtureBytes);
+        let releaseCapture: (() => Promise<void>) | undefined;
         try {
             const page = await lifecycle.browser.newPage({viewport: {
                 width: 1280,
                 height: 800,
             }});
-            const cpu = await page.context().newCDPSession(page);
-            await cpu.send('Emulation.setCPUThrottlingRate', {rate: 6});
             const consoleProblems = collectConsoleProblems(page);
             await page.addInitScript(() => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
@@ -495,6 +494,53 @@ describe('browser document lifecycle UI', () => {
                 name: 'Open Note',
                 exact: true,
             }).count();
+            // The recovery owner has built its checkpoint before loading this
+            // record. Hold its first dirty capture outside the document lease,
+            // so ordinary Save As can supersede it at normal CPU speed.
+            await page.evaluate(`(async () => {
+                const {getWindowTabsCapability} = await import('/_nuxt/utils/platformWindowTabs.ts');
+                const recovery = getWindowTabsCapability().browserRecovery;
+                if (!recovery) throw new Error('Browser recovery is unavailable');
+                const load = recovery.load.bind(recovery);
+                const clear = recovery.clear.bind(recovery);
+                let release;
+                let released = false;
+                const held = new Promise(resolve => { release = resolve; });
+                Reflect.set(window, '__releaseForeignCapture', () => {
+                    released = true;
+                    recovery.load = load;
+                    release();
+                });
+                Reflect.set(window, '__restoreForeignCapture', () => {
+                    recovery.load = load;
+                    recovery.clear = clear;
+                    release();
+                });
+                recovery.load = async (...args) => {
+                    const api = Reflect.get(window, '__evbTestApi');
+                    if (!api.getActiveToolbarSnapshot()?.canSave) return load(...args);
+                    recovery.load = load;
+                    const previous = await load(...args);
+                    Reflect.set(window, '__foreignCaptureHeld', {
+                        retainedCopies: (previous?.checkpoint.tabs ?? [])
+                            .filter(tab => tab.isDirty && tab.workingCopyRef)
+                            .map(tab => tab.workingCopyRef),
+                    });
+                    await held;
+                    return previous;
+                };
+                recovery.clear = async (...args) => {
+                    const result = await clear(...args);
+                    if (released) {
+                        recovery.clear = clear;
+                        Reflect.set(window, '__foreignCaptureRetired', true);
+                    }
+                    return result;
+                };
+            })()`);
+            releaseCapture = async () => {
+                if (!page.isClosed()) await page.evaluate(() => Reflect.get(window, '__restoreForeignCapture')?.());
+            };
             await page.getByRole('button', {
                 name: 'Place a sticky note on the page.',
                 exact: true,
@@ -550,6 +596,12 @@ describe('browser document lifecycle UI', () => {
                 name: 'Minimize note',
                 exact: true,
             }).click();
+            await page.waitForFunction(() => Boolean(Reflect.get(window, '__foreignCaptureHeld')));
+            expect(await page.evaluate(() => Reflect.get(window, '__foreignCaptureHeld').retainedCopies)).toEqual([]);
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
             const downloadPromise = page.waitForEvent('download');
             await page.getByRole('button', {
                 name: 'Save options',
@@ -568,6 +620,42 @@ describe('browser document lifecycle UI', () => {
                 const contents = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString);
                 return contents?.decodeText();
             })).toContain('Own saved highlight comment');
+            await expect.poll(() => page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).isEnabled()).toBe(true);
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(false);
+            await page.evaluate(() => Reflect.get(window, '__releaseForeignCapture')());
+            await page.waitForFunction(() => Reflect.get(window, '__foreignCaptureRetired') === true);
+            expect(await readRecoveries(page)).toEqual([]);
+            const recoveryArtifacts = await page.evaluate(async () => {
+                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents');
+                    request.onsuccess = () => resolveDb(request.result);
+                    request.onerror = () => rejectDb(request.error);
+                });
+                try {
+                    return await new Promise<string[]>((resolveArtifacts, rejectArtifacts) => {
+                        const request = db.transaction('documents').objectStore('documents').getAll();
+                        request.onsuccess = () => resolveArtifacts(request.result
+                            .filter((record: {fileName: string}) => record.fileName.endsWith('.recovery.pdf'))
+                            .map((record: {fileName: string}) => record.fileName));
+                        request.onerror = () => rejectArtifacts(request.error);
+                    });
+                } finally {
+                    db.close();
+                }
+            });
+            expect(recoveryArtifacts).toEqual([]);
+            writeFileSync(resolve(process.cwd(), `.devkit/browser-foreign-capture-${process.pid}.json`), JSON.stringify({
+                held: await page.evaluate(() => Reflect.get(window, '__foreignCaptureHeld')),
+                retired: await page.evaluate(() => Reflect.get(window, '__foreignCaptureRetired')),
+                recoveryRecords: await readRecoveries(page),
+                recoveryArtifacts,
+            }, null, 2));
             // Opening the actual downloaded bytes in a fresh browser page
             // proves this is the saved surface, not the unsaved overlay.
             const reopened = await lifecycle.browser.newPage({viewport: {
@@ -575,6 +663,7 @@ describe('browser document lifecycle UI', () => {
                 height: 800,
             }});
             try {
+                const reopenedProblems = collectConsoleProblems(reopened);
                 await reopened.addInitScript(() => {
                     Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                     Reflect.set(window, 'showSaveFilePicker', undefined);
@@ -637,6 +726,7 @@ describe('browser document lifecycle UI', () => {
                 await expect.poll(() => reopened.evaluate(() => document.getSelection()?.toString())).toBe(foreignText);
                 expect(await reopened.locator('.popupAnnotation:visible, .popup:visible, .commentPopup:visible').count()).toBe(0);
                 await reopened.screenshot({path: resolve(process.cwd(), `.devkit/browser-annotation-saved-selection-${process.pid}.png`)});
+                expect(reopenedProblems).toEqual([]);
             } finally {
                 await reopened.close();
             }
@@ -708,8 +798,11 @@ describe('browser document lifecycle UI', () => {
             expect(inkPixels).toBeGreaterThan(0);
             expect(consoleProblems).toEqual([]);
         } finally {
-            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
-            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+            try {
+                await releaseCapture?.();
+            } finally {
+                await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+            }
         }
     }, 90_000);
 
