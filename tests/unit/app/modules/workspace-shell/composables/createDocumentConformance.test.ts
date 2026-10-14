@@ -17,8 +17,8 @@ const { mockReadPdfConformanceProfile } = vi.hoisted(() => (
     {mockReadPdfConformanceProfile: vi.fn()}
 ));
 
-vi.mock('@app/services/pdf-file/readPdfConformanceProfile', () => (
-    {readPdfConformanceProfile: mockReadPdfConformanceProfile}
+vi.mock('@app/utils/platformDocuments', () => (
+    {getDocumentPdfCapability: () => ({analyzePdfConformance: mockReadPdfConformanceProfile})}
 ));
 
 const unsignedProfile = {

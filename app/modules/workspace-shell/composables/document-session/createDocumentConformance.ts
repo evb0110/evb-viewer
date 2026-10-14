@@ -1,4 +1,3 @@
-import { getErrorMessage } from '@app/utils/error';
 import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
@@ -6,7 +5,7 @@ import type {
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { readPdfConformanceProfile } from '@app/services/pdf-file/readPdfConformanceProfile';
+import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { shouldForcePdfSaveAs } from '@app/services/pdf-file/shouldForcePdfSaveAs';
 
 interface IConformanceProfileRequest {
@@ -100,7 +99,17 @@ export function createDocumentConformance(
             return saveRestrictionInFlight.promise;
         }
 
-        const promise = readPdfConformanceProfile(path, {purpose: 'save-restrictions'})
+        const promise = getDocumentPdfCapability().analyzePdfConformance(path, {purpose: 'save-restrictions'})
+            .catch((error: unknown) => {
+                if (conformanceProfileRequestId === requestId && state.workingCopyPath.value === path) {
+                    BrowserLogger.warn('pdf-file', 'PDF save restriction analysis failed', {
+                        path,
+                        error,
+                    });
+                    throw error;
+                }
+                return null;
+            })
             .then((profile) => {
                 if (
                     conformanceProfileRequestId === requestId
@@ -152,30 +161,32 @@ export function createDocumentConformance(
 
         cancelScheduledConformanceAnalysis();
         state.pdfConformanceAnalysisState.value = 'analyzing';
-        const promise = readPdfConformanceProfile(request.path);
-        conformanceProfileInFlight = {
-            path: request.path,
-            promise,
-            requestId: request.requestId,
-        };
-        promise.then((profile) => {
+        const promise = getDocumentPdfCapability().analyzePdfConformance(request.path).then((profile) => {
             applyPdfConformanceProfile(request.path, request.requestId, profile);
+            return profile;
         }).catch((conformanceError: unknown) => {
             if (
                 conformanceProfileRequestId === request.requestId
                 && state.workingCopyPath.value === request.path
             ) {
                 state.pdfConformanceAnalysisState.value = 'failed';
+                BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
+                    path: request.path,
+                    error: conformanceError,
+                });
+                throw conformanceError;
             }
-            BrowserLogger.warn('pdf-file', 'Deferred conformance analysis failed', {
-                path: request.path,
-                error: conformanceError,
-            });
+            return null;
         }).finally(() => {
             if (conformanceProfileInFlight?.requestId === request.requestId) {
                 conformanceProfileInFlight = null;
             }
         });
+        conformanceProfileInFlight = {
+            path: request.path,
+            promise,
+            requestId: request.requestId,
+        };
         return promise;
     }
 
@@ -233,12 +244,7 @@ export function createDocumentConformance(
                     && pending.requestId === conformanceProfileRequestId
                     && state.workingCopyPath.value === pending.path
                 ) {
-                    void startPdfSaveRestrictionAnalysis(pending.path, pending.requestId).catch((error) => {
-                        BrowserLogger.warn('pdf-file', 'Deferred PDF save restriction analysis failed', {
-                            path: pending.path,
-                            error: getErrorMessage(error),
-                        });
-                    });
+                    void startPdfSaveRestrictionAnalysis(pending.path, pending.requestId).catch(() => {});
                 }
             });
             return true;
@@ -268,9 +274,7 @@ export function createDocumentConformance(
 
         const inFlight = conformanceProfileInFlight;
         if (inFlight?.path === path) {
-            const profile = await inFlight.promise;
-            applyPdfConformanceProfile(path, inFlight.requestId, profile);
-            return profile;
+            return inFlight.promise;
         }
 
         const pending = pendingConformanceProfile;
@@ -283,16 +287,7 @@ export function createDocumentConformance(
                 requestId: ++conformanceProfileRequestId,
             };
         pendingConformanceProfile = request;
-        const promise = startPdfConformanceAnalysis(request);
-        try {
-            const profile = await promise;
-            applyPdfConformanceProfile(path, request.requestId, profile);
-            return profile;
-        } finally {
-            if (conformanceProfileInFlight?.requestId === request.requestId) {
-                conformanceProfileInFlight = null;
-            }
-        }
+        return startPdfConformanceAnalysis(request);
     }
 
     function shouldForceSaveAs(mode: TPdfSaveMode) {

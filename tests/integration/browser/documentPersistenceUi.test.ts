@@ -659,6 +659,21 @@ describe('browser document lifecycle UI', () => {
                     exact: true,
                 }).click();
             } else {
+                await page.evaluate(`(async () => {
+                    const {getDocumentPdfCapability} = await import('/_nuxt/utils/platformDocuments.ts');
+                    const capability = getDocumentPdfCapability();
+                    const analyze = capability.analyzePdfConformance.bind(capability);
+                    capability.analyzePdfConformance = async (ref, options) => {
+                        if (!options?.purpose && ref.endsWith('/pending-save.pdf') && !window.__lateConformanceRef) {
+                            window.__lateConformanceRef = ref;
+                            await new Promise(resolve => {window.__resumeLateConformance = resolve;});
+                            try {return await analyze(ref, options);}
+                            catch(error) {console.info('LATE_CONFORMANCE_CAUSE', {name:error.name, message:error.message, stack:error.stack}); throw error;}
+                            finally {window.__lateConformanceDone = true;}
+                        }
+                        return analyze(ref, options);
+                    };
+                })()`);
                 const input = await PDFDocument.load(readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')));
                 await input.attach(randomBytes(4 * 1024 * 1024 + 64 * 1024), 'public-padding.bin');
                 await (await chooser).setFiles({
@@ -679,6 +694,7 @@ describe('browser document lifecycle UI', () => {
                         return ref;
                     };
                 })()`);
+                await page.waitForFunction(() => Boolean(Reflect.get(window, '__resumeLateConformance')));
                 const download = page.waitForEvent('download');
                 await page.getByRole('button', {
                     name: 'Save options',
@@ -735,6 +751,10 @@ describe('browser document lifecycle UI', () => {
                 }).isEnabled(), {timeout: 30_000}).toBe(true);
             }
             await page.getByRole('button', {name: 'Close tab'}).last().click();
+            if (operation === 'save-as') {
+                await page.evaluate(() => Reflect.get(window, '__resumeLateConformance')());
+                await page.waitForFunction(() => Reflect.get(window, '__lateConformanceDone') === true);
+            }
             await page.reload({waitUntil: 'domcontentloaded'});
             await page.locator('[data-recent-open-actionable="true"] .recent-open')
                 .filter({hasText: operation === 'conversion' ? 'bitonal-faint-pencil.pdf' : 'pending-save.pdf'}).click();
