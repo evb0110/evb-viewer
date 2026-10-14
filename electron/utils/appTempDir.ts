@@ -197,6 +197,8 @@ export function getAppTempDir() {
     chmodSync(tempDir, 0o700);
     // Until this process's start time is read, the namespace has no owner, and
     // other profiles' starts leave it alone.
-    void getOwnStartTime().then(startTime => writeAppTempNamespaceOwner(tempDir, startTime)).catch(() => undefined);
+    if (initializedAppTempNamespace) {
+        void getOwnStartTime().then(startTime => writeAppTempNamespaceOwner(tempDir, startTime)).catch(() => undefined);
+    }
     return tempDir;
 }
