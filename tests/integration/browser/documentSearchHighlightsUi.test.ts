@@ -646,7 +646,8 @@ describe('optional search-cache mutation completion proof', () => {
             }, null, 2));
             await expect.poll(() => page!.locator('.page_container--rendered[data-page="1"]').first().evaluate(element => {
                 const r = element.getBoundingClientRect();
-                return r.width > r.height;
+                return r.width > r.height
+                    && element.querySelector('.textLayer')?.textContent?.includes('Optional cache rotation proof') === true;
             }), {timeout: 15000}).toBe(true);
             expect(await page.locator('.app-toast-failure').count()).toBe(0);
             expect(await page.locator('.page_container--rendered[data-page="1"] .textLayer').first().textContent()).toContain('Optional cache rotation proof');
