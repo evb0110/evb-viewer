@@ -404,9 +404,6 @@ export const OWN_PROFILE = 'own';
 // run of this process's own could still be on; another profile's lock decides
 // for it; an unknown one is kept.
 export async function isRecordedProcessRunning(pid: number, startTime: string | null | undefined, profile?: string) {
-    if (pid === process.pid) {
-        return startTime === await getOwnStartTime();
-    }
     const observed = typeof startTime === 'string' ? await readProcessStartTime(pid) : (isProcessAlive(pid) ? null : '');
     if (observed === '') {
         return false;

@@ -247,6 +247,9 @@ describe('scan-cleanup durability', () => {
     it('reaps a tool an older build recorded once that build\'s run has ended', async () => {
         const namespacePath = await createTemporaryDirectory();
         const scratchPath = await createManagedScratchTempDir('native-command-', namespacePath);
+        const manifestPath = join(scratchPath, 'manifest.json');
+        const scratchBytes = 'native command still owns these bytes';
+        await writeFile(manifestPath, scratchBytes, 'utf8');
         const binaryPath = process.platform === 'darwin'
             ? join(namespacePath, 'EVB Viewer.app', 'Contents', 'MacOS', 'node')
             : process.execPath;
@@ -258,7 +261,10 @@ describe('scan-cleanup durability', () => {
         // temporary folder at its scratch.
         const child = spawn(binaryPath, [
             '-e',
-            'setInterval(() => {}, 1000)',
+            'console.log("ready"); setInterval(() => {}, 1000)',
+            '--',
+            '--manifest',
+            manifestPath,
         ], {
             detached: process.platform !== 'win32',
             env: {
@@ -267,20 +273,55 @@ describe('scan-cleanup durability', () => {
                 TMP: scratchPath,
                 TEMP: scratchPath,
             },
-            stdio: 'ignore',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
             windowsHide: true,
         });
+        const childClosed = once(child, 'close');
+        const endedOwner = spawn(process.execPath, [
+            '-e',
+            '',
+        ], {stdio: 'ignore'});
+        const ownerClosed = once(endedOwner, 'close');
         try {
-            await once(child, 'spawn');
+            await once(child.stdout, 'data');
+            await ownerClosed;
             const registration = await registerManagedProcess(namespacePath, {
                 pid: child.pid!,
                 hasExited: () => child.exitCode !== null || child.signalCode !== null,
                 binaryPath,
                 scratchPath,
+                manifestPath,
             });
+            const entry = JSON.parse(await readFile(registration!.entryPath, 'utf8')) as IManagedProcessRegistryEntry;
+            expect(entry).toMatchObject({
+                pid: child.pid,
+                ownerPid: process.pid,
+                binaryPath,
+                processStartTime: expect.stringMatching(/\S/u),
+            });
+            const registeredBytes = await readFile(registration!.entryPath, 'utf8');
+            await expect(reapOrphanedManagedProcesses(namespacePath)).resolves.toBe(0);
+            await expect(readFile(registration!.entryPath, 'utf8')).resolves.toBe(registeredBytes);
+            await expect(readFile(manifestPath, 'utf8')).resolves.toBe(scratchBytes);
+            expect(() => process.kill(child.pid!, 0)).not.toThrow();
+            // Older entries, and owners whose first OS read was unknown, omit
+            // ownerStartTime. Missing birth proof cannot end this live run.
+            const unknownOwnerBytes = JSON.stringify({
+                ...entry,
+                ownerStartTime: undefined,
+            });
+            await writeFile(registration!.entryPath, unknownOwnerBytes, 'utf8');
+            await expect(reapOrphanedManagedProcesses(namespacePath)).resolves.toBe(0);
+            await expect(readFile(registration!.entryPath, 'utf8')).resolves.toBe(unknownOwnerBytes);
+            await expect(readFile(manifestPath, 'utf8')).resolves.toBe(scratchBytes);
+            expect(() => process.kill(child.pid!, 0)).not.toThrow();
             // What an older build recorded instead of the exact creation time:
             // bare Linux ticks, the macOS ps start to the second, a Windows
-            // clock estimate to the millisecond. Its own run has ended since.
+            // clock estimate to the millisecond. The recorded owner has ended.
             const olderStartTime = (exact: string, pid: number) => process.platform === 'linux'
                 ? exact.split(':')[1]!
                 : process.platform === 'darwin'
@@ -297,11 +338,11 @@ describe('scan-cleanup durability', () => {
                         },
                     }).trim().replace(/\s+/gu, ' ')
                     : new Date(Date.parse(exact)).toISOString();
-            const entry = JSON.parse(await readFile(registration!.entryPath, 'utf8')) as IManagedProcessRegistryEntry;
             await writeFile(registration!.entryPath, JSON.stringify({
                 ...entry,
+                ownerPid: endedOwner.pid,
                 processStartTime: olderStartTime(entry.processStartTime!, child.pid!),
-                ownerStartTime: olderStartTime(entry.ownerStartTime!, process.pid),
+                ownerStartTime: undefined,
             }), 'utf8');
             const exited = once(child, 'exit');
 
@@ -312,6 +353,11 @@ describe('scan-cleanup durability', () => {
             await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
             if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+            if (endedOwner.exitCode === null && endedOwner.signalCode === null) endedOwner.kill('SIGKILL');
+            await Promise.all([
+                childClosed,
+                ownerClosed,
+            ]);
         }
     });
 
