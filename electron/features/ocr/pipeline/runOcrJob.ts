@@ -620,7 +620,12 @@ async function buildOcrPageProcessingPlan(
             baseContext.popplerEnv,
             baseContext.signal,
             pages.map(page => page.pageNumber),
-        )
+        ).catch((error: unknown) => {
+            baseContext.signal.throwIfAborted();
+            if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+            log('warn', 'Source DPI inspection failed; using default OCR resolution', {error: getErrorMessage(error)});
+            return null;
+        })
         : null;
     const detectedDpi = detectedSourceDpi?.documentDpi ?? renderDpi;
     const pageSourceDpiByNumber = new Map<number, number>();
@@ -661,19 +666,8 @@ async function buildOcrPageProcessingPlan(
 }
 
 function getFirstSelectionPage(selection: TOcrPdfPageSelection) {
-    if (Array.isArray(selection)) {
-        return selection[0]?.pageNumber ?? 0;
-    }
-    switch (selection.kind) {
-        case 'all':
-            return 1;
-        case 'range':
-            return selection.firstPage;
-        case 'ranges':
-            return selection.ranges[0]?.firstPage ?? 0;
-        case 'pages':
-            return selection.pages[0]?.pageNumber ?? 0;
-    }
+    for (const [page] of iterateOcrPageRequestBatches(selection, 1)) return page?.pageNumber ?? 0;
+    return 0;
 }
 
 export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
