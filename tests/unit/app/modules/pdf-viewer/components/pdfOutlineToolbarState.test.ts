@@ -1,6 +1,7 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import { requirePageIndex } from '@contracts/pageNumbers';
+import {requireDocumentRef} from '@contracts/documentRef';
 // @vitest-environment happy-dom
 
 import {
@@ -84,7 +85,7 @@ async function mountOutline(
         currentPage: 1,
         isEditMode: false,
         pdfDocument: createPdfDocument(getDestination),
-        documentRef: '/working/outline.pdf',
+        documentRef: requireDocumentRef('/working/outline.pdf'),
     });
     const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
         ...viewProps,

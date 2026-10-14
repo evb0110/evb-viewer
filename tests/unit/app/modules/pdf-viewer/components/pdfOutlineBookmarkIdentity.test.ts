@@ -27,6 +27,7 @@ import type { IDocumentBookmarkTreeItem } from '@app/modules/document-viewer/boo
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import { cast } from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -186,7 +187,7 @@ async function mountOutline(options: {
     document.body.append(host);
     const app = createApp(defineComponent({setup: () => () => h(PdfOutline, {
         pdfDocument: options.pdfDocument ?? null,
-        documentRef: options.pdfDocument ? '/working/outline.pdf' : null,
+        documentRef: options.pdfDocument ? requireDocumentRef('/working/outline.pdf') : null,
         currentPage: state.currentPage,
         isEditMode: state.isEditMode,
         bookmarkItems: state.bookmarkItems,
