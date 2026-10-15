@@ -2006,7 +2006,8 @@ describe('Electron E2E - Recent Files', () => {
         const views: Array<{
             name: string;
             commands: string[];
-            page: number
+            page: number;
+            expectedRotation?: number
         }> = [
             {
                 name: 'continuous-last',
@@ -2032,11 +2033,16 @@ describe('Electron E2E - Recent Files', () => {
                 name: 'turned-90',
                 commands: ['handleViewRotationCw'],
                 page: 3,
+                expectedRotation: 90,
             },
             {
                 name: 'turned-270',
-                commands: ['handleViewRotationCcw'],
+                commands: [
+                    'handleViewRotationCcw',
+                    'handleViewRotationCcw',
+                ],
                 page: 2,
+                expectedRotation: 270,
             },
         ];
         for (const view of views) {
@@ -2046,6 +2052,10 @@ describe('Electron E2E - Recent Files', () => {
             await waitForPdfLoaded(session.page);
             for (const command of view.commands) {
                 await requireWorkspaceCommand(session.page, command);
+            }
+            if (view.expectedRotation !== undefined) {
+                const snapshot = await requireWorkspaceCommand<{ viewRotation: number }>(session.page, 'getToolbarSnapshot');
+                expect(snapshot?.viewRotation, view.name).toBe(view.expectedRotation);
             }
             await goToPageViaToolbar(session.page, view.page);
             await expectHeldReopenOnDrawnRect(session, fixturePath, view.page);

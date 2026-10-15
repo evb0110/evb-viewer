@@ -530,6 +530,7 @@ describe('usePdfViewerVirtualization', () => {
     it('prepares a continuous-scroll target at the destination scale even when pre-rendered', async () => {
         const navigationAnchorPage = ref<number | null>(null);
         const effectiveScale = ref(1);
+        const committedOutgoingScale = ref(1);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
@@ -557,7 +558,7 @@ describe('usePdfViewerVirtualization', () => {
                 end: 1,
             }),
             navigationAnchorPage,
-            getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : 0.9,
+            getCommittedPageScale: pageNumber => pageNumber === 1 ? committedOutgoingScale.value : 0.9,
         });
         await nextTick();
         navigationAnchorPage.value = 2;
@@ -565,6 +566,14 @@ describe('usePdfViewerVirtualization', () => {
 
         expect(virtualization.getPageScale(requirePageNumber(1))).toMatchObject({scaleFactor: 1});
         expect(virtualization.getPageScale(requirePageNumber(2))).toMatchObject({scaleFactor: 0.8});
+
+        // A new raster at the destination scale owns its box before handoff.
+        committedOutgoingScale.value = 0.8;
+        expect(virtualization.getPagePlaceholderStyle(requirePageNumber(1))).toMatchObject({
+            width: '240px',
+            height: '80px',
+            '--scale-factor': '0.8',
+        });
     });
 
     it('stages a preceding target as buffered until the outgoing page hands off', async () => {

@@ -204,10 +204,9 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }
 
         // Continuous scroll can show both the outgoing and destination pages.
-        // Keep every already-committed page at its painted size until the
-        // viewport authority releases the handoff and applies the target
-        // scroll position in the same transaction. A newly mounted target has
-        // no committed scale, so it can still prepare at the destination scale.
+        // Keep an outgoing page at its painted size while its older raster
+        // stretches; a new current-scale raster already owns its page box.
+        // The target itself always prepares at the destination scale.
         if (continuousScroll.value) {
             return true;
         }
@@ -246,18 +245,14 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }
     }, {flush: 'post'});
 
-    function isPageGeometryCommitted(pageNumber: TPageNumber) {
-        const committedScale = getCommittedPageScale?.(pageNumber);
-        return committedScale !== null && committedScale !== undefined
-            && Number.isFinite(committedScale) && committedScale > 0;
-    }
-
     function getPageLayoutScale(pageNumber: TPageNumber) {
-        if (shouldPreserveCommittedPageGeometry(pageNumber) && isPageGeometryCommitted(pageNumber)) {
-            return paintedLayoutScale;
-        }
-
-        return effectiveScale.value;
+        const committedScale = getCommittedPageScale?.(pageNumber);
+        return shouldPreserveCommittedPageGeometry(pageNumber)
+            && committedScale !== null && committedScale !== undefined
+            && Number.isFinite(committedScale) && committedScale > 0
+            && committedScale !== effectiveScale.value
+            ? paintedLayoutScale
+            : effectiveScale.value;
     }
 
     function getPageScale(pageNumber: TPageNumber) {
