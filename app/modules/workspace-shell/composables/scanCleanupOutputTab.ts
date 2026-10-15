@@ -40,13 +40,8 @@ export function createScanCleanupOutputSaveAs(
         , session,
     ]) => (
         session.snapshot.value.identity.documentInstanceId === instanceId
+        && session.snapshot.value.identity.originalPath === outputPath
     )) : undefined;
-    const warnClosed = () => {
-        toast.add({
-            color: 'warning',
-            title: t('scanCleanup.outputClosedBeforeSaveAs'),
-        });
-    };
     return async () => {
         const output = findOutput();
         if (output) {
@@ -59,7 +54,10 @@ export function createScanCleanupOutputSaveAs(
         const saved = current
             ? await (getDocumentWorkspace(current[1])?.handleSaveAs() ?? false)
             : false;
-        if (!saved && !findOutput()) warnClosed();
+        if (!saved && !findOutput()) toast.add({
+            color: 'warning',
+            title: t('scanCleanup.outputClosedBeforeSaveAs'),
+        });
         return saved;
     };
 }

@@ -30,7 +30,6 @@ import {
     requireDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     requireJobId,
@@ -254,7 +253,6 @@ describe('scan-cleanup workspace reopen handoff', () => {
             cast<TTranslateFn>((key: string) => key),
         );
         if (scenario === 'save-as-renamed') {
-            output.snapshot.value.identity.documentInstanceId = requireDocumentInstanceId('renamed-document');
             output.snapshot.value.identity.originalPath = requireDocumentRef('/saved/new-name.pdf');
             output.snapshot.value.identity.workingCopyPath = requireDocumentRef('/working/new-name.pdf');
             output.snapshot.value.identity.documentRef = requireDocumentRef('/working/new-name.pdf');
