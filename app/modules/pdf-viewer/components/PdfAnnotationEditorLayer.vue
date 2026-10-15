@@ -18,7 +18,7 @@
         @contextmenu.prevent="handleSurfaceContextMenu"
         @dblclick.stop="handleSurfaceDblClick"
         @keydown.capture="clearClickSuppression"
-        @keydown="handleKeydown"
+        @keydown="keyboardCommands.handleKeydown"
     >
         <div
             v-if="isInteractive"
@@ -46,7 +46,8 @@
                 :key="entity.identity.id"
                 :page-rotation="surface.getPageGeometry(pageIndex)?.rotation ?? 0"
                 :entity="entity"
-                :highlight-paint-quads="highlightPaintQuads.get(entity.identity.id)"
+                :highlight-paint-quads="surface.isOriginalAppearance(entity) ? [] : highlightPaintQuads.get(entity.identity.id)"
+                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
                 :highlight-fill-target="`#${highlightFillPlaneId}`"
                 :selected="isSelected(entity.identity.id)"
                 :page-size="pageDimensions"
@@ -55,6 +56,7 @@
                 v-for="entity in svgEntities.shapes"
                 :key="entity.identity.id"
                 :entity="entity"
+                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
                 :selected="isSelected(entity.identity.id)"
                 :page-size="pageDimensions"
             />
@@ -71,8 +73,10 @@
                 :key="entity.identity.id"
                 :ref="element => setTextBoxRef(entity.identity.id, element)"
                 :entity="entity"
+                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
                 :selected="isSelected(entity.identity.id)"
                 :editing="editingId === entity.identity.id"
+                :original-appearance="surface.isOriginalAppearance(entity)"
                 :recovered-draft-text="surface.getTextBoxDraftText(entity.identity.id)"
                 :recovered-draft-rect="surface.getTextBoxDraftRect(entity.identity.id)"
                 :caret-point="surface.textEditPoint.value"
@@ -89,6 +93,7 @@
                 v-for="entity in htmlEntities.notes"
                 :key="entity.identity.id"
                 :entity="entity"
+                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
                 :selected="isSelected(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
                 @pointer-down="handleEntityPointerDown(entity, $event)"
@@ -98,6 +103,7 @@
                 v-for="entity in htmlEntities.stamps"
                 :key="entity.identity.id"
                 :entity="entity"
+                :class="{'is-original-appearance': surface.isOriginalAppearance(entity)}"
                 :selected="isSelected(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
             />
@@ -112,7 +118,7 @@
                 :display-rect="selectedDisplayRect"
                 :view-rotation="viewRotation"
                 @resize-start="handleResizeStart"
-                @move-start="handleMoveStart"
+                @move-start="selectedEntity?.kind === 'text-box' && handleEntityPointerDown(selectedEntity, $event, true)"
             />
         </div>
     </div>
@@ -228,6 +234,13 @@ onMounted(() => {
         focus: focusLayer,
         getTextBoxDraftRect: annotationId => textBoxRefs.get(annotationId)?.getDraftRect() ?? null,
         prepareGeometryChange: prepareTextBoxGeometryChange,
+        getPaintInput: entity => entity.kind === 'shape' ? shapeForRender(entity)
+            : entity.kind === 'text-markup' ? svgEntities.value.textMarkup.find(entry => entry.identity.id === entity.identity.id) ?? entity
+                : {
+                    ...entity,
+                    ...('rect' in entity ? {rect: displayRectFor(entity) ?? entity.rect} : {}),
+                    ...(entity.kind === 'text-box' ? {fontSize: displayFontSizeFor(entity) ?? entity.fontSize} : {}),
+                },
         fitTextBox: entity => {
             const fit = textBoxRefs.get(entity.identity.id)?.fitRectToContent;
             return fit ? fit(entity.rect, undefined, entity.fontSize) : entity.rect;
@@ -300,26 +313,9 @@ const gestureMoveDelta = computed(() => {
 });
 watch(gestureMoveDelta, delta => surface.setSelectionMoveDelta(delta), {flush: 'sync'});
 const moveDelta = surface.selectionMoveDelta;
-const selectedDisplayRect = computed(() => {
-    const entity = selectedEntity.value;
-    if (entity?.kind === 'text-box' && editingId.value === entity.identity.id && draggedAnnotationId.value !== entity.identity.id) {
-        return textBoxRefs.get(entity.identity.id)?.getDraftRect();
-    }
-    if (
-        !entity
-        || draggedAnnotationId.value !== entity.identity.id
-        || (entity.kind !== 'text-box' && entity.kind !== 'shape' && entity.kind !== 'placed-image')
-    ) {
-        return undefined;
-    }
-    const rect = pointerGesture.previewRect.value;
-    return rect ? fitTextBoxRect(entity, rect) : undefined;
-});
+const selectedDisplayRect = computed(() => selectedEntity.value && selectedEntity.value.kind !== 'text-markup'
+    ? displayRectFor(selectedEntity.value) : undefined);
 const isSelected = (id: AnnotationId) => surface.selectedIds.value.has(id);
-function handleKeydown(event: KeyboardEvent) {
-    keyboardCommands.handleKeydown(event);
-}
-
 const svgEntities = computed(() => {
     return {
         textMarkup: entities.value
@@ -343,7 +339,7 @@ const highlightPaintQuads = computed(() => {
     const groups = new Map<string, IAnnotationMarkerRect[]>();
     const byAnnotation = new Map<AnnotationId, readonly IAnnotationMarkerRect[]>();
     for (const entity of svgEntities.value.textMarkup) {
-        if (entity.subtype !== 'Highlight') continue;
+        if (entity.subtype !== 'Highlight' || surface.isOriginalAppearance(entity)) continue;
         const key = `${entity.color?.toLowerCase() ?? 'default'}:${entity.opacity ?? 0.45}`;
         const group = groups.get(key);
         if (group) {
@@ -591,12 +587,6 @@ function textResizeProposal(entity: ITextBoxEntity, rect: IAnnotationMarkerRect,
     return proposal;
 }
 
-function fitTextBoxRect(entity: AnnotationEntity, rect: IAnnotationMarkerRect) {
-    return entity.kind === 'text-box' && pointerGesture.mode.value === 'resize'
-        ? textResizeProposal(entity, rect).rect
-        : rect;
-}
-
 function displayFontSizeFor(entity: ITextBoxEntity) {
     return draggedAnnotationId.value === entity.identity.id && pointerGesture.mode.value === 'resize'
         ? textResizeProposal(entity, entity.rect).fontSize
@@ -629,16 +619,13 @@ const textPlacementPreview = computed(() => {
         : null;
 });
 
-function displayRectFor(entity: ITextBoxEntity | INoteEntity | IPlacedImageEntity) {
+function displayRectFor(entity: ITextBoxEntity | INoteEntity | IPlacedImageEntity | IShapeEntity) {
+    if (entity.kind === 'text-box' && editingId.value === entity.identity.id && draggedAnnotationId.value !== entity.identity.id) return textBoxRefs.get(entity.identity.id)?.getDraftRect();
+    const rect = draggedAnnotationId.value === entity.identity.id ? pointerGesture.previewRect.value : null;
+    if (rect) return entity.kind === 'text-box' && pointerGesture.mode.value === 'resize' ? textResizeProposal(entity, rect).rect : rect;
     const delta = moveDelta.value;
-    if (delta && surface.movingIds.value.has(entity.identity.id)) {
-        return translateRect(entity.kind === 'note' ? entity.position : entity.rect, delta.x, delta.y);
-    }
-    if (draggedAnnotationId.value !== entity.identity.id) {
-        return undefined;
-    }
-    const rect = pointerGesture.previewRect.value;
-    return rect ? fitTextBoxRect(entity, rect) : undefined;
+    return delta && surface.movingIds.value.has(entity.identity.id)
+        ? translateRect(entity.kind === 'note' ? entity.position : entity.rect, delta.x, delta.y) : undefined;
 }
 
 function textBoxIdAtPoint(event: Pick<MouseEvent, 'clientX' | 'clientY'>) {
@@ -740,18 +727,7 @@ function prepareTextBoxGeometryChange() {
     if (id && newTextBoxIds.has(id) && textBoxRefs.get(id)?.getDraftText().trim().length === 0) {
         return;
     }
-    void commitActiveTextBoxDraftForSave();
-}
-
-function handleMoveStart(event: PointerEvent) {
-    if (event.button !== 0) {
-        return;
-    }
-    prepareTextBoxGeometryChange();
-    const entity = selectedEntity.value;
-    if (entity?.kind === 'text-box') {
-        handleEntityPointerDown(entity, event, true);
-    }
+    return commitActiveTextBoxDraftForSave();
 }
 
 function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent) {
@@ -759,7 +735,6 @@ function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent)
     if (event.button !== 0) {
         return;
     }
-    prepareTextBoxGeometryChange();
     const entity = selectedEntity.value;
     if (!entity || (entity.kind !== 'text-box' && entity.kind !== 'shape' && entity.kind !== 'placed-image')) {
         return;
@@ -858,7 +833,7 @@ function handlePointerMove(event: PointerEvent) {
         }
         return;
     }
-    if (!pointerGesture.isActive.value) {
+    if (!pointerGesture.isActive.value || capturedPointerId !== event.pointerId) {
         return;
     }
     const point = pointFromEvent(event);
@@ -885,21 +860,30 @@ function markClickSuppressed() {
     suppressNextClick = true;
 }
 
-function handlePointerUp(event: PointerEvent) {
+async function handlePointerUp(event: PointerEvent) {
     const textSelection = pointerGesture.finishTextSelection(event);
     if (textSelection) {
         if (textSelection.hasMoved) selectTextFromPointer(textSelection.start, event);
         releasePointer(event);
         return;
     }
-    if (!pointerGesture.isActiveForPointer(event.pointerId)) {
+    if (!pointerGesture.isActiveForPointer(event.pointerId) || capturedPointerId !== event.pointerId) {
         return;
     }
     const point = pointFromEvent(event);
     const resizeHandle = pointerGesture.resizeHandle.value;
-    const completion = point ? pointerGesture.finish(point, event) : null;
-    surface.endPointerInteraction(props.pageIndex);
+    if (point) pointerGesture.update(point, event);
+    const selection = surface.selectedIds.value;
+    const pending = point && draggedAnnotationId.value === editingId.value ? prepareTextBoxGeometryChange() : undefined;
     releasePointer(event);
+    surface.endPointerInteraction(props.pageIndex);
+    if (pending) {
+        focusLayer();
+        try { await pending; } catch (error) { if (pointerGesture.current.value === point) cancelPointerGesture(); throw error; }
+        if (pointerGesture.current.value !== point) return;
+        if (surface.selectedIds.value.size !== selection.size || [...selection].some(id => !surface.selectedIds.value.has(id))) { cancelPointerGesture(); return; }
+    }
+    const completion = point ? pointerGesture.finish(point, event) : null;
     isCreating.value = false;
     draggedAnnotationId.value = null;
     const draft = shapeDraft.value;
@@ -1005,10 +989,9 @@ function handlePointerUp(event: PointerEvent) {
 
 function handleLostPointerCapture(event: PointerEvent) {
     if (isReleasedMouseCapture(event)) {
-        handlePointerUp(event);
-    } else {
-        handlePointerCancel(event);
+        return handlePointerUp(event);
     }
+    return handlePointerCancel(event);
 }
 
 function handlePointerCancel(event: PointerEvent) {
@@ -1019,7 +1002,6 @@ function handlePointerCancel(event: PointerEvent) {
     if (!pointerGesture.isActiveForPointer(event.pointerId)) {
         return;
     }
-    releasePointer(event);
     cancelPointerGesture();
 }
 
@@ -1127,6 +1109,7 @@ async function commitTextBox(
         if (textChanged || rectChanged) {
             surface.setTextBoxDraftPending(annotationId, draft.text);
             const protection = surface.protectTextBoxDraft(annotationId);
+            if (draft.restoreFocus) void nextTick(focusLayer);
             if (protection) await protection;
             surface.commitGesture(annotationId, {
                 ...(textChanged ? {text: draft.text} : {}),
@@ -1162,3 +1145,11 @@ onBeforeUnmount(() => {
     pointerGesture.cancel();
 });
 </script>
+
+<style scoped>
+.is-original-appearance :deep([data-annotation-visual]),
+.is-original-appearance :deep(.pdf-annotation-editor-stamp__image),
+.is-original-appearance :deep(.iconify) {
+    visibility: hidden;
+}
+</style>

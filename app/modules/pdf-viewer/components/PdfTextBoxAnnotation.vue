@@ -13,7 +13,7 @@
         :aria-label="entity.text || t('annotations.annotationLabel')"
         @mousedown.stop
         @pointerdown.stop="emit('pointer-down', $event)"
-        @dblclick.stop="handleEdit"
+        @dblclick.stop="!editing && emit('edit', $event)"
     >
         <span
             v-if="frameStyle"
@@ -34,7 +34,7 @@
             @keydown="handleKeydown"
             @blur="handleBlur"
         ></div>
-        <template v-else>{{ entity.text }}</template>
+        <template v-else>{{ recoveredDraftText ?? entity.text }}</template>
     </div>
 </template>
 
@@ -62,6 +62,7 @@ const props = defineProps<{
     entity: ITextBoxEntity;
     selected: boolean;
     editing?: boolean;
+    originalAppearance?: boolean;
     recoveredDraftText?: string | null;
     recoveredDraftRect?: IAnnotationMarkerRect | null;
     autoSizeDraft?: boolean;
@@ -84,6 +85,7 @@ const emit = defineEmits<{
 }>();
 const { t } = useTypedI18n();
 const editing = computed(() => props.editing ?? false);
+const paintsOriginal = computed(() => props.entity.readOnly === true || props.originalAppearance === true);
 const rootRef = ref<HTMLElement | null>(null);
 const draftRect = ref<IAnnotationMarkerRect | null>(null);
 const inlineEdit = useTextBoxInlineEdit({
@@ -92,7 +94,7 @@ const inlineEdit = useTextBoxInlineEdit({
     recoveredDraftText: computed(() => props.recoveredDraftText ?? null),
     caretPoint: computed(() => props.caretPoint ?? null),
     onCommit: (text, options) => {
-        const rect = draftRect.value ?? props.recoveredDraftRect ?? draftRectForContent();
+        const rect = draftRect.value ?? props.recoveredDraftRect ?? (text !== props.entity.text ? draftRectForContent() : undefined);
         if (!props.commitDraft) throw new Error('Missing text draft completion owner');
         return props.commitDraft({
             text,
@@ -112,10 +114,10 @@ const {
 
 watch(editing, async (value) => {
     draftRect.value = props.recoveredDraftRect ?? null;
-    if (value && !props.recoveredDraftRect) { await nextTick(); draftRectForContent(); }
+    if (value && !props.recoveredDraftRect && (props.autoSizeDraft || props.recoveredDraftText != null && props.recoveredDraftText !== props.entity.text)) { await nextTick(); draftRectForContent(); }
 }, {immediate: true});
 onMounted(() => {
-    void document.fonts?.ready.then(() => {if (editing.value) {draftRectForContent();}});
+    void document.fonts?.ready.then(() => {if (editing.value && (draftRect.value || props.autoSizeDraft || inlineEdit.draftText.value !== props.entity.text)) {draftRectForContent();}});
 });
 
 watch(() => props.entity.fontSize, async () => {
@@ -124,7 +126,7 @@ watch(() => props.entity.fontSize, async () => {
 
 watch(() => props.entity.rect, async (rect, previous) => {
     if (annotationRectsEqual(rect, previous)) return;
-    draftRect.value = null;
+    draftRect.value = editing.value ? rect : null;
     if (editing.value) { await nextTick(); draftRectForContent(); }
 });
 
@@ -147,6 +149,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
         || !Number.isFinite(pageRect.width)
         || !Number.isFinite(pageRect.height)
     ) {
+        emit('draft-change', inlineEdit.draftText.value);
         return undefined;
     }
     const viewRotation = Number(page?.dataset.viewRotation ?? 0);
@@ -240,13 +243,13 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
         editor.style.overflowWrap = editorOverflowWrap;
     }
     draftRect.value = next;
+    emit('draft-change', inlineEdit.draftText.value);
     return annotationRectsEqual(next, props.entity.rect) ? undefined : next;
 }
 
 function handleInputEvent(event: Event) {
     handleInput(event);
     draftRectForContent();
-    emit('draft-change', inlineEdit.draftText.value);
 }
 
 function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize = props.entity.fontSize): IAnnotationMarkerRect | null {
@@ -325,6 +328,7 @@ const frameStyle = computed(() => {
     }
     return {
         position: 'absolute' as const,
+        visibility: paintsOriginal.value ? 'hidden' as const : undefined,
         inset: frameInsets.value.map(inset => toPdfScaledCssLength(inset)).join(' '),
         // An inset shadow keeps the stroke's exact width; a CSS border snaps to device pixels.
         boxShadow: frame.borderColor ? `inset 0 0 0 ${toPdfScaledCssLength(frame.borderWidth)} ${frame.borderColor}` : 'none',
@@ -344,30 +348,22 @@ const framePadding = computed(() => {
 });
 
 const rectStyle = computed(() => ({
-    left: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).left * 100}%`,
-    top: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).top * 100}%`,
-    width: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).width * 100}%`,
-    height: `${(props.displayRect ?? draftRect.value ?? props.entity.rect).height * 100}%`,
+    left: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).left * 100}%`,
+    top: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).top * 100}%`,
+    width: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).width * 100}%`,
+    height: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).height * 100}%`,
     // pdf.js draws a read-only label: its box only takes the pointer.
-    color: props.entity.readOnly ? 'transparent' : props.entity.color ?? 'var(--ui-text)',
+    color: paintsOriginal.value ? 'transparent' : props.entity.color ?? 'var(--ui-text)',
+    caretColor: props.entity.color ?? 'var(--ui-text)',
     cursor: props.entity.readOnly ? 'default' : undefined,
     fontSize: toPdfScaledCssLength(props.displayFontSize ?? props.entity.fontSize),
     transform: `rotate(${props.entity.rotation}deg)`,
     ...framePadding.value,
 }));
 
-function handleEdit(event: MouseEvent) {
-    if (!editing.value) {
-        emit('edit', {
-            clientX: event.clientX,
-            clientY: event.clientY,
-        });
-    }
-}
-
 defineExpose({
     commitDraft: commit,
-    getDraftRect: () => ({...(draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect)}),
+    getDraftRect: () => toRaw(draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect),
     getDraftText: () => inlineEdit.draftText.value,
     fitRectToContent,
 });

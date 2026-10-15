@@ -24,7 +24,6 @@ const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note 
 type TPdfViewerPublicApiRefBackedKeys =
     | 'annotationHistoryResetVersion'
     | 'hasShapes'
-    | 'isCapturingRegion'
     | 'isCropSelecting'
     | 'pageMetrics'
     | 'pageMetricsVersion'
@@ -37,7 +36,7 @@ type TPdfViewerRefBackedSource = {
 };
 
 type TPdfViewerPublicApiSource = Merge<
-    Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys>,
+    Omit<IPdfViewerExpose, TPdfViewerPublicApiRefBackedKeys | 'captureRegionToClipboard' | 'captureVisibleRegionAsPng' | 'isCapturingRegion'>,
     TPdfViewerRefBackedSource
 >;
 
@@ -67,8 +66,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
     preparePageMutationRevisionSwap?: IPdfViewerExpose['preparePageMutationRevisionSwap'];
     beginPageRotationPreview?: IPdfViewerExpose['beginPageRotationPreview'];
     cancelPageRotationPreview?: IPdfViewerExpose['cancelPageRotationPreview'];
-    captureRegionToClipboard: IPdfViewerExpose['captureRegionToClipboard'];
-    isCapturingRegion: TPdfViewerPublicApiSource['isCapturingRegion'];
     startCropSelection: IPdfViewerExpose['startCropSelection'];
     cancelCropSelection: IPdfViewerExpose['cancelCropSelection'];
     isCropSelecting: TPdfViewerPublicApiSource['isCropSelecting'];
@@ -190,12 +187,12 @@ export const usePdfViewerPublicApiController = (
         // same question as `createPointNoteAnnotation`, so it derives its
         // answer from the same rule rather than testing the status by hand.
         commentAtPoint: async (pageNumber, pageX, pageY, pointOptions) => projectAnnotationCreationOutcome(
-            await annotationRuntime.highlightComposable.commentAtPoint(
+            await Promise.resolve(annotationRuntime.highlightComposable.commentAtPoint(
                 pageNumber,
                 pageX,
                 pageY,
                 pointOptions ?? {},
-            ),
+            )),
             POINT_NOTE_CANCELLED_REASON,
         ).created,
         createPointNoteAnnotation: async (target) => {
@@ -228,7 +225,7 @@ export const usePdfViewerPublicApiController = (
             const pointOptions = target.preferTextAnchor === undefined
                 ? {}
                 : {preferTextAnchor: target.preferTextAnchor};
-            const outcome = await annotationRuntime.highlightComposable.commentAtPoint(
+            const outcome = annotationRuntime.highlightComposable.commentAtPoint(
                 pageNumber,
                 pageX,
                 pageY,
@@ -399,8 +396,6 @@ export const usePdfViewerPublicApiController = (
             stableKey,
             { source: 'user' },
         ),
-        captureRegionToClipboard: options.captureRegionToClipboard,
-        isCapturingRegion: options.isCapturingRegion,
         startCropSelection: options.startCropSelection,
         cancelCropSelection: options.cancelCropSelection,
         isCropSelecting: options.isCropSelecting,

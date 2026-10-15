@@ -2,6 +2,8 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
     IPdfPage,
+    IPdfDocument,
+    IPdfAnnotation,
     IPdfRenderTask,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {
@@ -24,6 +26,7 @@ import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-re
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { ILinkAnnotation } from '@app/types/annotations';
+import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 
 export interface IPdfRendererSearchNavigationOptions {
@@ -71,8 +74,8 @@ export interface IUsePdfPageRendererOptions {
     linkAnnotations?: Ref<ILinkAnnotation[]> | undefined;
     getRenderVersion: () => number;
     getRenderDocumentToken: () => string;
-    getCommittedCanvas: (pageNumber: TPageNumber) => HTMLCanvasElement | null;
-    requestSearchPageRaster: (pageNumber: TPageNumber) => Promise<void>;
+    getCommittedRender: (pageNumber: TPageNumber) => IPdfLayerRenderResult | null;
+    requestSearchPageRaster: (pageNumber: TPageNumber, replace?: boolean) => Promise<void>;
 }
 
 export interface ICancelableRenderTask {
@@ -107,6 +110,26 @@ export interface IPdfLayerRenderResult {
     };
     userUnit: number;
     totalScaleFactor: number;
+    annotationInput?: IPdfAnnotationRenderInput | undefined;
+    annotationOutput?: Readonly<{
+        annotationMode: number;
+        requestedSeparateCanvas: boolean;
+        separateAnnots: unknown;
+        ownCanvases: ReadonlyArray<readonly [string, HTMLCanvasElement]>;
+    }> | undefined;
+}
+
+/** Immutable inputs of the actual render, retained by its committed page slot. */
+export interface IPdfAnnotationRenderInput {
+    readonly document: IPdfDocument;
+    readonly original: IPdfAnnotationParseResult | null;
+    readonly annotations: readonly IPdfAnnotation[];
+    readonly semanticInputs: ReadonlyArray<Readonly<{
+        ref: string | null;
+        fingerprint: string
+    }>>;
+    readonly excludedIds: ReadonlySet<string>;
+    readonly signature: string;
 }
 
 export interface IPdfPageLayerRenderContext {

@@ -447,8 +447,49 @@ async function readTextBoxComputedStyle(
     }, annotationId ?? null);
 }
 
-async function readFirstTextBoxComputedStyle(page: Parameters<typeof evaluateInPage>[0]) {
-    return readTextBoxComputedStyle(page);
+async function readTextBoxPaintedStyle(
+    page: Parameters<typeof evaluateInPage>[0],
+    annotationId: string,
+    expectedColor: string,
+) {
+    const style = await readTextBoxComputedStyle(page, annotationId);
+    if (!style) return null;
+    const colorMatches = await page.evaluate((expected: {
+        id: string;
+        color: string;
+    }) => {
+        const textBox = Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
+        )).find(entity => entity.dataset.annotationId === expected.id);
+        const canvas = textBox?.closest('.page_container')?.querySelector<HTMLCanvasElement>(
+            '.page_canvas__render-layer canvas',
+        );
+        const context = canvas?.getContext('2d');
+        if (!textBox || !canvas || !context) return false;
+        const box = textBox.getBoundingClientRect();
+        const bounds = canvas.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0 || bounds.width <= 0 || bounds.height <= 0) return false;
+        const left = Math.max(0, Math.floor((box.left - bounds.left) * canvas.width / bounds.width));
+        const top = Math.max(0, Math.floor((box.top - bounds.top) * canvas.height / bounds.height));
+        const right = Math.min(canvas.width, Math.ceil((box.right - bounds.left) * canvas.width / bounds.width));
+        const bottom = Math.min(canvas.height, Math.ceil((box.bottom - bounds.top) * canvas.height / bounds.height));
+        if (right <= left || bottom <= top) return false;
+        const rgb = expected.color.match(/^rgb\((\d+), (\d+), (\d+)\)$/u)?.slice(1).map(Number);
+        if (!rgb) throw new Error(`Expected an opaque text color, received ${expected.color}`);
+        const pixels = context.getImageData(left, top, right - left, bottom - top).data;
+        for (let index = 0; index < pixels.length; index += 4) {
+            if (pixels[index] === rgb[0] && pixels[index + 1] === rgb[1]
+                && pixels[index + 2] === rgb[2] && pixels[index + 3] === 255) return true;
+        }
+        return false;
+    }, {
+        id: annotationId,
+        color: expectedColor,
+    });
+    return {
+        ...style,
+        color: colorMatches ? expectedColor : null,
+    };
 }
 
 async function increaseSelectedTextBoxFontSize(page: Parameters<typeof evaluateInPage>[0]) {
@@ -1153,7 +1194,11 @@ describe('Electron E2E - native save and reopen', () => {
         await expect.poll(async () => canonicalAnnotationFingerprint(
             await readCanonicalAnnotationSnapshot(session!.page),
         ), {timeout: 20_000}).toBe(finalFingerprint);
-        expect(await readFirstTextBoxComputedStyle(session.page)).toEqual(finalStyle);
+        await expect.poll(() => readTextBoxPaintedStyle(
+            session!.page,
+            annotationId,
+            finalStyle?.color ?? '',
+        ), {timeout: 20_000}).toEqual(finalStyle);
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('edits a fixture text box and preserves its foreign dictionary keys through save', async () => {
@@ -1269,6 +1314,11 @@ describe('Electron E2E - native save and reopen', () => {
             '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
         )?.textContent ?? null), {timeout: 20_000}).toBe(editedText);
         await pressModifiedKey(session.page, 'Enter');
+        await session.page.waitForFunction((id: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
+        )).some(entity => entity.dataset.annotationId === id
+            && !entity.classList.contains('is-editing')
+            && entity.getClientRects().length > 0), {timeout: 20_000}, annotationId);
         await expect.poll(async () => stringField(
             findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), editedText) ?? {},
             'text',
@@ -1303,7 +1353,11 @@ describe('Electron E2E - native save and reopen', () => {
             findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), editedText) ?? {},
             'text',
         ), {timeout: 20_000}).toBe(editedText);
-        expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(editedStyle);
+        await expect.poll(() => readTextBoxPaintedStyle(
+            session!.page,
+            annotationId,
+            editedStyle.color,
+        ), {timeout: 20_000}).toEqual(editedStyle);
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('repairs a metadata-rich PDF with a dirty annotation and reopens the repaired result', async () => {
@@ -1313,10 +1367,16 @@ describe('Electron E2E - native save and reopen', () => {
             initialOpenPaths: [pdfPath],
         });
         await waitForOpenedPdf(session, pdfPath);
-        await createCanonicalTextBoxWithPointer(session.page, 'Repair annotation survives', {
+        const annotationId = await createCanonicalTextBoxWithPointer(session.page, 'Repair annotation survives', {
             x: 0.3,
             y: 0.35,
         });
+        await session.page.waitForFunction((id: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
+        )).some(entity => entity.dataset.annotationId === id
+            && entity.innerText === 'Repair annotation survives'
+            && !entity.classList.contains('is-editing')
+            && entity.getClientRects().length > 0), {timeout: 20_000}, annotationId);
         expect((await readAnnotationDirtyState(session.page))?.annotationDirty).toBe(true);
 
         await expect(callWorkspaceCommand<boolean>(session.page, 'handleRepairSave')).resolves.toEqual({

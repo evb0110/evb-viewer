@@ -25,7 +25,7 @@ export const usePdfHistory = (deps: {
     openSurface?: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'> | undefined;
     currentPage: Ref<number>;
     isAnySaving: Ref<boolean>;
-    isHistoryBusy: Ref<boolean>;
+    prepareHistory: () => void | Promise<void>;
     canUndo: Ref<boolean>;
     canRedo: Ref<boolean>;
     nextUndoSource: Ref<TWorkspaceUndoSource | null>;
@@ -42,7 +42,7 @@ export const usePdfHistory = (deps: {
         openSurface,
         currentPage,
         isAnySaving,
-        isHistoryBusy,
+        prepareHistory,
         canUndo,
         canRedo,
         nextUndoSource,
@@ -116,58 +116,39 @@ export const usePdfHistory = (deps: {
     }
 
     async function runTimelineHistoryRoute(
-        route: Extract<THistoryRoute, {kind: 'command';}>,
+        direction: THistoryDirection,
         runHistory: () => Promise<boolean>,
     ) {
-        if (isHistoryBusy.value) {
+        await prepareHistory();
+        const route = resolveHistoryRoute(direction);
+        if (route.kind === 'blocked') {
             return false;
         }
-        isHistoryBusy.value = true;
-        try {
-            const historySource = route.source;
-            if (!historySource) {
-                reportMissingTimelineSource(route);
-                return false;
-            }
-            if (historySource === 'file' && workingCopyPath.value) {
-                clearOcrCache(workingCopyPath.value);
-            }
-            const pageToRestore = currentPage.value;
-            const reloadWaiter = historySource === 'file'
-                ? preparePdfReloadWaiter(pageToRestore)
-                : null;
-            const didRun = await runHistory();
-            if (didRun && reloadWaiter) {
-                await reloadWaiter.promise;
-            } else if (reloadWaiter) {
-                reloadWaiter.cancel();
-            }
-            return didRun;
-        } finally {
-            isHistoryBusy.value = false;
+        const historySource = route.source;
+        if (!historySource) {
+            reportMissingTimelineSource(route);
+            return false;
         }
-    }
-
-    async function handleUndo() {
-        const route = resolveHistoryRoute('undo');
-        if (route.kind === 'blocked') {
-            return;
+        if (historySource === 'file' && workingCopyPath.value) {
+            clearOcrCache(workingCopyPath.value);
         }
-        await runTimelineHistoryRoute(route, undoHistory);
-    }
-
-    async function handleRedo() {
-        const route = resolveHistoryRoute('redo');
-        if (route.kind === 'blocked') {
-            return;
+        const pageToRestore = currentPage.value;
+        const reloadWaiter = historySource === 'file'
+            ? preparePdfReloadWaiter(pageToRestore)
+            : null;
+        const didRun = await runHistory();
+        if (didRun && reloadWaiter) {
+            await reloadWaiter.promise;
+        } else if (reloadWaiter) {
+            reloadWaiter.cancel();
         }
-        await runTimelineHistoryRoute(route, redoHistory);
+        return didRun;
     }
 
     return {
         preparePdfReloadWaiter,
         waitForPdfReload,
-        handleUndo,
-        handleRedo,
+        handleUndo: () => runTimelineHistoryRoute('undo', undoHistory),
+        handleRedo: () => runTimelineHistoryRoute('redo', redoHistory),
     };
 };

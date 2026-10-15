@@ -3,6 +3,7 @@
         ref="viewerHost"
         class="relative min-h-full w-full"
         data-pdf-viewer-host
+        :class="{ 'is-capture-clean': regionSnip.isCleanPaint.value }"
     >
         <template v-if="props.mountPresentation !== false">
             <PdfViewerViewport
@@ -403,3 +404,28 @@ onBeforeUnmount(() => {
 defineExpose(pdfViewerPublicApi);
 </script>
 <style lang="scss" src="@app/assets/css/pdf-viewer.scss"></style>
+
+<style scoped>
+/* css-important-allow: clean capture suppresses inline annotation-tool cursors and editing carets only while reading the composed frame. */
+.is-capture-clean :deep(*) {
+    cursor: none !important;
+    caret-color: transparent !important;
+}
+
+.is-capture-clean :deep(*::selection) {
+    background: transparent;
+    color: inherit;
+}
+
+.is-capture-clean :deep(.pdf-annotation-selection-handles),
+.is-capture-clean :deep(.pdf-annotation-editor-highlight-outline),
+.is-capture-clean :deep(.pdf-annotation-editor-text-box-preview) { visibility: hidden; }
+.is-capture-clean :deep(.pdf-annotation-editor-entity) { outline: none; }
+
+.is-capture-clean :deep(.pdf-annotation-editor-note.is-selected) {
+    border-color: color-mix(in srgb, var(--annotation-note-color) 62%, var(--ui-border) 38%);
+    background: color-mix(in srgb, var(--annotation-note-color) 20%, var(--ui-bg) 80%);
+    opacity: 0.82;
+}
+.is-capture-clean :deep(.pdf-annotation-editor-stamp.is-selected) { border-color: currentcolor; }
+</style>

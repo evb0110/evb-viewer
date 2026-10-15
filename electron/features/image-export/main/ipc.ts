@@ -5,6 +5,7 @@ import {
 import {
     BrowserWindow,
     dialog,
+    screen,
     type IpcMainInvokeEvent,
     type WebContents,
 } from 'electron';
@@ -26,12 +27,13 @@ import {
     getPdfPageCount,
     IMAGE_EXPORT_ROLLBACK_ERROR_NAME,
     validateImageExportPath,
-    rasterizePdfRegionAsPngBytes,
 } from '@electron/features/image-export/main/export';
 import { te } from '@electron/te';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import {
     IMAGE_EXPORT_PLATFORM_FEATURE,
+    assertCaptureImageBudget,
+    readCapturePngSize,
     type IImageExportProgress,
     type TImageExportProgressFormat,
 } from '@contracts/imageExportPlatformFeature';
@@ -140,10 +142,6 @@ const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExport
         }),
     },
 });
-
-function subscribeImageExportProgress(sender: Electron.WebContents) {
-    imageExportJobs.subscribeOwner({sender});
-}
 
 function validatePdfWorkingCopyRef(path: unknown, senderWebContentsId: number) {
     if (!path || typeof path !== 'string' || path.trim() === '') {
@@ -445,31 +443,6 @@ export async function handlePdfExportImages(
     });
 }
 
-export async function handlePdfRegionRasterize(
-    context: IImageExportOperationContext,
-    workingCopyPath: string,
-    pageNumber: number,
-    region: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        outputWidth: number;
-        outputHeight: number
-    },
-) {
-    const normalizedPath = validatePdfWorkingCopyRef(workingCopyPath, context.senderId);
-    return runWithWorkingCopyReadBacking<Uint8Array>(
-        normalizedPath,
-        async physicalReadPath => {
-            const pageCount = await getPdfPageCount(physicalReadPath);
-            if (pageNumber > pageCount) throw new Error(`Page number ${pageNumber} exceeds PDF page count (${pageCount})`);
-            return rasterizePdfRegionAsPngBytes(physicalReadPath, pageNumber, region);
-        },
-        {ownerWebContentsId: context.senderId},
-    );
-}
-
 export async function handlePdfExportMultiPageTiff(
     context: IImageExportOperationContext,
     workingCopyPath: string,
@@ -553,11 +526,35 @@ function createImageExportOperationContext(context: {
 }
 
 export const imageExportMainBindings = {
-    rasterizePdfRegion: (context, ...args) =>
-        handlePdfRegionRasterize(createImageExportOperationContext(context), ...args),
+    captureCurrentView: async ({sender}, region) => {
+        const window = BrowserWindow.fromWebContents(sender);
+        if (!window || sender.isDestroyed()) throw new Error('Capture view is unavailable');
+        const zoom = sender.getZoomFactor();
+        const [
+            width,
+            height,
+        ] = window.getContentSize();
+        const scale = screen.getDisplayMatching(window.getBounds()).scaleFactor * zoom;
+        if (zoom !== 1 || width !== region.viewportWidth || height !== region.viewportHeight
+            || Math.abs(scale - region.pixelRatio) > 0.01) throw new Error('Capture viewport changed');
+        assertCaptureImageBudget(Math.ceil(region.width * scale), Math.ceil(region.height * scale));
+        const image = await sender.capturePage({
+            x: region.x,
+            y: region.y,
+            width: region.width,
+            height: region.height,
+        }, {stayHidden: true});
+        if (image.isEmpty() || sender.isDestroyed() || sender.getZoomFactor() !== zoom
+            || window.getContentSize()[0] !== width || window.getContentSize()[1] !== height) throw new Error('Capture view changed');
+        assertCaptureImageBudget(image.getSize().width, image.getSize().height);
+        const bytes = new Uint8Array(image.toPNG());
+        const size = readCapturePngSize(bytes);
+        if (Math.abs(size.width - region.width * scale) > 1 || Math.abs(size.height - region.height * scale) > 1) throw new Error('Capture density changed');
+        return bytes;
+    },
     exportImages: (context, ...args) =>
         handlePdfExportImages(createImageExportOperationContext(context), ...args),
     exportMultiPageTiff: (context, ...args) =>
         handlePdfExportMultiPageTiff(createImageExportOperationContext(context), ...args),
-    subscribeProgress: context => subscribeImageExportProgress(context.sender),
+    subscribeProgress: ({sender}) => imageExportJobs.subscribeOwner({sender}),
 } satisfies TFeatureMainBindings<typeof IMAGE_EXPORT_PLATFORM_FEATURE, IpcMainInvokeEvent>;

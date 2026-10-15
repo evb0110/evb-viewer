@@ -918,6 +918,7 @@ describe('Electron E2E - text interaction contract', () => {
         }) => document.elementFromPoint(x, y)?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id') ?? null, away)).toBeNull();
         await page.mouse.click(away.x, away.y);
         await expect.poll(async () => (await frame(page)).focused).toBe(false);
+        await expect.poll(() => page.$eval(BOX, element => element.classList.contains('is-editing'))).toBe(false);
         expect(await page.$$(BOX)).toHaveLength(1);
         const before = await frame(page);
         const x = before.x + before.width / 2;
@@ -992,6 +993,9 @@ describe('Electron E2E - text interaction contract', () => {
         await page.mouse.move(point.x, point.y);
         await page.mouse.down();
         await page.mouse.move(point.x + 70, point.y + 40, {steps: 8});
+        const preview = await frame(page);
+        expect(preview.width).toBeCloseTo(before.width, 0);
+        expect(preview.height).toBeCloseTo(before.height, 0);
         await page.mouse.up();
         const moved = await frame(page);
         expect(moved.x - before.x).toBeCloseTo(70, 0);
@@ -999,7 +1003,7 @@ describe('Electron E2E - text interaction contract', () => {
         expect(moved.text).toBe('Visible grip');
         expect(moved.focused).toBe(false);
         await modifiedKey(page, 'KeyZ');
-        expect((await frame(page)).x).toBeCloseTo(before.x, 0);
+        await expect.poll(async () => (await frame(page)).x).toBeCloseTo(before.x, 0);
         expect((await frame(page)).text).toBe('Visible grip');
         await page.mouse.click(before.x + before.width / 2, before.y + before.height / 2, {count: 2});
         await page.waitForSelector(`${BOX} [contenteditable="true"]`, {visible: true});
@@ -1039,6 +1043,8 @@ describe('Electron E2E - text interaction contract', () => {
         await page.mouse.move(end.x, end.y, {steps: 8});
         const preview = await frame(page);
         expect(preview.x - before.x).toBeCloseTo(-180, 0);
+        expect(preview.width).toBeCloseTo(before.width, 0);
+        expect(preview.height).toBeCloseTo(before.height, 0);
         const cdp = await page.createCDPSession();
         // macOS can report released buttons on the final move before pointerup.
         // Chromium then drops capture before delivering that move and release.
@@ -1055,6 +1061,7 @@ describe('Electron E2E - text interaction contract', () => {
         expect(released.x).toBeCloseTo(preview.x, 0);
         expect(released.y).toBeCloseTo(preview.y, 0);
         await modifiedKey(page, 'KeyZ');
+        await expect.poll(async () => (await frame(page)).x).toBeCloseTo(before.x, 0);
         const undone = await frame(page);
         expect(undone.x).toBeCloseTo(before.x, 0);
         expect(undone.text).toBe('Released mouse');

@@ -210,16 +210,21 @@ describe('browser document lifecycle UI', () => {
             const page = await context.newPage();
             // Fault setup only: retain the committed canvas while PDF.js's
             // text/link layers stay pending or fall back to canvas-only.
-            await page.route('**/*usePdfPageRenderer.ts*', async (route) => {
+            await page.route('**/*usePdfAnnotationLayerRenderer.ts*', async (route) => {
                 const response = await route.fetch();
                 const body = await response.text();
-                const marker = 'container.dataset.pageLayerReadiness = "hydrating";';
+                const marker = 'const renderToken = ++annotationLayerRenderToken;';
                 if (!body.includes(marker)) throw new Error('PDF.js layer hydration fault seam was not found');
-                const hold = readiness === 'hydrating' ? 'await new Promise(() => {});' : 'return;';
+                const hold = readiness === 'hydrating'
+                    ? 'document.body.dataset.optionalHydrationFault = "held"; annotationLayerDiv.dataset.hydrationFault = "held"; try { await raceWithAnnotationAbort(new Promise(() => {}), pageNumber, options); } finally { annotationLayerDiv.dataset.hydrationFault = "settled"; }'
+                    : 'document.body.dataset.optionalHydrationFault = "refused"; const refusal = new Error("Injected optional annotation hydration refusal"); refusal.name = "AbortError"; throw refusal;';
                 await route.fulfill({
                     response,
-                    body: body.replace(marker, `${marker} ${hold}`),
+                    body: body.replace(marker, `${hold} ${marker}`),
                 });
+            });
+            await page.addInitScript(() => {
+                Reflect.set(window, 'showSaveFilePicker', undefined);
             });
             await openPdfFromChooser(page, {
                 name: 'pending-layers-note.pdf',
@@ -228,11 +233,16 @@ describe('browser document lifecycle UI', () => {
             });
             const pageContainer = page.locator('.page_container[data-page="1"]').first();
             await page.locator('.page_container--rendered canvas').first().waitFor({state: 'visible'});
-            await page.waitForFunction(value => document.querySelector('.page_container[data-page="1"]')?.getAttribute('data-page-layer-readiness') === value, readiness);
-            await page.getByRole('button', {
+            await page.waitForFunction(value => document.body.dataset.optionalHydrationFault === value, readiness === 'hydrating' ? 'held' : 'refused');
+            if (readiness === 'hydrating') {
+                await expect.poll(() => pageContainer.locator('.annotation-layer').getAttribute('data-hydration-fault')).toBe('held');
+            }
+            const placeNote = page.getByRole('button', {
                 name: 'Place a sticky note on the page.',
                 exact: true,
-            }).click();
+            });
+            expect(await placeNote.isEnabled()).toBe(true);
+            await placeNote.click();
             await page.getByRole('button', {
                 name: 'Click inside the document to place a sticky note.',
                 exact: true,
@@ -247,6 +257,219 @@ describe('browser document lifecycle UI', () => {
             const text = `Note placed while PDF.js layers remain ${readiness}`;
             await input.fill(text);
             expect(await input.inputValue()).toBe(text);
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).click();
+            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
+                .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText())).toContain(text);
+            const heldLayer = readiness === 'hydrating'
+                ? await pageContainer.locator('.annotation-layer[data-hydration-fault="held"]').elementHandle()
+                : null;
+            if (readiness === 'hydrating') expect(heldLayer).not.toBeNull();
+            const canvas = page.locator('.page_container--rendered canvas').first();
+            const readCanvasWidth = () => canvas.evaluate(element => {
+                if (!(element instanceof HTMLCanvasElement)) throw new Error('The painted page is not a canvas');
+                return element.width;
+            });
+            const width = await readCanvasWidth();
+            await page.getByRole('button', {name: /^Zoom In/u}).first().click();
+            await expect.poll(readCanvasWidth, {timeout: 15_000}).not.toBe(width);
+            if (heldLayer) {
+                expect(await heldLayer.evaluate(element => element.getAttribute('data-hydration-fault'))).toBe('settled');
+            }
+            await placeNote.click();
+            const replacementBounds = await pageContainer.boundingBox();
+            if (!replacementBounds) throw new Error('The replacement PDF page is not visible');
+            await page.mouse.click(replacementBounds.x + 300, replacementBounds.y + 260);
+            await input.fill('Draft retained until closing the replaced page');
+            await page.getByRole('button', {name: 'Close tab'}).last().click();
+            await page.getByRole('button', {
+                name: 'Discard changes',
+                exact: true,
+            }).click();
+            await waitForOpenFileReady(page);
+        } finally {
+            await context.close();
+        }
+    }, 90_000);
+
+    it('keeps the selected own-canvas picture during Save and cancels held replacements without a stage timeout', async () => {
+        const pdf = await PDFDocument.create();
+        const sheet = pdf.addPage([
+            612,
+            792,
+        ]);
+        sheet.drawText('Committed page pixels remain beside the original appearance', {
+            x: 40,
+            y: 740,
+            size: 16,
+        });
+        const field = pdf.getForm().createTextField('required-own-canvas');
+        field.setText('Required original appearance');
+        field.enableReadOnly();
+        field.addToPage(sheet, {
+            x: 40,
+            y: 650,
+            width: 280,
+            height: 40,
+        });
+        const source = Buffer.from(await pdf.save());
+        const context = await lifecycle.browser.newContext({viewport: {
+            width: 1280,
+            height: 800,
+        }});
+        try {
+            const page = await context.newPage();
+            // Hold the actual producer only after an original picture exists.
+            await page.route('**/*usePdfAnnotationLayerRenderer.ts*', async (route) => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'const renderToken = ++annotationLayerRenderToken;';
+                if (!body.includes(marker)) throw new Error('Required annotation producer seam was not found');
+                const hold = `const faultRoot = document.querySelector('.page_container[data-page="' + pageNumber + '"]');
+                    const target = JSON.stringify([options?.documentVersion, viewport.width, viewport.height]);
+                    if (faultRoot?.getAttribute('data-required-hydration-fault') === 'armed'
+                        && viewport.width > Number(faultRoot.getAttribute('data-required-hydration-baseline-width'))) {
+                        faultRoot.setAttribute('data-required-hydration-target', target);
+                    }
+                    if (faultRoot?.getAttribute('data-required-hydration-target') === target) {
+                        faultRoot.setAttribute('data-required-hydration-fault', 'held');
+                        try { await raceWithAnnotationAbort(new Promise(() => {}), pageNumber, options); }
+                        finally { faultRoot.setAttribute('data-required-hydration-fault', 'settled'); }
+                    }`;
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker, `${hold} ${marker}`),
+                });
+            });
+            await page.route('**/*withPageStageTimeout.ts*', async (route) => {
+                const response = await route.fetch();
+                const body = await response.text();
+                const marker = 'onFire: () => {';
+                if (!body.includes(marker)) throw new Error('Existing stage-deadline observation seam was not found');
+                await route.fulfill({
+                    response,
+                    body: body.replace(marker, `${marker}
+                    if (options.payload.stage === 'annotation-layer') {
+                        document.body.dataset.requiredHydrationDeadlineFired = 'true';
+                    }`),
+                });
+            });
+            await openPdfFromChooser(page, {
+                name: 'required-annotation-picture.pdf',
+                mimeType: 'application/pdf',
+                buffer: source,
+            });
+            const container = page.locator('.page_container[data-page="1"]').first();
+            const annotationCanvas = container.locator('.annotation-layer canvas').first();
+            await annotationCanvas.waitFor({state: 'visible'});
+            const readCanvas = async (element: Element) => {
+                if (!(element instanceof HTMLCanvasElement)) throw new Error('The appearance is not a painted canvas');
+                const context = element.getContext('2d');
+                if (!context) throw new Error('The painted canvas has no pixel reader');
+                const width = element.width;
+                const height = element.height;
+                const rgba = context.getImageData(0, 0, width, height).data;
+                const pixels = element.toDataURL();
+                const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', rgba));
+                return {
+                    width,
+                    height,
+                    rgbaSHA256: Array.from(digest, value => value.toString(16).padStart(2, '0')).join(''),
+                    pixels,
+                };
+            };
+            const signature = (paint: Awaited<ReturnType<typeof readCanvas>>) => ({
+                width: paint.width,
+                height: paint.height,
+                rgbaSHA256: paint.rgbaSHA256,
+            });
+            const originalAppearance = await annotationCanvas.evaluate(readCanvas);
+            expect(originalAppearance.width).toBeGreaterThan(0);
+            expect(originalAppearance.height).toBeGreaterThan(0);
+            const placeNote = page.getByRole('button', {
+                name: 'Place a sticky note on the page.',
+                exact: true,
+            });
+            await placeNote.click();
+            const bounds = await container.boundingBox();
+            if (!bounds) throw new Error('The original painted page is not visible');
+            await page.mouse.click(bounds.x + 220, bounds.y + 240);
+            const input = page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            });
+            await input.fill('Selected picture survives a held producer');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            const selectedNote = container.locator('.pdf-annotation-editor-note.is-selected');
+            expect(await selectedNote.count()).toBe(1);
+            const originalRaster = await container.locator('.page_canvas__render-layer canvas').evaluate(readCanvas);
+            // Setup-only arming; the replacement itself uses trusted zoom input.
+            await container.evaluate(element => {
+                element.setAttribute('data-required-hydration-baseline-width', String(element.getBoundingClientRect().width));
+                element.removeAttribute('data-required-hydration-target');
+                element.setAttribute('data-required-hydration-fault', 'armed');
+            });
+            await page.getByRole('button', {name: /^Zoom In/u}).first().click();
+            await expect.poll(() => container.getAttribute('data-required-hydration-fault')).toBe('held');
+            expect(signature(await container.locator('canvas').first().evaluate(readCanvas))).toEqual(signature(originalRaster));
+            expect(signature(await annotationCanvas.evaluate(readCanvas))).toEqual(signature(originalAppearance));
+            expect(await selectedNote.count()).toBe(1);
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).click();
+            const savedBytes = readFileSync(await (await download).path());
+            const saved = await PDFDocument.load(savedBytes);
+            const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
+                .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText()))
+                .toContain('Selected picture survives a held producer');
+            // Save may retire this producer through an accepted successor.
+            // It must not depend on the stage deadline or lose the selection.
+            await expect.poll(() => container.getAttribute('data-required-hydration-fault'), {timeout: 15_000}).toBe('settled');
+            expect(await page.locator('body').getAttribute('data-required-hydration-deadline-fired')).toBeNull();
+            await expect.poll(() => container.getAttribute('data-page-layer-readiness'), {timeout: 15_000}).toBe('ready');
+            await expect.poll(async () => Number(await container.locator('canvas').first().getAttribute('width')), {timeout: 15_000}).toBeGreaterThan(originalRaster.width);
+            expect(await selectedNote.count()).toBe(1);
+            const savedRaster = await container.locator('.page_canvas__render-layer canvas').evaluate(readCanvas);
+            const savedAppearance = await annotationCanvas.evaluate(readCanvas);
+            await container.evaluate(element => {
+                element.setAttribute('data-required-hydration-baseline-width', String(element.getBoundingClientRect().width));
+                element.removeAttribute('data-required-hydration-target');
+                element.setAttribute('data-required-hydration-fault', 'armed');
+            });
+            await page.getByRole('button', {name: /^Zoom In/u}).first().click();
+            await expect.poll(() => container.getAttribute('data-required-hydration-fault')).toBe('held');
+            expect(signature(await container.locator('canvas').first().evaluate(readCanvas))).toEqual(signature(savedRaster));
+            expect(signature(await annotationCanvas.evaluate(readCanvas))).toEqual(signature(savedAppearance));
+            expect(await selectedNote.count()).toBe(1);
+            await page.getByRole('button', {name: /^Zoom In/u}).first().click();
+            await expect.poll(() => container.getAttribute('data-required-hydration-fault'), {timeout: 15_000}).toBe('settled');
+            await expect.poll(async () => signature(await container.locator('canvas').first().evaluate(readCanvas)), {timeout: 15_000}).not.toEqual(signature(savedRaster));
+            expect(await page.locator('body').getAttribute('data-required-hydration-deadline-fired')).toBeNull();
+            expect(await selectedNote.count()).toBe(1);
+            const retiredContainer = await container.elementHandle();
+            if (!retiredContainer) throw new Error('The replacement page is not mounted');
+            await container.evaluate(element => {
+                element.setAttribute('data-required-hydration-baseline-width', String(element.getBoundingClientRect().width));
+                element.removeAttribute('data-required-hydration-target');
+                element.setAttribute('data-required-hydration-fault', 'armed');
+            });
+            await page.getByRole('button', {name: /^Zoom In/u}).first().click();
+            await expect.poll(() => container.getAttribute('data-required-hydration-fault')).toBe('held');
+            await page.getByRole('button', {name: 'Close tab'}).last().click();
+            await waitForOpenFileReady(page);
+            expect(await retiredContainer.evaluate(element => element.getAttribute('data-required-hydration-fault'))).toBe('settled');
+            expect(await page.locator('body').getAttribute('data-required-hydration-deadline-fired')).toBeNull();
         } finally {
             await context.close();
         }

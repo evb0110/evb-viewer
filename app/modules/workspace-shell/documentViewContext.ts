@@ -352,11 +352,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
         if (!viewer || file.isDjvuMode.value) {
             return;
         }
-        void runDetached(async () => {
-            if (await save.ensureWorkingCopyFreshForRead()) {
-                await viewer.captureRegionToClipboard();
-            }
-        }, {
+        void runDetached(() => viewer.captureRegionToClipboard(), {
             category: 'user-visible-operation',
             scope: 'workspace',
             message: 'Failed to capture PDF region',

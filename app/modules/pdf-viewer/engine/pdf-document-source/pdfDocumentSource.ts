@@ -95,6 +95,8 @@ export interface IPdfAnnotation {
     readonly id?: string;
     readonly annotationType?: number;
     readonly subtype?: string;
+    readonly hasAppearance?: boolean;
+    readonly hasOwnCanvas?: boolean;
 }
 
 export interface IPdfRenderTask {
@@ -602,10 +604,6 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
     }
 
     async function openBlob(src: Blob, version: number, cancelled: Promise<void>) {
-        const blobSizeError = getBlobSizeError(src);
-        if (blobSizeError) {
-            throw blobSizeError;
-        }
         if (version !== options.getRenderVersion()) {
             return null;
         }

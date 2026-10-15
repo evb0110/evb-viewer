@@ -134,6 +134,12 @@ describe('browser PDF region screenshot', () => {
             await page.mouse.move(bounds.x + 300 * bounds.width / 612, y, {steps: 15});
             await page.mouse.up();
             await expect.poll(() => renderedPage.locator('[data-annotation-kind="text-markup"]').count()).toBe(2);
+            const sourceBefore = await page.evaluate(() => (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi).readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath);
+            const bytesBefore = await readPersistedDocumentBytes(page, sourceBefore!);
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
             await page.getByRole('button', {
                 name: 'Screenshot',
                 exact: true,
@@ -142,7 +148,22 @@ describe('browser PDF region screenshot', () => {
                 state: 'visible',
                 timeout: 15000,
             });
-            await page.keyboard.press('Escape');
+            expect(await readPersistedDocumentBytes(page, sourceBefore!)).toEqual(bytesBefore);
+            await page.keyboard.press('Enter');
+            await page.getByRole('button', {
+                name: 'Capture and copy',
+                exact: true,
+            }).waitFor({state: 'visible'});
+            await page.getByRole('button', {
+                name: 'Cancel',
+                exact: true,
+            }).click();
+            await page.locator('.snip-overlay.is-active').waitFor({state: 'hidden'});
+            expect(await readPersistedDocumentBytes(page, sourceBefore!)).toEqual(bytesBefore);
+            expect(await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).isEnabled()).toBe(true);
             const save = page.getByRole('button', {
                 name: 'Save',
                 exact: true,

@@ -5,7 +5,6 @@ import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type {Ref} from 'vue';
-import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
 import type {
     IPageRange,
     IPdfPageMatches,
@@ -18,7 +17,9 @@ import {
     getParsedPageAnnotations,
     isLinkAnnotation,
 } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
-import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {
+    IPdfPage, IPdfAnnotation,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {TPdfPageOperationSettlementCapture} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import { usePdfRendererSearchController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController';
 import { createPdfRendererPageDom } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/createPdfRendererPageDom';
@@ -31,6 +32,7 @@ import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engin
 import { createPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type {
     IPdfLayerRenderResult,
+    IPdfAnnotationRenderInput,
     IRenderVisiblePagesOptions,
     IUsePdfPageRendererOptions,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
@@ -44,7 +46,8 @@ interface IPdfAnnotationProjection {
     readonly canvasHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     readonly thumbnailHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     ensureAnnotationProjectionReady?: () => Promise<void>;
-    pageCommitted(pageNumber: TPageNumber): void;
+    readonly paintSignature: Readonly<Ref<string>>;
+    preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[]): IPdfAnnotationRenderInput | undefined;
 }
 
 interface ICommittedPdfPageRaster {
@@ -55,6 +58,7 @@ interface ICommittedPdfPageRaster {
     container: HTMLElement;
     renderResult: IPdfLayerRenderResult;
     renderOptions: IRenderVisiblePagesOptions;
+    signal?: AbortSignal;
 }
 
 /**
@@ -80,18 +84,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const searchPageMatches =
         options.searchPageMatches ?? new Map<number, IPdfPageMatches>();
     const currentSearchMatch = options.currentSearchMatch ?? null;
-    const currentSearchMatchNavigationId = options.currentSearchMatchNavigationId ?? 0;
-    const workingCopyPath = options.workingCopyPath ?? null;
-    const documentRevisionToken = options.documentRevisionToken ?? null;
-    const isActive = options.isActive ?? true;
     const outputScale = options.outputScale
         ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
     const renderSupervisor = options.renderSupervisor ?? createPdfRenderSupervisor();
     const textLayerRenderer = usePdfTextLayerRenderer({
         searchPageMatches,
         currentSearchMatch,
-        workingCopyPath,
-        documentRevisionToken,
+        workingCopyPath: options.workingCopyPath ?? null,
+        documentRevisionToken: options.documentRevisionToken ?? null,
         effectiveScale: viewport.scale.effectiveScale,
         viewportWritePort: viewport.viewportWritePort,
     });
@@ -108,6 +108,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
     });
     const pageRenderState = options.pageRenderState;
+    const annotationPaintSignature = computed(() => projection.value?.paintSignature.value ?? '');
     const textLayerCleanupFns = new Map<TPageNumber, () => void>();
     const activeTextLayerAbortControllers = new Map<TPageNumber, {
         version: number;
@@ -140,11 +141,22 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             prioritizeTextLayer: true,
         });
     }
-    function trackLayerHydrationSettlement(
-        pageNumber: TPageNumber,
-        task: Promise<void>,
-    ) {
+    function renderCommittedPageLayers(commit: ICommittedPdfPageRaster, publishRaster?: () => boolean) {
+        const pageNumber = commit.pageNumber;
+        const slot = pageRenderState.getSlot(pageNumber);
+        if (commit.signal?.aborted || options.getRenderVersion() !== commit.version
+            || slot.version !== commit.version || slot.requestId !== commit.requestId
+            || (slot.pendingContainer ?? slot.container) !== commit.container) return Promise.resolve();
+        annotationLayerController.cancel(pageNumber);
+        cancelActiveTextLayerRender(pageNumber);
+        const task = hydrateCommittedLayers(commit, publishRaster);
+        const cancelHydration = () => {
+            if (activeLayerHydrationTasks.get(pageNumber) !== pending) return;
+            annotationLayerController.cancel(pageNumber);
+            cancelActiveTextLayerRender(pageNumber);
+        };
         const pending = task.finally(() => {
+            commit.signal?.removeEventListener('abort', cancelHydration);
             if (activeLayerHydrationTasks.get(pageNumber) === pending) activeLayerHydrationTasks.delete(pageNumber);
             void runGuardedTask(
                 () => flushQueuedPrioritizedTextLayerPromotion(pageNumber),
@@ -156,6 +168,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             );
         });
         activeLayerHydrationTasks.set(pageNumber, pending);
+        if (commit.signal?.aborted) cancelHydration();
+        else commit.signal?.addEventListener('abort', cancelHydration, {once: true});
         return pending;
     }
     function cancelActiveTextLayerRender(pageNumber: TPageNumber) {
@@ -185,13 +199,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     });
     const searchController = usePdfRendererSearchController({
         container: options.container,
-        isActive,
+        isActive: options.isActive ?? true,
         isLoading,
         numPages,
         textLayerRenderer,
         searchPageMatches,
         currentSearchMatch,
-        currentSearchMatchNavigationId,
+        currentSearchMatchNavigationId: options.currentSearchMatchNavigationId ?? 0,
         scheduleRenderForSinglePage: pageNumber => runGuardedTask(
             () => options.requestSearchPageRaster(pageNumber),
             {
@@ -209,7 +223,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         revealSearchNavigationTarget: (pageNumber, revealOptions) =>
             viewport.singlePageScroll.revealSearchNavigationTarget(pageNumber, {
                 ...revealOptions,
-                searchNavigationId: toValue(currentSearchMatchNavigationId),
+                searchNavigationId: toValue(options.currentSearchMatchNavigationId ?? 0),
             }),
         endSearchNavigation: () => viewport.singlePageScroll.endSearchNavigation(),
         beginSearchTransaction: pageNumber => viewport.viewportWork.beginWork('search', pageNumber),
@@ -329,7 +343,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         logNonCriticalStageError,
         renderSupervisor,
     });
-    const renderAnnotationLayersForPage = annotationLayerController;
     const renderTextLayerForPage = usePdfRendererTextLayerController({
         textLayerRenderer,
         activeTextLayerAbortControllers,
@@ -360,6 +373,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             || renderOptions.contentIntent === 'canvas-only-refine'
         ) {
             if (publishRaster && !publishRaster()) return;
+            container.querySelectorAll('.annotation-layer canvas').forEach(canvas => canvas.remove());
             const retainedLayers = renderOptions.contentIntent === 'canvas-only-refine'
                 && pageRenderState.getSlot(pageNumber).layerReadiness === 'ready';
             if (!retainedLayers) {
@@ -373,7 +387,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const documentFence = options.document.captureFence();
         const shouldContinue = () => {
             const slot = pageRenderState.getSlot(pageNumber);
-            return options.document.isCurrent(documentFence)
+            return !commit.signal?.aborted && options.document.isCurrent(documentFence)
                 && options.getRenderVersion() === version
                 && slot.container === container
                 && container.isConnected !== false
@@ -383,19 +397,16 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     || slot.version === version && slot.requestId === requestId && slot.pendingContainer === container);
         };
         const outgoingText = container.querySelector<HTMLDivElement>('.text-layer');
-        const slot = pageRenderState.getSlot(pageNumber);
-        const textHost = publishRaster && outgoingText && slot.canvasReadiness === 'ready'
-            ? container.cloneNode(false) as HTMLElement : null;
+        const textHost = publishRaster ? container.cloneNode(false) as HTMLElement : null;
         const incomingText = textHost && outgoingText ? outgoingText.cloneNode(false) as HTMLDivElement : outgoingText;
         if (textHost && incomingText) {
             const structureHost = document.createElement('div');
             structureHost.className = 'page_canvas__render-layer';
             textHost.append(structureHost, incomingText);
         }
-        if (publishRaster && slot.canvasReadiness !== 'ready') {
-            if (!publishRaster()) return;
-            publishRaster = undefined;
-        }
+        const outgoingAnnotations = container.querySelector<HTMLElement>('.annotation-layer');
+        const incomingAnnotations = textHost && outgoingAnnotations ? outgoingAnnotations.cloneNode(false) as HTMLElement : null;
+        if (textHost && incomingAnnotations) textHost.append(incomingAnnotations);
         let lease: Awaited<ReturnType<typeof options.document.leasePage>> | null = null;
         try {
             lease = await options.document.leasePage(pageNumber).catch((error: unknown) => {
@@ -414,6 +425,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 textLayerDiv: incomingText,
                 preserveCanvasOnStale: true,
             };
+            const stagedAnnotations = publishRaster && renderResult.annotationOutput?.ownCanvases.length !== 0 ? await annotationLayerController(
+                pageNumber, version, requestId, {
+                    ...context,
+                    container: textHost ?? container,
+                }, shouldContinue,
+            ) : null;
+            if (stagedAnnotations && 'error' in stagedAnnotations) throw stagedAnnotations.error;
+            if (stagedAnnotations && !stagedAnnotations.shouldContinue) return;
+            if (stagedAnnotations && renderResult.annotationOutput?.ownCanvases.some(entry => !incomingAnnotations?.contains(entry[1]))) return;
             const textReady = await renderTextLayerForPage(
                 pageNumber,
                 version,
@@ -423,6 +443,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 shouldContinue,
                 () => {
                     if (!shouldContinue() || publishRaster && !publishRaster()) return false;
+                    if (incomingAnnotations && outgoingAnnotations) outgoingAnnotations.replaceWith(incomingAnnotations);
                     if (textHost && outgoingText && incomingText) {
                         outgoingText.replaceWith(incomingText);
                         textLayerRenderer.cleanupTextLayerDom(outgoingText);
@@ -437,7 +458,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             );
             if (!textReady || !pageRenderState.markTextLayerReady(pageNumber, version, requestId, container)) return;
             options.onRenderedPageStateChanged?.();
-            const annotation = await renderAnnotationLayersForPage(
+            const annotation = stagedAnnotations ?? await annotationLayerController(
                 pageNumber,
                 version,
                 requestId,
@@ -486,16 +507,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
-    function renderCommittedPageLayers(commit: ICommittedPdfPageRaster, publishRaster?: () => boolean) {
-        projection.value?.pageCommitted(commit.pageNumber);
-        return trackLayerHydrationSettlement(
-            commit.pageNumber,
-            hydrateCommittedLayers(
-                commit, publishRaster,
-            ),
-        );
-    }
-
     let layerPromotionGeneration = 0;
     let layerRequestId = 0;
     async function renderLayerPromotions(
@@ -517,13 +528,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             }
             const slot = pageRenderState.getSlot(pageNumber);
             const container = getMountedPageContainer(pageNumber, options.container.value);
-            const canvas = options.getCommittedCanvas(pageNumber);
+            const renderResult = options.getCommittedRender(pageNumber);
             if (
                 !container
-                || !canvas
+                || !renderResult
                 || slot.canvasReadiness !== 'ready'
                 || slot.contentVersion !== version
             ) {
+                continue;
+            }
+            if (renderResult.annotationOutput?.ownCanvases.length) {
+                await options.requestSearchPageRaster(pageNumber, true);
                 continue;
             }
             const requestId = ++layerRequestId;
@@ -538,41 +553,16 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             )) {
                 continue;
             }
-            let lease: Awaited<ReturnType<typeof options.document.leasePage>> | null = null;
             try {
-                lease = await options.document.leasePage(pageNumber);
-                const pageViewport = lease.page.getViewport({
-                    scale: toValue(viewport.scale.effectiveScale),
-                    rotation: resolvePdfPageViewportRotation(
-                        lease.page.rotate,
-                        toValue(options.viewRotation ?? (() => 0)),
-                    ),
-                });
-                const userUnit = pageViewport.userUnit ?? 1;
-                await trackLayerHydrationSettlement(
+                await renderCommittedPageLayers({
                     pageNumber,
-                    hydrateCommittedLayers({
-                        pageNumber,
-                        version,
-                        requestId,
-                        scale: toValue(viewport.scale.effectiveScale),
-                        container,
-                        renderResult: {
-                            canvas,
-                            viewport: pageViewport,
-                            annotationCanvasMap: null,
-                            scaleX: canvas.width / pageViewport.width,
-                            scaleY: canvas.height / pageViewport.height,
-                            rawDims: pageViewport.rawDims as {
-                                pageWidth: number;
-                                pageHeight: number
-                            },
-                            userUnit,
-                            totalScaleFactor: toValue(viewport.scale.effectiveScale) * userUnit,
-                        },
-                        renderOptions,
-                    }),
-                );
+                    version,
+                    requestId,
+                    scale: toValue(viewport.scale.effectiveScale),
+                    container,
+                    renderResult,
+                    renderOptions,
+                });
             } catch (error) {
                 // The slot is already 'hydrating' and nothing else moves it on:
                 // markLayersReady and isLayerPromotionEligible both refuse it, so
@@ -580,8 +570,6 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 // annotation layer for as long as the viewer stays open.
                 cleanupPageIfCurrentRender(pageNumber, version, requestId);
                 throw error;
-            } finally {
-                lease?.release();
             }
         }
     }
@@ -679,10 +667,15 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         applySearchHighlights: searchController.applySearchHighlights,
         requestScrollToCurrentResult: searchController.requestScrollToCurrentResult,
         annotationProjectionReady,
+        annotationPaintSignature,
+        isAnnotationInputCurrent: (input: IPdfAnnotationRenderInput | undefined) => !input
+            || input.document === pdfDocument.value && input.signature === annotationPaintSignature.value,
         async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture) {
             const parsed = getParsedPageAnnotations(page);
             captureSettlement?.(parsed.then(() => undefined, () => undefined));
-            if ((await parsed).some(annotation => !isLinkAnnotation(annotation))) await projection.value?.ensureAnnotationProjectionReady?.();
+            const annotations = await parsed;
+            if (annotations.some(annotation => !isLinkAnnotation(annotation))) await projection.value?.ensureAnnotationProjectionReady?.();
+            return projection.value?.preparePagePaint(page, annotations);
         },
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
         // The raster bakes pixels that survive until the page is re-rendered, so it

@@ -84,10 +84,6 @@ export const usePdfViewerFeatureController = (
     const performancePolicy = resolvePdfRenderPerformancePolicy(performanceProfile);
     const outputScale = usePdfViewerOutputScale(performancePolicy);
     const viewportWritePort = chassisAuthority.viewportWritePort;
-    const regionSnip = usePdfRegionSnip({
-        viewerContainer,
-        workingCopyPath,
-    });
     const cropSelection = usePdfCropSelection({ viewerContainer });
     const viewportSessionRef = shallowRef<TPdfViewportSession | null>(null);
     const renderingSessionRef = shallowRef<TPdfRenderingSession | null>(null);
@@ -288,18 +284,23 @@ export const usePdfViewerFeatureController = (
         linkAnnotations,
     });
     annotationSessionRef.value = annotationSession;
+    const regionSnip = usePdfRegionSnip({
+        viewerContainer,
+        document: documentSession,
+        prepare: annotationSession.commitPdfEditorsForSave,
+        viewState: props,
+    });
 
-    const getLivePageCount = () => documentSession.numPages.value;
     const isPageBuffered = createPdfRenderPagePredicate(
-        getLivePageCount,
+        () => documentSession.numPages.value,
         pageNumber => viewportSession.viewModel.isPageBuffered(pageNumber),
     );
     const isPageRenderedForClass = createPdfRenderPagePredicate(
-        getLivePageCount,
+        () => documentSession.numPages.value,
         pageNumber => renderingSession.isPageRenderedForClass(pageNumber),
     );
     const isPageRenderFailed = createPdfRenderPagePredicate(
-        getLivePageCount,
+        () => documentSession.numPages.value,
         pageNumber => renderingSession.isPageRenderFailed(pageNumber),
     );
 
@@ -481,8 +482,6 @@ export const usePdfViewerFeatureController = (
             }
             return true;
         },
-        captureRegionToClipboard: regionSnip.startCaptureSession,
-        isCapturingRegion: regionSnip.isActive,
         startCropSelection: cropSelection.startCropSelection,
         cancelCropSelection: cropSelection.cancelSelection,
         isCropSelecting: cropSelection.isSelecting,
@@ -543,6 +542,6 @@ export const usePdfViewerFeatureController = (
         isViewerLoadingOverlayVisible: renderViewModel.isViewerLoadingOverlayVisible,
         handleLinkDestination: viewportSession.handleLinkDestination,
         handleViewerContainerRef: viewportSession.handleViewerContainerRef,
-        pdfViewerPublicApi,
+        pdfViewerPublicApi: Object.assign(pdfViewerPublicApi, regionSnip.captureApi),
     };
 };

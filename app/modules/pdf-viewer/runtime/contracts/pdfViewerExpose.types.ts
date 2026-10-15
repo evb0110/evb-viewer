@@ -1,3 +1,4 @@
+import type { IPdfViewerRegionCaptureExpose } from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
@@ -34,6 +35,7 @@ import type {
     ICanonicalAnnotationRecovery,
     TAnnotationRecoveryDraftInput,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+export type { IPdfViewerRegionCaptureExpose } from '@app/modules/pdf-viewer/engine/pdf-region-capture/pdfRegionCaptureTypes';
 
 export type TPdfSidebarTab = TDocumentSidebarTab;
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
@@ -135,10 +137,6 @@ export interface IDocumentViewerExpose {
     requestScrollToCurrentResult?: () => void;
 }
 
-export interface IPdfViewerRegionCaptureExpose {
-    captureRegionToClipboard: () => Promise<boolean>;
-    isCapturingRegion: boolean;
-}
 
 export interface IPdfViewerCropExpose {
     startCropSelection: () => Promise<ICropSelectionResult | null>;

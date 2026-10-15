@@ -142,7 +142,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
     const commandCanRedo = computed(() => commandView.value?.navigation.canRedo.value ?? false);
     const isSaving = ref(false);
     const isSavingAs = ref(false);
-    const isHistoryBusy = ref(false);
     const runExclusive = controller.operationLease.runExclusive;
 
     const metadata = useMetadataSession({
@@ -314,7 +313,6 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         handleSave: () => saveThroughDriver('save'),
         handleSaveAs: () => saveThroughDriver('save-as'),
         optimizeDialog: useDocumentWorkspaceOptimizeDialog({handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy}),
-        ensureWorkingCopyFreshForRead: saveService.saveForExternalRead,
     };
 
     const docx = useDocxExport();
@@ -357,7 +355,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         openSurface: commandOpenSurface,
         currentPage,
         isAnySaving: saveService.isAnySaving,
-        isHistoryBusy,
+        prepareHistory: pdfDocumentAnnotations.commitPendingDraftsForSave,
         canUndo: commandCanUndo,
         canRedo: commandCanRedo,
         nextUndoSource: metadata.workspaceUndoTimeline.nextUndoSource,
@@ -369,7 +367,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         redoHistory: metadata.workspaceUndoTimeline.redoTimeline,
     });
     const history = {
-        isHistoryBusy,
+        isHistoryBusy: computed(() => controller.operationLease.activeKind.value === 'history'),
         canUndo: commandCanUndo,
         canRedo: commandCanRedo,
         handleUndo: () => runExclusive('history', () => pdfHistory.handleUndo()),
@@ -433,7 +431,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         pdfSrc: file.pdfSrc,
         hasDocument: hasOpenDocument,
         isAnySaving: saveService.isAnySaving,
-        isHistoryBusy,
+        isHistoryBusy: history.isHistoryBusy,
         isExportingDocx: docx.isExportingDocx,
         isAnyAnnotationNoteSaving: annotations.isAnyAnnotationNoteSaving,
         isDocumentOperationInProgress: controller.operationLease.isBusy,
@@ -602,7 +600,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
         loadRecentFiles,
-        isBusy: computed(() => controller.operationLease.isBusy.value || saveService.isAnySaving.value || isHistoryBusy.value),
+        isBusy: computed(() => controller.operationLease.isBusy.value || saveService.isAnySaving.value),
         clearOcrCache,
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory: file.reloadWorkingCopyIntoHistory,

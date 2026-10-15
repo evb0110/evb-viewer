@@ -1,5 +1,6 @@
+import {createHash} from 'node:crypto';
 import {
-    copyFile, mkdtemp, readFile, rm, writeFile,
+    copyFile, mkdir, mkdtemp, readFile, rm, writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -10,10 +11,12 @@ import {
     describe, expect, it, onTestFinished,
 } from 'vitest';
 import {
-    PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber,
+    PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFHexString,
 } from 'pdf-lib';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {createMultiPageTextFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createMultiPageTextFixturePdf, createCanonicalAnnotationSurfaceFixturePdf,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {
     clickAnnotationTool, createTextMarkupWithPointer, setAnnotationColor,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
@@ -308,6 +311,7 @@ describe('Electron E2E - screenshot annotation output', () => {
         expect(selection.height).toBeGreaterThan(10);
         const captureStartedAt = performance.now();
         await page.mouse.up();
+        await clickAsUser(page, '[data-capture-confirm]');
         await page.waitForSelector('.snip-overlay.is-active', {
             hidden: true,
             timeout: 10_000,
@@ -330,4 +334,334 @@ describe('Electron E2E - screenshot annotation output', () => {
         expect(clipboardPixels.count, 'copied image contains the visible red highlight').toBeGreaterThan(10);
         expect(clipboardPixels.bluePixels, 'copied image contains the saved rectangle appearance').toBeGreaterThan(10);
     }, 90_000);
+    it('copies the composed multilingual view without saving accepted edits or changing Undo', async () => {
+        async function retainEvidence(files: Record<string, Uint8Array | string>) {
+            const evidenceDirectory = process.env.EVB_R3_EVIDENCE_DIR;
+            if (!evidenceDirectory) return;
+            await mkdir(evidenceDirectory, {recursive: true});
+            await Promise.all(Object.entries(files).map(([
+                name,
+                bytes,
+            ]) => writeFile(join(evidenceDirectory, name), bytes)));
+        }
+
+        const directory = await mkdtemp(join(tmpdir(), 'evb-composed-screenshot-'));
+        onTestFinished(() => rm(directory, {
+            recursive: true,
+            force: true,
+        }));
+        const generated = await createCanonicalAnnotationSurfaceFixturePdf(`composed-screenshot-${Date.now()}.pdf`);
+        const pdf = await PDFDocument.load(await readFile(generated));
+        const sheet = pdf.getPage(0);
+        const annotations = sheet.node.lookup(PDFName.of('Annots'), PDFArray);
+        annotations.lookup(0, PDFDict).set(PDFName.of('Contents'), PDFHexString.fromText('Fresh Ελληνικά Ж مرحبا'));
+        const font = sheet.node.Resources()!.lookup(PDFName.of('Font'), PDFDict).entries()[0]![1];
+        const appearance = pdf.context.register(pdf.context.flateStream(
+            'q 0 0 1 RG 2 w [3 2] 0 d 1 1 158 33 re S BT /F1 12 Tf 0 0 0 rg 8 12 Td (Foreign AP unique glyphs) Tj ET Q',
+            {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    160,
+                    35,
+                ],
+                Resources: {Font: {F1: font}},
+            },
+        ));
+        annotations.push(pdf.context.register(pdf.context.obj({
+            Type: 'Annot',
+            Subtype: 'FreeText',
+            Rect: [
+                72,
+                420,
+                232,
+                455,
+            ],
+            NM: PDFHexString.fromText('foreign-dashed-ap'),
+            Contents: PDFHexString.fromText('Foreign AP unique glyphs'),
+            DA: '/Helvetica 12 Tf 1 0 0 rg',
+            BS: {
+                S: 'D',
+                W: 2,
+                D: [
+                    3,
+                    2,
+                ],
+            },
+            AP: {N: appearance},
+            F: 4,
+        })));
+        const path = join(directory, 'composed-source.pdf');
+        const original = Buffer.from(await pdf.save({useObjectStreams: false}));
+        await writeFile(path, original);
+        const session = await sessions.restart({
+            hard: true,
+            extraEnv: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '--disable-blink-features=ReadClipboardDataOnClipboardItemGetType'},
+        });
+        const {page} = session;
+        await session.command('windowResize', [
+            1100,
+            1050,
+        ]);
+        await openPdfInApp(page, path);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await page.waitForSelector('.editor-pane.is-active [data-annotation-kind="text-box"]');
+        await page.evaluate(() => document.fonts.ready);
+        await clickAnnotationTool(page, 'Draw');
+        await setAnnotationColor(page, '#ef4444');
+        const pageBox = await page.$eval('.editor-pane.is-active .page_container[data-page="1"]', element => {
+            const box = element.getBoundingClientRect();
+            const viewport = document.querySelector('.editor-pane.is-active #pdf-viewer')!.getBoundingClientRect();
+            return {
+                x: Math.ceil(Math.max(box.left, viewport.left) + 2),
+                y: Math.ceil(Math.max(box.top, viewport.top) + 2),
+                right: Math.floor(Math.min(box.right, viewport.right) - 2),
+                bottom: Math.floor(Math.min(box.bottom, viewport.bottom) - 2),
+            };
+        });
+        const x = pageBox.x + (pageBox.right - pageBox.x) * 0.48;
+        const y = pageBox.y + (pageBox.bottom - pageBox.y) * 0.44;
+        const shapesBefore = await page.$$eval('.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="shape"]', elements => elements.length);
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 65, y + 20, {steps: 8});
+        await page.mouse.move(x + 105, y - 10, {steps: 8});
+        await page.mouse.up();
+        await page.waitForFunction(count => document.querySelectorAll('.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="shape"]').length === count + 1, {}, shapesBefore);
+        await clickAnnotationTool(page, 'Select');
+        await clickVisibleToolbarButton(page, 'Screenshot');
+        await page.waitForSelector('.snip-overlay.is-active');
+        const entryBytes = await readFile(path);
+        await retainEvidence({
+            'original.pdf': original,
+            'entry-actual.pdf': entryBytes,
+            'entry-bytes.json': JSON.stringify({
+                originalBytes: original.byteLength,
+                entryBytes: entryBytes.byteLength,
+                originalSha256: createHash('sha256').update(original).digest('hex'),
+                entrySha256: createHash('sha256').update(entryBytes).digest('hex'),
+                equal: original.equals(entryBytes),
+                checkpoint: 'after trusted Screenshot entry and existing overlay, before confirmation lookup',
+            }, null, 2),
+        });
+        expect(await readFile(path), 'Screenshot entry leaves original bytes unchanged').toEqual(original);
+        await page.keyboard.press('Escape');
+        await page.waitForSelector('.snip-overlay.is-active', {hidden: true});
+        await clickVisibleToolbarButton(page, 'Screenshot');
+        await page.waitForSelector('.snip-overlay.is-active');
+        await page.mouse.move(pageBox.x, pageBox.y);
+        await page.mouse.down();
+        await page.mouse.move(pageBox.right, pageBox.bottom, {steps: 10});
+        await page.mouse.up();
+        await page.waitForSelector('[data-capture-confirm]');
+        const clip = await page.$eval('.snip-selection', element => {
+            const box = element.getBoundingClientRect();
+            return {
+                x: box.left,
+                y: box.top,
+                width: box.width,
+                height: box.height,
+            };
+        });
+        const hostSelector = '.editor-pane.is-active [data-pdf-viewer-host]';
+        const reference = await page.evaluateHandle(selector => {
+            const host = document.querySelector<HTMLElement>(selector);
+            const overlay = host?.querySelector<HTMLElement>('.snip-overlay');
+            const viewer = host?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
+            const selection = overlay?.querySelector<HTMLElement>('.snip-selection');
+            if (!host || !overlay || !viewer || !selection) throw new Error('The initiating reference capture view is unavailable');
+            const clean = host.classList.contains('is-capture-clean');
+            const overlayClean = overlay.classList.contains('is-clean');
+            const visibility = overlay.style.visibility;
+            const assertCurrent = () => {
+                if (!host.isConnected || !overlay.isConnected || !selection.isConnected
+                    || document.querySelector(selector) !== host
+                    || host.querySelector('.snip-overlay') !== overlay
+                    || overlay.querySelector('.snip-selection') !== selection) {
+                    throw new Error('Reference capture removed or replaced the initiating Screenshot selection');
+                }
+            };
+            host.classList.add('is-capture-clean');
+            overlay.classList.add('is-clean');
+            return {
+                read: () => {
+                    assertCurrent();
+                    return {
+                        width: innerWidth,
+                        height: innerHeight,
+                        dpr: devicePixelRatio,
+                        viewport: visualViewport ? {
+                            width: visualViewport.width,
+                            height: visualViewport.height,
+                            offsetLeft: visualViewport.offsetLeft,
+                            offsetTop: visualViewport.offsetTop,
+                        } : null,
+                    };
+                },
+                restore: () => {
+                    try {assertCurrent();} finally {
+                        try {host.classList.toggle('is-capture-clean', clean);} finally {
+                            try {overlay.classList.toggle('is-clean', overlayClean);} finally {overlay.style.visibility = visibility;}
+                        }
+                    }
+                },
+            };
+        }, hostSelector);
+        const decode = async (bytes: Uint8Array) => {
+            const image = await loadImage(Buffer.from(bytes));
+            const canvas = createCanvas(image.width, image.height);
+            const context = canvas.getContext('2d');
+            context.drawImage(image, 0, 0);
+            return {
+                width: image.width,
+                height: image.height,
+                pixels: Buffer.from(context.getImageData(0, 0, image.width, image.height).data),
+            };
+        };
+        let expected!: Awaited<ReturnType<typeof decode>>;
+        let screen!: Uint8Array;
+        const referenceFailures: unknown[] = [];
+        try {
+            await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            const cleanState = await reference.evaluate(value => value.read());
+            const viewport = cleanState.viewport;
+            const left = viewport?.offsetLeft ?? 0;
+            const top = viewport?.offsetTop ?? 0;
+            expect(clip.x).toBeGreaterThanOrEqual(left);
+            expect(clip.y).toBeGreaterThanOrEqual(top);
+            expect(clip.x + clip.width).toBeLessThanOrEqual(left + (viewport?.width ?? cleanState.width));
+            expect(clip.y + clip.height).toBeLessThanOrEqual(top + (viewport?.height ?? cleanState.height));
+            const fullScreen = await page.screenshot({captureBeyondViewport: false});
+            await retainEvidence({'clean-screen-full.png': fullScreen});
+            const full = await decode(fullScreen);
+            expect([
+                full.width,
+                full.height,
+                cleanState.dpr,
+            ]).toEqual([
+                1100,
+                1050,
+                1,
+            ]);
+            expect(Object.values(clip).every(Number.isInteger)).toBe(true);
+            const crop = createCanvas(clip.width, clip.height);
+            crop.getContext('2d').drawImage(await loadImage(Buffer.from(fullScreen)), -clip.x, -clip.y);
+            screen = crop.toBuffer('image/png');
+            await retainEvidence({'clean-screen.png': screen});
+            expected = await decode(screen);
+            const fullCrop = Buffer.concat(Array.from({length: clip.height}, (_, row) => {
+                const start = ((clip.y + row) * full.width + clip.x) * 4;
+                return full.pixels.subarray(start, start + clip.width * 4);
+            }));
+            await retainEvidence({'reference-crop.json': JSON.stringify({
+                full: {
+                    width: full.width,
+                    height: full.height,
+                    sha256: createHash('sha256').update(fullScreen).digest('hex'),
+                },
+                sourceRect: clip,
+                destinationRect: {
+                    x: 0,
+                    y: 0,
+                    width: clip.width,
+                    height: clip.height,
+                },
+                dpr: cleanState.dpr,
+                croppedSha256: createHash('sha256').update(screen).digest('hex'),
+                fullRegionRgbaSha256: createHash('sha256').update(fullCrop).digest('hex'),
+                croppedRgbaSha256: createHash('sha256').update(expected.pixels).digest('hex'),
+                exactIntegerCrop: expected.pixels.equals(fullCrop),
+            }, null, 2)});
+            expect(expected.pixels.equals(fullCrop), 'integer crop preserves every reference RGBA byte without resizing').toBe(true);
+            expect({
+                width: expected.width,
+                height: expected.height,
+            }, 'reference retains the exact frozen clip at physical density').toEqual({
+                width: clip.width * cleanState.dpr,
+                height: clip.height * cleanState.dpr,
+            });
+        } catch (error) {
+            referenceFailures.push(error);
+        } finally {
+            try {await reference.evaluate(value => value.restore());} catch (error) {referenceFailures.push(error);}
+            try {await reference.dispose();} catch (error) {referenceFailures.push(error);}
+        }
+        for (const failure of referenceFailures.slice(1)) onTestFinished(() => {throw failure;});
+        if (referenceFailures.length) throw referenceFailures[0];
+        await clickAsUser(page, '[data-capture-confirm]');
+        await page.waitForSelector('.snip-overlay.is-active', {
+            hidden: true,
+            timeout: 10000,
+        });
+        const clipboard = Buffer.from(await page.evaluate(async () => {
+            const item = (await navigator.clipboard.read()).find(value => value.types.includes('image/png'));
+            if (!item) throw new Error('Clipboard PNG is missing');
+            return Array.from(new Uint8Array(await (await item.getType('image/png')).arrayBuffer()));
+        }));
+        const actual = await decode(clipboard);
+        await writeFile(join(directory, 'screen.png'), screen);
+        await writeFile(join(directory, 'clipboard.png'), clipboard);
+        console.log(`COMPOSED_SCREENSHOT ${JSON.stringify({
+            clip,
+            dpr: await page.evaluate(() => devicePixelRatio),
+            width: actual.width,
+            height: actual.height,
+            pixelsEqual: actual.pixels.equals(expected.pixels),
+        })}`);
+        const copyBytes = await readFile(path);
+        await retainEvidence({
+            'clean-screen.png': screen,
+            'clipboard.png': clipboard,
+            'copy-actual.pdf': copyBytes,
+            'decoded-metrics.json': JSON.stringify({
+                clip,
+                dpr: await page.evaluate(() => devicePixelRatio),
+                expected: {
+                    width: expected.width,
+                    height: expected.height,
+                    sha256: createHash('sha256').update(expected.pixels).digest('hex'),
+                },
+                actual: {
+                    width: actual.width,
+                    height: actual.height,
+                    sha256: createHash('sha256').update(actual.pixels).digest('hex'),
+                },
+                pixelsEqual: actual.pixels.equals(expected.pixels),
+                originalBytes: original.byteLength,
+                copyBytes: copyBytes.byteLength,
+                originalSha256: createHash('sha256').update(original).digest('hex'),
+                copySha256: createHash('sha256').update(copyBytes).digest('hex'),
+            }, null, 2),
+        });
+        expect({
+            width: actual.width,
+            height: actual.height,
+        }).toEqual({
+            width: expected.width,
+            height: expected.height,
+        });
+        expect(actual.pixels.equals(expected.pixels), 'clipboard preserves full glyph silhouettes, note, Link border and foreign AP once').toBe(true);
+        expect(await readFile(path), 'copy leaves original bytes unchanged').toEqual(original);
+        expect(await page.$$eval('.editor-pane.is-active .pdf-annotation-editor-note', elements => elements.length)).toBe(1);
+        expect(await page.$$eval('.editor-pane.is-active .linkAnnotation', elements => elements.length)).toBe(1);
+        await clickVisibleToolbarButton(page, 'Undo');
+        await page.waitForFunction(count => document.querySelectorAll('.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="shape"]').length === count, {}, shapesBefore);
+        await clickVisibleToolbarButton(page, 'Redo');
+        await page.waitForFunction(count => document.querySelectorAll('.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="shape"]').length === count + 1, {}, shapesBefore);
+        expect(await readFile(path)).toEqual(original);
+        const afterUndoRedo = await readFile(path);
+        await retainEvidence({
+            'after-undo-redo.pdf': afterUndoRedo,
+            'undo-redo.json': JSON.stringify({
+                originalSha256: createHash('sha256').update(original).digest('hex'),
+                actualSha256: createHash('sha256').update(afterUndoRedo).digest('hex'),
+                shapesBefore,
+                shapesAfterRedo: await page.$$eval('.editor-pane.is-active .pdf-annotation-editor-layer g[data-annotation-kind="shape"]', elements => elements.length),
+            }, null, 2),
+        });
+    }, 90000);
+
 });

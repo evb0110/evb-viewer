@@ -814,7 +814,8 @@ describe('PdfViewportSession behavior', () => {
             canvasHiddenAnnotationIds: ref(new Set<string>()),
             thumbnailHiddenAnnotationIds: ref(new Set<string>()),
             async ensureAnnotationProjectionReady() {preparationStarted.resolve(undefined); await ownership.promise; projectionReady.value = true;},
-            pageCommitted() {},
+            paintSignature: ref('fixture'),
+            preparePagePaint: () => undefined,
         };
         rendering.attachAnnotationProjection(projection);
         try {
@@ -1019,7 +1020,8 @@ describe('PdfViewportSession behavior', () => {
             canvasHiddenAnnotationIds: ref(new Set<string>()),
             thumbnailHiddenAnnotationIds: ref(new Set<string>()),
             async ensureAnnotationProjectionReady() {projectionReady.value = true;},
-            pageCommitted() {},
+            paintSignature: ref('fixture'),
+            preparePagePaint: () => undefined,
         };
         rendering.attachAnnotationProjection(projection);
         try {

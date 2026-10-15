@@ -182,20 +182,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             && options?.shouldContinue?.() !== false;
     }
 
-    function removeHiddenAnnotationElements(
-        annotationLayerDiv: HTMLElement,
-        hiddenIds: ReadonlySet<string>,
-    ) {
-        annotationLayerDiv.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
-            const id = normalizePdfJsAnnotationId(
-                element.dataset.annotationId ?? element.getAttribute('data-annotation-id'),
-            );
-            if (id && hiddenIds.has(id)) {
-                element.remove();
-            }
-        });
-    }
-
     function replacePageLinkAnnotations(pageNumber: number, links: ILinkAnnotation[]) {
         if (!deps.linkAnnotations) {
             return;
@@ -236,7 +222,8 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         const hiddenIds = normalizedIds(toValue(deps.hiddenAnnotationIds ?? new Set<string>()));
         const visibleAnnotations = hiddenIds.size === 0
             ? annotations
-            : annotations.filter(annotation => !hiddenIds.has(typeof annotation.id === 'string' ? normalizePdfJsAnnotationId(annotation.id) ?? '' : ''));
+            : annotations.filter(annotation => !hiddenIds.has(normalizePdfJsAnnotationId(annotation.id) ?? '')
+                || annotationCanvasMap?.has(annotation.id ?? ''));
         // The writer parse is the authority for which PDF annotations the Vue
         // surface owns. Until it finishes, keep foreign links usable but do
         // not paint any other PDF.js annotation that may also be mounted by
@@ -338,7 +325,9 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         if (renderableAnnotations.length === 0) {
             annotationLayerDiv.innerHTML = '';
         }
-        removeHiddenAnnotationElements(annotationLayerDiv, hiddenIds);
+        annotationLayerDiv.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach(element => {
+            if (hiddenIds.has(normalizePdfJsAnnotationId(element.dataset.annotationId) ?? '')) element.style.pointerEvents = 'none';
+        });
         replacePageLinkAnnotations(
             pageNumber,
             extractPageLinkAnnotations(visibleAnnotations, pageNumber, pdfPage),

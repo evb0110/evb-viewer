@@ -77,27 +77,58 @@ const sourceKindSchema = v.picklist([
     'pdf',
     'djvu',
 ], 'sourceKind must be pdf or djvu');
-const pdfRegionSchema = v.pipe(
-    v.object({
-        x: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)),
-        y: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1)),
-        width: v.pipe(v.number(), v.finite(), v.minValue(Number.EPSILON), v.maxValue(1)),
-        height: v.pipe(v.number(), v.finite(), v.minValue(Number.EPSILON), v.maxValue(1)),
-        outputWidth: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(4096)),
-        outputHeight: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(4096)),
-    }),
-    v.check(region => region.x + region.width <= 1 && region.y + region.height <= 1, 'region must fit within the page'),
-    v.check(region => region.outputWidth * region.outputHeight <= 16 * 1024 * 1024, 'region exceeds the pixel limit'),
-);
-const pdfRegionArgs = v.strictTuple([
-    documentRefSchema,
-    v.pipe(v.number(), v.integer(), v.minValue(1)),
-    pdfRegionSchema,
-]);
-const pdfRegionPngSchema = v.nullable(v.custom<Uint8Array>(
-    value => value instanceof Uint8Array && value.byteLength <= 16 * 1024 * 1024,
-    'invalid PDF region PNG',
-));
+export const CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
+export function assertCaptureImageBudget(width: number, height: number) {
+    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1
+        || width > 4096 || height > 4096 || width * height > 16 * 1024 * 1024) {
+        throw new RangeError('Capture exceeds the 4096 edge or 16 Mi-pixel limit');
+    }
+}
+export function readCapturePngSize(bytes: Uint8Array) {
+    if (bytes.byteLength < 33 || bytes.byteLength > CAPTURE_MAX_BYTES
+        || ![
+            137,
+            80,
+            78,
+            71,
+            13,
+            10,
+            26,
+            10,
+        ].every((byte, index) => bytes[index] === byte)
+        || String.fromCharCode(...bytes.subarray(12, 16)) !== 'IHDR') throw new Error('Invalid capture PNG');
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const width = view.getUint32(16);
+    const height = view.getUint32(20);
+    assertCaptureImageBudget(width, height);
+    return {
+        width,
+        height,
+    };
+}
+const captureRegionSchema = v.pipe(v.object({
+    x: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    y: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    width: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(4096)),
+    height: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(4096)),
+    viewportWidth: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65536)),
+    viewportHeight: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65536)),
+    pixelRatio: v.pipe(v.number(), v.finite(), v.minValue(Number.EPSILON), v.maxValue(8)),
+}), v.check(region => region.x + region.width <= region.viewportWidth && region.y + region.height <= region.viewportHeight, 'Capture must fit the current viewport'),
+v.check(region => Math.ceil(region.width * region.pixelRatio) <= 4096 && Math.ceil(region.height * region.pixelRatio) <= 4096 && Math.ceil(region.width * region.pixelRatio) * Math.ceil(region.height * region.pixelRatio) <= 16 * 1024 * 1024, 'Capture exceeds the pixel limit'));
+export type ICurrentViewCaptureRegion = v.InferOutput<typeof captureRegionSchema>;
+/** Local browser consent/paint lifetime. These values never cross IPC. */
+export interface ICurrentViewCaptureLocal {
+    target: Element;
+    signal: AbortSignal;
+    prepareFrame: () => Promise<void>;
+    assertCurrent: () => void;
+    cancel: () => void;
+}
+const capturePngSchema = v.nullable(v.pipe(v.custom<Uint8Array>(value => value instanceof Uint8Array, 'Invalid capture PNG'), v.check(bytes => {
+    readCapturePngSize(bytes);
+    return true;
+})));
 const exportArgs = v.strictTuple([
     documentRefSchema,
     v.optional(pageNumbersSchema),
@@ -240,28 +271,20 @@ export const IMAGE_EXPORT_PLATFORM_FEATURE = definePlatformFeature({
         electron: true,
     },
     methods: {
-        rasterizePdfRegion: {
+        captureCurrentView: {
             kind: 'async',
             channel: 'pdfExport:region',
             ipc: {
-                args: pdfRegionArgs,
-                result: pdfRegionPngSchema,
+                args: v.strictTuple([captureRegionSchema]),
+                result: capturePngSchema,
                 timeoutMs: 60_000,
             },
-            client: {mapArgs: (
-                workingCopyPath: TDocumentRef,
-                pageNumber: TPageNumber,
-                region: v.InferOutput<typeof pdfRegionSchema>,
-            ) => [
-                workingCopyPath,
-                pageNumber,
-                region,
-            ] as const},
+            client: {mapArgs: (region: ICurrentViewCaptureRegion, _local?: ICurrentViewCaptureLocal) => [region] as const},
             main: {
-                method: 'rasterizePdfRegion',
+                method: 'captureCurrentView',
                 context: 'sender',
             },
-            browser: {method: 'rasterizePdfRegion'},
+            browser: {method: 'captureCurrentView'},
             lazy: 'forwarded',
         },
         exportPdfToImages: {

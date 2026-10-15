@@ -1,11 +1,10 @@
 import {parseDocumentRef} from '@contracts/documentRef';
 import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {recordPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import {
     applyParsedHighlightTextToStore, commitPdfAnnotationParseToStore,
 } from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
 import {deriveSelectedTextForParsedHighlights} from '@app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights';
-import {pdfAnnotationRefKey} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import {
     getDocumentFilesCapability, getDocumentWorkingCopyCapability,
 } from '@app/utils/platformDocuments';
@@ -106,7 +105,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             : annotationDocumentKey(options.source.value)
     ));
     const application = shallowRef(createAnnotationApplication(documentIdentity.value));
-    const textBoxDrafts = new Map<string, string>();
+    const textBoxDrafts = shallowReactive(new Map<string, string>());
     const textBoxDraftGenerations = new Map<string, number>();
     const textBoxDraftRects = shallowReactive(new Map<string, IAnnotationMarkerRect>());
 
@@ -177,6 +176,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     expectedDocumentRevisionToken: expectedRevisionToken,
                     signal: abortController.signal,
                 });
+                if (isCurrent()) recordPdfDocumentOriginalAnnotations(document, result);
                 const committed = commitPdfAnnotationParseToStore({
                     result,
                     isTransitionCurrent: isCurrent,
@@ -189,15 +189,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 if (!committed) {
                     return false;
                 }
-                const parsedMarkupGeometryByPdfRef = new Map<string, ITextMarkupEntity['quadPoints']>();
-                result.entities.forEach((entry) => {
-                    if (entry.kind === 'highlight') {
-                        parsedMarkupGeometryByPdfRef.set(
-                            pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber),
-                            entry.quadPoints.map(rect => ({...rect})),
-                        );
-                    }
-                });
                 void deriveSelectedTextForParsedHighlights({
                     documentSession,
                     result,
@@ -208,7 +199,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                         applyParsedHighlightTextToStore({
                             targetStore,
                             selectedTextByPdfRef,
-                            parsedMarkupGeometryByPdfRef,
+                            parsedEntities: result.entities,
                         });
                     }
                 }).catch((error) => {

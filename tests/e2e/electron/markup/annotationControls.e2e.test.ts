@@ -12,7 +12,7 @@ import {
 import type {Page} from 'puppeteer-core';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
-    decodePDFRawStream, PageSizes, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString,
+    decodePDFRawStream, PageSizes, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString, rgb,
 } from 'pdf-lib';
 import type {
     PDFNumber, PDFRef,
@@ -595,6 +595,456 @@ describe('Electron E2E - annotation controls', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
         sessionName: () => `e2e-annotation-controls-${Date.now()}`,
+    });
+
+
+    it('preserves the original normal appearance until a supported semantic edit', async () => {
+        // Core61, A1/A5/T4: original r12 857-byte input, not the distinct repository fixture.
+        const original = Buffer.from('JVBERi0xLjcKJYGBgYEKCjUgMCBvYmoKPDwKL1R5cGUgL1hPYmplY3QKL1N1YnR5cGUgL0Zvcm0KL0JCb3ggWyAwIDAgMzAwIDQwIF0KL1Jlc291cmNlcyA8PAovRm9udCA8PAovSGVsdiA0IDAgUgo+Pgo+PgovRmlsdGVyIC9GbGF0ZURlY29kZQovTGVuZ3RoIDEwMwo+PgpzdHJlYW0KeJwlyr0OgjAYheFeyjvK1BYcmFv+uql8iTsKRlOjMHj9tDFvcs7yrFTGkDv+7/bGBfQVix7yuJOnRvsRfekdoUEpRRs44ySZOf6wJbIknNseidsKuXPonjHy3T7TXCAvWtkBE9YZMgplbmRzdHJlYW0KZW5kb2JqCgo3IDAgb2JqCjw8Ci9GaWx0ZXIgL0ZsYXRlRGVjb2RlCi9UeXBlIC9PYmpTdG0KL04gNQovRmlyc3QgMjYKL0xlbmd0aCAyNzkKPj4Kc3RyZWFtCnicVVDLasMwELzrK+aYnlZynMchBJy0plBaQmzIIfTg2KoRGCnYSkn/vis5oQ0rIbQzuzuzChIJ0hRTLJZIoRYKcySzKVYrQeXPWYN2VasHQW+mGXBkosQen4K27mI9lFivxR93W/mqc60Yi6AC+ZERgAD3OlRHnPZ6cJe+5gLmMZvedWOqjbvyPMkxlxJLvjw1s9b5oGN+0/HQPHfWCyouJx+/IakEbapBBwT0qrtv7U1dCXqxtWuMbUEHYzM7mHvisWOc969l3mtd6qsPomvPOpQc9aXhTeW4GevZ3YBJbroO596d9JOg5wyTqAAqQfnF5kP0LUObIu77gIRHgYq4hO3NfeyZI2Xzu0j7wOy+Vz6/FP12egplbmRzdHJlYW0KZW5kb2JqCgo4IDAgb2JqCjw8Ci9TaXplIDkKL1Jvb3QgMiAwIFIKL0ZpbHRlciAvRmxhdGVEZWNvZGUKL1R5cGUgL1hSZWYKL0xlbmd0aCA0MQovVyBbIDEgMiAyIF0KL0luZGV4IFsgMCA5IF0KPj4Kc3RyZWFtCnicY2Bg+P+fiYGdgQFEMIIIJhDBzMggABFjYWSUYQDKzGRgAABcagMBCmVuZHN0cmVhbQplbmRvYmoKCnN0YXJ0eHJlZgo2NjUKJSVFT0Y=', 'base64');
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-core61-'));
+        const saved = join(evidence, 'original.pdf');
+        writeFileSync(saved, original);
+        let {page} = sessionFixture.getSession();
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        const selector = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        await page.waitForSelector(selector);
+
+        async function originalPaint(label: string, bytes = original, blank = false) {
+            const box = await page.waitForSelector(selector);
+            await revealForPointer(page, box!);
+            // Selection grips are app chrome; keep selection mounted while comparing PDF paint.
+            const gripPaint = await page.addStyleTag({content: '.editor-pane.is-active .pdf-annotation-selection-handle[data-pdf-annotation-resize-handle] { opacity: 0 !important; }'});
+            try {
+                await page.evaluate(async () => {
+                    await document.fonts.ready;
+                    await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+                });
+                const layout = await box!.evaluate(element => {
+                    const container = element.closest('.page_container')!;
+                    const viewer = container.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                    const bounds = viewer.getBoundingClientRect();
+                    const selection = window.getSelection();
+                    const caret = element.classList.contains('is-editing') && selection?.isCollapsed && selection.rangeCount
+                        ? selection.getRangeAt(0).getBoundingClientRect().toJSON() : null;
+                    const textColor = getComputedStyle(element).color;
+                    return {
+                        caret,
+                        textColor,
+                        referenceAlpha: textColor === 'rgba(0, 0, 0, 0)',
+                        box: element.getBoundingClientRect().toJSON(),
+                        page: container.getBoundingClientRect().toJSON(),
+                        viewport: new DOMRect(bounds.left + viewer.clientLeft, bounds.top + viewer.clientTop, viewer.clientWidth, viewer.clientHeight).toJSON(),
+                        dpr: devicePixelRatio,
+                    };
+                });
+                expect(layout.box.left >= layout.viewport.left && layout.box.right <= layout.viewport.right
+                && layout.box.top >= layout.viewport.top && layout.box.bottom <= layout.viewport.bottom, 'Whole glyph ROI is visible').toBe(true);
+                const screenshot = Buffer.from(await page.screenshot());
+                writeFileSync(join(evidence, `${label}-viewport.png`), screenshot);
+                const full = await loadImage(screenshot);
+                const browserReference = await page.evaluate(async ({
+                    data, pageWidth, dpr, expectedVersion, expectedBuild, alpha,
+                }) => {
+                // The existing vendored public API opens independent bytes, not the live document or raster.
+                    const browserPdfjs = Object.getOwnPropertyDescriptor(globalThis, 'pdfjsLib')?.value as typeof pdfjs | undefined;
+                    if (!browserPdfjs || browserPdfjs.version !== expectedVersion || browserPdfjs.build !== expectedBuild
+                    || typeof browserPdfjs.getDocument !== 'function') throw new Error('Independent Browser PDF.js reference runtime is unavailable or mismatched');
+                    if (browserPdfjs.GlobalWorkerOptions.workerPort !== null) throw new Error('Independent reference cannot own a shared explicit worker port');
+                    const workerSrc = browserPdfjs.GlobalWorkerOptions.workerSrc;
+                    const options = {
+                        verbosity: browserPdfjs.VerbosityLevel.ERRORS,
+                        standardFontDataUrl: '/pdf/standard_fonts/',
+                        cMapUrl: '/pdf/cmaps/',
+                        cMapPacked: true,
+                        wasmUrl: '/pdf/wasm/',
+                        iccUrl: '/pdf/iccs/',
+                        useSystemFonts: false,
+                        canvasMaxAreaInBytes: 128 * 1024 * 1024,
+                    };
+                    const task = browserPdfjs.getDocument({
+                        data: new Uint8Array(data),
+                        ...options,
+                    });
+                    try {
+                        const referencePage = await (await task.promise).getPage(1);
+                        const scale = pageWidth / referencePage.getViewport({scale: 1}).width;
+                        const viewport = referencePage.getViewport({scale: scale * dpr});
+                        const reference = document.createElement('canvas');
+                        reference.width = Math.ceil(viewport.width);
+                        reference.height = Math.ceil(viewport.height);
+                        const context = reference.getContext('2d', {alpha});
+                        if (!context) throw new Error('Independent Browser reference has no 2D canvas context');
+                        if (typeof context.getContextAttributes !== 'function') throw new Error('Independent Browser reference context attributes are unavailable');
+                        const contextAttributes = context.getContextAttributes();
+                        if (contextAttributes.alpha !== alpha) throw new Error('Independent Browser reference alpha does not match public text paint');
+                        await referencePage.render({
+                            canvas: reference,
+                            canvasContext: context,
+                            viewport,
+                            annotationMode: browserPdfjs.AnnotationMode.ENABLE_FORMS,
+                        }).promise;
+                        return {
+                            png: reference.toDataURL('image/png'),
+                            scale,
+                            backend: {
+                                version: browserPdfjs.version,
+                                build: browserPdfjs.build,
+                                workerSrc,
+                                options,
+                                requestedAlpha: alpha,
+                                contextAttributes,
+                                canvasWidth: reference.width,
+                                canvasHeight: reference.height,
+                                viewportWidth: viewport.width,
+                                viewportHeight: viewport.height,
+                                viewportTransform: viewport.transform,
+                                canvasIsDOM: reference instanceof HTMLCanvasElement,
+                                ownerDocumentIsCurrent: reference.ownerDocument === document,
+                            },
+                        };
+                    } finally { await task.destroy(); }
+                }, {
+                    data: Array.from(bytes),
+                    pageWidth: layout.page.width,
+                    dpr: layout.dpr,
+                    expectedVersion: pdfjs.version,
+                    expectedBuild: pdfjs.build,
+                    alpha: layout.referenceAlpha,
+                });
+                {
+                    const scale = browserReference.scale;
+                    const referencePng = Buffer.from(browserReference.png.slice('data:image/png;base64,'.length), 'base64');
+                    const reference = await loadImage(referencePng);
+                    writeFileSync(join(evidence, `${label}-reference.png`), referencePng);
+                    writeFileSync(join(evidence, `${label}-reference-backend.json`), JSON.stringify(browserReference.backend, null, 2));
+                    // Exclude the original 2pt border and all selection chrome. Compare glyphs,
+                    // including horizontal extent and silhouette, in the full-viewport pixels.
+                    const inset = 4 * scale;
+                    const width = Math.floor((layout.box.width - 2 * inset) * layout.dpr);
+                    const height = Math.floor((layout.box.height - 2 * inset) * layout.dpr);
+                    const sample = (image: typeof full | typeof reference, x: number, y: number) => {
+                        const canvas = createCanvas(width, height);
+                        canvas.getContext('2d').drawImage(image, x, y, width, height, 0, 0, width, height);
+                        return canvas.getContext('2d').getImageData(0, 0, width, height).data;
+                    };
+                    const actual = sample(full, (layout.box.left + inset) * layout.dpr, (layout.box.top + inset) * layout.dpr);
+                    const expected = sample(reference, (layout.box.left - layout.page.left + inset) * layout.dpr, (layout.box.top - layout.page.top + inset) * layout.dpr);
+                    const lightGlyphs = Math.max(expected[0]!, expected[1]!, expected[2]!) < 160;
+                    const points = (pixels: Uint8ClampedArray) => {
+                        const result: Array<{
+                            x: number;
+                            y: number
+                        }> = [];
+                        for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+                        // The collapsed editor caret is chrome, not a glyph. Exclude its exact column in both images.
+                            const caretX = layout.caret ? (layout.caret.left - layout.box.left - inset) * layout.dpr : null;
+                            if (caretX !== null && x >= Math.floor(caretX) && x <= Math.ceil(caretX)) continue;
+                            const offset = (y * width + x) * 4;
+                            if (lightGlyphs ? Math.min(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) > 200
+                                : Math.max(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) < 160) result.push({
+                                x,
+                                y,
+                            });
+                        }
+                        return result;
+                    };
+                    const liveInk = points(actual);
+                    const originalInk = points(expected);
+                    if (blank) {
+                        expect(originalInk.length, `${label} independent normal appearance is blank`).toBe(0);
+                        expect(liveInk.length, `${label} nonempty Contents must not invent glyphs`).toBe(0);
+                        return;
+                    }
+                    expect(originalInk.length, 'Independent original appearance has glyph ink').toBeGreaterThan(0);
+                    expect(liveInk.length, 'Live appearance has glyph ink').toBeGreaterThan(0);
+                    const bounds = (ink: typeof liveInk) => [
+                        Math.min(...ink.map(p => p.x)),
+                        Math.max(...ink.map(p => p.x)),
+                        Math.min(...ink.map(p => p.y)),
+                        Math.max(...ink.map(p => p.y)),
+                    ];
+                    const liveBounds = bounds(liveInk);
+                    const referenceBounds = bounds(originalInk);
+                    writeFileSync(join(evidence, `${label}-glyphs.json`), JSON.stringify({
+                        layout,
+                        liveBounds,
+                        referenceBounds,
+                    }));
+                    for (let i = 0; i < 4; i += 1) expect(Math.abs(liveBounds[i]! - referenceBounds[i]!) / layout.dpr, `${label} glyph extent ${i}, one CSS pixel rounding`).toBeLessThanOrEqual(1);
+                    const outside = (from: typeof liveInk, to: typeof liveInk) => from.filter(a => !to.some(b => Math.abs(a.x - b.x) <= layout.dpr && Math.abs(a.y - b.y) <= layout.dpr)).length;
+                    expect(outside(liveInk, originalInk), `${label} live glyph silhouette matches original font`).toBe(0);
+                    expect(outside(originalInk, liveInk), `${label} original glyph silhouette is complete`).toBe(0);
+                }
+            } finally {
+                try { await gripPaint.evaluate(element => element.remove()); }
+                finally { await gripPaint.dispose(); }
+            }
+        }
+        const normalAppearance = async (bytes: Uint8Array) => {
+            const pdf = await PDFDocument.load(bytes);
+            const annotation = (pdf.getPage(0).node.Annots()?.asArray() ?? []).map(ref => pdf.context.lookup(ref, PDFDict))
+                .find(object => object.get(PDFName.of('Subtype'))?.toString() === '/FreeText')!;
+            const normal = annotation.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'));
+            if (!(normal instanceof PDFRawStream)) throw new Error('Saved normal appearance is not a stream');
+            return {
+                stream: Buffer.from(normal.contents),
+                resources: normal.dict.lookup(PDFName.of('Resources'), PDFDict).toString(),
+                rect: annotation.lookup(PDFName.of('Rect'), PDFArray).toString(),
+                contents: annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).asBytes(),
+            };
+        };
+        await originalPaint('untouched');
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, selector);
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        try { await page.keyboard.press('c'); } finally { await page.keyboard.up(modifier); }
+        await originalPaint('selected-copy');
+        await clickAsUser(page, selector, {count: 2});
+        await page.waitForSelector(`${selector}.is-editing [contenteditable="true"]`);
+        await originalPaint('no-op-entry');
+        await page.keyboard.press('Escape');
+        await originalPaint('escaped');
+        expect(readFileSync(saved), 'No-op input leaves original file bytes untouched').toEqual(original);
+        await clickAsUser(page, selector, {count: 2});
+        await page.waitForSelector(`${selector}.is-editing [contenteditable="true"]`);
+        await page.keyboard.down(modifier);
+        try { await page.keyboard.press('Enter'); } finally { await page.keyboard.up(modifier); }
+        await originalPaint('unchanged-completion');
+        for (const handleSelector of [
+            '[data-pdf-annotation-move-handle]',
+            '[data-pdf-annotation-resize-handle="se"]',
+        ]) {
+            if (handleSelector.includes('resize')) await clickAsUser(page, selector);
+            const handle = await page.waitForSelector(handleSelector);
+            const point = await revealForPointer(page, handle!);
+            await page.mouse.move(point.x, point.y);
+            await page.mouse.down();
+            await page.mouse.move(point.x + 18, point.y + 8, {steps: 3});
+            await page.keyboard.press('Escape');
+            await page.mouse.up();
+            await originalPaint(handleSelector.includes('resize') ? 'cancelled-resize' : 'cancelled-move');
+        }
+        const untouched = await normalAppearance(original);
+        await clickAnnotationTool(page, 'Draw');
+        await drawInkStroke(page);
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        expect(await normalAppearance(readFileSync(saved)), 'Unrelated ink save preserves untouched AP, Resources, Rect and Contents bytes').toEqual(untouched);
+        await originalPaint('unrelated-ink-save');
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, selector, {count: 2});
+        await page.waitForSelector(`${selector}.is-editing [contenteditable="true"]`);
+        await selectAllFocusedAnnotationText(page);
+        await page.keyboard.type('Core61 edited text');
+        await page.keyboard.down(modifier);
+        try { await page.keyboard.press('Enter'); } finally { await page.keyboard.up(modifier); }
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Undo"]');
+        await originalPaint('text-undo-before-save');
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Redo"]');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const edited = await PDFDocument.load(readFileSync(saved));
+        const annotation = edited.context.lookup(edited.getPage(0).node.Annots()!.get(0), PDFDict);
+        expect(annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Core61 edited text');
+        await originalPaint('saved-edit-stale-proxy', readFileSync(saved));
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Undo"]');
+        await originalPaint('text-undo-after-save');
+        await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Redo"]');
+        await originalPaint('text-redo-after-save', readFileSync(saved));
+        const restarted = await sessionFixture.restart({hard: true});
+        page = restarted.page;
+        await openPdfInApp(restarted.page, saved);
+        await waitForViewerInteractive(restarted.page);
+        await originalPaint('saved-edit-reopened', readFileSync(saved));
+        // Local controls keep the same semantic text while changing only the selected normal appearance.
+        for (const mode of [
+            'selected-state',
+            'blank-state',
+            'missing-appearance',
+            'malformed-decode',
+        ]) {
+            const pdf = await PDFDocument.load(original);
+            const annotation = pdf.context.lookup(pdf.getPage(0).node.Annots()!.get(0), PDFDict);
+            const ap = annotation.lookup(PDFName.of('AP'), PDFDict);
+            const normal = ap.get(PDFName.of('N'))!;
+            if (mode === 'missing-appearance') {
+                annotation.delete(PDFName.of('AP'));
+                annotation.set(PDFName.of('DA'), PDFString.of('/Helv 12 Tf 0 0 0 rg'));
+            } else {
+                const blankStream = pdf.context.stream(mode === 'malformed-decode' ? 'invalid flate bytes' : '', {
+                    Type: 'XObject',
+                    Subtype: 'Form',
+                    BBox: [
+                        0,
+                        0,
+                        300,
+                        40,
+                    ],
+                    ...(mode === 'malformed-decode' ? {Filter: 'FlateDecode'} : {}),
+                });
+                if (mode === 'malformed-decode') {
+                    expect(
+                        () => decodePDFRawStream(blankStream).decode(),
+                        'Malformed normal appearance fixture contains invalid compressed data',
+                    ).toThrow(/flate|decode|compression|FCHECK/iu);
+                }
+                const blankRef = pdf.context.register(blankStream);
+                ap.set(PDFName.of('N'), mode === 'malformed-decode' ? blankRef : pdf.context.obj({
+                    On: normal,
+                    Off: blankRef,
+                }));
+                annotation.set(PDFName.of('AS'), PDFName.of(mode === 'selected-state' ? 'On' : 'Off'));
+                if (mode !== 'selected-state') annotation.set(PDFName.of('DA'), PDFString.of('/Helv 12 Tf 0 0 0 rg'));
+            }
+            const bytes = Buffer.from(await pdf.save());
+            const path = join(evidence, `${mode}.pdf`);
+            writeFileSync(path, bytes);
+            await openPdfInApp(page, path);
+            await waitForViewerInteractive(page);
+            await originalPaint(mode, bytes, mode === 'blank-state' || mode === 'malformed-decode');
+        }
+        // Keep PDF annotation order and Multiply against the actual whole-page backdrop.
+        for (const mode of [
+            'shape-before-text',
+            'text-before-shape',
+            'multiply-stamp-overlap',
+        ]) {
+            const pdf = await PDFDocument.load(original);
+            const pdfPage = pdf.getPage(0);
+            if (mode === 'multiply-stamp-overlap') pdfPage.drawRectangle({
+                x: 80,
+                y: 580,
+                width: 220,
+                height: 80,
+                color: rgb(1, 0.5, 0.25),
+            });
+            const annotations = pdfPage.node.Annots()!;
+            const text = annotations.get(0);
+            const squareAppearance = pdf.context.register(pdf.context.stream('q /GS gs 0 0 1 rg 0 0 180 60 re f Q', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    180,
+                    60,
+                ],
+                Resources: {ExtGState: {GS: {BM: mode === 'multiply-stamp-overlap' ? 'Multiply' : 'Normal'}}},
+            }));
+            const square = pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'Square',
+                Rect: [
+                    90,
+                    590,
+                    270,
+                    650,
+                ],
+                C: [
+                    0,
+                    0,
+                    1,
+                ],
+                AP: {N: squareAppearance},
+                F: 4,
+            }));
+            const stampPixels = createCanvas(1, 1);
+            stampPixels.getContext('2d').fillStyle = '#00ff00';
+            stampPixels.getContext('2d').fillRect(0, 0, 1, 1);
+            const stampImage = await pdf.embedPng(stampPixels.toBuffer('image/png'));
+            const stampAppearance = pdf.context.register(pdf.context.stream('q 40 0 0 40 0 0 cm /Im0 Do Q', {
+                Type: 'XObject',
+                Subtype: 'Form',
+                BBox: [
+                    0,
+                    0,
+                    40,
+                    40,
+                ],
+                Resources: {XObject: {Im0: stampImage.ref}},
+            }));
+            const stamp = pdf.context.register(pdf.context.obj({
+                Type: 'Annot',
+                Subtype: 'Stamp',
+                Rect: [
+                    140,
+                    600,
+                    180,
+                    640,
+                ],
+                AP: {N: stampAppearance},
+                F: 4,
+            }));
+            pdfPage.node.set(PDFName.of('Annots'), pdf.context.obj(mode === 'shape-before-text' ? [
+                square,
+                stamp,
+                text,
+            ] : [
+                text,
+                square,
+                stamp,
+            ]));
+            const bytes = Buffer.from(await pdf.save());
+            const path = join(evidence, `${mode}.pdf`);
+            writeFileSync(path, bytes);
+            await openPdfInApp(page, path);
+            await waitForViewerInteractive(page);
+            const box = await page.waitForSelector(selector);
+            await revealForPointer(page, box!);
+            const bounds = await box!.evaluate(element => element.closest('.page_container')!.getBoundingClientRect().toJSON());
+            const dpr = await page.evaluate(() => devicePixelRatio);
+            const full = await loadImage(Buffer.from(await page.screenshot()));
+            const referenceTask = pdfjs.getDocument({
+                data: new Uint8Array(bytes),
+                ...createPdfjsNodeDocumentOptions(),
+            });
+            try {
+                const referencePage = await (await referenceTask.promise).getPage(1);
+                const viewport = referencePage.getViewport({scale: bounds.width / 600 * dpr});
+                const reference = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+                await Reflect.apply(referencePage.render, referencePage, [{
+                    canvas: reference,
+                    canvasContext: reference.getContext('2d'),
+                    viewport,
+                    annotationMode: pdfjs.AnnotationMode.ENABLE_FORMS,
+                }]).promise;
+                const screenshot = createCanvas(full.width, full.height);
+                screenshot.getContext('2d').drawImage(full, 0, 0);
+                for (const [
+                    x,
+                    y,
+                ] of [
+                        [
+                            120,
+                            605,
+                        ],
+                        [
+                            160,
+                            605,
+                        ],
+                        [
+                            250,
+                            605,
+                        ],
+                        [
+                            95,
+                            645,
+                        ],
+                    ]) {
+                    const [
+                        px,
+                        py,
+                    ] = viewport.convertToViewportPoint(x!, y!);
+                    const expected = reference.getContext('2d').getImageData(Math.round(px!), Math.round(py!), 1, 1).data;
+                    const actual = screenshot.getContext('2d').getImageData(Math.round(bounds.left * dpr + px!), Math.round(bounds.top * dpr + py!), 1, 1).data;
+                    expect([...actual], `${mode} PDF order/backdrop at ${x},${y}`).toEqual([...expected]);
+                }
+                writeFileSync(join(evidence, `${mode}-viewport.png`), screenshot.toBuffer('image/png'));
+                writeFileSync(join(evidence, `${mode}-reference.png`), reference.toBuffer('image/png'));
+            } finally {await referenceTask.destroy();}
+        }
+        // The original fixture and every recorded viewport remain under task TMP for paired proof.
     });
 
     it('keeps annotation cards stationary and visibly selects every annotation kind', async () => {

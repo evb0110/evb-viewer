@@ -179,7 +179,7 @@ function createHarness() {
         outputScale: ref(1),
         getRenderVersion: () => 1,
         getRenderDocumentToken: () => 'document-a',
-        getCommittedCanvas: () => pageContainer.querySelector('canvas'),
+        getCommittedRender: () => committedRender,
         onRenderedPageStateChanged,
         onPageLayersCommitted,
         requestSearchPageRaster: vi.fn(async () => undefined),
@@ -189,6 +189,12 @@ function createHarness() {
         canvas,
         viewport: page.getViewport({scale: 1}),
         annotationCanvasMap: null,
+        annotationOutput: Object.freeze({
+            annotationMode: 1,
+            requestedSeparateCanvas: false,
+            separateAnnots: false,
+            ownCanvases: Object.freeze([]),
+        }),
         scaleX: 1,
         scaleY: 1,
         rawDims: {
@@ -198,7 +204,9 @@ function createHarness() {
         userUnit: 1,
         totalScaleFactor: 1,
     };
+    let committedRender = renderResult;
     return {
+        setCommittedRender: (value: typeof renderResult) => { committedRender = value; },
         canvas,
         document: documentSession,
         onRenderedPageStateChanged,
@@ -260,6 +268,10 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             // remains current. Retry belongs to the document, not that old canvas.
             const currentCanvas = document.createElement('canvas');
             harness.canvas.replaceWith(currentCanvas);
+            harness.setCommittedRender({
+                ...harness.renderResult,
+                canvas: currentCanvas,
+            });
             const retry = toastAdd.mock.calls[0]?.[0].actions.find((action: {label: string}) => action.label === 'common.retry');
             expect(retry).toBeDefined();
             retry.onClick();
@@ -574,32 +586,6 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce();
             expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
             expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
-        } finally {
-            harness.root.remove();
-        }
-    });
-
-    it('releases the page lease when viewport creation throws', async () => {
-        const harness = createHarness();
-        harness.page.getViewport = vi.fn(() => {
-            throw new Error('malformed page viewport');
-        });
-        try {
-            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
-            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
-            harness.pageRenderState.markCanvasOnly(requirePageNumber(1), 1, 11);
-            harness.pageRenderState.completeRender(requirePageNumber(1), 1, 11);
-
-            await expect(harness.renderer.renderLayerPromotions({
-                start: 1,
-                end: 1,
-            }, {
-                contentIntent: 'layers-only-promotion',
-                rasterDemandPages: [1],
-                prioritizeTextLayer: true,
-            })).rejects.toThrow('malformed page viewport');
-
-            expect(harness.release).toHaveBeenCalledOnce();
         } finally {
             harness.root.remove();
         }

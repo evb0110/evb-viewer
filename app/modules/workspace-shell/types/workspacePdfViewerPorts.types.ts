@@ -91,6 +91,7 @@ export interface IWorkspacePdfViewerAgentPageImageCapturePort extends
     >,
     Pick<IPdfViewerExpose,
         'ensurePageMetricsInRange'
+        | 'captureVisibleRegionAsPng'
     > {}
 
 export interface IWorkspacePdfViewerAgentPort extends

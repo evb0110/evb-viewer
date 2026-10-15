@@ -14,7 +14,7 @@ describe('image export platform feature schemas', () => {
 
     it('preserves channels and registry-backed replay policy', () => {
         expect(channels).toEqual({
-            rasterizePdfRegion: 'pdfExport:region',
+            captureCurrentView: 'pdfExport:region',
             exportPdfToImages: 'pdfExport:images',
             exportPdfToMultiPageTiff: 'pdfExport:multipage-tiff',
             subscribeProgress: 'pdfExport:progress:subscribe',
@@ -41,6 +41,29 @@ describe('image export platform feature schemas', () => {
         const codec = codecs[channels.exportPdfToImages]!;
 
         expect(codec.decodeArgs(codec.encodeArgs(args))).toEqual(args);
+        const region = {
+            x: 4,
+            y: 8,
+            width: 120,
+            height: 80,
+            viewportWidth: 1000,
+            viewportHeight: 800,
+            pixelRatio: 2,
+        };
+        const capture = codecs[channels.captureCurrentView]!;
+        const captureArgs = IMAGE_EXPORT_PLATFORM_FEATURE.methods.captureCurrentView.client.mapArgs(region);
+        expect(capture.decodeArgs(capture.encodeArgs([...captureArgs]))).toEqual([region]);
+        expect(capture.decodeResult(null)).toBeNull();
+        expect(() => capture.decodeArgs([{
+            ...region,
+            width: 4096,
+            viewportWidth: 8192,
+        }])).toThrow('Capture exceeds the pixel limit');
+        expect(() => capture.decodeArgs([{
+            ...region,
+            x: 990,
+        }])).toThrow('Capture must fit the current viewport');
+
     });
 
     it('keeps validation and result envelopes stable', () => {

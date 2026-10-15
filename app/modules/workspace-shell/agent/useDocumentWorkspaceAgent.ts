@@ -494,7 +494,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 'document.screenshot_page',
             ],
             parse: parseAgentPageImageInput,
-            run: (captureInput: Record<string, unknown>, actionId) => captureAgentPageImage(captureInput, actionId),
+            run: (captureInput: Record<string, unknown>, actionId, context) => captureAgentPageImage(captureInput, actionId, () => context?.assertCurrentDocument()),
         },
         {
             ids: [

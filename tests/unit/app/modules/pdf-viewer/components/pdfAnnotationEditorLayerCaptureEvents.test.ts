@@ -242,7 +242,8 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
     ] as const)('commits %s preview when released mouse loses capture before pointerup exactly once', async (kind) => {
         const gesture = await startCapturedGesture(kind, kind === 'grip');
         gesture.layer.dispatchEvent(gesture.pointer('lostpointercapture'));
-        await nextTick();
+        if (kind === 'grip') await vi.waitFor(() => expect(entityRect(gesture.surface.getEntitiesForPage(0)[0])?.left).toBeCloseTo(gesture.preview.left, 12));
+        else await nextTick();
         const completed = gesture.surface.getEntitiesForPage(0)[0]!;
         const completedRect = entityRect(completed);
         for (const key of [
@@ -254,13 +255,21 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             expect(completedRect?.[key]).toBeCloseTo(gesture.preview[key], 12);
         }
         const revision = completed.revision;
-        if (kind !== 'create' && kind !== 'draw') expect(gesture.commitGesture).toHaveBeenCalledOnce();
+        if (kind !== 'create' && kind !== 'draw' && kind !== 'grip') expect(gesture.commitGesture).toHaveBeenCalledOnce();
         await gesture.finishAfterCaptureLoss();
         expect(gesture.surface.getEntitiesForPage(0)).toHaveLength(1);
         expect(gesture.surface.getEntitiesForPage(0)[0]?.revision).toBe(revision);
         expect(gesture.rect()).toEqual(gesture.preview);
-        if (kind !== 'create' && kind !== 'draw') expect(gesture.commitGesture).toHaveBeenCalledOnce();
-        if (kind === 'grip' && completed.kind === 'text-box') expect(completed.text).toBe('Текст после правки');
+        if (kind !== 'create' && kind !== 'draw' && kind !== 'grip') expect(gesture.commitGesture).toHaveBeenCalledOnce();
+        if (kind === 'grip' && completed.kind === 'text-box') {
+            expect(completed.text).toBe('Текст после правки');
+            await gesture.surface.undo();
+            const undone = gesture.surface.getEntitiesForPage(0)[0]!;
+            expect(entityRect(undone)).toEqual(gesture.originalRect);
+            expect(undone.kind === 'text-box' ? undone.text : null).toBe('Текст после правки');
+            await gesture.surface.redo();
+            expect(entityRect(gesture.surface.getEntitiesForPage(0)[0])).toEqual(gesture.preview);
+        }
     });
 
     it.each([
