@@ -39,7 +39,9 @@ import {
     requireDocumentRef, type TDocumentRef,
 } from '@contracts/documentRef';
 import {DEFAULT_SETTINGS} from '@contracts/settings';
-import {callWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    callWorkspaceCommand, waitForWorkspaceToolbarIdle,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {LOCALE_MESSAGES} from '@i18n-app';
 import {activateElectronMenuItem} from '@scripts/electron-run/activateElectronMenuItem';
 import {
@@ -297,6 +299,7 @@ describe('Move Tab to New Window view state', () => {
         const save = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+S'});
         await vi.waitFor(async () => expect(await survivor.$('.tab.is-active.is-dirty')).toBeNull(), {timeout: 30_000});
         expect(await readPdfTextAnnotationRecords(fixture)).toEqual(expect.arrayContaining([expect.objectContaining({contents: 'Save frontier'})]));
+        await waitForWorkspaceToolbarIdle(survivor);
         const saveAs = await activateMenuItemAsUser(survivor, {accelerator: 'CmdOrCtrl+Shift+S'});
         await vi.waitFor(async () => expect(existsSync(savedAs) && (await readPdfTextAnnotationRecords(savedAs))
             .some(record => record.contents === 'Save frontier')).toBe(true), {timeout: 30_000});
