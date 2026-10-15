@@ -1486,6 +1486,9 @@ if (process.versions.electron && process.type === 'browser') {
         await clickAsUser(page, allPagesOption.asElement() as ElementHandle<HTMLElement>);
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Cancel OCR"]', {visible: true});
+        await waitForFunctionInPage(page, () => (
+            document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.startsWith('Processing page ') === true
+        ), {timeout: OCR_TIMEOUT_MS});
 
         // Once the tab shows no document, no frame until the run ends, or after, may show a dialog.
         await page.evaluate((host: string) => {
