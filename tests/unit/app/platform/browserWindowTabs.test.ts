@@ -10,7 +10,7 @@ import {requireDocumentRef} from '@contracts/documentRef';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {IBrowserTransferAuthorityRecord} from '@app/platform/browser/browserDocumentIdb';
 import {
-    FakeLockManager, FakeIndexedDbFactory, MemoryStorage,
+    createFileSystemFileHandle, FakeLockManager, FakeIndexedDbFactory, MemoryStorage,
 } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type * as TDocumentIdb from '@app/platform/browser/browserDocumentIdb';
 
@@ -192,6 +192,135 @@ describe('browserWindowTabsCapability', () => {
         vi.unstubAllGlobals();
     });
 
+    it.each([
+        'adopted',
+        'pending-combine',
+        'stale',
+        'recent-failed',
+    ])(
+        'keeps Save As bytes through deferred Recent completion and %s cleanup',
+        async (outcome) => {
+            vi.useRealTimers();
+            stubBrowserGlobals();
+            const storage = new MemoryStorage();
+            Object.assign(window, {localStorage: storage});
+            const bytes = Uint8Array.of(37, 80, 68, 70, 1, 2);
+            const handle = createFileSystemFileHandle({
+                name: 'saved.pdf',
+                getFile: async () => new File([bytes], 'saved.pdf', {type: 'application/pdf'}),
+            });
+            Object.assign(window, {showSaveFilePicker: async () => handle});
+            const owner = await import('@app/platform/browserWindowTabs');
+            const {browserDocumentStore: store} = await import('@app/platform/browser/browserDocumentRepository');
+            const {savePdfAsFromWorkingCopy} = await import('@app/platform/browser-api/browserSaveTargets');
+            const previousSource = await store.createStoredDocument('pending.pdf', bytes, {
+                kind: 'source',
+                mimeType: 'application/pdf',
+            });
+            const working = await owner.reserveBrowserDocumentWorkingCopy('pending.pdf', previousSource);
+            await store.cloneAsWorkingCopy(previousSource, 'pending.pdf', working);
+            const recent = Promise.withResolvers<undefined>();
+            const touch = store.touchRecentFile.bind(store);
+            vi.spyOn(store, 'touchRecentFile').mockImplementation(async (ref) => {
+                await recent.promise;
+                if (outcome === 'recent-failed') throw new Error('Recent storage unavailable');
+                await touch(ref);
+            });
+            let savedRef: string | null = null;
+            const revision = await store.getDocumentRevision(working);
+            const save = savePdfAsFromWorkingCopy(working, {expectedDocumentRevisionToken: revision.token}).then(ref => { savedRef = ref; });
+            let next: ReturnType<typeof requireDocumentRef> | null = null;
+            try {
+                await vi.waitFor(() => expect(savedRef).not.toBeNull());
+                const source = requireDocumentRef(savedRef ?? '');
+                await expect(store.getDocumentRevision(working)).resolves.toEqual(revision);
+                await expect(store.read(working)).resolves.toEqual(bytes);
+                if (outcome !== 'pending-combine') {
+                    next = await owner.reserveBrowserDocumentWorkingCopy('adopted.pdf', outcome === 'stale' ? undefined : source);
+                    if (outcome === 'stale') {
+                        await store.createStoredDocument('replacement.pdf', Uint8Array.of(9), {
+                            ref: next,
+                            kind: 'working',
+                            mimeType: 'application/pdf',
+                        });
+                    } else {
+                        await store.cloneAsWorkingCopy(source, 'adopted.pdf', next);
+                    }
+                }
+                const retirement = owner.retireBrowserDocumentWorkingCopy(working).catch((error: unknown) => error);
+                await store.clearRecentFiles();
+                await expect(store.read(source)).resolves.toEqual(bytes);
+                recent.resolve(undefined);
+                const retired = await retirement;
+                if (outcome === 'recent-failed') expect(retired).toEqual(new Error('Recent storage unavailable'));
+                else expect(retired).toBeUndefined();
+                if (next) await expect(store.read(next)).resolves.toEqual(outcome === 'stale' ? Uint8Array.of(9) : bytes);
+                await expect(store.exists(working)).resolves.toBe(false);
+                await store.clearRecentFiles();
+                if (next) await owner.retireBrowserDocumentWorkingCopy(next);
+                await expect(store.exists(source)).resolves.toBe(false);
+            } finally {
+                recent.resolve(undefined);
+                await save;
+                await owner.retireBrowserDocumentWorkingCopy(working);
+                if (next) await owner.retireBrowserDocumentWorkingCopy(next);
+                await store.clearRecentFiles();
+            }
+        },
+    );
+
+    it.each([
+        'read',
+        'failed-read',
+        'failed-earlier-cleanup',
+    ])('keeps conformance bytes readable until %s finishes during working-copy retirement', async (outcome) => {
+        vi.useRealTimers();
+        stubBrowserGlobals();
+        Object.assign(window, {localStorage: new MemoryStorage()});
+        const owner = await import('@app/platform/browserWindowTabs');
+        const {browserDocumentStore: store} = await import('@app/platform/browser/browserDocumentRepository');
+        const {createBrowserDocumentsFileCapability} = await import('@app/platform/browser-api/createBrowserDocumentsFileCapability');
+        const capability = createBrowserDocumentsFileCapability({clearSearchCaches: () => {}});
+        const bytes = new TextEncoder().encode('%PDF-1.7\n/Type /Catalog\n%%EOF');
+        const working = await owner.reserveBrowserDocumentWorkingCopy('pending-save.pdf');
+        await store.createStoredDocument('pending-save.pdf', bytes, {
+            ref: working,
+            kind: 'working',
+            mimeType: 'application/pdf',
+        });
+        if (outcome === 'failed-earlier-cleanup') {
+            owner.handoffBrowserDocumentWorkingCopy(working, working, () => Promise.reject(new Error('Recent storage unavailable')));
+        }
+        const reading = Promise.withResolvers<undefined>();
+        const resume = Promise.withResolvers<undefined>();
+        const readRange = store.readRange.bind(store);
+        vi.spyOn(store, 'readRange').mockImplementation(async (...args) => {
+            reading.resolve(undefined);
+            await resume.promise;
+            if (outcome === 'failed-read') throw new Error('Conformance storage unavailable');
+            return readRange(...args);
+        });
+        const analysis = capability.analyzePdfConformance(working);
+        // Observe the result after releasing the paused read, including on failure.
+        const analyzed = analysis.catch((error: unknown) => error);
+        await reading.promise;
+        const retirement = capability.cleanupFile(working).catch((error: unknown) => error);
+        try {
+            await store.clearRecentFiles();
+            await expect(store.read(working)).resolves.toEqual(bytes);
+            resume.resolve(undefined);
+            if (outcome === 'failed-read') await expect(analyzed).resolves.toEqual(new Error('Conformance storage unavailable'));
+            else await expect(analyzed).resolves.toMatchObject({canIncrementalSave: false});
+            if (outcome === 'failed-earlier-cleanup') await expect(retirement).resolves.toEqual(new Error('Recent storage unavailable'));
+            else await expect(retirement).resolves.toBeUndefined();
+            await expect(store.exists(working)).resolves.toBe(false);
+        } finally {
+            resume.resolve(undefined);
+            await analyzed;
+            await retirement;
+        }
+    });
+
     it('collects the creator copy after durable handoff and the receiver final close', async () => {
         vi.useRealTimers();
         stubBrowserGlobals();
@@ -348,6 +477,77 @@ describe('browserWindowTabsCapability', () => {
         const owner = await import('@app/platform/browserWindowTabs');
         await expect(owner.browserWindowTabsCapability.claimWorkspaceCheckpoint()).resolves.toBeNull();
         await expect(owner.publishBrowserDocumentLiveLeases()).resolves.toBeNull();
+    });
+
+    it.each([
+        {
+            initial: 'publication',
+            fault: 'discovery',
+        },
+        {
+            initial: 'checkpoint',
+            fault: 'discovery',
+        },
+        {
+            initial: 'publication',
+            fault: 'lock',
+        },
+        {
+            initial: 'checkpoint',
+            fault: 'lock',
+        },
+    ])('opens a new working copy after initial $initial claim refuses $fault', async ({
+        initial, fault,
+    }) => {
+        vi.useRealTimers();
+        const locks = new FakeLockManager();
+        stubBrowserGlobals('http://localhost:3235/', locks);
+        Object.assign(window, {localStorage: new MemoryStorage()});
+        const owner = await import('@app/platform/browserWindowTabs');
+        const {browserDocumentStore: store} = await import('@app/platform/browser/browserDocumentRepository');
+        owner.browserWindowTabsCapability.browserRecovery!.getOwnerId();
+        if (fault === 'discovery') {
+            vi.spyOn(MockBroadcastChannel.prototype, 'postMessage').mockImplementationOnce(() => {
+                throw new Error('Injected initial lease claim refusal');
+            });
+        } else {
+            vi.spyOn(locks, 'request').mockRejectedValueOnce(new Error('Injected initial lease claim refusal'));
+        }
+        await expect(initial === 'checkpoint'
+            ? owner.browserWindowTabsCapability.claimWorkspaceCheckpoint()
+            : owner.reserveBrowserDocumentWorkingCopy('refused.pdf')).rejects.toThrow('Injected initial lease claim refusal');
+        const bytes = Uint8Array.of(37, 80, 68, 70, 10);
+        const source = await store.createStoredDocument('accepted.pdf', bytes, {
+            kind: 'source',
+            mimeType: 'application/pdf',
+        });
+        const ref = await owner.reserveBrowserDocumentWorkingCopy('accepted.pdf', source);
+        await store.cloneAsWorkingCopy(source, 'accepted.pdf', ref);
+        await store.clearRecentFiles();
+        await expect(store.read(ref)).resolves.toEqual(bytes);
+        await expect(owner.browserWindowTabsCapability.claimWorkspaceCheckpoint()).resolves.toBeNull();
+    });
+
+    it('keeps the committed lease after a later publication refuses storage', async () => {
+        vi.useRealTimers();
+        stubBrowserGlobals();
+        Object.assign(window, {localStorage: new MemoryStorage()});
+        const owner = await import('@app/platform/browserWindowTabs');
+        const {browserDocumentStore: store} = await import('@app/platform/browser/browserDocumentRepository');
+        const bytes = Uint8Array.of(37, 80, 68, 70, 12);
+        const source = await store.createStoredDocument('kept.pdf', bytes, {
+            kind: 'source',
+            mimeType: 'application/pdf',
+        });
+        const working = await owner.reserveBrowserDocumentWorkingCopy('kept.pdf', source);
+        await store.cloneAsWorkingCopy(source, 'kept.pdf', working);
+        vi.spyOn(store, 'heartbeatLiveLease').mockRejectedValueOnce(new Error('Injected later publication refusal'));
+        await expect(owner.reserveBrowserDocumentWorkingCopy('refused.pdf')).rejects.toThrow('Injected later publication refusal');
+        const successor = await owner.reserveBrowserDocumentWorkingCopy('kept.pdf', source);
+        await store.cloneAsWorkingCopy(source, 'kept.pdf', successor);
+        await owner.retireBrowserDocumentWorkingCopy(working);
+        await store.clearRecentFiles();
+        await expect(store.read(successor)).resolves.toEqual(bytes);
     });
 
     it('adopts the proven reload lease before an eager publication without Web Locks', async () => {
@@ -679,7 +879,10 @@ describe('browserWindowTabsCapability', () => {
             // Releasing the original must not grant a stale duplicate request.
             locks.releaseElsewhere(ownerLockName);
             await vi.advanceTimersByTimeAsync(0);
-            expect((await locks.query()).held).toEqual([{name: `evb-viewer:browser-lease-owner:${ownerId}`}]);
+            expect((await locks.query()).held).toEqual([{
+                mode: 'exclusive',
+                name: `evb-viewer:browser-lease-owner:${ownerId}`,
+            }]);
         } finally {
             locks.releaseElsewhere(ownerLockName);
             await vi.advanceTimersByTimeAsync(70);
@@ -715,7 +918,10 @@ describe('browserWindowTabsCapability', () => {
         expect(ownerId).not.toBe('window:321');
         // When the original closes, its lock does not pass to the copy.
         locks.releaseElsewhere(ownerLockName);
-        expect((await locks.query()).held).toEqual([{name: `evb-viewer:browser-lease-owner:${ownerId}`}]);
+        expect((await locks.query()).held).toEqual([{
+            mode: 'exclusive',
+            name: `evb-viewer:browser-lease-owner:${ownerId}`,
+        }]);
         await expect(leases.saveBrowserDocumentLiveLease('window:321', 0, 'active', [])).rejects.toThrow('does not own');
     });
 

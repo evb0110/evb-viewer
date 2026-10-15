@@ -9,6 +9,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 import {requireRequestId} from '@contracts/shared';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
@@ -362,6 +363,23 @@ describe('createElectronApi', () => {
                 },
             );
         });
+    });
+
+    it.each([
+        true,
+        false,
+    ])('preserves committed checkpoint result %s through the actual preload codec', async committed => {
+        const {api} = await createApiHarness({invoke: async () => committed});
+        const checkpoint = {
+            version: 1 as const,
+            capturedAt: requireEpochMs(1),
+            activePaneId: null,
+            activeTabId: null,
+            layout: null,
+            panes: [],
+            tabs: [],
+        };
+        await expect(api.windowTabs.saveWorkspaceCheckpoint?.(checkpoint)).resolves.toBe(committed);
     });
 
     it('forwards token-bound workspace checkpoint discard and resume calls', async () => {

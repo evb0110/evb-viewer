@@ -201,9 +201,6 @@ export function createDocumentPersistence(
             }
         } else if (snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
             const snapshot = snapshotHint.slice();
-            if (!state.isActiveWorkingCopy(path)) {
-                return false;
-            }
             state.pdfData.value = snapshot;
             state.pdfSrc.value = deps.toPdfBlob(snapshot);
             state.pdfReloadSrc.value = state.pdfSrc.value;
@@ -704,35 +701,27 @@ export function createDocumentPersistence(
                     }
                     state.workingCopyPath.value = nextWorkingPath;
                     savedWorkingPath = nextWorkingPath;
-                    if (previousWorkingPath !== nextWorkingPath) {
-                        try {
-                            await getDocumentWorkingCopyCapability().cleanupFile(previousWorkingPath);
-                        } catch (cleanupError) {
-                            BrowserLogger.warn('workspace', 'Optimized copy succeeded but previous working-copy cleanup failed', {
-                                previousWorkingPath,
-                                nextWorkingPath,
-                                savedPath,
-                                error: cleanupError,
-                            });
-                        }
+                }
+                try {
+                    state.originalPath.value = savedPath;
+                    state.requiresSaveAsOnFirstSave.value = false;
+                    if (!await commitPersistedPdfState(undefined, savedWorkingPath)) {
+                        return createStalePersistResult(requestedSaveMode, true);
+                    }
+                    state.lastSaveMode.value = requestedSaveMode;
+                    return createPersistResult(true, requestedSaveMode, true, savedPath);
+                } finally {
+                    if (previousWorkingPath !== savedWorkingPath) {
+                        void runDetached(
+                            () => getDocumentWorkingCopyCapability().cleanupFile(previousWorkingPath),
+                            {
+                                category: 'background-diagnostic',
+                                scope: 'workspace',
+                                message: 'Failed to cleanup previous saved working copy',
+                            },
+                        );
                     }
                 }
-                if (!state.isActiveWorkingCopy(savedWorkingPath)) {
-                    BrowserLogger.debug('workspace', 'Skipped stale optimized-copy state commit', {
-                        workingPath: savedWorkingPath,
-                        currentWorkingPath: state.workingCopyPath.value,
-                        savedPath,
-                        saveMode: requestedSaveMode,
-                    });
-                    return createStalePersistResult(requestedSaveMode, true);
-                }
-                state.originalPath.value = savedPath;
-                state.requiresSaveAsOnFirstSave.value = false;
-                if (!await commitPersistedPdfState(undefined, savedWorkingPath)) {
-                    return createStalePersistResult(requestedSaveMode, true);
-                }
-                state.lastSaveMode.value = requestedSaveMode;
-                return createPersistResult(true, requestedSaveMode, true, savedPath);
             }
 
             return createCancelledPersistResult(requestedSaveMode);
@@ -966,6 +955,7 @@ export function createDocumentPersistence(
                                 expectedWorkingPath: workingPath,
                                 expectedDocumentRevisionToken,
                                 stagedOutput,
+                                preserveLoadedSource: opts.preserveLoadedSource === true,
                                 ...(opts.optimizeLossless ? {optimizeLossless: true} : {}),
                             });
                             if (stagedSaveAsResult.success) {
@@ -976,7 +966,14 @@ export function createDocumentPersistence(
                             }
                             return applied;
                         } finally {
-                            await documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId);
+                            void runDetached(
+                                () => documentFiles.releaseManagedTempFileHandle?.(stagedOutput.leaseId) ?? Promise.resolve(),
+                                {
+                                    category: 'background-diagnostic',
+                                    scope: 'workspace',
+                                    message: 'Failed to release saved PDF staging lease',
+                                },
+                            );
                         }
                     }
                     if (opts.workingCopyOnly) {
@@ -1146,14 +1143,9 @@ export function createDocumentPersistence(
 
     async function saveWorkingCopyAs(
         data?: Uint8Array,
-        opts?: {
-            saveMode?: TPdfSaveMode;
-            expectedWorkingPath?: TDocumentRef | null;
-            expectedDocumentRevisionToken?: TDocumentRevisionToken | null | undefined;
+        opts?: IWorkingCopyPersistOptions & {
             optimizeLossless?: boolean;
             stagedOutput?: ITypedStagedArtifact;
-            changedObjectRefs?: string[];
-            commitCallbacks?: IPdfSerializedCommitCallbacks;
         },
     ): Promise<IPdfPersistResult> {
         const requestedSaveMode = opts?.saveMode ?? 'save_as_rewrite';
@@ -1164,76 +1156,60 @@ export function createDocumentPersistence(
                 ...(opts?.optimizeLossless === true ? {optimizeLossless: true} : {}),
                 ...(opts?.stagedOutput ? {stagedOutput: opts.stagedOutput} : {}),
             };
-            void data;
-            const saveAsResult = {
-                path: await getDocumentFilesCapability().savePdfAs(
-                    workingPath,
-                    Object.keys(saveAsOptions).length > 0 ? saveAsOptions : undefined,
-                    revisionOptions,
-                ),
-                validation: null,
-            };
-            const savedPath = saveAsResult.path;
-            if (!state.isActiveWorkingCopy(previousWorkingPath)) {
-                BrowserLogger.debug('workspace', 'Skipped stale Save As completion', {
-                    workingPath: previousWorkingPath,
-                    currentWorkingPath: state.workingCopyPath.value,
-                    savedPath: saveAsResult.path,
-                    saveMode: requestedSaveMode,
-                });
-                return createStalePersistResult(requestedSaveMode, true);
-            }
-            if (savedPath) {
-                let savedWorkingPath = previousWorkingPath;
-                if (opts?.stagedOutput || shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
-                    const nextWorkingPath =
-                        await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(savedPath);
-                    if (!state.isActiveWorkingCopy(previousWorkingPath)) {
-                        BrowserLogger.debug('workspace', 'Skipped stale Save As working-copy refresh', {
-                            workingPath: previousWorkingPath,
-                            currentWorkingPath: state.workingCopyPath.value,
-                            nextWorkingPath,
-                            savedPath,
-                            saveMode: requestedSaveMode,
-                        });
-                        if (!state.isActiveWorkingCopy(nextWorkingPath)) {
-                            void getDocumentWorkingCopyCapability().cleanupFile(nextWorkingPath);
+            const savedPath = await getDocumentFilesCapability().savePdfAs(
+                workingPath,
+                Object.keys(saveAsOptions).length > 0 ? saveAsOptions : undefined,
+                revisionOptions,
+            );
+            try {
+                if (!state.isActiveWorkingCopy(previousWorkingPath)) {
+                    return createStalePersistResult(requestedSaveMode, true);
+                }
+                if (savedPath) {
+                    let savedWorkingPath = previousWorkingPath;
+                    if (shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath)) {
+                        const nextWorkingPath =
+                            await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(savedPath);
+                        try {
+                            data ??= (await deps.readPdfStateFromPath(nextWorkingPath)).pdfData ?? undefined;
+                            if (!state.isActiveWorkingCopy(previousWorkingPath)) return createStalePersistResult(requestedSaveMode, true);
+                            state.workingCopyPath.value = nextWorkingPath;
+                        } finally {
+                            if (!state.isActiveWorkingCopy(nextWorkingPath)) {
+                                void runDetached(() => getDocumentWorkingCopyCapability().cleanupFile(nextWorkingPath), {
+                                    category: 'background-diagnostic',
+                                    scope: 'workspace',
+                                    message: 'Failed to cleanup unadopted saved working copy',
+                                });
+                            }
                         }
+                        savedWorkingPath = nextWorkingPath;
+                    }
+                    state.originalPath.value = savedPath;
+                    state.requiresSaveAsOnFirstSave.value = false;
+                    if (!await commitPersistedPdfState(data, savedWorkingPath, shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath) ? {
+                        preserveLoadedSource: opts?.preserveLoadedSource === true && state.pdfSrc.value instanceof Blob,
+                        preserveConformanceProfile: opts?.preserveLoadedSource === true && state.pdfSrc.value instanceof Blob,
+                    } : undefined)) {
                         return createStalePersistResult(requestedSaveMode, true);
                     }
-                    state.workingCopyPath.value = nextWorkingPath;
-                    savedWorkingPath = nextWorkingPath;
-                    if (previousWorkingPath !== nextWorkingPath) {
-                        try {
-                            await getDocumentWorkingCopyCapability().cleanupFile(previousWorkingPath);
-                        } catch (cleanupError) {
-                            BrowserLogger.warn('workspace', 'Save As succeeded but previous working-copy cleanup failed', {
-                                previousWorkingPath,
-                                nextWorkingPath,
-                                savedPath,
-                                error: cleanupError,
-                            });
-                        }
-                    }
+                    state.lastSaveMode.value = requestedSaveMode;
+                    return createPersistResult(true, requestedSaveMode, true, savedPath);
                 }
-                if (!state.isActiveWorkingCopy(savedWorkingPath)) {
-                    BrowserLogger.debug('workspace', 'Skipped stale Save As state commit', {
-                        workingPath: savedWorkingPath,
-                        currentWorkingPath: state.workingCopyPath.value,
-                        savedPath,
-                        saveMode: requestedSaveMode,
-                    });
-                    return createStalePersistResult(requestedSaveMode, true);
+                return createCancelledPersistResult(requestedSaveMode);
+            } finally {
+                if (savedPath && (state.workingCopyPath.value !== previousWorkingPath
+                    || shouldRefreshWorkingCopyAfterSaveAs(savedPath, previousWorkingPath))) {
+                    void runDetached(
+                        () => getDocumentWorkingCopyCapability().cleanupFile(previousWorkingPath),
+                        {
+                            category: 'background-diagnostic',
+                            scope: 'workspace',
+                            message: 'Failed to cleanup previous saved working copy',
+                        },
+                    );
                 }
-                state.originalPath.value = savedPath;
-                state.requiresSaveAsOnFirstSave.value = false;
-                if (!await commitPersistedPdfState(data ?? undefined, savedWorkingPath)) {
-                    return createStalePersistResult(requestedSaveMode, true);
-                }
-                state.lastSaveMode.value = requestedSaveMode;
-                return createPersistResult(true, requestedSaveMode, true, savedPath);
             }
-            return createCancelledPersistResult(requestedSaveMode);
         }, opts?.expectedWorkingPath);
     }
 

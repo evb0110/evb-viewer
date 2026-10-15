@@ -1,7 +1,4 @@
-import type {
-    IAnnotationCreationFailureReport,
-    TAnnotationCreationFailureReason,
-} from '@app/modules/pdf-viewer/public';
+import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
 import type { TTranslateFn } from '@i18n-app';
 import type {IPdfPersistFailure} from '@app/types/pdfUi';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
@@ -47,6 +44,7 @@ export type TWorkspaceSaveFailureReason =
     | 'persist-rejected'
     | 'document-changed'
     | 'working-copy-missing'
+    | 'recovery-settlement-failed'
     | 'unexpected-error';
 
 /**
@@ -73,7 +71,6 @@ export const useWorkspaceFailureSurface = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
     const { presentFailureToast } = useFailureToast();
-    const hasSaveFailureState = ref(false);
     const saveFailurePresentation = shallowRef<FailurePresentation | null>(null);
 
     // Only the operation reported last per domain, so a long session of failed
@@ -82,7 +79,6 @@ export const useWorkspaceFailureSurface = () => {
 
     function clearSaveFailure() {
         lastReportedOperationIds.delete('save');
-        hasSaveFailureState.value = false;
         saveFailurePresentation.value = null;
     }
 
@@ -115,6 +111,7 @@ export const useWorkspaceFailureSurface = () => {
             'document-changed': t('errors.save.documentChanged'),
             'too-large-for-edit': t('errors.save.tooLargeForEdit'),
             'working-copy-missing': t('errors.save.workingCopyMissing'),
+            'recovery-settlement-failed': t('errors.save.recoverySettlementDescription'),
         };
         return messages[reason] ?? t('errors.save.notCompleted');
     }
@@ -131,7 +128,7 @@ export const useWorkspaceFailureSurface = () => {
             return false;
         }
         const priorPresentation = isFailurePresentation(existingReceipt) ? existingReceipt : undefined;
-        const description = detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
+        const description = reason === 'recovery-settlement-failed' ? describeSaveFailure(reason) : detail ?? priorPresentation?.description ?? describeSaveFailure(reason, diagnostics);
         const receipt = priorPresentation?.failure ?? (isFailurePresentation(existingReceipt) ? undefined : existingReceipt) ?? getFailureReceipt(diagnostics?.cause) ?? BrowserLogger.error(
             'workspace',
             'Workspace save failed',
@@ -146,12 +143,13 @@ export const useWorkspaceFailureSurface = () => {
         const presentation: FailurePresentation = {
             ...priorPresentation,
             failure: receipt,
-            title: t('errors.file.save'),
+            title: t(reason === 'recovery-settlement-failed' ? 'errors.save.recoverySettlementTitle' : 'errors.file.save'),
             description,
             ...(saveAs && (diagnostics?.reason === 'original-changed' || HELD_OR_DENIED_MESSAGE.test(diagnostics?.message ?? '')) ? {actions: [{
                 label: t('toolbar.saveAs'),
                 onClick: saveAs,
             }]} : {}),
+            ...(reason === 'recovery-settlement-failed' && detail ? {technicalDetails: detail} : {}),
             ...(diagnostics ? {technicalDetails: getNonEmptyDetails([
                 diagnostics.message,
                 diagnostics.validation?.errors.join('\n'),
@@ -159,12 +157,8 @@ export const useWorkspaceFailureSurface = () => {
             ])} : {}),
         };
         lastReportedOperationIds.set('save', operationId);
-        saveFailurePresentation.value = presentation;
-        // A save that lost its target says nothing about the document now on
-        // screen, so it is told once and not kept.
-        if (reason !== 'document-changed') {
-            hasSaveFailureState.value = true;
-        }
+        // A lost target is told once; only a failure of the current document is kept.
+        saveFailurePresentation.value = reason === 'document-changed' ? null : presentation;
         presentFailureToast(presentation);
         return true;
     }
@@ -172,36 +166,20 @@ export const useWorkspaceFailureSurface = () => {
     /**
      * Not every rejected creation deserves a toast. Markup shortcuts fire on
      * every pointer release, and an annotation whose editor is still resolving
-     * is not a user problem, so those reasons stay silent. Returning `null`
-     * marks a reason as silent; a returned object may still carry no extra
-     * detail beyond the shared title.
+     * is not a user problem, so those reasons return without a toast.
+     * A visible reason can carry no extra detail beyond the shared title;
+     * its existing operation and receipt still own the feedback.
      */
-    function describeAnnotationFailure(
-        reason: TAnnotationCreationFailureReason,
-    ): {description: string | null} | null {
-        switch (reason) {
-            case 'selection-spans-pages':
-                return {description: t('errors.annotation.selectionSpansPages')};
-            case 'mode-switch-failed':
-            case 'editor-binding-failed':
-            case 'projection-failed':
-            case 'point-outside-page':
-            case 'page-not-rendered':
-            case 'viewer-not-ready':
-                return {description: null};
-            case 'no-selection':
-            case 'selection-not-in-text-layer':
-            case 'editor-unavailable':
-                return null;
-        }
-    }
-
     function reportAnnotationFailure(failure: IAnnotationCreationFailureReport) {
-        const described = describeAnnotationFailure(failure.reason);
-        if (!described) {
+        if (failure.reason === 'no-selection'
+            || failure.reason === 'selection-not-in-text-layer'
+            || failure.reason === 'editor-unavailable') {
             BrowserLogger.debug('annotations', 'Annotation creation failure is not user-visible', failure);
             return false;
         }
+        const description = failure.reason === 'selection-spans-pages'
+            ? t('errors.annotation.selectionSpansPages')
+            : undefined;
         if (lastReportedOperationIds.get('annotation') === failure.operationId) {
             return false;
         }
@@ -211,14 +189,14 @@ export const useWorkspaceFailureSurface = () => {
             toast.add({
                 color: 'warning',
                 title: t('errors.annotation.create'),
-                ...(described.description ? {description: described.description} : {}),
+                ...(description ? {description} : {}),
             });
             return true;
         }
         presentFailureToast({
             failure: failure.failure,
             title: t('errors.annotation.create'),
-            ...(described.description ? {description: described.description} : {}),
+            ...(description ? {description} : {}),
         });
         return true;
     }
@@ -268,11 +246,12 @@ export const useWorkspaceFailureSurface = () => {
     }
 
     return {
-        hasSaveFailure: computed(() => hasSaveFailureState.value),
+        hasSaveFailure: computed(() => saveFailurePresentation.value !== null),
         saveFailurePresentation,
         getLastFailurePresentation: () => saveFailurePresentation.value,
         clearSaveFailure,
         reportSaveFailure,
+        reportFailure: presentFailureToast,
         reportAnnotationFailure,
         reportNoteFailure,
         describeOpenFailure,

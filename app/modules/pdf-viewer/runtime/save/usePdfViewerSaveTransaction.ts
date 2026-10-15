@@ -45,7 +45,7 @@ interface IUsePdfViewerSaveTransactionOptions {
     documentRevisionToken?: ComputedRef<TDocumentRevisionToken | null>;
     documentSession?: Pick<TPdfDocumentView, 'captureFence' | 'isCurrent'>;
     flushAnnotationMutationsForSave?: () => Promise<unknown>;
-    commitPendingEditorDraftsForSave?: () => void;
+    commitPendingEditorDraftsForSave?: () => void | Promise<void>;
     getPdfDocument?: () => IPdfDocument | null;
     getAllShapes?: () => IShapeAnnotation[];
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];
@@ -62,8 +62,8 @@ interface IUsePdfViewerSaveTransactionOptions {
 
 // Commits EVB editor drafts and lets their store updates settle before the
 // save captures its frontier.
-async function commitPdfEditorsForSave(commitPendingEditorDraftsForSave?: () => void) {
-    commitPendingEditorDraftsForSave?.();
+async function commitPdfEditorsForSave(commitPendingEditorDraftsForSave?: () => void | Promise<void>) {
+    await commitPendingEditorDraftsForSave?.();
     await nextTick();
 }
 

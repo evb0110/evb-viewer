@@ -1,5 +1,5 @@
 import {createBrowserDocumentRef} from '@app/platform/browser/browserDocumentRefs';
-import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import * as functionUtils from 'es-toolkit/function';
 import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
 import type {
     IWindowTabIncomingTransfer,
@@ -267,9 +267,6 @@ function parseBrowserWindowTabsMessage(data: unknown): TBrowserWindowTabsMessage
     return result.success ? result.output : null;
 }
 
-function noopUnsubscribe(): TMenuEventUnsubscribe {
-    return () => {};
-}
 function hasBrowserWindowContext() {
     return typeof window !== 'undefined' && typeof document !== 'undefined';
 }
@@ -661,7 +658,7 @@ function shouldIgnoreBrowserWindowTabsMessage(message: TBrowserWindowTabsMessage
         && message.instanceNonce === currentRecoveryInstanceNonce;
 }
 
-function rekeyCurrentWindow() {
+export function rekeyCurrentWindow() {
     const retainedWindowId = currentWindowId;
     const nextWindowId = createWindowId();
     void holdLeaseOwnerLock(recoveryOwnerId(nextWindowId), true);
@@ -958,27 +955,15 @@ async function holdRecoveryOwnerLock() {
     }
 }
 // Recovery records and their live document leases share this platform owner.
-const documentDependencyReaders = new Map<string | (() => TDocumentRef[]), () => TDocumentRef[]>();
+type TDocumentDependencyOwner = (() => TDocumentRef[]) & {complete?: () => Promise<void>};
+const documentDependencyReaders = new Map<string | (() => TDocumentRef[]), TDocumentDependencyOwner>();
 let recoveryLiveLease: Promise<Awaited<ReturnType<typeof loadBrowserDocumentLiveLease>>> | null = null;
 
 async function claimRecoveryLiveLease() {
-    if (!await holdRecoveryOwnerLock()) {
-        return null;
-    }
-    if (ensureChannel()) {
-        const discoveryStartedAt = Date.now();
-        postMessage({
-            type: 'discover',
-            windowId: currentWindowId,
-            instanceNonce: currentRecoveryInstanceNonce,
-        });
-        await waitForDiscoverySettling();
-        pruneStaleTargetWindows(discoveryStartedAt);
-    }
+    await holdRecoveryOwnerLock();
+    if (ensureChannel()) await browserWindowTabsCapability.listTargetWindows();
 
-    const ownerId = await holdRecoveryOwnerLock();
-    if (!ownerId) return null;
-    return loadBrowserDocumentLiveLease(ownerId);
+    return holdRecoveryOwnerLock().then(ownerId => ownerId ? loadBrowserDocumentLiveLease(ownerId) : null);
 }
 
 export function registerBrowserDocumentDependencyReader(read: () => TDocumentRef[]) {
@@ -993,26 +978,37 @@ export async function reserveBrowserDocumentWorkingCopy(fileName: string, source
         ref,
         sourceRef,
     ] : [ref]);
-    try {
-        await publishBrowserDocumentLiveLeases();
-        return ref;
-    } catch (error) {
+    return publishBrowserDocumentLiveLeases().then(() => ref, (error: unknown) => {
         documentDependencyReaders.delete(ref);
         throw error;
-    }
+    });
+}
+
+export function handoffBrowserDocumentWorkingCopy(ref: TDocumentRef, ownerRef: TDocumentRef, complete: () => Promise<void>) {
+    const owner = documentDependencyReaders.get(ownerRef);
+    if (ref === ownerRef && !owner) return;
+    const readOwner: TDocumentDependencyOwner = owner ?? (() => [ownerRef]);
+    documentDependencyReaders.delete(ref);
+    documentDependencyReaders.set(ownerRef, Object.assign(
+        () => readOwner().concat(ref),
+        {complete: functionUtils.once(() => Promise.resolve(readOwner.complete?.()).finally(complete))},
+    ));
 }
 
 export async function retireBrowserDocumentWorkingCopy(ref: TDocumentRef) {
-    documentDependencyReaders.delete(ref);
-    await publishBrowserDocumentLiveLeases();
+    const owner = documentDependencyReaders.get(ref);
+    await (owner?.complete?.() ?? Promise.resolve()).finally(() => {
+        if (documentDependencyReaders.get(ref) === owner) documentDependencyReaders.delete(ref);
+        return publishBrowserDocumentLiveLeases();
+    });
 }
 
 export function publishBrowserDocumentLiveLeases(
     ownerId?: string | null,
     refs: TDocumentRef[] = [],
 ) {
-    const previous = recoveryLiveLease ??= claimRecoveryLiveLease();
-    const publication = previous.then(async (lease) => {
+    const previous = recoveryLiveLease ?? Promise.resolve(null);
+    const publication = previous.then(lease => lease ?? claimRecoveryLiveLease()).then(async (lease) => {
         ownerId ??= getBrowserWindowRecoveryOwnerId();
         if (!ownerId) return null;
         const dependencies = new Set<string>(documentDependencyReaders.size > 0
@@ -1048,14 +1044,13 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         },
         clear: clearBrowserWorkspaceRecovery,
     },
-    async saveWorkspaceCheckpoint() {},
     // Restore acknowledgement cannot delete the browser's only dirty bytes.
     // The browser writer retires them after a replacement or clean checkpoint.
     async acknowledgeWorkspaceCheckpoint() {},
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
     claimWorkspaceCheckpoint: async () => {
-        await (recoveryLiveLease ??= claimRecoveryLiveLease());
+        await (recoveryLiveLease ?? Promise.resolve(null)).then(lease => lease ?? claimRecoveryLiveLease());
         const ownerId = getBrowserWindowRecoveryOwnerId();
         if (!ownerId) return null;
         const records = await loadBrowserWorkspaceRecoveries();
@@ -1238,7 +1233,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
             incomingTransferListeners.delete(callback);
         };
     },
-    onWindowAction: noopUnsubscribe,
+    onWindowAction: () => functionUtils.noop,
     async closeCurrentWindow() {
         if (!hasBrowserWindowContext()) {
             return false;
@@ -1260,7 +1255,7 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
     acknowledgePendingExternalOpenPaths() {
         return Promise.resolve();
     },
-    onMenuNewTab: noopUnsubscribe,
-    onMenuCloseTab: noopUnsubscribe,
-    onMenuSplitEditor: noopUnsubscribe,
+    onMenuNewTab: () => functionUtils.noop,
+    onMenuCloseTab: () => functionUtils.noop,
+    onMenuSplitEditor: () => functionUtils.noop,
 };

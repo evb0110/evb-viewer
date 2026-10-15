@@ -56,7 +56,7 @@
         @update:annotation-tool="annotationToolState.handleAnnotationToolChange"
         @update:annotation-keep-active="annotations.annotationKeepActive.value = $event"
         @annotation-setting="annotations.handleAnnotationSettingChange"
-        @annotation-edit-text-box="annotationToolState.handleAnnotationToolChange('select'); pdfViewer?.editAnnotationTextBox?.($event)"
+        @annotation-edit-text-box="editTextBox"
         @annotation-properties="pdfViewer?.updateSelectedAnnotationProperties?.($event)"
         @update:selected-thumbnail-pages="view.handleSelectedThumbnailPagesUpdate"
         @update:selected-page-selection="view.setSelectedPageSelection"
@@ -92,6 +92,9 @@
 
 <script setup lang="ts">
 import { until } from '@vueuse/core';
+import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import { isFailurePresentation } from '@app/composables/useFailureToast';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
 import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/public';
 import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
@@ -147,6 +150,17 @@ const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
         version: viewer.pageMetricsVersion ?? 0,
     };
 });
+
+async function editTextBox(comment: IAnnotationCommentSummary) {
+    if (await annotationToolState.handleAnnotationToolChange('select') === false) return;
+    try {
+        await pdfViewer.value?.editAnnotationTextBox?.(comment);
+    } catch (error) {
+        if ((error instanceof DOMException && error.name === 'AbortError')
+            || (isFailurePresentation(error) && getFailureReceipt(error))) return;
+        throw error;
+    }
+}
 
 function requestAnnotationEnrichment() {
     void pdfViewer.value?.ensurePdfAnnotationNameReconciliation?.('annotations-ui-open');

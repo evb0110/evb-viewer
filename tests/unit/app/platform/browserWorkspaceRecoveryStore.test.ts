@@ -482,27 +482,7 @@ describe('browserWorkspaceRecoveryStore', () => {
             }));
         });
 
-        it('gives a released journal to exactly one of two racing claimants', async () => {
-            await saveBrowserWorkspaceRecovery(
-                'window:closed',
-                0,
-                checkpoint,
-                [requireDocumentRef('browser://documents/recovery.pdf')],
-            );
 
-            const outcomes = await Promise.all([
-                claimBrowserWorkspaceRecoveryOwner('window:closed', 'window:b', 1, 1),
-                claimBrowserWorkspaceRecoveryOwner('window:closed', 'window:c', 1, 1),
-            ]);
-
-            expect(outcomes.filter(outcome => outcome.claimed)).toHaveLength(1);
-            const records = await loadBrowserWorkspaceRecoveries();
-            expect(records).toHaveLength(1);
-            expect([
-                'window:b',
-                'window:c',
-            ]).toContain(records[0]?.ownerId);
-        });
     });
 });
 

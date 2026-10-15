@@ -1,3 +1,4 @@
+import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
 import {
     afterEach,
     beforeEach,
@@ -108,7 +109,14 @@ class FakeWorker {
     }
 }
 
-function createParseResponse(id: number, data: Uint8Array) {
+function workerRequestId(worker: FakeWorker) {
+    const id = getBrowserPageOpsWorkerRequestId(worker.postMessageCalls.at(-1)?.message);
+    if (id === null) throw new Error('Worker request has no protocol id');
+    return id;
+}
+
+function createParseResponse(worker: FakeWorker, data: Uint8Array) {
+    const id = workerRequestId(worker);
     return {
         id,
         type: 'parseAnnotations',
@@ -349,6 +357,18 @@ describe('browserPageOpsWorkerClient', () => {
         expect({failure: error.failure}.failure).toBe(failureReceipt);
     });
 
+    it('returns saved annotation bytes while cold worker startup is unavailable', async () => {
+        const input = Uint8Array.of(1);
+        const opened = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: input}, {dedicated: true});
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(opened).resolves.toEqual({data: Uint8Array.of(2)});
+        vi.stubGlobal('Worker', function () { throw new Error('Cold worker startup is unavailable'); });
+        const saved = runBrowserPageOpsWorkerRequest('parseAnnotations', {data: input}, {dedicated: true});
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(saved).resolves.toEqual({data: Uint8Array.of(2)});
+        expect(input).toEqual(Uint8Array.of(1));
+    });
+
     it('does not report an idle worker termination', async () => {
         const result = runBrowserPageOpsWorkerRequest('rotate', {
             data: new Uint8Array([1]),
@@ -399,11 +419,11 @@ describe('browserPageOpsWorkerClient', () => {
             9,
             10,
         ]);
-        siblingWorker.dispatchMessage(createParseResponse(1, siblingResult));
+        siblingWorker.dispatchMessage(createParseResponse(siblingWorker, siblingResult));
         await expect(sibling).resolves.toEqual({data: siblingResult});
 
         expect(canceledWorker.terminated).toBe(true);
-        expect(siblingWorker.terminated).toBe(true);
+        expect(siblingWorker.terminated).toBe(false);
         expect(canceledInput).toEqual(new Uint8Array([
             1,
             2,
@@ -446,7 +466,7 @@ describe('browserPageOpsWorkerClient', () => {
             value => { replacementOutcome = value; },
             error => { replacementOutcome = error; },
         );
-        staleWorker.dispatchMessage(createParseResponse(1, new Uint8Array([99])));
+        staleWorker.dispatchMessage(createParseResponse(staleWorker, new Uint8Array([99])));
         await vi.advanceTimersByTimeAsync(0);
         expect(replacementOutcome).toBeUndefined();
 
@@ -455,10 +475,10 @@ describe('browserPageOpsWorkerClient', () => {
             12,
             13,
         ]);
-        replacementWorker.dispatchMessage(createParseResponse(1, replacementResult));
+        replacementWorker.dispatchMessage(createParseResponse(replacementWorker, replacementResult));
         await expect(replacement).resolves.toEqual({data: replacementResult});
         expect(staleWorker.terminated).toBe(true);
-        expect(replacementWorker.terminated).toBe(true);
+        expect(replacementWorker.terminated).toBe(false);
     });
 
     it('isolates a dedicated worker failure and preserves input ownership', async () => {
@@ -501,12 +521,12 @@ describe('browserPageOpsWorkerClient', () => {
             23,
             24,
         ]);
-        siblingWorker.dispatchMessage(createParseResponse(1, siblingResult));
+        siblingWorker.dispatchMessage(createParseResponse(siblingWorker, siblingResult));
         await expect(sibling).resolves.toEqual({data: siblingResult});
 
         expect(failureReporter.capture).toHaveBeenCalledOnce();
         expect(failedWorker.terminated).toBe(true);
-        expect(siblingWorker.terminated).toBe(true);
+        expect(siblingWorker.terminated).toBe(false);
     });
     it.each([
         'saveMutations',
@@ -660,7 +680,7 @@ describe('browserPageOpsWorkerClient', () => {
             });
             await vi.advanceTimersByTimeAsync(0);
             FakeWorker.lastInstance?.dispatchMessage({
-                id: 1,
+                id: workerRequestId(FakeWorker.lastInstance!),
                 type: 'decrypt',
                 ok: true,
                 data: result,

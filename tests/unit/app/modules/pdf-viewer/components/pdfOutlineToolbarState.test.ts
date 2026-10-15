@@ -1,7 +1,7 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
 import { requirePageIndex } from '@contracts/pageNumbers';
-import {requireDocumentRef} from '@contracts/documentRef';
+import { requireDocumentRef } from '@contracts/documentRef';
 // @vitest-environment happy-dom
 
 import {

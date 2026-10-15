@@ -1,8 +1,5 @@
 import {tryOnScopeDispose} from '@vueuse/core';
-import {
-    publishBrowserDocumentLiveLeases,
-    registerBrowserDocumentDependencyReader,
-} from '@app/platform/browserWindowTabs';
+import {registerBrowserDocumentDependencyReader} from '@app/platform/browserWindowTabs';
 import { useOcrTextContent } from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -107,19 +104,7 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
             originalPath.value,
             ...readDocumentDependencies(),
         ].flatMap(ref => ref ? [ref] : []);
-        const unregister = registerBrowserDocumentDependencyReader(readDependencies);
-        const stop = watch(readDependencies, () => {
-            void publishBrowserDocumentLiveLeases().catch(error => {
-                BrowserLogger.warn('pdf-file', 'Failed to publish document dependencies', error);
-            });
-        }, {
-            immediate: true,
-            flush: 'sync',
-        });
-        tryOnScopeDispose(() => {
-            stop();
-            unregister();
-        });
+        tryOnScopeDispose(registerBrowserDocumentDependencyReader(readDependencies));
     }
     const documentOpenFlow = createDocumentOpenFlow(sessionState, {
         cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),

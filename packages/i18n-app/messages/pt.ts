@@ -1745,6 +1745,8 @@ export default {
             'browserStorageDescription': '“{name}” está aberto na memória, mas não reaparecerá após recarregar.',
         },
         'save': {
+            'recoverySettlementTitle': 'PDF guardado, mas não foi possível atualizar a recuperação',
+            'recoverySettlementDescription': 'As suas alterações foram gravadas no PDF. As alterações posteriores por guardar continuam abertas aqui.',
             'validation': 'O documento não passou na verificação de validade, por isso nada foi escrito.',
             'openNotes': 'Não foi possível guardar as notas abertas, por isso o documento não foi escrito.',
             'documentChanged': 'O documento mudou antes de o guardar terminar, por isso nada foi escrito.',

@@ -30,13 +30,11 @@ function createEditorView() {
         annotationId: string;
         rect: IAnnotationMarkerRect;
     } | null>(null);
-    const committed: string[] = [];
     const view: IPdfDocumentAnnotationsView = {
         emitAnnotationState: () => {},
         emitAnnotationModified: () => {},
         onHistoryReplay: () => {},
         commitPendingDraftsForSave: () => {
-            if (open.value) committed.push(open.value.annotationId);
             open.value = null;
         },
         commitDraftIfOpen: (annotationId) => {
@@ -47,7 +45,6 @@ function createEditorView() {
     return {
         view,
         open,
-        committed,
     };
 }
 
@@ -78,7 +75,7 @@ describe('text-box drafts of a document shown in two views', () => {
             annotationId: 'box-1',
             rect: rightRect,
         };
-        document.setTextBoxDraft(right.view, 'box-1', 'typed in the right view');
+        document.setTextBoxDraft('box-1', 'typed in the right view');
 
         expect(document.getTextBoxDraftRect('box-1')).toEqual(rightRect);
         expect(document.textBoxDrafts.get('box-1')).toBe('typed in the right view');
@@ -87,7 +84,7 @@ describe('text-box drafts of a document shown in two views', () => {
         expect(document.getTextBoxDraftRect('box-1')).toBeNull();
     });
 
-    it('commits the draft another view has open before a second view edits the same box', () => {
+    it('commits the draft another view has open before a second view edits the same box', async () => {
         const document = createDocument();
         const left = createEditorView();
         const right = createEditorView();
@@ -102,12 +99,44 @@ describe('text-box drafts of a document shown in two views', () => {
             annotationId: 'box-1',
             rect: rightRect,
         };
-        document.setTextBoxDraft(right.view, 'box-1', 'continued in the right view');
+        await document.commitDraftIfOpen('box-1', right.view);
+        document.setTextBoxDraft('box-1', 'continued in the right view');
 
         expect(left.open.value).toBeNull();
-        expect(left.committed).toEqual(['box-1']);
         expect(document.getTextBoxDraftRect('box-1')).toEqual(rightRect);
         expect(document.textBoxDrafts.get('box-1')).toBe('continued in the right view');
+    });
+
+    it('keeps a rejected shared draft editable and refuses both Save and a linked editor handoff', async () => {
+        const document = createDocument();
+        const left = createEditorView();
+        const right = createEditorView();
+        const protection = Promise.withResolvers<undefined>();
+        left.open.value = {
+            annotationId: 'box-1',
+            rect: rightRect,
+        };
+        document.setTextBoxDraft('box-1', 'Unprotected text');
+        left.view.commitPendingDraftsForSave = () => protection.promise.then(() => {
+            left.open.value = null;
+            document.setTextBoxDraft('box-1', null);
+        });
+        left.view.commitDraftIfOpen = () => left.view.commitPendingDraftsForSave();
+        document.attachView(left.view);
+        document.attachView(right.view);
+        const saving = document.commitPendingDraftsForSave();
+        const handingOff = document.commitDraftIfOpen('box-1', right.view);
+        const saveRejected = expect(saving).rejects.toThrow('ENOSPC');
+        const handoffRejected = expect(handingOff).rejects.toThrow('ENOSPC');
+        expect(document.getTextBoxDraftRect('box-1')).toEqual(rightRect);
+        expect(document.textBoxDrafts.get('box-1')).toBe('Unprotected text');
+        protection.reject(new Error('ENOSPC'));
+        await Promise.all([
+            saveRejected,
+            handoffRejected,
+        ]);
+        expect(document.getTextBoxDraftRect('box-1')).toEqual(rightRect);
+        expect(document.textBoxDrafts.get('box-1')).toBe('Unprotected text');
     });
 });
 
@@ -171,6 +200,32 @@ describe('writer annotations shared by linked views', () => {
             detach: () => {loadToken += 1;},
         };
     }
+    it.each([
+        false,
+        true,
+    ])('keeps accepted drafts across a Save As identity change and resets a real loaded replacement (save: %s)', async duringSave => {
+        const {
+            annotations, workingCopyPath, revision,
+        } = setup();
+        const view = createEditorView();
+        annotations.attachView(view.view);
+        annotations.setTextBoxDraft('accepted-draft', 'Accepted while Save As finishes');
+        const previous = annotations.application.value;
+        workingCopyPath.value = requireDocumentRef('/managed/replacement.pdf');
+        await nextTick();
+        if (duringSave) {
+            expect(annotations.textBoxDrafts.get('accepted-draft')).toBe('Accepted while Save As finishes');
+        }
+        annotations.replaceLoadedDocument(revision.value, duringSave);
+        if (duringSave) {
+            expect(annotations.application.value).toBe(previous);
+            expect(annotations.textBoxDrafts.get('accepted-draft')).toBe('Accepted while Save As finishes');
+        } else {
+            expect(annotations.application.value).not.toBe(previous);
+            expect(annotations.textBoxDrafts.size).toBe(0);
+            expect(annotations.application.value.listCommentSummaries()).toEqual([]);
+        }
+    });
     it('does not publish to the retired store when the source changes before a queued completion', async () => {
         const {
             annotations, resource, workingCopyPath,

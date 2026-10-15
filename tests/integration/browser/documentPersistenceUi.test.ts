@@ -1,17 +1,13 @@
 import {
     createHash, randomBytes,
 } from 'node:crypto';
-import {
-    mkdirSync, readFileSync, writeFileSync,
-} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import {
     basename, resolve,
 } from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {chromium} from 'playwright';
-import type {
-    Page, Download,
-} from 'playwright';
+import type {Download} from 'playwright';
 import {
     describe, expect, it,
 } from 'vitest';
@@ -99,6 +95,153 @@ describe('browser document lifecycle UI', () => {
             }
         } finally {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
+        }
+    }, 120000);
+
+    it.each([
+        'save',
+        'save-as',
+    ] as const)('retains a note accepted after the %s frontier for the next save', async mode => {
+        const context = await lifecycle.browser.newContext({
+            viewport: {
+                width: 1280,
+                height: 900,
+            },
+            acceptDownloads: true,
+        });
+        let page: Awaited<ReturnType<typeof context.newPage>> | undefined;
+        try {
+            await context.addInitScript(() => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            });
+            page = await context.newPage();
+            const problems = collectConsoleProblems(page);
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            keepFileChooserInterceptionEnabled(page);
+            const pdf = await PDFDocument.create();
+            pdf.addPage([
+                612,
+                792,
+            ]).drawText('Accepted edits stay in their document', {
+                x: 40,
+                y: 740,
+            });
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles({
+                name: 'save-frontier.pdf',
+                mimeType: 'application/pdf',
+                buffer: Buffer.from(await pdf.save()),
+            });
+            await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+            const save = async (as: boolean) => {
+                const download = page!.waitForEvent('download');
+                if (as) {
+                    await page!.getByRole('button', {
+                        name: 'Save options',
+                        exact: true,
+                    }).click();
+                    await page!.getByRole('menuitem', {name: /^Save As/u}).click();
+                } else await page!.getByRole('button', {
+                    name: 'Save',
+                    exact: true,
+                }).click();
+                const path = await (await download).path();
+                if (!path) throw new Error('Save did not provide its downloaded bytes');
+                return PDFDocument.load(readFileSync(path));
+            };
+            if (mode === 'save') {
+                await save(true);
+                await expect.poll(() => page!.getByRole('button', {
+                    name: 'Save options',
+                    exact: true,
+                }).isEnabled()).toBe(true);
+                await page.evaluate(async () => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    await api.waitForActiveDocumentOpenSettled?.();
+                });
+                await page.locator('.editor-pane.is-active [data-pdf-annotation-editor-ready="true"]').first().waitFor();
+            }
+            await addNote(page, 'Before the save frontier', {
+                x: 160,
+                y: 180,
+            });
+            await expect.poll(() => page!.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues!<{annotationComments: Array<{text: string}>}>(['annotationComments']).annotationComments.map(note => note.text);
+            })).toContain('Before the save frontier');
+            await page.evaluate(`(async () => {
+                const {getDocumentWorkingCopyCapability} = await import('/_nuxt/utils/platformDocuments.ts');
+                const capability = getDocumentWorkingCopyCapability();
+                const method = ${JSON.stringify(mode)} === 'save-as' ? 'createWorkingCopyFromPath' : 'parsePdfAnnotations';
+                const original = capability[method].bind(capability);
+                const held = new Promise(resolve => Reflect.set(window, '__releaseSaveFrontier', resolve));
+                capability[method] = async (...args) => {
+                    capability[method] = original;
+                    const result = ${JSON.stringify(mode)} === 'save' ? await original(...args) : undefined;
+                    Reflect.set(window, '__saveFrontierHeld', true);
+                    await held;
+                    return ${JSON.stringify(mode)} === 'save' ? result : original(...args);
+                };
+            })()`);
+            const first = save(mode === 'save-as');
+            await page.waitForFunction(() => Reflect.get(window, '__saveFrontierHeld') === true);
+            await addNote(page, 'Accepted after the save frontier', {
+                x: 260,
+                y: 280,
+            });
+            expect(await page.locator('.pdf-annotation-editor-note').count()).toBe(2);
+            await expect.poll(() => page!.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues!<{annotationComments: Array<{text: string}>}>(['annotationComments']).annotationComments.map(note => note.text);
+            })).toContain('Accepted after the save frontier');
+            await page.evaluate(() => Reflect.get(window, '__releaseSaveFrontier')());
+            const published = noteTexts(await first);
+            await expect.poll(() => page!.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).isEnabled()).toBe(true);
+            expect(published).toContain('Before the save frontier');
+            await expect.poll(() => page!.locator('.pdf-annotation-editor-note').count()).toBe(2);
+            if (!published.has('Accepted after the save frontier')) {
+                await expect.poll(() => page!.getByRole('button', {
+                    name: 'Save',
+                    exact: true,
+                }).isEnabled()).toBe(true);
+            }
+            await page.locator('.pdf-annotation-editor-note').last().click();
+            await expect.poll(() => page!.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).inputValue()).toBe('Accepted after the save frontier');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            expect(noteTexts(await save(published.has('Accepted after the save frontier')))).toEqual(new Set([
+                'Before the save frontier',
+                'Accepted after the save frontier',
+            ]));
+            await page.locator('.pdf-annotation-editor-note').last().click();
+            await page.getByRole('textbox', {
+                name: 'Write annotation note',
+                exact: true,
+            }).fill('Edited after Save As');
+            await page.getByRole('button', {
+                name: 'Minimize note',
+                exact: true,
+            }).click();
+            expect(noteTexts(await save(false))).toContain('Edited after Save As');
+            expect(problems).toEqual([]);
+        } finally {
+            if (page && !page.isClosed()) await page.evaluate(() => Reflect.get(window, '__releaseSaveFrontier')?.()).catch(() => undefined);
+            await context.close();
         }
     }, 120000);
 
@@ -867,207 +1010,195 @@ describe('browser document lifecycle UI', () => {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
     }, 120_000);
-});
 
-it.each([
-    'clean-open',
-    'two-window-move',
-    'two-window-move-source-stays-open',
-    'clear-recent',
-])('keeps the saved copy source and both notes after Clear Recent Files and Save (mode=%s)', async (mode) => {
-    const observations:unknown[]=[];
-    let activePage: Page | null = null;
-    const evidenceDir=resolve(process.cwd(),`.devkit/bw03-r2/ui-${process.env.BW03_REV ?? 'green'}-${mode}`);mkdirSync(evidenceDir,{recursive:true});
-    try {
-        const context=await lifecycle.browser.newContext({
-            viewport:{
-                width:1280,
-                height:900,
-            },
-            acceptDownloads:true,
-        });
-        let page=await context.newPage();
-        const creator = page;
-        activePage = page;
-        observations.push({problems: collectConsoleProblems(page)});
-        await openPdfFromChooser(page, {
-            name:'review-saved.pdf',
-            mimeType:'application/pdf',
-            buffer:readFileSync(resolve(process.cwd(),'tests/fixtures/electron/generated-text.pdf')),
-        });
-        await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
-        await addNote(page,'review first saved note',{
-            x:160,
-            y:180,
-        });
-        const recoveryCount = () => page.evaluate(async () => {
-            const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
-                const request = indexedDB.open('evb-viewer-browser-documents');
-                request.onsuccess = () => resolveDb(request.result);
-                request.onerror = () => rejectDb(request.error);
+    it.each([
+        'clean-open',
+        'two-window-move',
+        'two-window-move-source-stays-open',
+        'clear-recent',
+    ])('keeps the saved copy source and both notes after Clear Recent Files and Save (mode=%s)', async (mode) => {
+        try {
+            const context=await lifecycle.browser.newContext({
+                viewport:{
+                    width:1280,
+                    height:900,
+                },
+                acceptDownloads:true,
             });
-            try {
-                return await new Promise<number>((resolveCount, rejectCount) => {
-                    const request = db.transaction('workspace-recovery').objectStore('workspace-recovery').count();
-                    request.onsuccess = () => resolveCount(request.result);
-                    request.onerror = () => rejectCount(request.error);
-                });
-            } finally { db.close(); }
-        });
-        await expect.poll(recoveryCount, {timeout: 30_000}).toBe(1);
-        const firstDownload=page.waitForEvent('download');
-        await page.getByRole('button',{
-            name:'Save options',
-            exact:true,
-        }).click();await page.getByRole('menuitem',{name:/^Save As/u}).click();await (await firstDownload).saveAs(resolve(evidenceDir,'first.pdf'));
-        await page.evaluate(async()=>{const api=Reflect.get(window,'__evbTestApi') as IBrowserLifecycleTestApi;await api.waitForActiveDocumentOpenSettled?.();});
-        await expect.poll(recoveryCount, {timeout: 30_000}).toBe(0);
-        observations.push({firstSavedTexts:Array.from(noteTexts(await PDFDocument.load(readFileSync(resolve(evidenceDir,'first.pdf')))))});
-        const sourceRef = await page.evaluate(() => {
-            const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-            return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
-        });
-        if (mode === 'clear-recent') {
-            const tabId=await page.locator('.tab.is-active[data-tab-id]').first().getAttribute('data-tab-id');
-            await page.getByRole('button',{
-                name:'New Tab',
-                exact:true,
-            }).click();
-            await page.getByRole('button',{
-                name:'Clear Recent Files',
-                exact:true,
-            }).click();await page.getByRole('button',{
-                name:'Clear History',
-                exact:true,
-            }).click();
-            await expect.poll(()=>page.getByRole('button',{
-                name:'Remove from Recent',
-                exact:true,
-            }).count()).toBe(0);
-            observations.push({
-                sourceRef,
-                sourceAfter:await page.evaluate(`(async()=>{const {loadRecord}=await import('/_nuxt/platform/browser/browserDocumentIdb.ts');return !!await loadRecord(${JSON.stringify(sourceRef)});})()`),
+            let page=await context.newPage();
+            const creator = page;
+            const problems = [collectConsoleProblems(page)];
+            await openPdfFromChooser(page, {
+                name: 'review-saved.pdf',
+                mimeType: 'application/pdf',
+                buffer: readFileSync(resolve(process.cwd(), 'tests/fixtures/electron/generated-text.pdf')),
             });
-            await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
-        }
-        if (mode.startsWith('two-window-move')) {
-            const target = await context.newPage();
-            await target.addInitScript(() => {
-                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
-                Reflect.set(window, 'showSaveFilePicker', undefined);
-                window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+            await addNote(page,'review first saved note',{
+                x:160,
+                y:180,
             });
-            await target.goto(`${lifecycle.origin}?evbWindowId=2`, {waitUntil: 'domcontentloaded'});
-            await waitForOpenFileReady(target);
-            await expect.poll(() => page.evaluate(async () => {
+            const recoveryCount = () => page.evaluate(async () => {
+                const db = await new Promise<IDBDatabase>((resolveDb, rejectDb) => {
+                    const request = indexedDB.open('evb-viewer-browser-documents');
+                    request.onsuccess = () => resolveDb(request.result);
+                    request.onerror = () => rejectDb(request.error);
+                });
+                try {
+                    return await new Promise<number>((resolveCount, rejectCount) => {
+                        const request = db.transaction('workspace-recovery').objectStore('workspace-recovery').count();
+                        request.onsuccess = () => resolveCount(request.result);
+                        request.onerror = () => rejectCount(request.error);
+                    });
+                } finally { db.close(); }
+            });
+            await expect.poll(recoveryCount, {timeout: 30_000}).toBe(1);
+            const firstDownload=page.waitForEvent('download');
+            await page.getByRole('button',{
+                name:'Save options',
+                exact:true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const firstPath = await (await firstDownload).path();
+            expect(firstPath).not.toBeNull();
+            expect(Array.from(noteTexts(await PDFDocument.load(readFileSync(firstPath!)))))
+                .toContain('review first saved note');
+            await page.evaluate(async () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                return (await api.listTargetWindows?.())?.some(info => info.windowId === 2);
-            }), {timeout: 30_000}).toBe(true);
-            expect(await page.evaluate(async () => {
+                await api.waitForActiveDocumentOpenSettled?.();
+            });
+            await expect.poll(recoveryCount, {timeout: 30_000}).toBe(0);
+            if (mode === 'clear-recent') {
+                const sourceRef = await page.evaluate(() => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
+                });
+                const tabId=await page.locator('.tab.is-active[data-tab-id]').first().getAttribute('data-tab-id');
+                await page.getByRole('button',{
+                    name:'New Tab',
+                    exact:true,
+                }).click();
+                await page.getByRole('button',{
+                    name:'Clear Recent Files',
+                    exact:true,
+                }).click();
+                await page.getByRole('button',{
+                    name:'Clear History',
+                    exact:true,
+                }).click();
+                await expect.poll(()=>page.getByRole('button',{
+                    name:'Remove from Recent',
+                    exact:true,
+                }).count()).toBe(0);
+                expect(await page.evaluate(`(async () => {
+                    const {loadRecord} = await import('/_nuxt/platform/browser/browserDocumentIdb.ts');
+                    return Boolean(await loadRecord(${JSON.stringify(sourceRef)}));
+                })()`)).toBe(true);
+                await page.locator(`.tab[data-tab-id="${tabId}"]`).click();
+                await page.locator('.page_container--rendered canvas').first().waitFor({timeout:30000});
+            }
+            if (mode.startsWith('two-window-move')) {
+                const target = await context.newPage();
+                problems.push(collectConsoleProblems(target));
+                await target.addInitScript(() => {
+                    Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                    Reflect.set(window, 'showSaveFilePicker', undefined);
+                    window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                });
+                await target.goto(`${lifecycle.origin}?evbWindowId=2`, {waitUntil: 'domcontentloaded'});
+                await waitForOpenFileReady(target);
+                await expect.poll(() => page.evaluate(async () => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    return (await api.listTargetWindows?.())?.some(info => info.windowId === 2);
+                }), {timeout: 30_000}).toBe(true);
+                expect(await page.evaluate(async () => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    return api.transferActiveTabToWindow?.(2);
+                })).toMatchObject({success: true});
+                await target.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+                if (mode === 'two-window-move-source-stays-open') {
+                    // The test bridge transfers the payload. Complete the departing
+                    // tab's close through trusted UI while keeping its context alive.
+                    await page.locator('.tab.is-active .tab-close').click();
+                    await page.getByRole('button', {
+                        name: 'Open File',
+                        exact: true,
+                    }).first().waitFor();
+                }
+                if (mode === 'two-window-move') await page.close();
+                page = target;
+            }
+            await addNote(page,'review second saved note',{
+                x:260,
+                y:280,
+            });
+            const downloads: Download[] = [];
+            page.on('download', download => downloads.push(download));
+            await page.getByRole('button', {
+                name: 'Save',
+                exact: true,
+            }).click();
+            const workingRef = await page.evaluate(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                return api.transferActiveTabToWindow?.(2);
-            })).toMatchObject({success: true});
-            await target.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
+                return api.readActiveWorkspaceStateValues?.<{workingCopyPath: string}>(['workingCopyPath']).workingCopyPath;
+            });
+            const savedSource = await page.evaluate(() => {
+                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
+            });
+            await expect.poll(async () => Array.from(noteTexts(await PDFDocument.load(Uint8Array.from(
+                await readPersistedDocumentBytes(page, savedSource!),
+            )))), {timeout: 15_000}).toEqual(expect.arrayContaining([
+                'review first saved note',
+                'review second saved note',
+            ]));
+            await expect.poll(() => downloads.length, {timeout: 15_000}).toBe(1);
+            const downloadedPath = await downloads[0]!.path();
+            expect(downloadedPath).not.toBeNull();
+            expect(Array.from(noteTexts(await PDFDocument.load(readFileSync(downloadedPath!))))).toEqual(expect.arrayContaining([
+                'review first saved note',
+                'review second saved note',
+            ]));
+            const savedBytes = await readPersistedDocumentBytes(page, workingRef!);
+            const savedTexts = Array.from(noteTexts(await PDFDocument.load(Uint8Array.from(savedBytes))));
+            expect(savedTexts).toEqual(expect.arrayContaining([
+                'review first saved note',
+                'review second saved note',
+            ]));
             if (mode === 'two-window-move-source-stays-open') {
-                // The test bridge transfers the payload. Complete the departing
-                // tab's close through trusted UI while keeping its context alive.
+                expect(creator.isClosed()).toBe(false);
+                // Keep the creator context alive through the receiver's final close.
                 await page.locator('.tab.is-active .tab-close').click();
                 await page.getByRole('button', {
-                    name: 'Open File',
+                    name: 'Clear Recent Files',
                     exact: true,
-                }).first().waitFor();
+                }).click();
+                await page.getByRole('button', {
+                    name: 'Clear History',
+                    exact: true,
+                }).click();
+                // Terminal transfer protection lasts 60 seconds. Observe collection
+                // after it expires and a normal lifecycle event publishes the graph.
+                const expiredAt = Date.now() + 61_000;
+                await Promise.all([
+                    page,
+                    creator,
+                ].map(participant => participant.clock.setFixedTime(expiredAt)));
+                await page.getByRole('button', {
+                    name: 'New Tab',
+                    exact: true,
+                }).click();
+                expect(creator.isClosed()).toBe(false);
+                await expect.poll(() => readBrowserPayloadCounts(page), {timeout: 15_000}).toEqual({
+                    records: 0,
+                    chunks: 0,
+                    recovery: 0,
+                });
             }
-            if (mode === 'two-window-move') await page.close();
-            page = target;
-            activePage = target;
-            observations.push({targetProblems: collectConsoleProblems(target)});
+            expect(await page.locator('.app-toast-failure').count()).toBe(0);
+            expect(problems.flat()).toEqual([]);
+        } finally {
+            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
-        await addNote(page,'review second saved note',{
-            x:260,
-            y:280,
-        });
-        const downloads: Download[] = [];
-        page.on('download', download => downloads.push(download));
-        await page.getByRole('button', {
-            name: 'Save',
-            exact: true,
-        }).click();
-        const workingRef = await page.evaluate(() => {
-            const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-            return api.readActiveWorkspaceStateValues?.<{workingCopyPath: string}>(['workingCopyPath']).workingCopyPath;
-        });
-        const savedSource = await page.evaluate(() => {
-            const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-            return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;
-        });
-        await expect.poll(async () => Array.from(noteTexts(await PDFDocument.load(Uint8Array.from(
-            await readPersistedDocumentBytes(page, savedSource!),
-        )))), {timeout: 15_000}).toEqual(expect.arrayContaining([
-            'review first saved note',
-            'review second saved note',
-        ]));
-        await expect.poll(() => downloads.length, {timeout: 15_000}).toBe(1);
-        const downloadedPath = resolve(evidenceDir, 'second-download.pdf');
-        await downloads[0]!.saveAs(downloadedPath);
-        expect(Array.from(noteTexts(await PDFDocument.load(readFileSync(downloadedPath))))).toEqual(expect.arrayContaining([
-            'review first saved note',
-            'review second saved note',
-        ]));
-        const savedBytes = await readPersistedDocumentBytes(page, workingRef!);
-        const secondPath = resolve(evidenceDir, 'second.pdf');
-        writeFileSync(secondPath, Buffer.from(savedBytes));
-        const savedTexts = Array.from(noteTexts(await PDFDocument.load(readFileSync(secondPath))));
-        observations.push({
-            savedTexts,
-            toasts: await page.locator('.app-toast-failure').allTextContents(),
-        });
-        expect(savedTexts).toEqual(expect.arrayContaining([
-            'review first saved note',
-            'review second saved note',
-        ]));
-        await page.screenshot({path:resolve(evidenceDir,'after-save.png')});
-        if (mode === 'clear-recent') expect(observations).toEqual(expect.arrayContaining([expect.objectContaining({sourceAfter: true})]));
-        if (mode === 'two-window-move-source-stays-open') {
-            expect(creator.isClosed()).toBe(false);
-            // Keep the creator context alive through the receiver's final close.
-            observations.push({beforeClose: await readBrowserPayloadCounts(page)});
-            await page.locator('.tab.is-active .tab-close').click();
-            await page.getByRole('button', {
-                name: 'Clear Recent Files',
-                exact: true,
-            }).click();
-            await page.getByRole('button', {
-                name: 'Clear History',
-                exact: true,
-            }).click();
-            // Terminal transfer protection lasts 60 seconds. Observe collection
-            // after it expires and a normal lifecycle event publishes the graph.
-            const expiredAt = Date.now() + 61_000;
-            await Promise.all([
-                page,
-                creator,
-            ].map(participant => participant.clock.setFixedTime(expiredAt)));
-            await page.getByRole('button', {
-                name: 'New Tab',
-                exact: true,
-            }).click();
-            expect(creator.isClosed()).toBe(false);
-            observations.push({afterFinalClose: await readBrowserPayloadCounts(page)});
-            await expect.poll(() => readBrowserPayloadCounts(page), {timeout: 15_000}).toEqual({
-                records: 0,
-                chunks: 0,
-                recovery: 0,
-            });
-        }
-
-    } finally {
-        if (activePage && !activePage.isClosed()) {
-            observations.push({toasts: await activePage.locator('.app-toast-failure').allTextContents()});
-            await activePage.screenshot({path: resolve(evidenceDir, 'final.png')});
-        }
-        writeFileSync(resolve(evidenceDir, 'nuxt.log'), lifecycle.serverOutput);
-        writeFileSync(resolve(evidenceDir,'observations.json'),JSON.stringify(observations,null,2));
-        await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
-    }
-},240000);
+    }, 240_000);
+});

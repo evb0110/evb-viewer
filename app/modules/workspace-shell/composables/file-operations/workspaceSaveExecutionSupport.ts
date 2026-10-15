@@ -485,8 +485,7 @@ export function completeSuccessfulSaveState(
 ) {
     const annotationUnchanged = !deps.annotations.getSaveStateToken
         || Object.is(deps.annotations.getSaveStateToken(), baseline.annotations);
-    if (policy.markAnnotationStateSaved
-        && (annotationUnchanged || policy.allowAnnotationSaveStateRefresh === true)) {
+    if (policy.markAnnotationStateSaved && annotationUnchanged) {
         deps.annotations.markSaved();
     }
 

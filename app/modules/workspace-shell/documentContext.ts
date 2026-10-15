@@ -1,4 +1,9 @@
 import type { InjectionKey } from 'vue';
+import {crashCheckpointBeforeSaveKey} from '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint';
+import {hasElectronAPI} from '@app/utils/platform';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
+import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { uniq } from 'es-toolkit/array';
 import { clamp } from 'es-toolkit/math';
 import {
@@ -22,8 +27,6 @@ import { useWorkspaceAnnotationSession } from '@app/modules/workspace-shell/comp
 import { usePageOpsHandlers } from '@app/modules/workspace-shell/composables/usePageOpsHandlers';
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { useWorkspaceSplitPayload } from '@app/modules/workspace-shell/composables/useWorkspaceSplitPayload';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
 import { useDocxExport } from '@app/composables/useDocxExport';
@@ -58,8 +61,6 @@ import {
     registerViewInUse,
 } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 
-interface IDocumentContextDeps {controller: IWorkspaceDocumentController;}
-
 /**
  * One document's context: the controller, the working copy and its
  * lifecycle, metadata, annotations, save, history, page and file operations,
@@ -68,8 +69,7 @@ interface IDocumentContextDeps {controller: IWorkspaceDocumentController;}
  * attaches a port; commands that need a page, a selection or a viewer run in
  * the view whose tab is in use.
  */
-export const createDocumentContext = (deps: IDocumentContextDeps) => {
-    const {controller} = deps;
+export const createDocumentContext = ({controller}: {controller: IWorkspaceDocumentController}) => {
     const { t } = useTypedI18n();
     const openingTransaction = computed(() => {
         const transaction = controller.snapshot.value.activeTransaction;
@@ -121,11 +121,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     };
     // A document source change resets every view's search, not only the one in use.
     const resetSearchCaches = () => viewPorts.value.forEach(port => port.search.resetSearchCache());
-    const closeSearches = () => viewPorts.value.forEach(port => port.search.closeSearch());
     registerViewInUse(controller, () => views.commandTabId.value);
-    function emitOpenInNewTab(result: TDocumentRef | TOpenFileResult) {
-        commandView.value?.emitOpenInNewTab(result);
-    }
     // Save and annotation failures reach the user through this surface; an
     // open's failure is told by the tab's document session.
     const failure = useWorkspaceFailureSurface();
@@ -136,13 +132,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         assignDocument: controller.assign,
     });
     const loadRecentFiles = () => void file.loadRecentFiles();
-    const {
-        workingCopyPath,
-        documentRevisionToken,
-        originalPath,
-        pdfData,
-        pdfSrc,
-    } = file;
     const {
         settings: appSettings,
         save: saveSettings,
@@ -159,19 +148,38 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const metadata = useMetadataSession({
         pdfDocument: computed(() => loadedView.value?.view.pdfDocument.value ?? null),
         totalPages: computed(() => loadedView.value?.view.totalPages.value ?? 0),
-        workingCopyPath,
-        documentRevisionToken,
+        workingCopyPath: file.workingCopyPath,
+        documentRevisionToken: file.documentRevisionToken,
         markDirty: file.markDirty,
         setWorkspaceCommandSink: file.setWorkspaceCommandSink,
     });
-    const {
-        pageLabelState, bookmarkState, workspaceUndoTimeline, 
-    } = metadata;
     // One canonical annotation store, history and draft set for every view.
+    const persistCrashCheckpoint = inject(crashCheckpointBeforeSaveKey, null);
     const pdfDocumentAnnotations = createPdfDocumentAnnotations({
-        workingCopyPath,
-        source: pdfSrc,
-        documentRevisionToken,
+        workingCopyPath: file.workingCopyPath,
+        source: file.pdfSrc,
+        documentRevisionToken: file.documentRevisionToken,
+        protectTextBoxDraft: hasElectronAPI() ? async (assertCurrent) => {
+            const target = controller.snapshot.value.identity;
+            try {
+                if (!persistCrashCheckpoint) throw new Error('Recovery protection is unavailable for the text transaction');
+                await persistCrashCheckpoint(target.workingCopyPath, assertCurrent);
+            } catch (cause) {
+                if ((cause instanceof DOMException && cause.name === 'AbortError') || controller.snapshot.value.identity.documentInstanceId !== target.documentInstanceId || (!controller.snapshot.value.dirty && pdfDocumentAnnotations.textBoxDrafts.size === 0)) throw new DOMException('The text transaction was cancelled', 'AbortError');
+                const message = getErrorMessage(cause);
+                const presentation = {
+                    failure: getFailureReceipt(cause) ?? BrowserLogger.error('annotations', 'Failed to protect a text draft', cause, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}),
+                    title: t('errors.workspace.recoveryProtectionTitle'),
+                    description: t('errors.workspace.recoveryProtectionDescription', {
+                        fileName: file.fileName.value ?? target.workingCopyPath ?? target.documentInstanceId ?? '',
+                        message,
+                    }),
+                    technicalDetails: message,
+                };
+                failure.reportFailure(presentation);
+                throw Object.assign(cause instanceof Error ? cause : new Error(message), presentation);
+            }
+        } : undefined,
     });
     const { clearCache: clearOcrCache } = useOcrTextContent();
 
@@ -183,14 +191,14 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const hasPendingUnsavedChanges = computed(() => (
         annotations.hasUnsavedAnnotationChanges.value
         || file.isDirty.value
-        || pageLabelState.pageLabelsDirty.value
-        || bookmarkState.bookmarksDirty.value
+        || metadata.pageLabelState.pageLabelsDirty.value
+        || metadata.bookmarkState.bookmarksDirty.value
     ));
 
     // This is authored state, including edits made while already dirty and drafts
     // outside the store. Parsed clean annotations are projections of the bytes.
     controller.bindMutationFrontier(() => JSON.stringify({
-        revision: documentRevisionToken.value,
+        revision: file.documentRevisionToken.value,
         annotations: pdfDocumentAnnotations.application.value.store.dirtyEntities().map(entity => [
             entity.identity.id,
             entity.revision,
@@ -201,7 +209,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         metadata: metadata.captureRecovery(),
         operation: controller.operationLease.activeKind.value,
     }), async () => {
-        pdfDocumentAnnotations.commitPendingDraftsForSave();
+        await pdfDocumentAnnotations.commitPendingDraftsForSave();
         if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
     }, async (assertCurrent) => {
         await file.handleDjvuCancel();
@@ -214,14 +222,14 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const unencryptedSaveNotice = useUnencryptedSaveNotice();
     const saveService = usePageSaveOrchestration({
         failureSurface: failure,
-        pdfData,
+        pdfData: file.pdfData,
         pdfDocument,
         pdfViewerRef,
         openSurface: commandOpenSurface,
-        workingCopyPath,
-        originalPath,
+        workingCopyPath: file.workingCopyPath,
+        originalPath: file.originalPath,
         documentSessionKey: computed(() => controller.snapshot.value.identity.documentSessionKey),
-        documentRevisionToken,
+        documentRevisionToken: file.documentRevisionToken,
         wasEncrypted: file.wasEncrypted,
         unencryptedSaveNotice: {
             request: unencryptedSaveNotice.requestUnencryptedSaveNotice,
@@ -236,17 +244,17 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             flushSettings: saveSettings,
         },
         totalPages,
-        pageLabelsDirty: pageLabelState.pageLabelsDirty,
-        pageLabelRanges: pageLabelState.pageLabelRanges,
-        bookmarksDirty: bookmarkState.bookmarksDirty,
-        bookmarkItems: bookmarkState.bookmarkItems,
+        pageLabelsDirty: metadata.pageLabelState.pageLabelsDirty,
+        pageLabelRanges: metadata.pageLabelState.pageLabelRanges,
+        bookmarksDirty: metadata.bookmarkState.bookmarksDirty,
+        bookmarkItems: metadata.bookmarkState.bookmarkItems,
         isSaving,
         isSavingAs,
         annotations,
-        markPageLabelsSaved: pageLabelState.markPageLabelsSaved,
-        getPageLabelsSaveStateToken: pageLabelState.getPageLabelsRevision,
-        markBookmarksSaved: bookmarkState.markBookmarksSaved,
-        getBookmarksSaveStateToken: bookmarkState.getBookmarksRevision,
+        markPageLabelsSaved: metadata.pageLabelState.markPageLabelsSaved,
+        getPageLabelsSaveStateToken: metadata.pageLabelState.getPageLabelsRevision,
+        markBookmarksSaved: metadata.bookmarkState.markBookmarksSaved,
+        getBookmarksSaveStateToken: metadata.bookmarkState.getBookmarksRevision,
         isDirty: file.isDirty,
         hasPendingUnsavedChanges,
         validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'save'}),
@@ -264,19 +272,11 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         resetSearchCache: resetSearchCaches,
         runWithDocumentOperationLease: runExclusive,
     });
-    // The one PDF.js document every view of this document shows.
-    const pdfDocumentSessionSlot = createPdfDocumentSessionSlot({
-        src: pdfSrc,
-        reloadSrc: file.pdfReloadSrc,
-        documentLifecycleKey: computed(() => originalPath.value ?? pendingDocumentPath.value),
-        documentRevisionToken,
-        workingCopyPath,
-    });
     const driver = useWorkspaceDocumentDriver({
         djvuSourcePath: file.djvuSourcePath,
         isDjvuMode: file.isDjvuMode,
-        pdfSrc,
-        workingCopyPath,
+        pdfSrc: file.pdfSrc,
+        workingCopyPath: file.workingCopyPath,
         save: {
             save: saveService.handleSave,
             saveAs: saveService.handleSaveAs,
@@ -285,8 +285,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         pendingDocumentPath: pendingDocumentPath,
         pendingDocumentSize: computed(() => commandOpenSurface.snapshot.value.openingPageGeometry?.size ?? null),
     });
-    const activeDriver = driver.activeDocumentDriver;
-    watch(activeDriver, (active) => {
+    watch(driver.activeDocumentDriver, (active) => {
         if (active?.view.defaultSourceCapabilities) {
             sourceCapabilities.value = active.view.defaultSourceCapabilities;
         } else if (!active) {
@@ -294,10 +293,10 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         }
     }, {immediate: true});
     const saveThroughDriver = (action: 'save' | 'save-as') => (
-        activeDriver.value?.operations.save.execute(action) ?? Promise.resolve(false)
+        driver.activeDocumentDriver.value?.operations.save.execute(action) ?? Promise.resolve(false)
     );
     useShutdownSaveFlushReporting({
-        workingCopyPath,
+        workingCopyPath: file.workingCopyPath,
         hasPendingUnsavedChanges,
         flushAdditionalState: async () => {
             await saveSettings();
@@ -305,7 +304,6 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
             await flushScanCleanupPreferencesStore();
         },
     });
-    const ensureWorkingCopyFreshForRead = saveService.saveForExternalRead;
     const save = {
         ...saveService,
         canSave: computed(() => !isMoving.value && saveService.canSave.value),
@@ -316,7 +314,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         handleSave: () => saveThroughDriver('save'),
         handleSaveAs: () => saveThroughDriver('save-as'),
         optimizeDialog: useDocumentWorkspaceOptimizeDialog({handleOptimizePdfAsCopy: saveService.handleOptimizePdfAsCopy}),
-        ensureWorkingCopyFreshForRead,
+        ensureWorkingCopyFreshForRead: saveService.saveForExternalRead,
     };
 
     const docx = useDocxExport();
@@ -332,8 +330,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         }
         const cancellationVersion = docxExportCancellationVersion;
         const exported = await runExclusive('docx-export', () => docx.exportDocx({
-            workingCopyPath: workingCopyPath.value,
-            documentRevisionToken: documentRevisionToken.value,
+            workingCopyPath: file.workingCopyPath.value,
+            documentRevisionToken: file.documentRevisionToken.value,
             pdfDocument: pdfDocument.value,
             ...(selectedLanguages === undefined ? {} : {selectedLanguages}),
         }));
@@ -342,22 +340,16 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         }
     }
     const exportWorkflow = useWorkspaceExport({
-        workingCopyPath,
+        workingCopyPath: file.workingCopyPath,
         exportTargets: {
-            imageTarget: computed(() => activeDriver.value?.operations.export.imageTarget ?? null),
-            multiPageTiffTarget: computed(() => activeDriver.value?.operations.export.multiPageTiffTarget ?? null),
+            imageTarget: computed(() => driver.activeDocumentDriver.value?.operations.export.imageTarget ?? null),
+            multiPageTiffTarget: computed(() => driver.activeDocumentDriver.value?.operations.export.multiPageTiffTarget ?? null),
         },
-        documentRevisionToken,
+        documentRevisionToken: file.documentRevisionToken,
         totalPages,
-        ensureWorkingCopyFreshForRead,
+        ensureWorkingCopyFreshForRead: saveService.saveForExternalRead,
         runWithDocumentOperationLease: runExclusive,
     });
-    const docxExport = {
-        error: docx.docxExportError,
-        isExporting: docx.isExportingDocx,
-        handleExportDocx,
-        cancel: cancelDocxExport,
-    };
 
     const pdfHistory = usePdfHistory({
         pdfDocument,
@@ -368,13 +360,13 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         isHistoryBusy,
         canUndo: commandCanUndo,
         canRedo: commandCanRedo,
-        nextUndoSource: workspaceUndoTimeline.nextUndoSource,
-        nextRedoSource: workspaceUndoTimeline.nextRedoSource,
-        workingCopyPath,
+        nextUndoSource: metadata.workspaceUndoTimeline.nextUndoSource,
+        nextRedoSource: metadata.workspaceUndoTimeline.nextRedoSource,
+        workingCopyPath: file.workingCopyPath,
         resetSearchCache: resetSearchCaches,
         clearOcrCache: path => clearOcrCache(path),
-        undoHistory: workspaceUndoTimeline.undoTimeline,
-        redoHistory: workspaceUndoTimeline.redoTimeline,
+        undoHistory: metadata.workspaceUndoTimeline.undoTimeline,
+        redoHistory: metadata.workspaceUndoTimeline.redoTimeline,
     });
     const history = {
         isHistoryBusy,
@@ -386,8 +378,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
     const hasOpenDocument = computed(() => (
         file.hasPdf.value
         || (
-            activeDriver.value?.capabilities.closeableDocument === true
-            && activeDriver.value.source.path !== null
+            driver.activeDocumentDriver.value?.capabilities.closeableDocument === true
+            && driver.activeDocumentDriver.value.source.path !== null
         )
     ));
     const preparePageOperationWorkingCopy = saveService.createPageMutationWriterSave({
@@ -396,13 +388,13 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         loadPdfFromPath: file.loadPdfFromPath,
     });
     const pageOps = usePageOpsHandlers({
-        workingCopyPath,
-        documentRevisionToken,
-        pageLabels: pageLabelState.pageLabels,
-        pageLabelRanges: pageLabelState.pageLabelRanges,
-        pageLabelsResolved: pageLabelState.pageLabelsResolved,
-        bookmarkItems: bookmarkState.bookmarkItems,
-        bookmarksResolved: bookmarkState.bookmarksResolved,
+        workingCopyPath: file.workingCopyPath,
+        documentRevisionToken: file.documentRevisionToken,
+        pageLabels: metadata.pageLabelState.pageLabels,
+        pageLabelRanges: metadata.pageLabelState.pageLabelRanges,
+        pageLabelsResolved: metadata.pageLabelState.pageLabelsResolved,
+        bookmarkItems: metadata.bookmarkState.bookmarkItems,
+        bookmarksResolved: metadata.bookmarkState.bookmarksResolved,
         views,
         totalPages,
         selectedThumbnailPages: viewPort.selectedThumbnailPages,
@@ -412,11 +404,9 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         invalidateThumbnailPages: viewPort.requestThumbnailInvalidation,
         pageContextMenu: pageContextMenu.pageContextMenu,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
-        onExportPages: (pages) => {
-            void exportWorkflow.handleExportImages(pages);
-        },
+        onExportPages: pages => void exportWorkflow.handleExportImages(pages),
         canMutatePages: computed(() => sourceCapabilities.value.pageEdits),
-        onExtractedDocument: emitOpenInNewTab,
+        onExtractedDocument: result => commandView.value?.emitOpenInNewTab(result),
         ensureHistoryBaselineForMutation: file.ensureHistoryBaselineForMutation,
         saveAnnotationsForPageMutation: preparePageOperationWorkingCopy,
         reloadWorkingCopyIntoHistory: file.reloadWorkingCopyIntoHistory,
@@ -440,7 +430,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         get tabId() {
             return commandView.value?.tabId;
         },
-        pdfSrc,
+        pdfSrc: file.pdfSrc,
         hasDocument: hasOpenDocument,
         isAnySaving: saveService.isAnySaving,
         isHistoryBusy,
@@ -453,8 +443,8 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         annotationDirty: annotations.annotationDirty,
         isDirty: file.isDirty,
         recoveryDirtyBaseline: file.recoveryDirtyBaseline,
-        pageLabelsDirty: pageLabelState.pageLabelsDirty,
-        bookmarksDirty: bookmarkState.bookmarksDirty,
+        pageLabelsDirty: metadata.pageLabelState.pageLabelsDirty,
+        bookmarksDirty: metadata.bookmarkState.bookmarksDirty,
         persistAllAnnotationNotes: annotations.persistAllAnnotationNotes,
         handleSave: save.handleSave,
         pickFileToOpen: file.pickFileToOpen,
@@ -470,58 +460,57 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         runDocumentOpen: runDocumentOpen,
         closeFile: file.closeFileWithViewerLifecycle,
         closeAllDropdowns: viewPort.closeAllDropdowns,
-        emitOpenInNewTab,
+        emitOpenInNewTab: result => commandView.value?.emitOpenInNewTab(result),
     });
 
     const printableSource = createPrintableSourceDataResolver({
         hasPendingUnsavedChanges,
         pdfViewerRef,
         save: saveService,
-        workingCopyPath,
-        originalPath,
-        documentRevisionToken,
+        workingCopyPath: file.workingCopyPath,
+        originalPath: file.originalPath,
+        documentRevisionToken: file.documentRevisionToken,
         runWithDocumentOperationLease: runExclusive,
     });
-    async function getQuickPrintPageMetrics() {
-        const viewer = pdfViewerRef.value;
-        const total = totalPages.value;
-        if (!viewer || total <= 0) {
-            return null;
-        }
-        const samplePages = uniq([
-            1,
-            clamp(currentPage.value, 1, total),
-            Math.max(1, Math.ceil(total / 2)),
-            total,
-        ]).sort((left, right) => left - right);
-        for (const pageNumber of samplePages) {
-            await viewer.ensurePageMetricsInRange?.(pageNumber, pageNumber);
-        }
-        const metrics = viewer.getPageMetricsSnapshot?.() ?? [];
-        const sampledMetrics = samplePages.flatMap((pageNumber) => {
-            const metric = metrics[pageNumber - 1] ?? null;
-            return metric
-                && Number.isFinite(metric.width) && metric.width > 0
-                && Number.isFinite(metric.height) && metric.height > 0
-                ? [metric]
-                : [];
-        });
-        return sampledMetrics.length === samplePages.length ? sampledMetrics : null;
-    }
     const print = useWorkspacePrint({
         totalPages,
         currentPage,
         selectedPages: viewPort.selectedThumbnailPages,
         selectedPageSelection: viewPort.selectedPageSelection,
-        sourcePdf: pdfSrc,
-        workingCopyPath,
-        printPath: computed(() => activeDriver.value?.operations.print.path ?? null),
+        sourcePdf: file.pdfSrc,
+        workingCopyPath: file.workingCopyPath,
+        printPath: computed(() => driver.activeDocumentDriver.value?.operations.print.path ?? null),
         fileName: file.fileName,
         hasPendingUnsavedChanges,
         hasPendingPrintSerializationChanges: annotations.hasUnsavedAnnotationChanges,
         getCurrentPrintPage: () => documentViewerRef.value?.getCurrentPage?.() ?? currentPage.value,
-        getQuickPrintPageMetrics,
-        isDriverOwnedQuickPrint: () => activeDriver.value?.canPreparePrint === true,
+        getQuickPrintPageMetrics: async () => {
+            const viewer = pdfViewerRef.value;
+            const total = totalPages.value;
+            if (!viewer || total <= 0) {
+                return null;
+            }
+            const samplePages = uniq([
+                1,
+                clamp(currentPage.value, 1, total),
+                Math.max(1, Math.ceil(total / 2)),
+                total,
+            ]).sort((left, right) => left - right);
+            for (const pageNumber of samplePages) {
+                await viewer.ensurePageMetricsInRange?.(pageNumber, pageNumber);
+            }
+            const metrics = viewer.getPageMetricsSnapshot?.() ?? [];
+            const sampledMetrics = samplePages.flatMap((pageNumber) => {
+                const metric = metrics[pageNumber - 1] ?? null;
+                return metric
+                    && Number.isFinite(metric.width) && metric.width > 0
+                    && Number.isFinite(metric.height) && metric.height > 0
+                    ? [metric]
+                    : [];
+            });
+            return sampledMetrics.length === samplePages.length ? sampledMetrics : null;
+        },
+        isDriverOwnedQuickPrint: () => driver.activeDocumentDriver.value?.canPreparePrint === true,
         ensurePrintReady: async () => (
             !annotations.hasOpenAnnotationNotes.value || annotations.persistAllAnnotationNotes()
         ),
@@ -547,41 +536,37 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
                 onNativePrintHandoffStart?: () => void;
                 signal?: AbortSignal
             },
-        ) => activeDriver.value?.run({
+        ) => driver.activeDocumentDriver.value?.run({
             kind: 'prepare-print',
             request: payload,
             fileName: file.fileName.value,
             sourceCapabilities: sourceCapabilities.value,
-            ...(options?.onNativePrintHandoffStart === undefined
-                ? {}
-                : {onNativePrintHandoffStart: options.onNativePrintHandoffStart}),
-            ...(options?.signal === undefined ? {} : {signal: options.signal}),
+            ...options,
         }) ?? Promise.resolve({
             status: 'unavailable' as const,
             capability: 'print' as const,
         }),
     });
 
-    const viewerCapabilities = computed(() => activeDriver.value?.capabilities);
     const splitPayload = useWorkspaceSplitPayload({
-        pdfSrc,
+        pdfSrc: file.pdfSrc,
         isDjvuMode: file.isDjvuMode,
         djvuSourcePath: file.djvuSourcePath,
         currentPage,
         totalPages,
         fileName: file.fileName,
-        originalPath,
-        workingCopyPath,
+        originalPath: file.originalPath,
+        workingCopyPath: file.workingCopyPath,
         hasPendingTabChanges: hasPendingUnsavedChanges,
         requiresSaveAsOnFirstSave: file.requiresSaveAsOnFirstSave,
         pdfViewerRef,
         documentViewerRef,
-        pdfData,
+        pdfData: file.pdfData,
         // A split restore reopens its payload as the tab's open transaction.
         openFileWithViewerLifecycle: file.openFileInDocumentTransaction,
         preparePdfReloadWaiter: pdfHistory.preparePdfReloadWaiter,
         loadPdfFromPath: file.loadPdfFromPath,
-        documentRevisionToken,
+        documentRevisionToken: file.documentRevisionToken,
         getNativeSaveTransactionOptions: saveService.getNativeSaveTransactionOptions,
         runWithDocumentOperationLease: runExclusive,
     });
@@ -594,10 +579,10 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         views,
         isDjvuMode: file.isDjvuMode,
         djvuSourcePath: file.djvuSourcePath,
-        pdfSrc,
-        workingCopyPath,
+        pdfSrc: file.pdfSrc,
+        workingCopyPath: file.workingCopyPath,
         documentRevisionInfo: file.documentRevisionInfo,
-        documentRevisionToken,
+        documentRevisionToken: file.documentRevisionToken,
         pdfError: file.pdfError,
         dragMode: viewPort.dragMode,
         showSidebar: viewPort.showSidebar,
@@ -612,7 +597,7 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         navigationTicket: computed(() => commandOpenSurface.navigationTicket.value),
         resetAnnotationTracking: annotations.resetAnnotationTracking,
         resetSearchCache: resetSearchCaches,
-        closeSearch: closeSearches,
+        closeSearch: () => viewPorts.value.forEach(port => port.search.closeSearch()),
         closeAnnotationContextMenu: views.closeAnnotationContextMenus,
         closePageContextMenu: pageContextMenu.closePageContextMenu,
         closeAllAnnotationNotes: annotations.closeAllAnnotationNotes,
@@ -635,16 +620,28 @@ export const createDocumentContext = (deps: IDocumentContextDeps) => {
         failure,
         file,
         driver,
-        viewerCapabilities,
+        viewerCapabilities: computed(() => driver.activeDocumentDriver.value?.capabilities),
         metadata,
         annotations,
         pdfDocumentAnnotations,
-        pdfDocumentSessionSlot,
+        // The one PDF.js document every view of this document shows.
+        pdfDocumentSessionSlot: createPdfDocumentSessionSlot({
+            src: file.pdfSrc,
+            reloadSrc: file.pdfReloadSrc,
+            documentLifecycleKey: computed(() => file.originalPath.value ?? pendingDocumentPath.value),
+            documentRevisionToken: file.documentRevisionToken,
+            workingCopyPath: file.workingCopyPath,
+        }),
         saveService,
         save,
         exportWorkflow,
         docx,
-        docxExport,
+        docxExport: {
+            error: docx.docxExportError,
+            isExporting: docx.isExportingDocx,
+            handleExportDocx,
+            cancel: cancelDocxExport,
+        },
         history,
         hasOpenDocument,
         pageOps,

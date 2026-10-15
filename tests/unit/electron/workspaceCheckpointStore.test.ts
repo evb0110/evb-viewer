@@ -291,7 +291,7 @@ describe('workspace checkpoint store', () => {
     it('atomically persists, claims once, and transfers working-copy ownership', async () => {
         state.owners.set(workingCopyRef, 11);
         state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
-        await saveWorkspaceCheckpoint(checkpoint, 11);
+        await expect(saveWorkspaceCheckpoint(checkpoint, 11)).resolves.toBe(true);
 
         const stored = (await readRecoveryRecord());
         expect(stored).toMatchObject({
@@ -476,17 +476,16 @@ describe('workspace checkpoint store', () => {
             ],
         ]);
 
-        // A restore whose renderer saved again has settled, even when it never
-        // acknowledged (an incomplete restore keeps its evidence): a later
-        // crash closes nothing.
+        // A healthy partial Save cannot acknowledge another document's unfinished restore.
+        // A renderer crash still closes the shown clean document until explicit acknowledgement.
         await saveSettled();
         window.emit('render-process-gone', {}, {reason: 'crashed'});
         reloadRenderer(window);
         await expect(restoredSources()).resolves.toEqual([
             [
                 'tab-1',
-                'shown.pdf',
-                shownPath,
+                null,
+                null,
             ],
             [
                 'tab-2',
@@ -495,7 +494,7 @@ describe('workspace checkpoint store', () => {
             ],
         ]);
 
-        // The renderer dies while that restore opens the shown document.
+        // Another crash preserves the closed document and does not reopen the fatal source.
         window.emit('render-process-gone', {}, {reason: 'oom'});
         reloadRenderer(window);
         const restored = await claimWorkspaceCheckpoint(11, window);
@@ -634,6 +633,17 @@ describe('workspace checkpoint store', () => {
     });
 
     it('retains unacknowledged annotation recovery through ordinary saves and a store restart', async () => {
+        const workingCopyRef = join(state.userDataPath, 'retained-working.pdf');
+        const workingBytes = Buffer.from('%PDF-1.7 retained unsaved working bytes');
+        await writeFile(workingCopyRef, workingBytes);
+        state.presentWorkingCopies.add(workingCopyRef);
+        const retainedCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                workingCopyRef: requireDocumentRef(workingCopyRef),
+            })),
+        };
         const payload = {
             version: 1,
             annotationMutationGeneration: 7,
@@ -645,9 +655,13 @@ describe('workspace checkpoint store', () => {
             drafts: [],
         };
         const recoveryCheckpoint: IWorkspaceCheckpoint = {
-            ...checkpoint,
-            tabs: checkpoint.tabs.map(tab => ({
+            ...retainedCheckpoint,
+            tabs: retainedCheckpoint.tabs.map(tab => ({
                 ...tab,
+                annotationRecoveryFailure: {
+                    reason: 'capture-rejected',
+                    message: 'Recovery state exceeds the 4194304-byte annotation budget',
+                },
                 annotationRecovery: {
                     artifactId: 'capture-tab-1',
                     documentInstanceId: 'document-1',
@@ -660,10 +674,10 @@ describe('workspace checkpoint store', () => {
         };
         const secondWorkingCopyRef = '/tmp/evb-working/unrelated.pdf';
         const checkpointWithUnrelatedTab = (capturedAt: number): IWorkspaceCheckpoint => ({
-            ...checkpoint,
+            ...retainedCheckpoint,
             capturedAt: requireEpochMs(capturedAt),
             panes: [{
-                ...checkpoint.panes[0]!,
+                ...retainedCheckpoint.panes[0]!,
                 tabIds: [
                     requireTabId('tab-1'),
                     requireTabId('tab-2'),
@@ -672,14 +686,14 @@ describe('workspace checkpoint store', () => {
             }],
             tabs: [
                 {
-                    ...checkpoint.tabs[0]!,
+                    ...retainedCheckpoint.tabs[0]!,
                     annotationRecoveryFailure: {
                         reason: 'capture-rejected',
                         message: 'Recovery state exceeds the 4194304-byte annotation budget',
                     },
                 },
                 {
-                    ...checkpoint.tabs[0]!,
+                    ...retainedCheckpoint.tabs[0]!,
                     tabId: requireTabId('tab-2'),
                     fileName: 'unrelated.pdf',
                     sourceRef: requireDocumentRef('/documents/unrelated.pdf'),
@@ -714,12 +728,14 @@ describe('workspace checkpoint store', () => {
 
         await expect(claimWorkspaceCheckpoint(22)).resolves.toMatchObject({tabs: [{annotationRecovery: {payload}}]});
         await saveWorkspaceCheckpoint({
-            ...checkpoint,
+            ...retainedCheckpoint,
             capturedAt: requireEpochMs(124),
         }, 22);
         await flushPendingWorkspaceCheckpointSave();
 
         expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecovery).toEqual(recoveryRef);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecoveryFailure)
+            .toEqual(recoveryCheckpoint.tabs[0]?.annotationRecoveryFailure);
         expect(await readFile(artifactPath)).toEqual(originalBytes);
 
         state.owners.set(secondWorkingCopyRef, 22);
@@ -751,6 +767,60 @@ describe('workspace checkpoint store', () => {
             requireTabId('tab-2'),
         ]);
         expect(await readFile(artifactPath)).toEqual(originalBytes);
+        expect(await readFile(workingCopyRef)).toEqual(workingBytes);
+
+        if (!restored) throw new Error('The retained checkpoint must be claimable');
+        await restartedStore.saveWorkspaceCheckpoint({
+            ...restored,
+            capturedAt: requireEpochMs(126),
+            tabs: restored.tabs.map(tab => ({
+                ...tab,
+                annotationRecovery: undefined,
+                annotationRecoveryFailure: undefined,
+            })),
+        }, 33);
+        await restartedStore.flushPendingWorkspaceCheckpointSave();
+        vi.resetModules();
+        const secondRestart = await import('@electron/workspaceCheckpointStore');
+        const recoveredAgain = await secondRestart.claimWorkspaceCheckpoint(44);
+        expect(recoveredAgain?.tabs[0]?.annotationRecovery).toMatchObject({
+            ...recoveryRef,
+            payload,
+        });
+        expect(recoveredAgain?.tabs[0]?.annotationRecoveryFailure).toEqual(recoveryCheckpoint.tabs[0]?.annotationRecoveryFailure);
+        expect(await readFile(artifactPath)).toEqual(originalBytes);
+        expect(await readFile(workingCopyRef)).toEqual(workingBytes);
+    });
+
+    it('retains an unacknowledged dirty capture refusal when no artifact was admitted', async () => {
+        const failedCheckpoint: IWorkspaceCheckpoint = {
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                annotationRecoveryFailure: {
+                    reason: 'capture-rejected',
+                    message: 'Recovery state exceeds the 4194304-byte annotation budget',
+                },
+            })),
+        };
+        state.owners.set(workingCopyRef, 11);
+        state.originalPaths.set(workingCopyRef, '/documents/draft.pdf');
+        await saveWorkspaceCheckpoint(failedCheckpoint, 11);
+        await claimWorkspaceCheckpoint(22);
+
+        await saveWorkspaceCheckpoint({
+            ...checkpoint,
+            capturedAt: requireEpochMs(124),
+        }, 22);
+        await flushPendingWorkspaceCheckpointSave();
+        expect((await readRecoveryRecord()).checkpoint.tabs[0].annotationRecoveryFailure)
+            .toEqual(failedCheckpoint.tabs[0]?.annotationRecoveryFailure);
+        expect((await readRecoveryRecord()).checkpoint.tabs[0]).not.toHaveProperty('annotationRecovery');
+        vi.resetModules();
+        const restarted = await import('@electron/workspaceCheckpointStore');
+        const claimed = await restarted.claimWorkspaceCheckpoint(33);
+        expect(claimed?.tabs[0]?.annotationRecoveryFailure).toEqual(failedCheckpoint.tabs[0]?.annotationRecoveryFailure);
+        expect(claimed?.tabs[0]).not.toHaveProperty('annotationRecovery');
     });
 
     it('drops unacknowledged annotation recovery after the renderer acknowledges it', async () => {

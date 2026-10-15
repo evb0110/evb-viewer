@@ -415,10 +415,7 @@ export function createWorkspaceDocumentController(options: {
             }
             return;
         }
-        const currentSource = current.originalPath ?? current.documentRef;
-        const nextSource = next.originalPath ?? next.documentRef;
-        const sameLogicalDocument = identityHasDocument(current) && currentSource === nextSource
-            && current.isDjvu === next.isDjvu && (currentSource !== null || current.fileName === next.fileName);
+        const sameLogicalDocument = identityHasDocument(current) && snapshot.value.activeTransaction?.kind !== 'open';
         const resumesCheckpointWorkingCopy = snapshot.value.recoveryWorkingCopyPath !== null
             && snapshot.value.recoveryWorkingCopyPath === next.workingCopyPath;
         const identity = {

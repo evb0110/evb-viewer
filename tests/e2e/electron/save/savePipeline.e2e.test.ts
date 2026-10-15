@@ -615,6 +615,58 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         session = null;
     });
 
+    it.each([
+        'save',
+        'save-as',
+    ])('keeps a note accepted during %s in the saved file or dirty for the next save', async (operation) => {
+        const source = await createMultiPageTextFixturePdf(`save-late-edit-${operation}-${Date.now()}.pdf`, 1);
+        session = await startElectronE2ESession(`e2e-save-late-edit-${operation}-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [source],
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: source},
+        });
+        const page = session.page;
+        await waitForOpenedPdf(page, source);
+        await createStickyNoteWithPointer(page, 'Captured note', {
+            x: 0.4,
+            y: 0.3,
+        }, 1, {allowClearPointSearch: true});
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await waitForSaveFrontierReady(page);
+        await installReceiptProbe(page, true);
+        if (operation === 'save-as') {
+            await clickAsUser(page, 'button[aria-label="Save options"]');
+            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-item'))
+                .find(button => button.textContent?.trim().startsWith('Save As')), null, {description: 'Save As'});
+        } else await clickEnabledSaveButton(page);
+        await waitForStagedArtifact(page);
+        await createStickyNoteWithPointer(page, 'Accepted later note', {
+            x: 0.6,
+            y: 0.4,
+        }, 1, {allowClearPointSearch: true});
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        await page.evaluate(() => (window as TSaveReceiptProbeWindow).__resumeSaveReceiptCommit?.());
+        await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        await waitForViewerInteractive(page, SAVE_TIMEOUT_MS);
+        await waitForVisibleMountedPdfCanvases(page, SAVE_TIMEOUT_MS);
+        await expect.poll(() => page.$$eval('.pdf-annotation-editor-note', notes => notes.length)).toBe(2);
+        // An edit accepted during Save may join that publication or remain
+        // dirty; either way, the next saved file must retain both notes.
+        if (await isSaveButtonEnabled(page)) {
+            await waitForSaveFrontierReady(page);
+            await saveFromWorkspace(page, source);
+            await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
+        }
+        expect((await readPdfTextAnnotationRecords(source)).map(note => note.contents).sort())
+            .toEqual([
+                'Accepted later note',
+                'Captured note',
+            ]);
+        await page.waitForSelector('.editor-pane.is-active .tab.is-active.is-dirty', {hidden: true});
+    }, E2E_TIMEOUT_MS);
+
     it('keeps each reading point when Save As reloads a linked split or single view', async () => {
         const drifts: Array<{
             pageBefore: number;

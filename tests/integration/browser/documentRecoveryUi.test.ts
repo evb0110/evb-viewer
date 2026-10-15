@@ -115,6 +115,79 @@ describe('browser document lifecycle UI', () => {
     }, 60_000);
 
     it.each([
+        'discovery',
+        'lock',
+    ])('opens and saves a PDF after one initial recovery lease %s refusal', async (fault) => {
+        const context = await lifecycle.browser.newContext();
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        try {
+            await page.addInitScript((fault) => {
+                Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
+                Reflect.set(window, 'showSaveFilePicker', undefined);
+                sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
+                if (fault === 'lock') {
+                    const locks = navigator.locks;
+                    const request = locks.request;
+                    locks.request = function (...args: [string, LockOptions | LockGrantedCallback<unknown>, LockGrantedCallback<unknown>?]) {
+                        if (args[0].startsWith('evb-viewer:browser-lease-owner:')
+                            && typeof args[1] === 'object' && args[1].mode === 'exclusive') {
+                            locks.request = request;
+                            Reflect.set(window, '__initialClaimRefused', true);
+                            return Promise.reject(new Error('Injected initial lease claim refusal'));
+                        }
+                        return Reflect.apply(request, locks, args);
+                    };
+                    return;
+                }
+                const post = BroadcastChannel.prototype.postMessage;
+                BroadcastChannel.prototype.postMessage = function (this: BroadcastChannel, message: unknown) {
+                    if (this.name === 'evb-viewer:browserWindowTabs'
+                        && Reflect.get(Object(message), 'type') === 'discover'
+                        && new Error().stack?.includes('listTargetWindows')) {
+                        BroadcastChannel.prototype.postMessage = post;
+                        Reflect.set(window, '__initialClaimRefused', true);
+                        throw new Error('Injected initial lease claim refusal');
+                    }
+                    return post.call(this, message);
+                };
+            }, fault);
+            await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
+            await waitForOpenFileReady(page);
+            expect(await page.evaluate(() => Reflect.get(window, '__initialClaimRefused'))).toBe(true);
+            keepFileChooserInterceptionEnabled(page);
+            const chooser = page.waitForEvent('filechooser');
+            await page.getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            }).first().click();
+            await (await chooser).setFiles(resolve(process.cwd(), 'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf'));
+            const textBox = page.locator('.pdf-annotation-editor-text-box').filter({hasText: 'Editable interoperability text'}).first();
+            await textBox.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await textBox.dblclick();
+            const editor = page.locator('.pdf-annotation-editor-text-box__editor').last();
+            await editor.fill('Edit after lease claim refusal');
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            expect(Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
+                .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText()))
+                .toContain('Edit after lease claim refusal');
+            expect(problems.filter(problem => !problem.includes('Injected initial lease claim refusal'))).toEqual([]);
+        } finally {
+            await context.close();
+        }
+    }, 90_000);
+
+    it.each([
         'canvas-only',
         'hydrating',
     ])('opens a note editor while PDF.js layers remain %s', async (readiness) => {

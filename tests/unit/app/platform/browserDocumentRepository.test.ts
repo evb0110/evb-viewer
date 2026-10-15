@@ -519,6 +519,35 @@ describe('BrowserDocumentStore source registration', () => {
         await expect(store.exists(output)).resolves.toBe(false);
     });
 
+    it('collects the retired working source after Clear Recent and keeps successor bytes', async () => {
+        vi.stubGlobal('navigator', {});
+        const store = new BrowserDocumentStore();
+        const source = await store.createStoredDocument('old-source.pdf', Uint8Array.of(1, 2, 3), {
+            kind: 'source',
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+        });
+        const working = await store.cloneAsWorkingCopy(source);
+        const lease = await store.createLiveLease('window:source-retirement', [{ref: working}]);
+        await store.clearRecentFiles();
+        const nextSource = await store.createStoredDocument('new-source.pdf', Uint8Array.of(4, 5, 6), {
+            kind: 'source',
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+        });
+        const next = await store.cloneAsWorkingCopy(nextSource);
+        const successor = await store.heartbeatLiveLease(lease.ownerId, lease.generation, [{ref: next}]);
+        try {
+            await expect(store.read(next)).resolves.toEqual(Uint8Array.of(4, 5, 6));
+            await expect(store.read(nextSource)).resolves.toEqual(Uint8Array.of(4, 5, 6));
+            const records = indexedDbFactory.getDatabase(DB_NAME)!.getStoreRecords('documents');
+            expect(records.has(working)).toBe(false);
+            expect(records.has(source)).toBe(false);
+        } finally {
+            await store.releaseLiveLease(successor.ownerId, successor.generation);
+        }
+    });
+
     it('collects retired working bytes after 30 lease replacements in one session', async () => {
         vi.stubGlobal('navigator', {});
         const store = new BrowserDocumentStore();

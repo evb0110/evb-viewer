@@ -79,10 +79,10 @@
                 :auto-size-draft="autoSizeTextBoxIds.has(entity.identity.id)"
                 :display-rect="displayRectFor(entity)"
                 :display-font-size="displayFontSizeFor(entity)"
+                :commit-draft="draft => commitTextBox(entity.identity.id, draft)"
                 @pointer-down="handleEntityPointerDown(entity, $event)"
                 @edit="beginTextBoxEdit(entity.identity.id, $event)"
                 @draft-change="surface.setTextBoxDraftPending(entity.identity.id, $event)"
-                @commit="commitTextBox(entity.identity.id, $event)"
                 @cancel="cancelTextBox(entity.identity.id)"
             />
             <PdfNoteAnnotation
@@ -170,6 +170,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import {isShapeTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 const props = defineProps<{pageIndex: number;}>();
 
@@ -207,7 +208,7 @@ const shapeDraft = ref<IShapeAnnotation | null>(null);
 const newTextBoxIds = new Set<AnnotationId>();
 const autoSizeTextBoxIds = reactive(new Set<AnnotationId>());
 interface IPdfTextBoxAnnotationExpose {
-    commitDraft: () => void;
+    commitDraft: () => void | Promise<void>;
     getDraftRect: () => IAnnotationMarkerRect;
     getDraftText: () => string;
     fitRectToContent?: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect | null;
@@ -269,7 +270,7 @@ const keyboardCommands = useAnnotationKeyboardCommands({
         }
         newTextBoxIds.add(created.identity.id);
         autoSizeTextBoxIds.add(created.identity.id);
-        surface.beginTextEditing(created.identity.id);
+        beginTextBoxEdit(created.identity.id);
         return true;
     },
 });
@@ -657,7 +658,7 @@ function beginTextBoxEdit(annotationId: AnnotationId, point?: {
     clientX: number;
     clientY: number
 }) {
-    surface.beginTextEditing(annotationId, point);
+    void surface.beginTextEditing(annotationId, point)?.catch(error => BrowserLogger.debug('annotations', 'Text editor handoff refused', error));
 }
 
 // A recovered draft on an unsaved text box must be treated as a new box, or
@@ -682,15 +683,13 @@ function commitActiveTextBoxDraftForSave() {
         return;
     }
     const textBox = textBoxRefs.get(annotationId);
-    if (textBox) {
-        textBox.commitDraft();
-    } else {
-        // The entity may have been deleted while its editor was still open.
-        // Do not leave the workspace dirty forever for a DOM editor that no
-        // longer exists.
-        surface.clearTextBoxDraftPending(annotationId);
-        surface.endTextEditing(annotationId, {restoreFocus: false});
+    if (!textBox) {
+        // A live entity requires its editor's text and measured rectangle.
+        // Refuse an absent editor rather than ending its required draft;
+        // a deleted entity already returned above.
+        throw new Error('Missing required text draft editor');
     }
+    return textBox.commitDraft();
 }
 
 function handleEntityPointerDown(entity: ITextBoxEntity | INoteEntity, event: PointerEvent, allowEditing = false) {
@@ -741,7 +740,7 @@ function prepareTextBoxGeometryChange() {
     if (id && newTextBoxIds.has(id) && textBoxRefs.get(id)?.getDraftText().trim().length === 0) {
         return;
     }
-    commitActiveTextBoxDraftForSave();
+    void commitActiveTextBoxDraftForSave();
 }
 
 function handleMoveStart(event: PointerEvent) {
@@ -945,7 +944,7 @@ function handlePointerUp(event: PointerEvent) {
                 if (!completion.hasMoved) {
                     autoSizeTextBoxIds.add(created.identity.id);
                 }
-                surface.beginTextEditing(created.identity.id);
+                beginTextBoxEdit(created.identity.id);
             } else {
                 surface.openNote(created.identity.id);
                 surface.completeCreation(tool);
@@ -1101,7 +1100,7 @@ function currentTextBox(annotationId: AnnotationId) {
     )) ?? null;
 }
 
-function commitTextBox(
+async function commitTextBox(
     annotationId: AnnotationId,
     draft: {
         text: string;
@@ -1114,7 +1113,6 @@ function commitTextBox(
     }
     const entity = currentTextBox(annotationId);
     if (!entity) {
-        surface.clearTextBoxDraftPending(annotationId);
         newTextBoxIds.delete(annotationId);
         autoSizeTextBoxIds.delete(annotationId);
         surface.endTextEditing(annotationId, {restoreFocus: false});
@@ -1127,6 +1125,9 @@ function commitTextBox(
         const textChanged = entity.text !== draft.text;
         const rectChanged = rect !== undefined && !annotationRectsEqual(entity.rect, rect);
         if (textChanged || rectChanged) {
+            surface.setTextBoxDraftPending(annotationId, draft.text);
+            const protection = surface.protectTextBoxDraft(annotationId);
+            if (protection) await protection;
             surface.commitGesture(annotationId, {
                 ...(textChanged ? {text: draft.text} : {}),
                 ...(rectChanged ? {rect} : {}),
@@ -1134,7 +1135,6 @@ function commitTextBox(
         }
     }
     const created = newTextBoxIds.has(annotationId) && draft.text.trim().length > 0;
-    surface.clearTextBoxDraftPending(annotationId);
     newTextBoxIds.delete(annotationId);
     autoSizeTextBoxIds.delete(annotationId);
     surface.endTextEditing(annotationId, {
@@ -1151,22 +1151,14 @@ function cancelTextBox(annotationId: AnnotationId) {
     if (entity && newTextBoxIds.has(annotationId)) {
         surface.discardUnsavedAnnotation(annotationId);
     }
-    surface.clearTextBoxDraftPending(annotationId);
     newTextBoxIds.delete(annotationId);
     autoSizeTextBoxIds.delete(annotationId);
     surface.endTextEditing(annotationId, {cancelled: true});
 }
 
 onBeforeUnmount(() => {
-    if (editingId.value !== null) {
-        textBoxRefs.get(editingId.value)?.commitDraft();
-    }
     unregisterPageInteraction?.();
     unregisterPageInteraction = null;
-    newTextBoxIds.forEach(annotationId => surface.discardUnsavedAnnotation(annotationId));
-    newTextBoxIds.clear();
-    autoSizeTextBoxIds.clear();
-    textBoxRefs.clear();
     pointerGesture.cancel();
 });
 </script>

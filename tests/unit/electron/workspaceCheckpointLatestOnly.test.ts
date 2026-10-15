@@ -199,10 +199,14 @@ describe('workspace checkpoint latest-only writer', () => {
         await secondStarted.promise;
         expect(secondSettled).toBe(false);
         secondGate.resolve();
-        await Promise.all([
+        expect(await Promise.all([
             first,
             second,
             third,
+        ])).toEqual([
+            true,
+            true,
+            true,
         ]);
 
         expect(committed).toEqual([
@@ -429,10 +433,12 @@ describe('workspace checkpoint latest-only writer', () => {
 
         const save = saveWorkspaceCheckpoint(createCheckpoint(1), 10);
         await firstStarted.promise;
+        const pending = saveWorkspaceCheckpoint(createCheckpoint(2), 10);
         const clear = clearWorkspaceCheckpoint();
         firstGate.resolve();
 
-        await save;
+        await expect(save).resolves.toBe(true);
+        await expect(pending).resolves.toBe(false);
         await clear;
         expect(await readRecords()).toEqual([]);
     });
@@ -456,13 +462,16 @@ describe('workspace checkpoint latest-only writer', () => {
         firstGate.resolve();
 
         const [
-            ,
+            activeCommitted,
             discardToken,
+            lateCommitted,
         ] = await Promise.all([
             activeSave,
             discard,
             lateSave,
         ]);
+        expect(activeCommitted).toBe(false);
+        expect(lateCommitted).toBe(false);
         expect(await readRecords()).toEqual([]);
         expect(mocks.atomicReplace).toHaveBeenCalledOnce();
 
@@ -516,7 +525,7 @@ describe('workspace checkpoint latest-only writer', () => {
         const staleToken = await discardWorkspaceCheckpoint(10);
         const currentToken = await discardWorkspaceCheckpoint(10);
         expect(() => resumeWorkspaceCheckpoint(10, staleToken)).toThrow('stale or invalid');
-        await saveWorkspaceCheckpoint(createCheckpoint(1), 10);
+        await expect(saveWorkspaceCheckpoint(createCheckpoint(1), 10)).resolves.toBe(false);
         expect(mocks.atomicReplace).not.toHaveBeenCalled();
 
         resumeWorkspaceCheckpoint(10, currentToken);

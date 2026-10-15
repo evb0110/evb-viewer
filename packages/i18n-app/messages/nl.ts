@@ -1734,6 +1734,8 @@ export default {
             'browserStorageDescription': '‘{name}’ is in het geheugen geopend, maar verschijnt niet opnieuw na herladen.',
         },
         'save': {
+            'recoverySettlementTitle': 'PDF opgeslagen, maar herstel kon niet worden bijgewerkt',
+            'recoverySettlementDescription': 'Uw wijzigingen zijn naar de PDF geschreven. Nieuwere, niet-opgeslagen wijzigingen blijven hier open.',
             'validation': 'Het document doorstond de geldigheidscontrole niet, dus er is niets weggeschreven.',
             'openNotes': 'Open notities konden niet worden opgeslagen, dus het document is niet weggeschreven.',
             'documentChanged': 'Het document veranderde voordat het opslaan klaar was, dus er is niets weggeschreven.',

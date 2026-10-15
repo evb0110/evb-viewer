@@ -30,6 +30,9 @@ import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { cast } from '@tests/helpers/cast';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import { captureCanonicalAnnotationRecovery } from '@app/modules/pdf-viewer/annotations/domain/annotationRecovery';
+import { createdTextBox } from '@tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEventFixtures';
 import { createWorkspaceExposeFixture } from '@tests/unit/app/modules/workspace-shell/workspaceTestFixtures';
 
 // Capability output is the durable document and checkpoint a later session reads.
@@ -39,9 +42,11 @@ const stores = vi.hoisted(() => ({
     checkpoints: [] as unknown[],
 }));
 
+const browserLifecycle = vi.hoisted(() => ({rekey: vi.fn()}));
+
 const recovery = {
     getOwnerId: () => 'owner-1',
-    load: async () => {
+    load: async (_ownerId: string) => {
         const checkpoint = stores.checkpoints.at(-1) as IWorkspaceCheckpoint | undefined;
         return checkpoint ? {
             checkpoint,
@@ -68,6 +73,7 @@ const recovery = {
 vi.mock('@app/platform/browserWindowTabs', () => ({
     registerBrowserDocumentDependencyReader: () => () => {},
     publishBrowserDocumentLiveLeases: async () => null,
+    rekeyCurrentWindow: browserLifecycle.rekey,
 }));
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({recovery: {
     async createSnapshot(fileName: string, bytes: Uint8Array) {
@@ -87,6 +93,7 @@ const desktop = vi.hoisted(() => ({
     saved: [] as unknown[],
     save: async (checkpoint: unknown) => {
         desktop.saved.push(checkpoint);
+        return true;
     },
 }));
 vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({
@@ -134,6 +141,7 @@ afterEach(() => {
     stores.readableDocuments.clear();
     stores.checkpoints.length = 0;
     notices.value = [];
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
 });
@@ -237,6 +245,117 @@ function latestCheckpointRefs() {
 }
 
 describe('browser workspace recovery', () => {
+    it('keeps new notes recoverable after a prior heartbeat returns behind Save clearing', async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        const publication = Promise.withResolvers<undefined>();
+        let durableGeneration = 0;
+        vi.spyOn(recovery, 'load').mockImplementation(async () => {
+            const checkpoint = stores.checkpoints.at(-1) as IWorkspaceCheckpoint | undefined;
+            return checkpoint ? {
+                checkpoint,
+                generation: durableGeneration,
+                snapshotRefs: [],
+            } : null;
+        });
+        vi.spyOn(recovery, 'save').mockImplementation(async (_owner, expected, checkpoint) => {
+            if (expected !== durableGeneration) return {
+                saved: false,
+                generation: durableGeneration,
+            };
+            stores.checkpoints.push(checkpoint);
+            return {
+                saved: true,
+                generation: ++durableGeneration,
+            };
+        });
+        vi.spyOn(recovery, 'clear').mockImplementation(async () => {
+            stores.checkpoints.length = 0;
+            durableGeneration = 0;
+            return {
+                saved: true,
+                generation: 0,
+            };
+        });
+        vi.spyOn(recovery, 'touch').mockImplementation(async (_owner, expected) => {
+            const result = {
+                saved: expected === durableGeneration && expected > 0,
+                generation: durableGeneration,
+            };
+            return result;
+        }).mockImplementationOnce(async (_owner, expected) => {
+            const result = {
+                saved: expected === durableGeneration && expected > 0,
+                generation: durableGeneration,
+            };
+            await publication.promise;
+            return result;
+        });
+        const revision = ref(0);
+        const editedBytes = Uint8Array.from([
+            ...PDF_BYTES,
+            42,
+        ]);
+        const session = mountLinkedDocumentRecovery(async () => revision.value ? editedBytes : PDF_BYTES, revision);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(10_000);
+        session.setDirty(false);
+        await vi.advanceTimersByTimeAsync(1_000);
+        publication.resolve(undefined);
+        await vi.advanceTimersByTimeAsync(10_000);
+        session.setDirty(true);
+        revision.value += 1;
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(stores.checkpoints).toHaveLength(1);
+        expect(stores.readableDocuments.get(requireDocumentRef(latestCheckpointRefs()[0]))).toEqual(editedBytes);
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('keeps the successor checkpoint and saves a resumed owner’s later edits under its new identity', async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
+        let owner = 'owner-1';
+        vi.spyOn(recovery, 'getOwnerId').mockImplementation(() => owner);
+        browserLifecycle.rekey.mockImplementation(() => {owner = 'owner-2';});
+        const records = new Map<string, {
+            generation: number;
+            checkpoint: IWorkspaceCheckpoint;
+            snapshotRefs: Array<ReturnType<typeof requireDocumentRef>>
+        } >();
+        vi.spyOn(recovery, 'load').mockImplementation(async id => records.get(id) ?? null);
+        vi.spyOn(recovery, 'save').mockImplementation(async (id, expected, value) => {
+            const checkpoint = cast<IWorkspaceCheckpoint>(value);
+            stores.checkpoints.push(checkpoint);
+            records.set(id, {
+                generation: expected + 1,
+                checkpoint,
+                snapshotRefs: checkpoint.tabs.flatMap(tab => tab.workingCopyRef ? [tab.workingCopyRef] : []),
+            });
+            return {
+                saved: true,
+                generation: expected + 1,
+            };
+        });
+        vi.spyOn(recovery, 'touch').mockResolvedValueOnce({
+            saved: false,
+            generation: 2,
+        });
+        const revision = ref(0);
+        const edited = Uint8Array.from([
+            ...PDF_BYTES,
+            7,
+        ]);
+        mountLinkedDocumentRecovery(async () => revision.value ? edited : PDF_BYTES, revision);
+        await vi.advanceTimersByTimeAsync(11_000);
+        revision.value += 1;
+        await vi.advanceTimersByTimeAsync(1_000);
+        const previous = records.get('owner-1')!;
+        const resumed = records.get('owner-2')!;
+        expect(stores.readableDocuments.get(previous.snapshotRefs[0]!)).toEqual(PDF_BYTES);
+        expect(stores.readableDocuments.get(resumed.snapshotRefs[0]!)).toEqual(edited);
+        expect(warn).not.toHaveBeenCalled();
+    });
+
     it('stores one recovery copy for a dirty document shown in two views, named by both tabs', async () => {
         vi.useFakeTimers();
         const contentRevision = ref(0);
@@ -474,10 +593,12 @@ describe('desktop crash checkpoint written now', () => {
         const tabs = ref<Array<{id: string}>>([{id: 'tab-1'}]);
         const sessions = shallowRef<Record<string, ReturnType<typeof createWorkspaceDocumentController>>>({'tab-1': reader});
         const enabled = ref(true);
+        const isStartupOpenClaimPending = ref(false);
         let checkpoint: ReturnType<typeof useWorkspaceCrashCheckpoint> | null = null;
         const app = createApp(defineComponent({setup() {
             checkpoint = useWorkspaceCrashCheckpoint({
                 enabled,
+                isStartupOpenClaimPending,
                 panes,
                 tabs: cast(tabs),
                 layout: ref<TEditorLayoutNode | null>({
@@ -495,9 +616,62 @@ describe('desktop crash checkpoint written now', () => {
         unmounts.push(() => app.unmount());
         return {
             persistNow: () => checkpoint!.persistCheckpointNow(),
+            protectSave: (path = requireDocumentRef('/managed/accepted.pdf')) => checkpoint!.persistCheckpointNow(true, path),
             reader,
             enabled,
+            isStartupOpenClaimPending,
             unmount: () => app.unmount(),
+            attachDirtyReader(capture: NonNullable<ReturnType<typeof createWorkspaceExposeFixture>['captureCanonicalAnnotationRecovery']>) {
+                const originalPath = requireDocumentRef('/documents/accepted.pdf');
+                const workingCopyPath = requireDocumentRef('/managed/accepted.pdf');
+                reader.assign({
+                    fileName: 'accepted.pdf',
+                    originalPath,
+                    isDirty: true,
+                    isDjvu: false,
+                });
+                reader.commitDocument({
+                    fileName: 'accepted.pdf',
+                    originalPath,
+                    isDjvu: false,
+                    revisionInfo: {
+                        version: 1,
+                        token: requireDocumentRevisionToken('accepted-revision'),
+                        documentRef: workingCopyPath,
+                        authority: 'electron-working-copy',
+                        contentRevision: 1,
+                        mintedAt: requireEpochMs(1),
+                    },
+                });
+                reader.setDirty(true);
+                const mounted = createWorkspaceExposeFixture({
+                    getAutomationStateSnapshot: () => cast({
+                        originalPath,
+                        workingCopyPath,
+                    }),
+                    captureCanonicalAnnotationRecovery: capture,
+                });
+                reader.bindMutationFrontier(() => JSON.stringify(mounted.captureCanonicalAnnotationRecovery?.()) ?? '', async () => {}, async () => {});
+                reader.attachWorkspace('tab-1', mounted);
+                return mounted;
+            },
+            showLinkedReader(mounted: ReturnType<typeof createWorkspaceExposeFixture>) {
+                reader.addView('tab-2');
+                reader.attachWorkspace('tab-2', mounted);
+                reader.detachWorkspace('tab-1', mounted);
+                tabs.value.push({id: 'tab-2'});
+                panes.value[0]!.tabIds.push(requireTabId('tab-2'));
+                sessions.value = {
+                    ...sessions.value,
+                    'tab-2': reader,
+                };
+            },
+            closeFirstReaderView() {
+                reader.removeView('tab-1');
+                tabs.value = tabs.value.filter(tab => tab.id !== 'tab-1');
+                panes.value[0]!.tabIds = [requireTabId('tab-2')];
+                sessions.value = {'tab-2': reader};
+            },
             addBackgroundTab(path: string) {
                 const output = createWorkspaceDocumentController({tabId: 'tab-2'});
                 output.commitDocument({
@@ -521,6 +695,7 @@ describe('desktop crash checkpoint written now', () => {
                     ...sessions.value,
                     'tab-2': output,
                 };
+                return output;
             },
         };
     }
@@ -533,6 +708,7 @@ describe('desktop crash checkpoint written now', () => {
         desktop.saved.length = 0;
         desktop.save = async (checkpoint) => {
             desktop.saved.push(checkpoint);
+            return true;
         };
     });
 
@@ -544,6 +720,7 @@ describe('desktop crash checkpoint written now', () => {
             if (desktop.saved.length === 1) {
                 await held.promise;
             }
+            return true;
         };
         const workspace = mountCrashCheckpoint();
         // An earlier write, without the tab, is still running.
@@ -610,7 +787,7 @@ describe('desktop crash checkpoint written now', () => {
         expect(notices.value).toHaveLength(1);
         expect(notices.value[0]?.description).toContain('4194304-byte');
 
-        desktop.save = async (checkpoint) => {desktop.saved.push(checkpoint);};
+        desktop.save = async (checkpoint) => {desktop.saved.push(checkpoint); return true;};
         await workspace.persistNow();
         expect(notices.value).toEqual([]);
         rejectsCapture = true;
@@ -637,5 +814,267 @@ describe('desktop crash checkpoint written now', () => {
         workspace.addBackgroundTab('/managed/output — cleaned.pdf');
 
         await expect(workspace.persistNow()).rejects.toThrow('disk full');
+    });
+
+    it('rejects its target capture while keeping permissive background capture scheduled', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        workspace.attachDirtyReader(() => {throw new Error('accepted text capture rejected');});
+        await expect(workspace.protectSave()).rejects.toThrow('accepted text capture rejected');
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect((desktop.saved.at(-1) as IWorkspaceCheckpoint).tabs[0]?.annotationRecoveryFailure?.message)
+            .toBe('accepted text capture rejected');
+    });
+
+    it.each([
+        'missing',
+        'disabled',
+        'disposed',
+    ] as const)('does not acknowledge %s protection for a dirty Save', async reason => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        workspace.attachDirtyReader(() => reason === 'missing' ? null : {
+            version: 1,
+            annotationMutationGeneration: 2,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        });
+        if (reason === 'disabled') workspace.enabled.value = false;
+        if (reason === 'disposed') workspace.unmount();
+        await expect(workspace.protectSave()).rejects.toThrow();
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+        expect(desktop.saved).toEqual([]);
+    });
+
+    it('protects an admitted Save during startup while keeping automatic capture blocked', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        workspace.isStartupOpenClaimPending.value = true;
+        const annotations = new AnnotationApplication('startup-target');
+        annotations.store.createTextBox({
+            ...createdTextBox,
+            text: 'Accepted while another tab restores',
+        });
+        workspace.attachDirtyReader(() => captureCanonicalAnnotationRecovery(annotations.store));
+
+        await nextTick();
+        await workspace.persistNow();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(desktop.saved).toEqual([]);
+        await workspace.protectSave();
+        expect((desktop.saved.at(-1) as IWorkspaceCheckpoint).tabs[0]?.annotationRecovery?.payload)
+            .toEqual(expect.objectContaining({entities: annotations.store.list({includeDeleted: true})}));
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+        workspace.enabled.value = false;
+        await expect(workspace.protectSave()).rejects.toMatchObject({name: 'AbortError'});
+        expect(desktop.saved).toHaveLength(1);
+    });
+
+    it('cannot acknowledge a required capture replaced by a later permissive failed capture', async () => {
+        vi.useFakeTimers();
+        const held = Promise.withResolvers<undefined>();
+        desktop.save = async checkpoint => {
+            desktop.saved.push(checkpoint);
+            if (desktop.saved.length === 1) await held.promise;
+            return true;
+        };
+        const workspace = mountCrashCheckpoint();
+        await vi.advanceTimersByTimeAsync(2_000);
+        let rejectCapture = false;
+        workspace.attachDirtyReader(() => {
+            if (rejectCapture) throw new Error('later capture rejected');
+            return {
+                version: 1,
+                annotationMutationGeneration: 2,
+                entities: [],
+                foreign: [],
+                drafts: [],
+            };
+        });
+        const required = workspace.protectSave();
+        const rejected = expect(required).rejects.toThrow('later capture rejected');
+        rejectCapture = true;
+        const permissive = workspace.persistNow();
+        held.resolve(undefined);
+        await Promise.all([
+            rejected,
+            permissive,
+        ]);
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+        expect((desktop.saved.at(-1) as IWorkspaceCheckpoint).tabs[0]?.annotationRecoveryFailure?.message)
+            .toBe('later capture rejected');
+    });
+
+    it('acknowledges the target captured just after a preceding write completes', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        const protectedSave = Promise.withResolvers<undefined>();
+        desktop.save = checkpoint => {
+            desktop.saved.push(checkpoint);
+            const written = Promise.resolve(true);
+            if (desktop.saved.length === 1) {
+                void written.then(() => queueMicrotask(() => {
+                    workspace.attachDirtyReader(() => ({
+                        version: 1,
+                        annotationMutationGeneration: 2,
+                        entities: [],
+                        foreign: [],
+                        drafts: [],
+                    }));
+                    void workspace.protectSave().then(() => protectedSave.resolve(undefined), protectedSave.reject);
+                }));
+            }
+            return written;
+        };
+        await workspace.persistNow();
+        await protectedSave.promise;
+        expect((desktop.saved.at(-1) as IWorkspaceCheckpoint).tabs[0]?.annotationRecovery?.workingCopyRef)
+            .toBe('/managed/accepted.pdf');
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+    });
+
+    it('rejects protection whose document lifetime ends during the individual write', async () => {
+        vi.useFakeTimers();
+        const held = Promise.withResolvers<undefined>();
+        desktop.save = async checkpoint => {desktop.saved.push(checkpoint); await held.promise; return true;};
+        const workspace = mountCrashCheckpoint();
+        workspace.attachDirtyReader(() => ({
+            version: 1,
+            annotationMutationGeneration: 2,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        }));
+        const required = workspace.protectSave();
+        const rejected = expect(required).rejects.toThrow();
+        workspace.enabled.value = false;
+        held.resolve(undefined);
+        await rejected;
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+    });
+
+    it.each([
+        'hidden',
+        'closed',
+    ] as const)('protects a linked document when the artifact’s first view is %s', async firstView => {
+        vi.useFakeTimers();
+        const held = Promise.withResolvers<undefined>();
+        const admitted = Promise.withResolvers<undefined>();
+        desktop.save = async checkpoint => {desktop.saved.push(checkpoint); admitted.resolve(undefined); await held.promise; return true;};
+        const workspace = mountCrashCheckpoint();
+        const mounted = workspace.attachDirtyReader(() => ({
+            version: 1,
+            annotationMutationGeneration: 2,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        }));
+        workspace.showLinkedReader(mounted);
+        const protectedSave = workspace.protectSave();
+        await admitted.promise;
+        if (firstView === 'closed') workspace.closeFirstReaderView();
+        held.resolve(undefined);
+        await protectedSave;
+        const saved = desktop.saved.at(-1) as IWorkspaceCheckpoint;
+        expect(saved.tabs.map(tab => tab.workingCopyRef)).toEqual([
+            '/managed/accepted.pdf',
+            '/managed/accepted.pdf',
+        ]);
+        expect(saved.tabs[0]?.annotationRecovery?.annotationMutationGeneration).toBe(2);
+        expect(saved.tabs[1]?.annotationRecovery).toBeUndefined();
+    });
+
+    it('requires a real committed write for its current target and leaves background cancellation benign', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        workspace.attachDirtyReader(() => ({
+            version: 1,
+            annotationMutationGeneration: 2,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        }));
+        desktop.save = async () => false;
+        await expect(workspace.persistNow()).resolves.toBeUndefined();
+        await expect(workspace.protectSave()).rejects.toMatchObject({name: 'AbortError'});
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+        expect(notices.value).toEqual([]);
+    });
+
+    it('writes a clean current target after Save and refuses a same-instance newer frontier', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        const annotations = new AnnotationApplication('current-checkpoint-target');
+        const annotation = annotations.store.createTextBox({
+            ...createdTextBox,
+            text: 'accepted text',
+        });
+        workspace.attachDirtyReader(() => captureCanonicalAnnotationRecovery(annotations.store));
+        workspace.reader.setDirty(false);
+        await workspace.protectSave();
+        expect((desktop.saved.at(-1) as IWorkspaceCheckpoint).tabs[0]?.isDirty).toBe(false);
+        workspace.reader.setDirty(true);
+        const held = Promise.withResolvers<undefined>();
+        const admitted = Promise.withResolvers<undefined>();
+        desktop.save = async checkpoint => {desktop.saved.push(checkpoint); admitted.resolve(undefined); await held.promise; return true;};
+        const protection = workspace.protectSave();
+        const refusal = expect(protection).rejects.toMatchObject({name: 'AbortError'});
+        await admitted.promise;
+        annotations.store.updateTextBox(annotation.identity.id, {text: 'newer retained edit'});
+        held.resolve(undefined);
+        await refusal;
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+        expect(annotations.listReadModels()[0]?.text).toBe('newer retained edit');
+        expect(notices.value).toEqual([]);
+    });
+
+    it('keeps the old checkpoint through a global capture failure until a current explicit write succeeds', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        const mounted = workspace.attachDirtyReader(() => ({
+            version: 1,
+            annotationMutationGeneration: 2,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        }));
+        await workspace.persistNow();
+        const durable = desktop.saved.at(-1);
+        const capture = vi.spyOn(mounted, 'getAutomationStateSnapshot').mockImplementation(() => {throw new Error('global document snapshot capture failed');});
+        workspace.addBackgroundTab('/documents/new-background.pdf');
+        await vi.advanceTimersByTimeAsync(600);
+        expect(desktop.saved.at(-1)).toBe(durable);
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(desktop.saved.at(-1)).toBe(durable);
+        capture.mockRestore();
+        await workspace.persistNow();
+        expect((desktop.saved.at(-1) as IWorkspaceCheckpoint).tabs.map(tab => tab.sourceRef)).toEqual([
+            '/documents/accepted.pdf',
+            '/documents/new-background.pdf',
+        ]);
+    });
+
+    it('protects its target while an unrelated dirty document rejects capture', async () => {
+        vi.useFakeTimers();
+        const workspace = mountCrashCheckpoint();
+        workspace.attachDirtyReader(() => ({
+            version: 1,
+            annotationMutationGeneration: 2,
+            entities: [],
+            foreign: [],
+            drafts: [],
+        }));
+        const unrelated = workspace.addBackgroundTab('/documents/other.pdf');
+        unrelated.setDirty(true);
+        unrelated.attachWorkspace('tab-2', createWorkspaceExposeFixture({captureCanonicalAnnotationRecovery: () => {throw new Error('unrelated rejected capture');}}));
+        await workspace.protectSave();
+        const saved = desktop.saved.at(-1) as IWorkspaceCheckpoint;
+        expect(saved.tabs[0]?.annotationRecovery?.annotationMutationGeneration).toBe(2);
+        expect(saved.tabs[1]?.annotationRecoveryFailure?.message).toBe('unrelated rejected capture');
+        expect(workspace.reader.snapshot.value.dirty).toBe(true);
+        expect(unrelated.snapshot.value.dirty).toBe(true);
     });
 });

@@ -22,6 +22,7 @@ import {
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import {
     reserveBrowserDocumentWorkingCopy, retireBrowserDocumentWorkingCopy,
+    handoffBrowserDocumentWorkingCopy,
 } from '@app/platform/browserWindowTabs';
 import { getErrorMessage } from '@app/utils/error';
 
@@ -229,13 +230,12 @@ export async function savePdfAsFromWorkingCopy(
         await ensureFileHandleWritePermission(saveResult.handle);
     }
     let externalWriteCommitted: boolean | null = false;
-    let savedSourceRef: TDocumentRef | null;
     try {
-        savedSourceRef = await browserDocumentStore.runDocumentMutationWithSource(
+        return await browserDocumentStore.runDocumentMutationWithSource(
             workingCopyPath,
             previousSourceRef,
             revisionOptions?.expectedDocumentRevisionToken,
-            async (mutation) => {
+            async () => {
                 const staged = stagedOutput ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput) : null;
                 let normalizedFileName = ensurePdfExtension(saveResult.fileName);
                 let savedHandle = saveResult.handle;
@@ -284,16 +284,11 @@ export async function savePdfAsFromWorkingCopy(
                             saveName: normalizedFileName,
                         });
                     }
-                    await mutation.replaceWorkingCopySource(
-                        sourceRef,
-                        normalizedFileName,
-                        savedHandle,
-                    );
-                    await browserDocumentStore.touchRecentFile(sourceRef);
-                    browserDocumentStore.unload(sourceRef);
+                    handoffBrowserDocumentWorkingCopy(sourceRef, workingCopyPath, () => browserDocumentStore.touchRecentFile(sourceRef));
                     return sourceRef;
-                } finally {
+                } catch (error) {
                     await retireBrowserDocumentWorkingCopy(sourceRef);
+                    throw error;
                 }
             },
         );
@@ -306,14 +301,4 @@ export async function savePdfAsFromWorkingCopy(
         }
         throw error;
     }
-
-    if (
-        savedSourceRef
-        && savedSourceRef !== previousSourceRef
-        && previousSourceRef !== workingCopyPath
-    ) {
-        await browserDocumentStore.cleanupDetachedDocument(previousSourceRef)
-            .catch(() => undefined);
-    }
-    return savedSourceRef;
 }

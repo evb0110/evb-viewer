@@ -21,6 +21,7 @@ import {
     syncBrowserWindowTitle,
     retireBrowserDocumentWorkingCopy,
     reserveBrowserDocumentWorkingCopy,
+    handoffBrowserDocumentWorkingCopy,
 } from '@app/platform/browserWindowTabs';
 import {
     OPEN_IMAGE_ACCEPT,
@@ -277,9 +278,7 @@ export function createBrowserDocumentsFileCapability(
             getBrowserDocumentFileName(workingCopyPath).replace(/\.pdf$/iu, ''),
             'docx',
         ),
-        async readFile(path) {
-            return browserDocumentStore.read(path);
-        },
+        readFile: path => browserDocumentStore.read(path),
         async readPdfPageLabelRanges(path) {
             await assertBrowserPathWithinFullReadBudget(
                 path,
@@ -507,24 +506,20 @@ export function createBrowserDocumentsFileCapability(
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
         },
-        async readTextFile(path) {
-            return browserDocumentStore.readText(path);
-        },
-        async fileExists(path) {
-            return browserDocumentStore.exists(path);
-        },
+        readTextFile: path => browserDocumentStore.readText(path),
+        fileExists: path => browserDocumentStore.exists(path),
         getDocumentRevision(path) {
             return browserDocumentStore.getDocumentRevision(path);
         },
         onDocumentRevisionChanged(callback) {
             return browserDocumentStore.onDocumentRevisionChanged(callback);
         },
-        async analyzePdfConformance(path) {
-            return analyzeBrowserPdfConformance(path);
+        analyzePdfConformance(path) {
+            const analysis = analyzeBrowserPdfConformance(path);
+            handoffBrowserDocumentWorkingCopy(path, path, () => analysis.then(() => undefined, () => undefined));
+            return analysis;
         },
-        async validatePdfPath(path, _options) {
-            return validateBrowserPdfPath(path);
-        },
+        validatePdfPath: path => validateBrowserPdfPath(path),
         printPdfData() {
             return Promise.resolve({
                 success: false,

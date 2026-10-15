@@ -476,17 +476,14 @@ describe('AnnotationStore save identity rebase', () => {
         expect(store.get(note.identity.id)?.identity.pdfRef).toBeUndefined();
     });
 
-    it('does not rebase history when a stale acknowledgement is rejected', () => {
+    it('does not rebase history when a stale write is rejected', () => {
         const store = new AnnotationStore();
         const note = stickyNote('stale-note', 'stale-editor');
         store.createNote(note);
         const frontier = store.beginSave();
         store.updateNote(note.identity.id, {contents: 'typed after the frontier'});
 
-        expect(() => store.markPersisted(frontier, [{
-            annotationId: note.identity.id,
-            pdfRef: '55R',
-        }])).toThrow(/staleRevisionError/u);
+        expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow(/staleRevisionError/u);
 
         expect(store.undo()).toBe(true);
         expect(store.get(note.identity.id)).toMatchObject({persistedRevision: -1});

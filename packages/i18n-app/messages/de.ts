@@ -1734,6 +1734,8 @@ export default {
             'browserStorageDescription': '„{name}“ ist im Arbeitsspeicher geöffnet, erscheint nach dem Neuladen aber nicht wieder.',
         },
         'save': {
+            'recoverySettlementTitle': 'PDF gespeichert, aber die Wiederherstellung konnte nicht aktualisiert werden',
+            'recoverySettlementDescription': 'Ihre Änderungen wurden in die PDF-Datei geschrieben. Neuere, noch nicht gespeicherte Änderungen bleiben hier geöffnet.',
             'validation': 'Das Dokument hat die Gültigkeitsprüfung nicht bestanden, es wurde nichts geschrieben.',
             'openNotes': 'Offene Notizen konnten nicht gespeichert werden, das Dokument wurde nicht geschrieben.',
             'documentChanged': 'Das Dokument hat sich vor dem Ende des Speicherns geändert, es wurde nichts geschrieben.',

@@ -75,11 +75,6 @@ export interface IBrowserDocumentMutation {
         data: Uint8Array | ArrayBuffer,
         options?: Omit<IWriteDocumentOptions, 'expectedDocumentRevisionToken' | 'skipDocumentRevisionCheckForBootstrap'>,
     ): Promise<boolean>;
-    replaceWorkingCopySource(
-        sourceRef: string,
-        saveName: string,
-        saveHandle?: FileSystemFileHandle | null,
-    ): Promise<void>;
     assertPhysicalSourceBaseCurrent(): Promise<void>;
     acknowledgePhysicalSourceCommit(): Promise<void>;
 }
@@ -798,9 +793,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             await this.assertDocumentRevisionCurrent(ref, expectedRevision);
             return operation({
                 write: (data, options = {}) => this.writeUnlocked(ref, data, options, true),
-                replaceWorkingCopySource: (nextSourceRef, saveName, saveHandle) => (
-                    this.replaceWorkingCopySourceUnlocked(ref, nextSourceRef, saveName, saveHandle)
-                ),
                 assertPhysicalSourceBaseCurrent: () => this.assertPhysicalSourceBaseCurrent(ref, sourceRef),
                 writeSource: data => this.writeUnlocked(sourceRef, data, {}, true),
                 acknowledgePhysicalSourceCommit: () => this.acknowledgePhysicalSourceCommitUnlocked(ref, sourceRef),
@@ -920,41 +912,6 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             return true;
         }
         return true;
-    }
-
-    private async replaceWorkingCopySourceUnlocked(
-        workingRef: string,
-        sourceRef: string,
-        saveName: string,
-        saveHandle?: FileSystemFileHandle | null,
-    ) {
-        const previousRevision = await this.getDocumentRevision(workingRef);
-        const workingEntry = await this.requireEntry(workingRef);
-        workingEntry.sourceRef = sourceRef;
-        workingEntry.saveName = saveName;
-        workingEntry.saveHandle = saveHandle ?? null;
-        this.fileHandleRefs.update(workingRef, workingEntry.saveHandle);
-        workingEntry.sourceWitness = false;
-        if (saveHandle) {
-            const metadata = await readFileHandleMetadata(saveHandle);
-            workingEntry.sourceBaseWitness = await createBrowserFileContentWitness(metadata.file);
-        } else {
-            delete workingEntry.sourceBaseWitness;
-        }
-        delete workingEntry.fileSnapshot;
-        if (workingEntry.storageMode === 'handle') {
-            workingEntry.storageMode = 'source-proxy';
-            workingEntry.data = new Uint8Array();
-        }
-        await this.persistEntry(workingEntry);
-        const nextRevision = await this.getDocumentRevision(workingRef);
-        if (nextRevision.token !== previousRevision.token) {
-            this.emitDocumentRevisionChanged({
-                ...nextRevision,
-                previousToken: previousRevision.token,
-                reason: 'replace-working-copy',
-            });
-        }
     }
 
     public async assignSaveTarget(

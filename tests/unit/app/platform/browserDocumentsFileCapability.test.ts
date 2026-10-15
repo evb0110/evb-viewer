@@ -1662,6 +1662,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             const savedRef = await save;
             expect(savedBytes).toEqual(stagedBytes);
             await expect(browserDocumentStore.read(savedRef!)).resolves.toEqual(stagedBytes);
+            const adopted = await capability.createWorkingCopyFromPath(savedRef!);
+            await expect(browserDocumentStore.read(adopted)).resolves.toEqual(stagedBytes);
         } else if (outcome === 'cancel') {
             await expect(save).resolves.toBeNull();
             expect(savedBytes).toBeNull();
@@ -1670,7 +1672,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             expect(savedBytes).toBeNull();
         }
         await expect(browserDocumentStore.read(sourceRef)).resolves.toEqual(originalBytes);
-        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(outcome === 'stale' ? Uint8Array.of(9) : outcome === 'save' ? stagedBytes : originalBytes);
+        await expect(browserDocumentStore.read(workingRef)).resolves.toEqual(outcome === 'stale' ? Uint8Array.of(9) : originalBytes);
         await expect(browserDocumentStore.exists(stagedRef)).resolves.toBe(true);
     });
 
@@ -1798,18 +1800,23 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         expect(createWritable).toHaveBeenCalledOnce();
     });
 
-    it('does not deadlock when a regular save queues behind Save As for the same source', async () => {
+    it('keeps a queued Save on its original source when Save As creates a separate copy', async () => {
         const saveAsWriteStarted = Promise.withResolvers<undefined>();
         const releaseSaveAsWrite = Promise.withResolvers<undefined>();
+        let saveAsWrittenBytes: Uint8Array<ArrayBuffer> | null = null;
         const saveAsHandle = createFileSystemFileHandle({
             name: 'save-as.pdf',
-            getFile: vi.fn(async () => new File([], 'save-as.pdf', {type: 'application/pdf'})),
-            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {
+            getFile: vi.fn(async () => new File([saveAsWrittenBytes ?? new Uint8Array()], 'save-as.pdf', {type: 'application/pdf'})),
+            createWritable: vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (chunk: FileSystemWriteChunkType) => {
                 saveAsWriteStarted.resolve(undefined);
                 await releaseSaveAsWrite.promise;
+                saveAsWrittenBytes = new Uint8Array(requireArrayBufferChunk(chunk));
             })})),
         });
-        const originalCreateWritable = vi.fn(async () => createFileSystemWritableFileStream({write: vi.fn(async (_chunk: FileSystemWriteChunkType) => {})}));
+        let originalWrittenBytes: Uint8Array | null = null;
+        const originalCreateWritable = vi.fn(async () => createFileSystemWritableFileStream({write: async (chunk: FileSystemWriteChunkType) => {
+            originalWrittenBytes = new Uint8Array(requireArrayBufferChunk(chunk));
+        }}));
         const originalBytes = Uint8Array.of(37, 80, 68, 70);
         const originalHandle = createFileSystemFileHandle({
             name: 'original.pdf',
@@ -1841,12 +1848,10 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         releaseSaveAsWrite.resolve(undefined);
 
         await expect(saveAsPromise).resolves.not.toBeNull();
-        await expect(regularSavePromise).resolves.toMatchObject({
-            ok: false,
-            reason: 'write-failed',
-            message: expect.stringContaining('source changed'),
-        });
-        expect(originalCreateWritable).not.toHaveBeenCalled();
+        await expect(regularSavePromise).resolves.toMatchObject({ok: true});
+        expect(originalWrittenBytes).toEqual(originalBytes);
+        expect(saveAsWrittenBytes).toEqual(originalBytes);
+        expect(originalCreateWritable).toHaveBeenCalledOnce();
     });
 
     it('blocks browser save-as when a working copy exceeds the full-read budget', async () => {

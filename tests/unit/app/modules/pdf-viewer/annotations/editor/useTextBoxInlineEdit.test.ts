@@ -144,6 +144,44 @@ describe('useTextBoxInlineEdit', () => {
         expect(entity.value.text).toBe('before');
     });
 
+    it('retains newer input after a pending commit fails, then commits that input on the next action', async () => {
+        const editing = ref(true);
+        let protection = Promise.withResolvers<undefined>();
+        const scope = effectScope();
+        scopes.add(scope);
+        const editor = scope.run(() => useTextBoxInlineEdit({
+            entity: computed(() => entity.value),
+            editing,
+            onCommit: async (text) => {
+                await protection.promise;
+                entity.value = {
+                    ...entity.value,
+                    text,
+                };
+                editing.value = false;
+            },
+            onCancel: vi.fn(),
+        }))!;
+        editor.handleInput({currentTarget: {textContent: 'First'} as HTMLElement});
+        const committing = editor.commit();
+        editor.handleInput({currentTarget: {textContent: 'Newer'} as HTMLElement});
+        expect(editor.draftText.value).toBe('Newer');
+        expect(entity.value.text).toBe('before');
+        expect(editing.value).toBe(true);
+        const rejected = expect(committing).rejects.toThrow('Capture failed');
+        protection.reject(new Error('Capture failed'));
+        await rejected;
+        expect(editor.draftText.value).toBe('Newer');
+        expect(entity.value.text).toBe('before');
+        expect(editing.value).toBe(true);
+        protection = Promise.withResolvers<undefined>();
+        const retrying = editor.commit();
+        protection.resolve(undefined);
+        await retrying;
+        expect(entity.value.text).toBe('Newer');
+        expect(editing.value).toBe(false);
+    });
+
     it.each([
         'Escape',
         'Enter',

@@ -97,13 +97,24 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
             result: voidResult,
             main: 'acknowledgePendingExternalOpenPaths',
         }),
-        saveWorkspaceCheckpoint: defineForwardedPlatformMethod({
-            name: 'saveWorkspaceCheckpoint',
-            channel: 'workspace:checkpointSave',
-            args: v.strictTuple([workspaceCheckpoint]),
-            result: voidResult,
-            main: 'saveWorkspaceCheckpoint',
-        }),
+        saveWorkspaceCheckpoint: {
+            ...defineForwardedPlatformMethod({
+                name: 'saveWorkspaceCheckpoint',
+                channel: 'workspace:checkpointSave',
+                args: v.strictTuple([workspaceCheckpoint]),
+                result: v.boolean(),
+                main: 'saveWorkspaceCheckpoint',
+            }),
+            optionalWhenImplemented: true,
+            required: {
+                browser: false,
+                electron: true,
+            },
+            browser: {
+                unsupported: 'omitted',
+                reason: 'requires-native-backend',
+            },
+        },
         discardWorkspaceCheckpoint: defineForwardedPlatformMethod({
             name: 'discardWorkspaceCheckpoint',
             channel: 'workspace:checkpointDiscard',

@@ -728,11 +728,10 @@ useAgentWorkspaceSnapshot({
 });
 
 const {persistCheckpointNow} = useAppShellResilience({
-    enabled: computed(() => isDesktopRuntime.value && !isStartupOpenClaimPending.value),
-    browserEnabled: computed(() => isBrowserRuntime.value && !isStartupOpenClaimPending.value),
+    enabled: isDesktopRuntime,
     editorPanesManager,
     documentSessionsByTabId,
-});
+}, isStartupOpenClaimPending);
 useScanCleanupRunCoordinator(
     activeWorkspace,
     handleOpenInNewTab,

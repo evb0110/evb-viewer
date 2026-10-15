@@ -18,7 +18,9 @@ import {
     type TDocumentRef,
 } from '@contracts/documentRef';
 import type {IDjvuPrintOptions} from '@contracts/electronApiDjvu';
-import type {TJobId} from '@contracts/shared';
+import type {
+    TJobId, TPdfZoomState, TPdfViewMode,
+} from '@contracts/shared';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfSource } from '@app/types/pdfUi';
 import {
@@ -98,6 +100,11 @@ function createBindingHarness() {
     const onPageSourceUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
+    const zoomState = ref<TPdfZoomState>({
+        kind: 'custom',
+        scale: 1.25,
+    });
+    const viewMode = ref<TPdfViewMode>('single');
     const fallbacks = new Map<PropertyKey, unknown>();
     const options = new Proxy({
         activeDocumentDriver: computed(() => activeDocumentDriver.value),
@@ -116,6 +123,8 @@ function createBindingHarness() {
             size: 1,
         }),
         documentRevisionToken,
+        zoomState,
+        viewMode,
         pdfViewerRef,
         workingCopyPath: sources.workingCopyPath,
     } as Partial<IWorkspaceDocumentDriverBindingOptions>, {get(target, property) {
@@ -130,6 +139,8 @@ function createBindingHarness() {
     return {
         activeDocumentDriver,
         binding: useWorkspaceDocumentDriverBinding(options),
+        zoomState,
+        viewMode,
         createDriver,
         djvuViewerRef,
         onAnnotationFailure,
@@ -431,13 +442,47 @@ describe('WorkspaceDocumentDriver', () => {
         harness.isWorkspaceLayoutResizing.value = true;
         expect(harness.binding.activeViewerProps.value).toMatchObject({
             isActive: true,
+            isInteractionActive: false,
             isResizing: true,
+            src: {
+                kind: 'path',
+                path: '/tmp/source.pdf',
+                size: 1,
+            },
+            zoomState: {
+                kind: 'custom',
+                scale: 1.25,
+            },
+            viewMode: 'single',
         });
+        harness.isInteractionActive.value = true;
+        harness.zoomState.value = {
+            kind: 'fit',
+            axis: 'width',
+        };
+        expect(harness.binding.activeViewerProps.value).toMatchObject({
+            isActive: true,
+            isInteractionActive: true,
+            zoomState: {
+                kind: 'fit',
+                axis: 'width',
+            },
+        });
+        harness.isInteractionActive.value = false;
         const pdfViewer = markRaw({});
         harness.binding.bindActiveViewerRef(pdfViewer);
         expect(harness.pdfViewerRef.value).toBe(pdfViewer);
         harness.activeDocumentDriver.value = harness.createDriver('djvu');
-        expect(harness.binding.activeViewerProps.value.isInteractionActive).toBe(false);
+        expect(harness.binding.activeViewerProps.value).toMatchObject({
+            src: '/tmp/source.djvu',
+            isActive: true,
+            isInteractionActive: false,
+            zoomState: {
+                kind: 'fit',
+                axis: 'width',
+            },
+            viewMode: 'single',
+        });
         harness.isInteractionActive.value = true;
         expect(harness.binding.activeViewerProps.value.isInteractionActive).toBe(true);
         const djvuViewer = markRaw({});

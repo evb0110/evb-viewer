@@ -115,18 +115,19 @@ describe('AnnotationStore interleaved sequence invariants', () => {
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
-    it('rejects a save acknowledgement after another kind changes while preserving both edits', () => {
+    it('acknowledges a published note while a later shape stays dirty', () => {
         const store = new AnnotationStore();
         const saved = store.createNote(note('note'));
         const frontier = store.beginSave();
         const later = store.createShape(shape('shape'));
-        expect(() => store.markPersisted(frontier)).toThrow(/staleRevisionError/u);
-        expect(store.get(saved.identity.id)?.persistedRevision).toBe(-1);
+        store.markPersisted(frontier);
+        expect(store.get(saved.identity.id)?.persistedRevision).toBe(0);
         expect(store.get(later.identity.id)?.persistedRevision).toBe(-1);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
         store.undo();
         expect(store.get(saved.identity.id)).not.toBeNull();
         expect(store.get(later.identity.id)).toBeNull();
-        expect(store.hasChangesSinceSavedBaseline()).toBe(true);
+        expect(store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
     it.each([

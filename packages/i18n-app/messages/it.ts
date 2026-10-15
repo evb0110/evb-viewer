@@ -1734,6 +1734,8 @@ export default {
             'browserStorageDescription': '“{name}” è aperto in memoria, ma non riapparirà dopo il ricaricamento.',
         },
         'save': {
+            'recoverySettlementTitle': 'PDF salvato, ma non è stato possibile aggiornare il recupero',
+            'recoverySettlementDescription': 'Le modifiche sono state scritte nel PDF. Le modifiche successive non salvate restano aperte qui.',
             'validation': 'Il documento non ha superato il controllo di validità, quindi non è stato scritto nulla.',
             'openNotes': 'Non è stato possibile salvare le note aperte, quindi il documento non è stato scritto.',
             'documentChanged': 'Il documento è cambiato prima della fine del salvataggio, quindi non è stato scritto nulla.',

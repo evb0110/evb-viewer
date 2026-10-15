@@ -1,3 +1,4 @@
+import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import {
     afterEach,
     describe,
@@ -156,7 +157,6 @@ describe('concurrent canonical edits during workspace save', () => {
             getAnnotationSaveStateToken: () => application.store.mutationEpoch,
             trySavePdfNativeMutations: vi.fn(),
         });
-        const acknowledgement = vi.spyOn(application, 'acknowledgeSave');
         const transaction = usePdfViewerSaveTransaction({
             getPdfDocument: () => deps.pdfDocument.value,
             annotationApplication: shallowRef(application),
@@ -175,6 +175,12 @@ describe('concurrent canonical edits during workspace save', () => {
                 didSaveAs: mode === 'save-as',
             };
         }
+        vi.spyOn(getDocumentWorkingCopyCapability(), 'parsePdfAnnotations').mockImplementation(async () => ({
+            documentRevisionToken: revision.value,
+            pageCount: 1,
+            entities: [],
+            foreign: [],
+        }));
         deps.trySavePdfNativeMutations = vi.fn(publishCapturedBytes);
         deps.saveWorkingCopy = vi.fn(publishCapturedBytes);
         deps.saveWorkingCopyAs = vi.fn(publishCapturedBytes);
@@ -184,15 +190,11 @@ describe('concurrent canonical edits during workspace save', () => {
 
         application.store.updateNote(note.identity.id, {contents: 'newer unsaved text'});
         finishPersistence.resolve(undefined);
-        await expect(saving).resolves.toBe(false);
+        await expect(saving).resolves.toBe(true);
 
-        expect(acknowledgement).toHaveBeenCalledOnce();
-        expect(acknowledgement.mock.results[0]?.type).toBe('throw');
-        expect(acknowledgement.mock.results[0]?.value).toMatchObject({message: expect.stringContaining('staleRevisionError')});
-        expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
         expect(application.store.get(note.identity.id)).toMatchObject({
             contents: 'newer unsaved text',
-            persistedRevision: 0,
+            persistedRevision: capturedEdit ? 1 : 0,
         });
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
         expect(application.store.undo()).toBe(true);
@@ -201,7 +203,7 @@ describe('concurrent canonical edits during workspace save', () => {
             expect(application.store.undo()).toBe(true);
         }
         expect(application.store.get(note.identity.id)).toMatchObject({contents: 'saved text'});
-        expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(capturedEdit);
         expect(application.store.redo()).toBe(true);
         if (capturedEdit) expect(application.store.redo()).toBe(true);
         expect(application.store.get(note.identity.id)).toMatchObject({contents: 'newer unsaved text'});

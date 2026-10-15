@@ -1,4 +1,5 @@
 import type { Ref } from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -92,21 +93,9 @@ function captureDocumentAnnotationRecovery(session: IWorkspaceDocumentController
     }
 }
 
-// A document none of whose views is mounted still names its files.
-function readDocumentRefs(session: IWorkspaceDocumentController | undefined, workspace: IWorkspaceExpose | null, tabId: string) {
-    if (workspace || !session) {
-        return readWorkspaceDocumentRefs(workspace, tabId);
-    }
-    const {identity} = session.snapshot.value;
-    return {
-        sourceRef: identity.originalPath,
-        workingCopyRef: identity.workingCopyPath,
-        requiresSaveAsOnFirstSave: false,
-    };
-}
-
 export function buildWorkspaceCheckpoint(
     options: IBuildWorkspaceCheckpointOptions,
+    workingCopyRef?: TDocumentRef | null,
 ) {
     const workspaceSnapshot = buildAgentWorkspaceSnapshot(options);
     const seenDocuments = new Set<IWorkspaceDocumentController>();
@@ -126,17 +115,23 @@ export function buildWorkspaceCheckpoint(
             const session = options.documentSessionsByTabId.value[snapshot.tabId];
             const view = session?.getView(snapshot.tabId) ?? null;
             const workspace = session ? findDocumentWorkspace(session, snapshot.tabId) : null;
-            const documentRefs = readDocumentRefs(session, workspace, snapshot.tabId);
+            const documentRefs = workspace || !session
+                ? readWorkspaceDocumentRefs(workspace, snapshot.tabId)
+                : {
+                    sourceRef: session.snapshot.value.identity.originalPath,
+                    workingCopyRef: session.snapshot.value.identity.workingCopyPath,
+                    requiresSaveAsOnFirstSave: false,
+                };
             const workingByteRevision = session?.snapshot.value.identity.revisionInfo?.token ?? null;
             // The first tab of a document carries its unsaved annotations:
             // restore reopens the document in that tab and replays them there.
-            const firstTabOfDocument = session !== undefined && !seenDocuments.has(session);
+            const capturedAnnotationRecovery = snapshot.isDirty && session && !seenDocuments.has(session)
+                && (workingCopyRef === undefined || documentRefs.workingCopyRef === workingCopyRef)
+                ? captureDocumentAnnotationRecovery(session)
+                : null;
             if (session) {
                 seenDocuments.add(session);
             }
-            const capturedAnnotationRecovery = snapshot.isDirty && session && firstTabOfDocument
-                ? captureDocumentAnnotationRecovery(session)
-                : null;
             const annotationRecovery = capturedAnnotationRecovery?.recovery && workingByteRevision
                 ? capturedAnnotationRecovery.recovery
                 : null;

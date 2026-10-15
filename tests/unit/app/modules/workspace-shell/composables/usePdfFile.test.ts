@@ -29,6 +29,8 @@ const mocks = vi.hoisted(() => ({
     repair: vi.fn(),
     optimize: vi.fn(),
     optimizeAsCopy: vi.fn(),
+    saveAs: vi.fn(),
+    releaseStaged: vi.fn(),
     nativeApply: vi.fn(),
     nativeCommit: vi.fn(),
 }));
@@ -44,6 +46,8 @@ const electronApi = createElectronPlatformApiFixture({
         readFile: mocks.read,
         readFileRange: mocks.readRange,
         repairPdf: mocks.repair,
+        savePdfAs: mocks.saveAs,
+        releaseManagedTempFileHandle: mocks.releaseStaged,
         saveFileStructured: vi.fn<IDocumentsFileIoCapability['saveFileStructured']>(async () => ({
             ok: true as const,
             externalWriteCommitted: true,
@@ -174,6 +178,110 @@ describe('usePdfFile façade', () => {
             canIncrementalSave: true,
             saveRestrictions: [],
         });
+    });
+
+    it.each([
+        'blob',
+        'path',
+    ])('commits the saved replacement while previous-copy cleanup is pending (source: %s)', async (sourceKind) => {
+        const file = createFacade();
+        await file.openFile(pdfResult('save-cleanup'));
+        file.isDirty.value = true;
+        if (sourceKind === 'path') file.pdfSrc.value = {
+            kind: 'path',
+            path: requireDocumentRef('/tmp/save-cleanup.pdf'),
+            size: PDF_BYTES.byteLength,
+        };
+        const loadedSource = file.pdfSrc.value;
+        const cleanup = Promise.withResolvers<undefined>();
+        const dependencyPublication = Promise.withResolvers<{size: number}>();
+        mocks.saveAs.mockResolvedValueOnce('browser://documents/saved.pdf');
+        mocks.cloneWorkingCopy.mockResolvedValueOnce('/tmp/saved-working.pdf');
+        mocks.cleanup.mockImplementation(path => path === '/tmp/save-cleanup.pdf' ? cleanup.promise : Promise.resolve());
+        mocks.stat.mockImplementation(path => path === '/tmp/saved-working.pdf' && file.workingCopyPath.value === path
+            ? dependencyPublication.promise
+            : Promise.resolve({size: PDF_BYTES.byteLength}));
+        try {
+            const saved = file.saveWorkingCopyAs(undefined, {preserveLoadedSource: true});
+            await vi.waitFor(() => {
+                expect(file.originalPath.value).toBe('browser://documents/saved.pdf');
+                expect(file.isDirty.value).toBe(false);
+            });
+            await expect(saved).resolves.toMatchObject({
+                success: true,
+                outPath: 'browser://documents/saved.pdf',
+            });
+            expect(file.workingCopyPath.value).toBe('/tmp/saved-working.pdf');
+            expect(file.pdfSrc.value === loadedSource).toBe(sourceKind === 'blob');
+            expect(file.pdfReloadSrc.value).not.toBe(loadedSource);
+            expect(file.pdfData.value).toEqual(PDF_BYTES);
+        } finally {
+            dependencyPublication.resolve({size: PDF_BYTES.byteLength});
+            cleanup.resolve(undefined);
+        }
+    });
+
+    it('finishes a staged Save As while its staging lease cleanup is pending', async () => {
+        const file = createFacade();
+        await file.openFile(pdfResult('staged-save-cleanup'));
+        file.isDirty.value = true;
+        const cleanup = Promise.withResolvers<boolean>();
+        mocks.nativeApply.mockResolvedValueOnce({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native',
+                errors: [],
+                warnings: [],
+            },
+            nativeMutationPostconditionsVerified: true,
+            identityBindings: [],
+            stagedOutput: {
+                receiptVersion: 2,
+                artifactKind: 'pdf',
+                path: '/tmp/staged-output.pdf',
+                size: PDF_BYTES.byteLength,
+                leaseId: 'staged-save-lease',
+                revision: null,
+                fileIdentity: {
+                    platform: 'posix',
+                    deviceId: '1',
+                    inode: '2',
+                },
+                validations: {
+                    qpdfCheck: false,
+                    tailCheck: true,
+                    semanticCheck: false,
+                    fsynced: true,
+                },
+            },
+        });
+        mocks.saveAs.mockResolvedValueOnce('/saved-staged.pdf');
+        mocks.releaseStaged.mockReturnValueOnce(cleanup.promise);
+        let completed = false;
+        try {
+            const saved = file.trySavePdfNativeMutations({bookmarks: {
+                totalPages: 1,
+                untitledLabel: 'Untitled',
+                items: [],
+            }}, {
+                saveMode: 'save_as_rewrite',
+                modifiedAt: requirePdfDateString('D:20261008000000Z'),
+            }).then(result => {
+                completed = true;
+                return result;
+            });
+            await vi.waitFor(() => expect(completed).toBe(true));
+            await expect(saved).resolves.toMatchObject({
+                success: true,
+                outPath: '/saved-staged.pdf',
+            });
+            expect(file.workingCopyPath.value).toBe('/tmp/staged-save-cleanup.pdf');
+            expect(file.isDirty.value).toBe(false);
+            expect(file.pdfData.value).toEqual(PDF_BYTES);
+        } finally {
+            cleanup.resolve(true);
+        }
     });
 
     it('exposes optional file operations from the split file capability', () => {

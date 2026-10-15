@@ -13,7 +13,6 @@ import {
     BrowserWorkerClient,
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
-import {browserAnnotationParseIsolation} from '@app/platform/browser-api/browserAnnotationParseIsolation';
 import {BrowserPageOpsWorkerUnavailableError} from '@app/platform/browser-api/browserPageOpsWorkerUnavailableError';
 import { getErrorMessage } from '@app/utils/error';
 import { captureRendererFailure } from '@app/utils/failureReporter';
@@ -162,6 +161,69 @@ function createBrowserPageOpsWorkerClient() {
 
 const browserPageOpsWorkerClient = createBrowserPageOpsWorkerClient();
 
+interface IPageOpsWorkerLease {
+    client: BrowserWorkerClient<IPendingBrowserWorkerRequest>;
+    release: () => void;
+}
+
+interface IPageOpsWorkerWaiter {
+    resolve: (lease: IPageOpsWorkerLease) => void;
+    reject: (error: Error) => void;
+    signal?: AbortSignal;
+    abort?: () => void;
+}
+
+// A free client is the admission slot. Reuse the most recently used worker;
+// BrowserWorkerClient owns its existing idle, failure and cancellation cleanup.
+const freePageOpsWorkerClients = [
+    createBrowserPageOpsWorkerClient(),
+    createBrowserPageOpsWorkerClient(),
+];
+const pageOpsWorkerWaiters: IPageOpsWorkerWaiter[] = [];
+
+function leasePageOpsWorker(client: BrowserWorkerClient<IPendingBrowserWorkerRequest>): IPageOpsWorkerLease {
+    return {
+        client,
+        release: () => {
+            for (let waiter = pageOpsWorkerWaiters.shift(); waiter; waiter = pageOpsWorkerWaiters.shift()) {
+                if (waiter.abort) waiter.signal?.removeEventListener('abort', waiter.abort);
+                if (waiter.signal?.aborted) {
+                    waiter.reject(abortErrorFromSignal(waiter.signal));
+                    continue;
+                }
+                waiter.resolve(leasePageOpsWorker(client));
+                return;
+            }
+            freePageOpsWorkerClients.push(client);
+        },
+    };
+}
+
+function acquirePageOpsWorker(signal?: AbortSignal) {
+    if (signal?.aborted) return Promise.reject(abortErrorFromSignal(signal));
+    const client = freePageOpsWorkerClients.pop();
+    if (client) return Promise.resolve(leasePageOpsWorker(client));
+    if (pageOpsWorkerWaiters.length >= 8) return Promise.reject(new BrowserPageOpsWorkerUnavailableError('Browser annotation parse worker queue is full'));
+    return new Promise<IPageOpsWorkerLease>((resolve, reject) => {
+        const waiter: IPageOpsWorkerWaiter = {
+            resolve,
+            reject,
+            ...(signal ? {signal} : {}),
+        };
+        if (signal) {
+            waiter.abort = () => {
+                const index = pageOpsWorkerWaiters.indexOf(waiter);
+                if (index < 0) return;
+                pageOpsWorkerWaiters.splice(index, 1);
+                reject(abortErrorFromSignal(signal));
+            };
+            signal.addEventListener('abort', waiter.abort, {once: true});
+        }
+        pageOpsWorkerWaiters.push(waiter);
+    });
+}
+
+
 interface IRunBrowserPageOpsWorkerRequestOptions {
     signal?: AbortSignal;
     dedicated?: boolean;
@@ -280,13 +342,14 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
     return result as IBrowserPageOpsWorkerResultMap[K];
 }
 
-async function runDedicatedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
+async function runAdmittedBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
     signal?: AbortSignal,
 ) {
-    const releaseAdmission = await browserAnnotationParseIsolation.acquire(signal);
-    const client = createBrowserPageOpsWorkerClient();
+    const {
+        client, release,
+    } = await acquirePageOpsWorker(signal);
     try {
         if (isCpuPageOperation(type)) {
             // Worker startup and the ownership-preserving copy must not extend
@@ -307,8 +370,7 @@ async function runDedicatedBrowserPageOpsWorkerRequest<K extends TBrowserPageOps
             preserveInputOwnership: true,
         });
     } finally {
-        client.resetWorker();
-        releaseAdmission();
+        release();
     }
 }
 
@@ -319,17 +381,17 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
     if (isCpuPageOperation(type)) {
         if (canUseBrowserPageOpsWorker()) {
-            return runDedicatedBrowserPageOpsWorkerRequest(type, payload, options.signal);
+            return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal);
         }
-        const releaseAdmission = await browserAnnotationParseIsolation.acquire(options.signal);
+        const {release} = await acquirePageOpsWorker(options.signal);
         try {
             return await runBrowserPageOpsWithoutWorker(type, payload, options.signal);
         } finally {
-            releaseAdmission();
+            release();
         }
     }
     if (options.dedicated) {
-        return runDedicatedBrowserPageOpsWorkerRequest(type, payload, options.signal);
+        return runAdmittedBrowserPageOpsWorkerRequest(type, payload, options.signal);
     }
 
     return runBrowserPageOpsWorkerRequestWithClient(

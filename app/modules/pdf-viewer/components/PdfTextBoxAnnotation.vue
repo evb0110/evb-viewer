@@ -71,6 +71,7 @@ const props = defineProps<{
     } | null;
     displayRect?: IAnnotationMarkerRect | undefined;
     displayFontSize?: number | undefined;
+    commitDraft?: (draft: ITextBoxCommitDraft) => void | Promise<void>;
 }>();
 const emit = defineEmits<{
     'pointer-down': [event: PointerEvent];
@@ -79,7 +80,6 @@ const emit = defineEmits<{
         clientY: number
     }];
     'draft-change': [text: string];
-    commit: [draft: ITextBoxCommitDraft];
     cancel: [];
 }>();
 const { t } = useTypedI18n();
@@ -92,11 +92,12 @@ const inlineEdit = useTextBoxInlineEdit({
     recoveredDraftText: computed(() => props.recoveredDraftText ?? null),
     caretPoint: computed(() => props.caretPoint ?? null),
     onCommit: (text, options) => {
-        const rect = draftRectForContent();
-        emit('commit', {
+        const rect = draftRect.value ?? props.recoveredDraftRect ?? draftRectForContent();
+        if (!props.commitDraft) throw new Error('Missing text draft completion owner');
+        return props.commitDraft({
             text,
             restoreFocus: options?.restoreFocus ?? false,
-            ...(rect ? {rect} : {}),
+            ...(rect ? {rect: {...rect}} : {}),
         });
     },
     onCancel: () => emit('cancel'),
@@ -111,7 +112,7 @@ const {
 
 watch(editing, async (value) => {
     draftRect.value = props.recoveredDraftRect ?? null;
-    if (value) { await nextTick(); draftRectForContent(); }
+    if (value && !props.recoveredDraftRect) { await nextTick(); draftRectForContent(); }
 }, {immediate: true});
 onMounted(() => {
     void document.fonts?.ready.then(() => {if (editing.value) {draftRectForContent();}});
@@ -121,7 +122,8 @@ watch(() => props.entity.fontSize, async () => {
     if (editing.value) { await nextTick(); draftRectForContent(); }
 });
 
-watch(() => props.entity.rect, async () => {
+watch(() => props.entity.rect, async (rect, previous) => {
+    if (annotationRectsEqual(rect, previous)) return;
     draftRect.value = null;
     if (editing.value) { await nextTick(); draftRectForContent(); }
 });
@@ -180,7 +182,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
             pixels(getComputedStyle(editor).width),
         );
         const intrinsicWidth = (Math.ceil(intrinsicEditorWidth) + extraWidth) / pageWidth;
-        const baseRect = props.entity.rect;
+        const baseRect = props.autoSizeDraft ? props.entity.rect : draftRect.value ?? props.entity.rect;
         const width = Math.min(
             props.autoSizeDraft ? Math.max(baseRect.width, intrinsicWidth) : baseRect.width,
             annotationInlineCapacity(baseRect, props.entity.rotation, {
@@ -199,9 +201,12 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
             ? {
                 ...baseRect,
                 width,
-                height: Math.max(baseRect.height, contentHeight),
+                height: Math.max(props.entity.rect.height, contentHeight),
             }
-            : expandTextBoxRectToContentSize(baseRect, width, contentHeight);
+            : expandTextBoxRectToContentSize({
+                ...baseRect,
+                height: props.entity.rect.height,
+            }, width, contentHeight);
         if (props.entity.rotation) {
             const center = {
                 x: baseRect.left + baseRect.width / 2,
@@ -305,13 +310,6 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
     } finally { measurement.remove(); }
 }
 
-interface IPdfTextBoxAnnotationExpose {
-    commitDraft: () => void;
-    getDraftRect: () => IAnnotationMarkerRect;
-    getDraftText: () => string;
-    fitRectToContent: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect | null;
-}
-
 // A foreign label's frame: its border and background inset by /RD, behind
 // the text, which sits inside both as it does on the saved page. /RD is on
 // the page's upright top, right, bottom and left; a box turned clockwise by a
@@ -367,9 +365,9 @@ function handleEdit(event: MouseEvent) {
     }
 }
 
-defineExpose<IPdfTextBoxAnnotationExpose>({
+defineExpose({
     commitDraft: commit,
-    getDraftRect: () => ({...(draftRect.value ?? props.entity.rect)}),
+    getDraftRect: () => ({...(draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect)}),
     getDraftText: () => inlineEdit.draftText.value,
     fitRectToContent,
 });

@@ -80,7 +80,7 @@ export const createdTextBox: ITextBoxEntity = {
 
 function createInteractionMethods(
     select: IAnnotationEditorSurface['select'],
-    register?: IAnnotationEditorSurface['registerTextBoxDraftCommitter'],
+    register?: IAnnotationEditorSurface['registerPageInteraction'],
 ) {
     const scope = effectScope();
     const defaults = scope.run(() => usePdfAnnotationEditorSurface({
@@ -107,7 +107,7 @@ function createInteractionMethods(
         } | null) => {selectionMoveDelta.value = delta;},
         editingId,
         textEditPoint,
-        registerPageInteraction: vi.fn((_page: number, callbacks: {commitTextDraft: () => void}) => register?.(callbacks.commitTextDraft) ?? (() => {})),
+        registerPageInteraction: register ?? defaults.registerPageInteraction,
         beginTextEditing: vi.fn((id: ITextBoxEntity['identity']['id'], point?: {
             clientX: number;
             clientY: number
@@ -133,13 +133,13 @@ export function createCreationSurface() {
         selectedIds.value = new Set();
     });
     const commitGesture = vi.fn();
-    const draftCommitters = new Set<() => void>();
-    const registerTextBoxDraftCommitter = vi.fn((committer: () => void) => {
-        draftCommitters.add(committer);
-        return () => draftCommitters.delete(committer);
+    const draftCommitters = new Set<() => void | Promise<void>>();
+    const registerPageInteraction: IAnnotationEditorSurface['registerPageInteraction'] = vi.fn((_page, interaction) => {
+        draftCommitters.add(interaction.commitTextDraft);
+        return () => draftCommitters.delete(interaction.commitTextDraft);
     });
-    const commitPendingTextBoxDraftsForSave = vi.fn(() => {
-        [...draftCommitters].forEach(committer => committer());
+    const commitPendingTextBoxDraftsForSave = vi.fn(async () => {
+        await Promise.all([...draftCommitters].map(committer => committer()));
     });
     const pendingDraftIds = new Set<ITextBoxEntity['identity']['id']>();
     const setTextBoxDraftPending = vi.fn((id: ITextBoxEntity['identity']['id']) => {
@@ -153,8 +153,9 @@ export function createCreationSurface() {
         entities.value = [createdTextBox];
         return createdTextBox;
     });
+    const interaction = createInteractionMethods(select, registerPageInteraction);
     const surface: IAnnotationEditorSurface = {
-        ...createInteractionMethods(select, registerTextBoxDraftCommitter),
+        ...interaction,
         activeTool,
         entitiesByPage: computed(() => new Map([[
             25,
@@ -169,10 +170,10 @@ export function createCreationSurface() {
         getSelectedTextBox: vi.fn(() => selectedIds.value.has(createdTextBox.identity.id)
             ? createdTextBox
             : null),
-        registerTextBoxDraftCommitter,
         commitPendingTextBoxDraftsForSave,
         setTextBoxDraftPending,
         clearTextBoxDraftPending,
+        endTextEditing: vi.fn((id) => {interaction.endTextEditing(); clearTextBoxDraftPending(id);}),
         hasPendingTextBoxDrafts,
         updateSelectedTextBoxProperties: vi.fn(() => true),
         discardUnsavedAnnotation: vi.fn(() => true),
@@ -216,7 +217,6 @@ export function createCreationSurface() {
         setTextBoxDraftPending,
         clearTextBoxDraftPending,
         hasPendingTextBoxDrafts,
-        registerTextBoxDraftCommitter,
     };
 }
 
@@ -246,7 +246,6 @@ export function createSurface() {
         select,
         clearSelection: vi.fn(() => { selectedIds.value = new Set(); }),
         getSelectedTextBox: vi.fn(() => null),
-        registerTextBoxDraftCommitter: vi.fn(() => vi.fn()),
         commitPendingTextBoxDraftsForSave: vi.fn(),
         setTextBoxDraftPending: vi.fn(),
         clearTextBoxDraftPending: vi.fn(),

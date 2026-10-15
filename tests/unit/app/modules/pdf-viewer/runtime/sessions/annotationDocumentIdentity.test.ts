@@ -188,6 +188,10 @@ function mountAnnotationSession(initial: {
         workingCopyPath,
         src,
         pdfDocument,
+        loadDocument: async () => {
+            pdfDocument.value = cast<IPdfDocument>({numPages: 1});
+            await nextTick();
+        },
         emitAnnotationComments,
         annotationProjectionReady: () => annotationProjectionReady?.value,
         invalidateCurrentTransition: () => {
@@ -283,7 +287,7 @@ describe('annotation document identity', () => {
         expect(harness.snapshotDocumentKey()).toBe('source:/documents/original.pdf');
     });
 
-    it('rebuilds the canonical store for a new working copy and keeps it across an original-path change', async () => {
+    it('keeps annotations through a copy identity change and resets them with loaded bytes', async () => {
         const harness = mountAnnotationSession({
             originalPath: '/documents/original.pdf',
             workingCopyPath: '/managed/working.pdf',
@@ -293,6 +297,7 @@ describe('annotation document identity', () => {
                 size: 4,
             },
         });
+        await harness.loadDocument();
         harness.ingest('editor-highlight');
 
         expect(harness.canonicalAnnotationIds()).toHaveLength(1);
@@ -310,6 +315,8 @@ describe('annotation document identity', () => {
         harness.workingCopyPath.value = '/managed/other-working.pdf';
         await nextTick();
 
+        expect(harness.canonicalAnnotationIds()).toHaveLength(1);
+        await harness.loadDocument();
         expect(harness.storeDocumentKey()).toBe('path:/managed/other-working.pdf');
         expect(harness.canonicalAnnotationIds()).toHaveLength(0);
         expect(harness.emitAnnotationComments).toHaveBeenCalledWith([]);
@@ -327,19 +334,20 @@ describe('annotation document identity', () => {
         });
 
         const firstKey = harness.storeDocumentKey();
+        await harness.loadDocument();
         harness.ingest('editor-highlight');
 
         expect(firstKey).not.toContain(first.name);
         expect(harness.canonicalAnnotationIds()).toHaveLength(1);
 
         harness.src.value = second;
-        await nextTick();
+        await harness.loadDocument();
 
         expect(harness.storeDocumentKey()).not.toBe(firstKey);
         expect(harness.canonicalAnnotationIds()).toHaveLength(0);
 
         harness.src.value = first;
-        await nextTick();
+        await harness.loadDocument();
 
         expect(harness.storeDocumentKey()).toBe(firstKey);
     });
@@ -532,7 +540,7 @@ describe('canonical image placement', () => {
 
 
 describe('live canonical text box sidebar drafts', () => {
-    it('reattaches a recovered inline draft to the active editor surface', () => {
+    it('restores recovered inline text as unsaved canonical text available to Save', () => {
         const source = mountAnnotationSession();
         const surface = source.session.annotationEditorSurface;
         const entity = surface.createTextBoxAt(0, {
@@ -550,10 +558,20 @@ describe('live canonical text box sidebar drafts', () => {
         restored.session.restoreCanonicalAnnotationRecovery(recovery);
 
         expect(restored.session.annotationApplication.value.store.get(entity.identity.id))
-            .toMatchObject({text: 'Canonical'});
-        expect(restoredSurface.hasPendingTextBoxDrafts()).toBe(true);
-        expect(restoredSurface.editingId.value).toBe(entity.identity.id);
+            .toMatchObject({
+                text: 'Completed draft',
+                rect: entity.rect,
+            });
+        expect(restoredSurface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(restoredSurface.editingId.value).toBeNull();
         expect(restored.session.annotationCommentsCache.value[0]?.text).toBe('Completed draft');
+        expect(restored.session.hasCanonicalAnnotationChanges()).toBe(true);
+        expect(restored.session.annotationApplication.value.beginSave().plan.expected)
+            .toEqual([expect.objectContaining({
+                text: 'Completed draft',
+                rect: entity.rect,
+            })]);
+        expect(restored.session.annotationApplication.value.store.canUndo).toBe(false);
     });
 
     it('projects each input and restores canonical text on cancel without mutating history', () => {
@@ -620,6 +638,7 @@ describe('live canonical text box sidebar drafts', () => {
     it('drops a draft when the text box is deleted or the document is replaced', async () => {
         const harness = mountAnnotationSession();
         const {session} = harness;
+        await harness.loadDocument();
         const surface = session.annotationEditorSurface;
         const entity = surface.createTextBoxAt(0, {
             left: 0.1,
@@ -633,7 +652,7 @@ describe('live canonical text box sidebar drafts', () => {
         expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
         surface.setTextBoxDraftPending(entity.identity.id, 'Previous document');
         harness.workingCopyPath.value = '/managed/different.pdf';
-        await nextTick();
+        await harness.loadDocument();
         session.annotationApplication.value.store.createTextBox(entity);
         expect(session.annotationCommentsCache.value[0]?.text).toBe('Original');
     });

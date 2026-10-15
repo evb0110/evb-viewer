@@ -737,7 +737,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
                 if (annotationTool.value !== 'note') {
-                    await handleQuickNoteAction();
+                    if (await handleQuickNoteAction() === false) return {
+                        ok: false,
+                        annotationTool: annotationTool.value,
+                    };
                 }
                 await nextTick();
                 return {annotationTool: annotationTool.value};
@@ -776,7 +779,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             ],
             parse: parseAgentAnnotationToolInput,
             async run(tool: TAnnotationTool) {
-                handleAnnotationToolChange(tool);
+                if (await handleAnnotationToolChange(tool) === false) return {
+                    ok: false,
+                    annotationTool: annotationTool.value,
+                };
                 await nextTick();
                 return {annotationTool: annotationTool.value};
             },

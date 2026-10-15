@@ -35,6 +35,7 @@ export interface IPdfViewerProps {
     viewRotation?: TPdfViewRotation | undefined;
     continuousScroll?: boolean | undefined;
     isActive?: boolean | undefined;
+    isInteractionActive?: boolean | undefined;
     /** Keep the document session alive without mounting the reader presentation. */
     mountPresentation?: boolean | undefined;
     isResizing?: boolean | undefined;

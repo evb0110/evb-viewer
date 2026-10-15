@@ -174,10 +174,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         commitPendingDraftsForSave: () => annotationEditorSurface.commitPendingTextBoxDraftsForSave(),
         commitDraftIfOpen: (annotationId) => {
             if (annotationEditorSurface.hasTextBoxDraftPending(asAnnotationId(annotationId))) {
-                annotationEditorSurface.commitPendingTextBoxDraftsForSave();
+                return annotationEditorSurface.commitPendingTextBoxDraftsForSave();
             }
         },
-        getTextBoxDraftRect: annotationId => annotationEditorSurface.getTextBoxDraftRect(asAnnotationId(annotationId)),
+        getTextBoxDraftRect: annotationId => annotationEditorSurface.hasTextBoxDraftPending(asAnnotationId(annotationId))
+            ? annotationEditorSurface.getTextBoxDraftRect(asAnnotationId(annotationId)) : null,
     };
     onScopeDispose(documentAnnotations.attachView(documentAnnotationsView));
     function emitForcedAnnotationMutation(mutationOptions: { scheduleCommentSync?: boolean } = {}) {
@@ -341,13 +342,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         state => options.emitAnnotationEnrichmentState(state),
         { immediate: true },
     );
-    let commitPendingEditorDraftsForSave = () => {};
     const {
         editor,
         selectionMarkupStyle,
     } = createPdfAnnotationEditorCompatibility({
         annotationSettings: options.annotationSettings,
-        commitPendingFreeTextDraftsForSave: () => commitPendingEditorDraftsForSave(),
+        commitPendingFreeTextDraftsForSave: documentAnnotations.commitPendingDraftsForSave,
     });
     function emitAnnotationOpenNoteWithReconciliation(comment: IAnnotationCommentSummary) {
         emitCanonicalAnnotationOpenNote({
@@ -373,10 +373,14 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         authorName: options.authorName,
         onCreationCompleted: options.emitAnnotationToolAutoReset,
         onTextBoxDraftChanged: (annotationId, text) => {
-            documentAnnotations.setTextBoxDraft(documentAnnotationsView, annotationId, text);
+            documentAnnotations.setTextBoxDraft(annotationId, text);
             projectCanonicalAnnotations();
         },
         getTextBoxDraftText: annotationId => textBoxDrafts.get(annotationId) ?? null,
+        textBoxDraftRects: documentAnnotations.textBoxDraftRects,
+        getTextBoxDraftGeneration: annotationId => textBoxDraftGenerations.get(annotationId),
+        beforeTextBoxEdit: annotationId => documentAnnotations.commitDraftIfOpen(annotationId, documentAnnotationsView),
+        protectTextBoxDraft: documentAnnotations.protectTextBoxDraft,
         onToolCancel: options.emitAnnotationToolCancel,
         settings: options.annotationSettings,
         resolveStampImage,
@@ -421,9 +425,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         },
     });
     watch(options.isActive, (isActive) => {
-        if (!isActive) annotationEditorSurface.suspendInteraction();
+        if (!isActive) void annotationEditorSurface.suspendInteraction()?.catch(error => BrowserLogger.debug('annotations', 'Hidden text draft retained after protection failed', error));
     }, {flush: 'sync'});
-    commitPendingEditorDraftsForSave = () => documentAnnotations.commitPendingDraftsForSave();
     provide(annotationEditorSurfaceKey, annotationEditorSurface);
     const createSelectionMarkup = createPdfAnnotationSelectionMarkup({
         resolveGeometry: range => resolvePdfAnnotationSelectionGeometry({
@@ -924,7 +927,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationProjectionReady,
         nextTick,
     });
-    const scheduleSetAnnotationTool = (_tool: TAnnotationTool, _reason: string) => {};
     async function feedStoreFromWriterParse(
         transition: Pick<IPdfDocumentTransition, 'fence' | 'isCurrent'>,
     ) {
@@ -956,10 +958,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             // geometry, so refresh it once, but do not hold the new page raster
             // behind a document-wide annotation index pass.
             void feedStoreFromWriterParse(transition);
-            return;
-        }
-        if (transition.phase === 'restore') {
-            scheduleSetAnnotationTool(options.annotationTool.value, 'restore annotation tool after tab activation');
             return;
         }
         if (transition.phase === 'settled') {
@@ -1117,7 +1115,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         handleSourceChanged,
         appAnnotationHistory,
         canvasHiddenAnnotationIds,
-        scheduleSetAnnotationTool,
         ...saveTransaction,
         finalizeImagePlacement: async (payload: IPdfPlacedImageFinalizePayload) => {
             const application = annotationApplication.value;
@@ -1140,6 +1137,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             }
             try {
                 const image = await preparePdfAnnotationRaster(payload);
+                await annotationEditorSurface.commitPendingTextBoxDraftsForSave();
                 if (payload.signal?.aborted || options.isAnySaving.value
                     || annotationApplication.value !== application
                     || annotationDocumentIdentity.value !== documentIdentity
@@ -1154,7 +1152,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     height: payload.height,
                 }, viewRotation, metric);
                 const rotation = ((payload.rotationDegrees - viewRotation) % 360 + 360) % 360;
-                annotationEditorSurface.commitPendingTextBoxDraftsForSave();
                 const created = id
                     ? application.store.updatePlacedImage(id, {
                         rect,

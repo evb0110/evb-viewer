@@ -263,7 +263,7 @@ export const usePdfViewerFeatureController = (
         workingCopyPath,
         documentRevisionToken,
         isAnySaving,
-        isActive,
+        isActive: computed(() => props.isInteractionActive ?? props.isActive ?? true),
         bufferPages,
         annotationTool,
         annotationCursorMode,

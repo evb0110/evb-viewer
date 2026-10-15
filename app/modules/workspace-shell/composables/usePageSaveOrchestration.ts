@@ -1,7 +1,6 @@
 import type {
     ComputedRef, Ref, ShallowRef,
 } from 'vue';
-import {crashCheckpointBeforeSaveKey} from '@app/modules/workspace-shell/composables/useAppShellResilience';
 import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
 import type {
     IPdfBookmarkEntry, IPdfPageLabelRange,
@@ -73,7 +72,6 @@ interface IPageSaveOrchestrationDeps {
 
 export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     const {t} = useTypedI18n();
-    const persistCrashCheckpoint = inject(crashCheckpointBeforeSaveKey, null);
     const getSourcePdfData = createPdfSourceDataReader({
         pdfData: deps.pdfData,
         workingCopyPath: deps.workingCopyPath,
@@ -132,11 +130,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         pdf: {
             document: deps.pdfDocument,
             viewer: deps.pdfViewerRef,
-            commitEditorsForSave: async () => {
-                await deps.pdfViewerRef.value?.commitPdfEditorsForSave?.();
-                // The committed edits reach the crash checkpoint before the Save writes; a failed write leaves the Save to run.
-                await persistCrashCheckpoint?.().catch(() => undefined);
-            },
+            commitEditorsForSave: () => deps.pdfViewerRef.value?.commitPdfEditorsForSave?.() ?? Promise.resolve(),
             runSaveTransaction: request => deps.pdfViewerRef.value?.runSaveTransaction(request)
                 ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
             getSourceData: getSourcePdfData,
@@ -165,20 +159,14 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         },
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,
-            preparePostSaveReload: () => {
-                const reloadWaiter = createPdfReloadWaiter({
-                    pdfDocument: deps.pdfDocument,
-                    pdfViewerRef: deps.pdfViewerRef,
-                    ...(deps.openSurface ? {openSurface: deps.openSurface} : {}),
-                    resetSearchCache: deps.resetSearchCache,
-                    pageToRestore: resolvePdfReloadPage(deps.currentPage.value),
-                    restoreScroll: false,
-                });
-                return {
-                    promise: reloadWaiter.promise,
-                    cancel: () => reloadWaiter.cancel(),
-                };
-            },
+            preparePostSaveReload: () => createPdfReloadWaiter({
+                pdfDocument: deps.pdfDocument,
+                pdfViewerRef: deps.pdfViewerRef,
+                ...(deps.openSurface ? {openSurface: deps.openSurface} : {}),
+                resetSearchCache: deps.resetSearchCache,
+                pageToRestore: resolvePdfReloadPage(deps.currentPage.value),
+                restoreScroll: false,
+            }),
         },
         ...(deps.runWithDocumentOperationLease
             ? {runWithDocumentOperationLease: deps.runWithDocumentOperationLease}

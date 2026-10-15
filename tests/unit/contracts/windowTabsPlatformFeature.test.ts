@@ -102,6 +102,16 @@ describe('window tabs platform feature schemas', () => {
         }])).toEqual([transferRequest]);
         expect(codecs[channels.transfer]!.decodeResult(transferResult)).toEqual(transferResult);
         expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeArgs([checkpoint])).toEqual([checkpoint]);
+        expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(true)).toBe(true);
+        expect(codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(false)).toBe(false);
+        expect(() => codecs[channels.saveWorkspaceCheckpoint]!.decodeResult(undefined)).toThrow();
+        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods.find(descriptor => descriptor.path.at(-1) === 'saveWorkspaceCheckpoint')).toMatchObject({
+            optionalWhenImplemented: true,
+            required: {
+                browser: false,
+                electron: true,
+            },
+        });
         expect(codecs[channels.discardWorkspaceCheckpoint]!.decodeArgs([])).toEqual([]);
         expect(codecs[channels.discardWorkspaceCheckpoint]!.decodeResult('7')).toBe('7');
         expect(codecs[channels.resumeWorkspaceCheckpoint]!.decodeArgs(['7'])).toEqual(['7']);

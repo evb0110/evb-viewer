@@ -198,7 +198,7 @@ interface IPendingSave {
     stored: IStoredWorkspaceCheckpoint;
     artifacts: IAnnotationRecoveryArtifact[];
     waiters: Array<{
-        resolve(): void;
+        resolve(committed: boolean): void;
         reject(error: unknown): void;
     }>;
     timer: NodeJS.Timeout;
@@ -789,7 +789,7 @@ function readDurableRecordForSave(recoveryId: string) {
     return record;
 }
 
-async function commitSave(save: IPendingSave) {
+async function commitSave(save: Omit<IPendingSave, 'timer'>) {
     try {
         if (!discardedOwners.has(save.stored.ownerRecoveryId)) {
             const previous = durableRecords.get(save.stored.ownerRecoveryId);
@@ -811,7 +811,7 @@ async function commitSave(save: IPendingSave) {
                 .map(ref => rm(getAnnotationRecoveryPath(ref.artifactId), {force: true})));
         }
         for (const waiter of save.waiters) {
-            waiter.resolve();
+            waiter.resolve(!discardedOwners.has(save.stored.ownerRecoveryId));
         }
     } catch (error) {
         for (const waiter of save.waiters) {
@@ -839,7 +839,7 @@ function scheduleSave(
     artifacts: IAnnotationRecoveryArtifact[],
 ) {
     const recoveryId = stored.ownerRecoveryId;
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<boolean>((resolve, reject) => {
         const waiter = {
             resolve,
             reject,
@@ -914,19 +914,14 @@ function retainUnresolvedCheckpointTabs(
     checkpoint: IWorkspaceCheckpoint,
     durable: IStoredWorkspaceCheckpoint | null,
 ) {
-    if (!durable) {
-        return checkpoint;
-    }
     return {
         ...checkpoint,
         tabs: checkpoint.tabs.map((tab) => {
-            const previous = durable.checkpoint.tabs.find(candidate => candidate.tabId === tab.tabId);
+            const previous = durable?.checkpoint.tabs.find(candidate => candidate.tabId === tab.tabId);
             if (!tab.isDirty || !previous?.workingCopyRef
                 || (tab.workingCopyRef && tab.workingCopyRef !== previous.workingCopyRef)) {
                 return tab;
             }
-            const annotationRecovery = !tab.annotationRecovery && previous.isDirty ? previous.annotationRecovery : undefined;
-            if (tab.workingCopyRef && !annotationRecovery) {return tab;}
             return {
                 ...tab,
                 ...(!tab.workingCopyRef ? {
@@ -936,7 +931,10 @@ function retainUnresolvedCheckpointTabs(
                         ? {requiresSaveAsOnFirstSave: true}
                         : {}),
                 } : {}),
-                ...(annotationRecovery ? {annotationRecovery} : {}),
+                ...(!tab.annotationRecovery && previous.isDirty ? {
+                    annotationRecovery: previous.annotationRecovery,
+                    annotationRecoveryFailure: tab.annotationRecoveryFailure ?? previous.annotationRecoveryFailure,
+                } : {}),
             };
         }),
     } satisfies IWorkspaceCheckpoint;
@@ -1021,9 +1019,8 @@ export async function saveWorkspaceCheckpoint(
     // An unmigrated journal still holds the durable evidence this save protects.
     await serialize(migrateLegacyJournal);
     if (discardedOwners.has(ownerRecoveryId)) {
-        return;
+        return false;
     }
-    restoresInFlight.delete(ownerRecoveryId);
     for (const tab of checkpoint.tabs) {
         if (tab.workingCopyRef && getWorkingCopyOwnerWebContentsId(tab.workingCopyRef) !== ownerWebContentsId) {
             throw new Error('Workspace checkpoint contains an unowned working copy');
@@ -1072,7 +1069,7 @@ export async function saveWorkspaceCheckpoint(
     const elapsedMs = Date.now() - (lastSaveStartedAtMs.get(ownerRecoveryId) ?? 0);
     if (!pendingSaves.has(ownerRecoveryId) && elapsedMs >= WORKSPACE_CHECKPOINT_SAVE_DEBOUNCE_MS) {
         lastSaveStartedAtMs.set(ownerRecoveryId, Date.now());
-        await serialize(() => new Promise<void>((resolve, reject) => {
+        return serialize(() => new Promise<boolean>((resolve, reject) => {
             void commitSave({
                 stored,
                 artifacts: admittedAnnotationRecovery.artifacts,
@@ -1080,12 +1077,10 @@ export async function saveWorkspaceCheckpoint(
                     resolve,
                     reject,
                 }],
-                timer: setTimeout(() => undefined, 0),
-            }).then(undefined, reject);
+            });
         }));
-        return;
     }
-    await scheduleSave(stored, admittedAnnotationRecovery.artifacts);
+    return scheduleSave(stored, admittedAnnotationRecovery.artifacts);
 }
 
 function isClaimable(record: IStoredWorkspaceCheckpoint, claimantRecoveryId: string) {
@@ -1326,7 +1321,7 @@ export function clearWorkspaceCheckpoint() {
         for (const save of pendingSaves.values()) {
             clearTimeout(save.timer);
             for (const waiter of save.waiters) {
-                waiter.resolve();
+                waiter.resolve(false);
             }
         }
         pendingSaves.clear();
@@ -1356,7 +1351,7 @@ export async function discardWorkspaceCheckpoint(
                 clearTimeout(pending.timer);
                 pendingSaves.delete(ownerRecoveryId);
                 for (const waiter of pending.waiters) {
-                    waiter.resolve();
+                    waiter.resolve(false);
                 }
             }
             await removeRecordAndArtifacts(ownerRecoveryId, await readRecordFile(ownerRecoveryId));

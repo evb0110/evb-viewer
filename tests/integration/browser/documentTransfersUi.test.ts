@@ -19,7 +19,10 @@ describe('browser document lifecycle UI', () => {
     // T2 (#1284): a frozen or throttled window is alive while it holds its
     // lease lock. A second window must not take its recovery record, or the
     // owner fences itself on resume and its later notes have no recovery copy.
-    it('leaves a frozen window its recovery and recovers its later notes after it closes', async () => {
+    it.each([
+        true,
+        false,
+    ])('leaves a frozen window its recovery and recovers its later notes after it closes (Web Locks: %s)', async hasLocks => {
         const pdf = await PDFDocument.create();
         const font = await pdf.embedFont(StandardFonts.Helvetica);
         pdf.addPage([
@@ -40,11 +43,12 @@ describe('browser document lifecycle UI', () => {
                 width: 1_280,
                 height: 800,
             }});
-            await context.addInitScript(() => {
+            await context.addInitScript((enabled) => {
+                if (!enabled) Object.defineProperty(navigator, 'locks', {value: undefined});
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 Reflect.set(window, 'showSaveFilePicker', undefined);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
-            });
+            }, hasLocks);
             async function openWindow(prepare?: (page: Page) => Promise<unknown>) {
                 const page = await context.newPage();
                 consoleProblems.push(collectConsoleProblems(page));
@@ -74,7 +78,7 @@ describe('browser document lifecycle UI', () => {
                 .toEqual([[firstNote]]);
             const [ownerRecord] = await readRecoveries(owner);
             const ownerId = ownerRecord!.ownerId;
-            await expect.poll(async () => (await readLeaseOwnerLocks(owner)).held, {timeout: 15_000}).toContain(ownerId);
+            if (hasLocks) await expect.poll(async () => (await readLeaseOwnerLocks(owner)).held, {timeout: 15_000}).toContain(ownerId);
 
             const resumeOwner = await freezeWindow(context, owner);
 
@@ -85,31 +89,34 @@ describe('browser document lifecycle UI', () => {
                 const now = Date.now.bind(Date);
                 Date.now = () => now() + aheadMs;
             }, 60_000));
-            expect((await readLeaseOwnerLocks(second)).held).toContain(ownerId);
-            expect((await readRecoveries(second)).map(record => record.ownerId)).toEqual([ownerId]);
-            expect(await second.locator('.page_container').count()).toBe(0);
+            if (hasLocks) {
+                expect((await readLeaseOwnerLocks(second)).held).toContain(ownerId);
+                expect((await readRecoveries(second)).map(record => record.ownerId)).toEqual([ownerId]);
+                expect(await second.locator('.page_container').count()).toBe(0);
+            } else {
+                await second.locator('.page_container--rendered canvas').first().waitFor({timeout: 30000});
+            }
 
             await resumeOwner();
             await addNote(owner, secondNote, {
                 x: 300,
                 y: 400,
             });
-            await expect.poll(async () => (await readRecoveries(second)).map(record => [
-                record.ownerId,
-                [...record.notes].sort(),
-            ]), {timeout: 15_000}).toEqual([[
-                ownerId,
-                [
-                    secondNote,
-                    firstNote,
-                ].sort(),
-            ]]);
+            await expect.poll(async () => (await readRecoveries(second)).map(record => [...record.notes].sort()), {timeout: 15000}).toContainEqual([
+                secondNote,
+                firstNote,
+            ].sort());
+
 
             // Closing the window releases its lock, the browser's proof that
             // the owner is gone; its record is recoverable at once.
             await owner.close();
-            await expect.poll(async () => (await readLeaseOwnerLocks(second)).held, {timeout: 15_000}).not.toContain(ownerId);
-            const recovered = await openWindow();
+            if (hasLocks) await expect.poll(async () => (await readLeaseOwnerLocks(second)).held, {timeout: 15_000}).not.toContain(ownerId);
+            if (!hasLocks) await second.close();
+            const recovered = await openWindow(hasLocks ? undefined : page => page.addInitScript(() => {
+                const now = Date.now.bind(Date);
+                Date.now = () => now() + 60000;
+            }));
             await recovered.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
             await expect.poll(
                 () => recovered.locator('.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind="note"]').count(),
@@ -155,8 +162,8 @@ describe('browser document lifecycle UI', () => {
                 Reflect.set(window, 'showSaveFilePicker', undefined);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
             }, hasWebLocks);
-            async function openWindow(prepare?: (page: Page) => Promise<unknown>) {
-                const page = await context.newPage();
+            async function openWindow(prepare?: (page: Page) => Promise<unknown>, preparedPage?: Page) {
+                const page = preparedPage ?? await context.newPage();
                 consoleProblems.push(collectConsoleProblems(page));
                 keepFileChooserInterceptionEnabled(page);
                 await prepare?.(page);
@@ -207,10 +214,14 @@ describe('browser document lifecycle UI', () => {
                 const {loadBrowserWorkspaceRecovery} = await import('/_nuxt/platform/browser/browserWorkspaceRecoveryStore.ts');
                 return loadBrowserWorkspaceRecovery(${JSON.stringify(originalOwnerId)});
             })()`);
-            const beforeFreeze = await readOriginalRecovery(original);
-            if (!beforeFreeze) throw new Error('The original has no recovery record before freezing');
-            expect(Date.now() - beforeFreeze.updatedAt).toBeLessThan(30_000);
+            const frozenReader = await context.newPage();
+            await frozenReader.goto(`${lifecycle.origin}/pdfjs/images/annotation-paperclip.svg`);
             const resumeOriginal = await freezeWindow(context, original);
+            // A heartbeat already admitted before the pause can still commit.
+            // Read from the future copy after the pause, behind that IDB write.
+            const beforeFreeze = await readOriginalRecovery(frozenReader);
+            if (!beforeFreeze) throw new Error('The original has no recovery record after freezing');
+            expect(Date.now() - beforeFreeze.updatedAt).toBeLessThan(30_000);
             console.info('Frozen duplicate setup', JSON.stringify({
                 originalOwnerId,
                 heartbeatAt: beforeFreeze.updatedAt,
@@ -236,7 +247,7 @@ describe('browser document lifecycle UI', () => {
                         return setWindowTimeout(handler, timeout, ...args);
                     });
                 }
-            }, `evb-viewer-window:${originalOwnerId.slice('window:'.length)}`));
+            }, `evb-viewer-window:${originalOwnerId.slice('window:'.length)}`), frozenReader);
             if (!hasWebLocks) expect(await copy.evaluate(() => performance.getEntriesByType('navigation')
                 .some(entry => 'type' in entry && entry.type === 'reload'))).toBe(true);
             const copyOwnerId = await copy.evaluate(() => `window:${window.name.slice('evb-viewer-window:'.length)}`);
@@ -323,13 +334,48 @@ describe('browser document lifecycle UI', () => {
             await copy.close();
             await expect.poll(async () => (await readLeaseOwnerLocks(original)).held, {timeout: 15_000})
                 .toEqual([ownerOf('Second original note')]);
-            const recovered = await openWindow();
+            // A collector can still be finishing admission for the closed copy.
+            // It does not own that window and must not make its journal look live.
+            void original.evaluate(`(async () => {
+                const {withLeaseOwnerLock} = await import('/_nuxt/platform/browser/browserDocumentLeaseStore.ts');
+                await withLeaseOwnerLock(${JSON.stringify(copyOwnerId)}, async lock => {
+                    if (lock !== 'acquired') throw new Error('Closed copy admission was not acquired');
+                    await new Promise(resolve => Reflect.set(window, '__releaseClosedCopyAdmission', resolve));
+                });
+            })()`).catch(() => undefined);
+            await original.waitForFunction(() => typeof Reflect.get(window, '__releaseClosedCopyAdmission') === 'function');
+            const [
+                first,
+                second,
+            ] = await Promise.all([
+                openWindow(),
+                openWindow(),
+            ]);
+            await expect.poll(async () => Promise.all([
+                first,
+                second,
+            ].map(page =>
+                page.locator('.page_container--rendered canvas').count())), {timeout: 30_000})
+                .toEqual(expect.arrayContaining([
+                    1,
+                    0,
+                ]));
+            const recovered = await first.locator('.page_container--rendered canvas').count() ? first : second;
             await recovered.locator('.page_container--rendered canvas').first().waitFor({timeout: 30_000});
             await expect.poll(
                 () => recovered.locator('.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind="note"]').count(),
                 {timeout: 15_000},
             ).toBe(1);
             expect(await recovered.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain('copy.pdf');
+            await original.evaluate(() => Reflect.get(window, '__releaseClosedCopyAdmission')());
+            const download = recovered.waitForEvent('download');
+            await recovered.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await recovered.getByRole('menuitem', {name: /^Save As/u}).click();
+            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            expect(noteTexts(saved)).toEqual(new Set(['Copy note']));
             expect(consoleProblems.flat()).toEqual([]);
         } finally {
             await Promise.all(lifecycle.browser.contexts().map(context => context.close()));

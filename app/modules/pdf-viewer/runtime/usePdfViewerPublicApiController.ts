@@ -310,7 +310,7 @@ export const usePdfViewerPublicApiController = (
                 return;
             }
             await focusAnnotationComment(comment);
-            annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
+            await annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
         },
         selectedAnnotations: annotationRuntime.annotationEditorSurface.selectedAnnotations,
         updateSelectedAnnotationProperties: annotationRuntime.annotationEditorSurface.updateSelectedAnnotationProperties,

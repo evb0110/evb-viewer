@@ -1734,6 +1734,8 @@ export default {
             'browserStorageDescription': '“{name}” is open in memory, but it will not reappear after reload.',
         },
         'save': {
+            'recoverySettlementTitle': 'PDF saved, but recovery could not be updated',
+            'recoverySettlementDescription': 'Your changes were written to the PDF. Any newer unsaved edits remain open here.',
             'validation': 'The document did not pass its validity check, so nothing was written.',
             'openNotes': 'Open notes could not be saved, so the document was not written.',
             'documentChanged': 'The document changed before the save finished, so nothing was written.',
