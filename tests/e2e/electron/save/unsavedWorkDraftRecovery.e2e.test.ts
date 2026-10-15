@@ -120,7 +120,7 @@ it('restores focused text draft after a crash checkpoint', async () => {
         session = await startElectronE2ESession(sessionName, {clean: false});
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
-        await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-text-box.is-editing [contenteditable="true"]')).some(editor => editor.textContent === text), {timeout: 60_000}, draftText);
+        await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-text-box')).some(editor => editor.innerText === text && editor.getClientRects().length > 0), {timeout: 60_000}, draftText);
         const state = await readWorkspaceStateValues<{dirtyState?: {fileDirty?: boolean}}>(session.page, ['dirtyState']);
         expect(state.dirtyState?.fileDirty).toBe(true);
         expect(workingCopyPath).toBeTruthy();
