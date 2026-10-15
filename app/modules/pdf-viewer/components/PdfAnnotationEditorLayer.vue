@@ -1107,7 +1107,6 @@ async function commitTextBox(
         if (textChanged || rectChanged) {
             surface.setTextBoxDraftPending(annotationId, draft.text);
             const protection = surface.protectTextBoxDraft(annotationId);
-            if (draft.restoreFocus) void nextTick(focusLayer);
             if (protection) await protection;
             surface.commitGesture(annotationId, {
                 ...(textChanged ? {text: draft.text} : {}),

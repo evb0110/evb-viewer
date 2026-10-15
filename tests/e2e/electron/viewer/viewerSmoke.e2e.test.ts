@@ -2685,11 +2685,10 @@ describe('Electron E2E - Viewer Smoke', () => {
             sessionName: () => `e2e-viewer-region-selection-overlay-${Date.now()}`,
         });
 
-        await session.page.setViewport({
-            deviceScaleFactor: 1,
-            height: 900,
-            width: 1_440,
-        });
+        await session.command('windowResize', [
+            1_440,
+            900,
+        ]);
         const fixturePath = await createMultiPageTextFixturePdf(
             `viewer-region-selection-overlay-${Date.now()}.pdf`,
             12,
@@ -2766,6 +2765,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             expect(selectionRect.height, `${tool.label} selection height`).toBeGreaterThan(80);
             if (tool.label === 'Screenshot') {
                 await session.page.mouse.up();
+                await clickAsUser(session.page, '[data-capture-confirm]');
                 await session.page.waitForSelector('.snip-flash', {timeout: 10_000});
             } else {
                 await session.page.mouse.up();

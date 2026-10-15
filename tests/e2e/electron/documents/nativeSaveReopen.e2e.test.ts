@@ -1271,11 +1271,6 @@ describe('Electron E2E - native save and reopen', () => {
             typeof style?.fontSize === 'number'
             && style.fontSize > initialFontSize
         ));
-        const editedStyle = await readTextBoxComputedStyle(session.page, annotationId);
-        expect(editedStyle).not.toBeNull();
-        if (!editedStyle || editedStyle.fontSize === null) {
-            throw new Error('The selected imported text box did not publish its font-size update');
-        }
         const editTarget = await session.page.evaluate((id: string) => {
             const entity = Array.from(document.querySelectorAll<HTMLElement>(
                 '.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]',
@@ -1306,6 +1301,11 @@ describe('Electron E2E - native save and reopen', () => {
                 timeout: 20_000,
             },
         );
+        const editedStyle = await readTextBoxComputedStyle(session.page, annotationId);
+        expect(editedStyle).not.toBeNull();
+        if (!editedStyle || editedStyle.fontSize === null) {
+            throw new Error('The selected imported text box did not publish its font-size update');
+        }
         const editedText = `Edited fixture text box ${Date.now()}`;
         expect(await session.page.evaluate(() => document.activeElement?.getAttribute('contenteditable'))).toBe('true');
         await selectAllFocusedAnnotationText(session.page);

@@ -887,7 +887,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             semanticEntityFingerprint(entity),
         ]),
         [...retiredPdfAnnotationIds.value],
-        annotationProjectionReady.value,
     ]));
     const detachProjection = rendering.attachAnnotationProjection({
         hiddenAnnotationIds: hiddenPdfAnnotationIds,
