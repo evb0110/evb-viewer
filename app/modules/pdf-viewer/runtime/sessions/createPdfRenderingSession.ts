@@ -361,6 +361,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     requestId: prepared.job.requestId,
                     pageNumber,
                 });
+                if (latestDemand.mandatoryRaster && isMandatoryRasterSettled(latestDemand.mandatoryRaster.range, renderVersion)) {
+                    viewport.settleMandatoryRaster(latestDemand.mandatoryRaster.id, true);
+                }
                 return true;
             };
             await pageRenderer.renderCommittedPageLayers({
@@ -694,7 +697,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     bumpRenderVersion(isPreservedSelectiveReload, invalidatedPages);
                 }
             } else if (token !== previous.token) {
-                bumpRenderVersion(true);
+                bumpRenderVersion(true, []);
             }
         },
         {flush: 'post'},
@@ -840,7 +843,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             || isCommittedVisual(page) || isPageRenderFailed(page) || isAwaitingRotationRevision(page));
     }
     let frameId: number | null = null;
-    let activeMandatoryRasterId: number | null = null;
     let disposed = false;
     let mandatoryDemandTaskId: number | null = null;
     function queueMandatoryDemandTask() {
@@ -879,10 +881,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const mandatory = demand.mandatoryRaster;
         if (mandatory) {
-            if (activeMandatoryRasterId === mandatory.id) {
-                return;
-            }
-            activeMandatoryRasterId = mandatory.id;
             const version = renderVersion;
             void renderVisiblePages(mandatory.range, mandatory.options).finally(() => (
                 viewport.settleMandatoryRaster(mandatory.id, isMandatoryRasterSettled(mandatory.range, version))
@@ -945,7 +943,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     }
     const stopDemandWatch = watch(viewport.demand, (demand) => {
         latestDemand = demand;
-        if (demand.mandatoryRaster && activeMandatoryRasterId !== demand.mandatoryRaster.id) {
+        if (demand.mandatoryRaster) {
             if (frameId !== null) {
                 window.cancelAnimationFrame(frameId);
                 frameId = null;

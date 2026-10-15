@@ -210,21 +210,7 @@ Reflect.set(globalThis, '__evbRunBrowserAnnotationSaveAcceptance', runAcceptance
 
 // The existing browser lane drives this button with trusted input and observes
 // long tasks, rather than asserting worker messages or private call sequences.
-async function preparePrintResponsivenessAcceptance() {
-    const pdf = await PDFDocument.create();
-    pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
-    pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
-    for (let index = 0; index < 4_000; index += 1) {
-        pdf.addPage([
-            200,
-            100,
-        ]).drawText(`Page ${index + 1}`, {
-            x: 10,
-            y: 30,
-            size: 12,
-        });
-    }
-    const input = new Uint8Array(await pdf.save());
+async function preparePrintResponsivenessAcceptance(input: Uint8Array) {
     const button = document.createElement('button');
     button.textContent = 'Prepare facing print';
     document.body.append(button);

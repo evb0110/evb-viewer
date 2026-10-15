@@ -1339,6 +1339,11 @@ describe('Electron E2E - text interaction contract', () => {
             await startText(page);
             await page.keyboard.type(text);
             await modifiedKey(page, 'Enter');
+            await page.waitForFunction((selector) => {
+                const box = document.querySelector(selector);
+                return box && !box.querySelector('[contenteditable="true"]')
+                    && document.activeElement === box.closest('[data-pdf-annotation-editor-surface]');
+            }, {}, BOX);
             await page.keyboard.press('Backspace');
             await page.waitForFunction(selector => !document.querySelector(selector), {}, BOX);
         }

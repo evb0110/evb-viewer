@@ -136,6 +136,21 @@ describe('browser annotation save acceptance in Chromium', () => {
         }
     }, 120_000);
     it('prepares an admitted facing print without a UI-thread long task and preserves the input', async () => {
+        // Supply file bytes without leaving fixture-construction work in the measured renderer.
+        const pdf = await PDFDocument.create();
+        pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
+        pdf.setModificationDate(new Date('2026-01-01T00:00:00Z'));
+        for (let index = 0; index < 4_000; index += 1) {
+            pdf.addPage([
+                200,
+                100,
+            ]).drawText(`Page ${index + 1}`, {
+                x: 10,
+                y: 30,
+                size: 12,
+            });
+        }
+        const input = new Uint8Array(await pdf.save());
         const browser = await chromium.launch({headless: true});
         try {
             const page = await browser.newPage();
@@ -144,11 +159,11 @@ describe('browser annotation save acceptance in Chromium', () => {
                 path: bundlePath,
                 type: 'module',
             });
-            await page.evaluate(async () => {
+            await page.evaluate(async (bytes) => {
                 const prepare = Reflect.get(globalThis, '__evbPreparePrintResponsivenessAcceptance');
                 if (typeof prepare !== 'function') throw new Error('Missing print acceptance entry');
-                await prepare();
-            });
+                await prepare(new Uint8Array(bytes));
+            }, Array.from(input));
             const cdp = await page.context().newCDPSession(page);
             await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
             // Trusted CDP input without Playwright's injected hit-target
