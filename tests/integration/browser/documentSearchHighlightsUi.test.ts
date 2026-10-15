@@ -911,7 +911,7 @@ it.each([
         await page.route('**/runtime/composables/usePdfSearch.ts*', async route => {
             const response = await route.fetch();
             const source = await response.text();
-            const marker = 'const resultsWithPageIndex = response.results.map';
+            const marker = 'const mergedResults = response.results.map';
             if (!source.includes(marker)) throw new Error('Search result setup seam missing');
             const ordinal = 1;
             const start = 7;
@@ -1105,7 +1105,7 @@ end
         await page.route('**/runtime/composables/usePdfSearch.ts*', async route => {
             const response = await route.fetch();
             const source = await response.text();
-            const marker = 'const resultsWithPageIndex = response.results.map';
+            const marker = 'const mergedResults = response.results.map';
             if (!source.includes(marker)) throw new Error('Search setup seam missing');
             await route.fulfill({
                 response,

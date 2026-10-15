@@ -169,6 +169,26 @@ describe('PdfPageRasterScheduler', () => {
         resetCoordinatedPdfPageRendersForTest();
     });
 
+    it('acknowledges a raster only after its complete page commit settles', async () => {
+        const harness = createHarness();
+        let finish!: () => void;
+        const ready = new Promise<void>(resolve => {finish = resolve;});
+        const committed: string[] = [];
+        harness.target.commit = vi.fn(async () => {await ready; return true;});
+        const requested = harness.scheduler.request({
+            sourceId: 'complete-page',
+            demand: createDemand(1, 'viewport-visible'),
+            target: harness.target,
+        })
+            .then(outcome => {committed.push(outcome.status); return outcome;});
+        try {
+            await vi.waitFor(() => expect(harness.target.commit).toHaveBeenCalledOnce());
+            expect(committed).toEqual([]);
+            finish();
+            expect((await requested).status).toBe('committed');
+        } finally {finish(); await harness.scheduler.dispose();}
+    });
+
     it('orders navigation and viewport demand ahead of thumbnails and prefetch', async () => {
         const harness = createHarness();
         const demands = [

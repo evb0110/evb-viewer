@@ -22,6 +22,9 @@ export async function prepareDocumentViewsForRevisionSwap(
 ) {
     let didPrepare: boolean | undefined;
     for (const port of views.viewPorts.value.values()) {
+        if (swap.rotationDelta !== undefined) {
+            port.search.adoptPageRotation(swap.documentRevision, swap.invalidatedPages, swap.rotationDelta);
+        }
         const viewer = port.view.pdfViewerRef.value;
         try {
             const prepared = await viewer?.preparePageMutationRevisionSwap?.({

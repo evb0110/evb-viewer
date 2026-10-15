@@ -298,10 +298,6 @@ export const usePdfViewerFeatureController = (
         getLivePageCount,
         pageNumber => renderingSession.isPageRenderedForClass(pageNumber),
     );
-    const isPageRendering = createPdfRenderPagePredicate(
-        getLivePageCount,
-        pageNumber => renderingSession.isPageRendering(pageNumber),
-    );
     const isPageRenderFailed = createPdfRenderPagePredicate(
         getLivePageCount,
         pageNumber => renderingSession.isPageRenderFailed(pageNumber),
@@ -317,10 +313,8 @@ export const usePdfViewerFeatureController = (
         openSurface: chassisAuthority.openSurface,
         isVisualReloadTransitionActive: viewportSession.reloadTransition.isVisualReloadTransitionActive,
         skeletonContentInsets: viewportSession.skeletonInsets.skeletonContentInsets,
-        pagesToRender: viewportSession.viewModel.pagesToRender,
         isPageBuffered,
         isPageRenderedForClass,
-        isPageRendering,
         isPageRenderFailed,
         shouldShowSkeleton: pageNumber => {
             const totalPages = documentSession.numPages.value;
@@ -339,7 +333,7 @@ export const usePdfViewerFeatureController = (
                 navigationAnchorPage,
                 totalPages,
                 viewMode: viewMode.value,
-                isPageRendered: renderingSession.isPageVisualReady,
+                isPageRendered: isPageRenderedForClass,
                 shouldShowSkeleton: isPageNearVisibleAndUnrendered,
             });
         },
@@ -360,7 +354,7 @@ export const usePdfViewerFeatureController = (
         const end = Math.min(documentSession.numPages.value, viewportSession.visibleRange.value.end + SKELETON_BUFFER);
         return pageNumber >= start
             && pageNumber <= end
-            && !renderingSession.isPageRendered(pageNumber);
+            && !isPageRenderedForClass(pageNumber);
     }
 
     const {

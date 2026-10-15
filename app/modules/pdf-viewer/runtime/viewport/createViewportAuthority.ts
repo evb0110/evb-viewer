@@ -385,7 +385,6 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             } else if (!stagedNavigationVisual) {
                 phase.value = 'awaiting-visual';
                 await awaitWithAbort(deps.awaitVisual(next, signal), signal);
-                assertCurrent(next, signal);
             }
             assertCurrent(next, signal);
             if (next.navigationTicket && deps.reportNavigation) {
@@ -405,7 +404,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 positionCommit,
             };
         } catch (error) {
-            if (next.navigationTicket && isCurrent(next, signal) && deps.reportNavigation) {
+            if (!isAbortError(error) && next.navigationTicket && isCurrent(next, signal) && deps.reportNavigation) {
                 deps.reportNavigation(next.navigationTicket, {
                     kind: 'failed',
                     reason: error instanceof Error ? error.message : String(error),

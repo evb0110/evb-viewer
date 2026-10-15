@@ -39,7 +39,7 @@ const parsedPageAnnotations = new WeakMap<
     ReturnType<IPdfPage['getAnnotations']>
 >();
 
-function getParsedPageAnnotations(pdfPage: IPdfPage) {
+export function getParsedPageAnnotations(pdfPage: IPdfPage) {
     const cached = parsedPageAnnotations.get(pdfPage);
     if (cached) {
         return cached;
@@ -61,13 +61,7 @@ function getParsedPageAnnotations(pdfPage: IPdfPage) {
     return pending;
 }
 
-function annotationIdOf(annotation: IPdfAnnotation) {
-    return typeof annotation.id === 'string'
-        ? normalizePdfJsAnnotationId(annotation.id)
-        : null;
-}
-
-function isLinkAnnotation(annotation: IPdfAnnotation) {
+export function isLinkAnnotation(annotation: IPdfAnnotation) {
     return annotation.annotationType === 2
         || (typeof annotation.subtype === 'string' && annotation.subtype.toLowerCase() === 'link');
 }
@@ -242,7 +236,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         const hiddenIds = normalizedIds(toValue(deps.hiddenAnnotationIds ?? new Set<string>()));
         const visibleAnnotations = hiddenIds.size === 0
             ? annotations
-            : annotations.filter(annotation => !hiddenIds.has(annotationIdOf(annotation) ?? ''));
+            : annotations.filter(annotation => !hiddenIds.has(typeof annotation.id === 'string' ? normalizePdfJsAnnotationId(annotation.id) ?? '' : ''));
         // The writer parse is the authority for which PDF annotations the Vue
         // surface owns. Until it finishes, keep foreign links usable but do
         // not paint any other PDF.js annotation that may also be mounted by

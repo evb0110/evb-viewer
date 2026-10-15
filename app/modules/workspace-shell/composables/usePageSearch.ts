@@ -99,12 +99,7 @@ export const usePageSearch = (deps: IPageSearchDeps) => {
         showSidebar.value = false;
     }
 
-    watch([
-        workingCopyPath,
-        documentRevisionToken,
-    ], () => {
-        clearSearch();
-    });
+    watch(workingCopyPath, clearSearch);
 
     async function handleSearch() {
         if (workingCopyPath.value) {

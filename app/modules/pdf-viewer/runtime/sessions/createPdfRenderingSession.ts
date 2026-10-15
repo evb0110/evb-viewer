@@ -109,19 +109,16 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         outputScale: options.outputScale,
         ...(options.viewRotation === undefined ? {} : {viewRotation: options.viewRotation}),
         defaultMaxCanvasPixels: performanceProfile.settledMaxCanvasPixels,
-        annotationProjectionReady: () => pageRenderer.annotationProjectionReady.value,
+        prepareAnnotations: (page, coordination) => pageRenderer.prepareCanvasAnnotations(page, coordination?.captureSettlement),
     });
     const pageRenderState = createPdfPageRenderState();
     const pageCanvases = new Map<TPageNumber, HTMLCanvasElement>();
     interface IViewportRasterJob extends IPdfViewportRasterJob {readonly requestId: number}
     const viewportRasterJobs = new Map<string, IViewportRasterJob>();
-    const viewportRasterWaiters = new Map<TPageNumber, Set<() => void>>();
     let activeRasterScheduler: IPdfPageRasterScheduler | null = null;
-    let viewportDemandGeneration = 0;
     let renderVersion = 0;
     let visibleRenderRequestId = 0;
     let latestDemand: IPdfViewportDemand = viewport.demand.value;
-    const preservedRevisionSwapCanvases = new Set<TPageNumber>();
     const rotationPreviewCanvases = new Map<TPageNumber, {
         canvas: HTMLCanvasElement;
         container: HTMLElement;
@@ -180,24 +177,22 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             && isRasterScaleCurrent(job.targetOutputScale, options.outputScale.value);
     }
     function isCommittedVisual(pageNumber: TPageNumber, requireCurrent = true) {
+        void renderedPageStateVersion.value;
         const target = getMountedRasterTarget(pageNumber);
         const canvas = pageCanvases.get(pageNumber);
         if (!target || !canvas) return false;
         const slot = pageRenderState.getSlot(pageNumber);
-        const retainedForRevisionSwap = !requireCurrent
-            && preservedRevisionSwapCanvases.has(pageNumber);
         const presentable = slot.canvasReadiness === 'ready'
-            && (slot.documentToken === getRenderDocumentToken() || retainedForRevisionSwap)
             && slot.container === target.container
             && target.canvasHost.contains(canvas) && canvas.isConnected && canvas.width > 0 && canvas.height > 0;
         if (!presentable || !requireCurrent) return presentable;
-        return slot.contentVersion === renderVersion
+        return slot.documentToken === getRenderDocumentToken()
+            && slot.contentVersion === renderVersion
             && slot.targetViewRotation === (options.viewRotation?.value ?? 0)
             && slot.targetScale !== null
             && isRasterScaleCurrent(slot.targetScale, viewport.scale.effectiveScale.value)
             && slot.targetOutputScale !== null
-            && isRasterScaleCurrent(slot.targetOutputScale, options.outputScale.value)
-            && (!pageRenderState.isPaintedWithoutAnnotations(pageNumber) || !pageRenderer.annotationProjectionReady.value);
+            && isRasterScaleCurrent(slot.targetOutputScale, options.outputScale.value);
     }
     function getPageRasterState(pageNumber: TPageNumber): TPdfPageRasterState {
         const pendingJob = [...viewportRasterJobs.values()].find(job => (
@@ -211,33 +206,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         return pageRenderState.renderedPages.has(pageNumber) ? 'stale-scale' : 'absent';
     }
-    function resolveViewportRasterWaiters(pageNumber: TPageNumber) {
-        const waiters = viewportRasterWaiters.get(pageNumber);
-        if (!waiters) {
-            return;
-        }
-        viewportRasterWaiters.delete(pageNumber);
-        waiters.forEach(resolve => resolve());
-    }
-    function waitForViewportRaster(pageNumber: TPageNumber) {
-        if (isCommittedVisual(pageNumber)) {
-            return Promise.resolve();
-        }
-        return new Promise<void>((resolve) => {
-            const waiters = viewportRasterWaiters.get(pageNumber) ?? new Set();
-            waiters.add(resolve);
-            viewportRasterWaiters.set(pageNumber, waiters);
-        });
-    }
-    function shouldRasterizeViewportJob(job: IPdfViewportRasterJob) {
-        return job.rasterState === 'absent'
-            || job.rasterState === 'stale-scale'
-            || job.renderOptions.contentIntent === 'canvas-only-refine';
-    }
     function isViewportRasterDemanded(pageNumber: TPageNumber, lane?: TPdfRasterLane) {
         const mandatory = latestDemand.mandatoryRaster?.range;
         return latestDemand.operational && (
-            latestDemand.residentPages.includes(pageNumber)
+            latestDemand.currentPage === pageNumber || latestDemand.residentPages.includes(pageNumber)
             || Boolean(mandatory
                 && pageNumber >= mandatory.start
                 && pageNumber <= mandatory.end)
@@ -292,7 +264,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             const sourceMaxPixels = resolvePdfRasterSourceMaxPixels(options.rasterDisplayProfile.value, demand.pageNumber);
             const render = await canvasRenderer.prepareCanvasRender(page, job.targetScale, {
                 ...(intent ? {contentIntent: intent} : {}),
-                hiddenAnnotationIds: pageRenderer.canvasHiddenAnnotationIds.value,
+                hiddenAnnotationIds: () => pageRenderer.canvasHiddenAnnotationIds.value,
                 ...(job.renderOptions.maxCanvasPixels === undefined
                     ? {}
                     : {maxCanvasPixels: job.renderOptions.maxCanvasPixels}),
@@ -331,7 +303,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 beginViewportRaster(job, pageRenderState.getSlot(pageNumber).container);
                 pageRenderState.markRenderFailed(pageNumber, demand.consumerGeneration, job.requestId);
             }
-            resolveViewportRasterWaiters(pageNumber);
             renderedPageStateVersion.value += 1;
             if (outcome.status !== 'failed') return queueFrame();
             initialVisual.handlePageRasterFailed({
@@ -346,9 +317,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 end: pageNumber,
             }, {bufferOverride: 0})), () => demand.lane === 'navigation-target' || viewport.viewportWork.activeWorkKind.value !== 'navigation' && viewport.demand.value.requiredPages.includes(pageNumber));
         },
-        commit(prepared, demand) {
-            if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand
-                || !prepared.render.paintsAnnotations && pageRenderer.annotationProjectionReady.value) {
+        async commit(prepared, demand) {
+            if (!isPreparedRasterCurrent(prepared) || prepared.job.demand !== demand) {
                 return false;
             }
             const pageNumber = demand.pageNumber;
@@ -372,33 +342,29 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 }
             }
             const previousCanvas = pageCanvases.get(pageNumber);
-            canvasRenderer.applyContainerUserUnit(prepared.container, prepared.render.userUnit);
-            canvasRenderer.mountCanvas(prepared.canvasHost, prepared.render.canvas, previousCanvas);
-            if (!pageRenderState.commitVisual(
+            const publishRaster = () => {
+                if (!isPreparedRasterCurrent(prepared) || !pageRenderState.commitVisual(
+                    pageNumber, demand.consumerGeneration, prepared.job.requestId,
+                    resolvePdfCommittedRasterQuality(prepared.render,
+                        prepared.job.renderOptions.contentIntent === 'canvas-only-buffer' ? 'buffer-preview' : 'settled'),
+                )) return false;
+                canvasRenderer.applyContainerUserUnit(prepared.container, prepared.render.userUnit);
+                canvasRenderer.mountCanvas(prepared.canvasHost, prepared.render.canvas, previousCanvas);
+                pageCanvases.set(pageNumber, prepared.render.canvas);
+                return true;
+            };
+            await pageRenderer.renderCommittedPageLayers({
                 pageNumber,
-                prepared.job.demand.consumerGeneration,
-                prepared.job.requestId,
-                resolvePdfCommittedRasterQuality(
-                    prepared.render,
-                    prepared.job.renderOptions.contentIntent === 'canvas-only-buffer'
-                        ? 'buffer-preview'
-                        : 'settled',
-                ),
-            )) {
-                if (previousCanvas) {
-                    canvasRenderer.mountCanvas(prepared.canvasHost, previousCanvas, prepared.render.canvas);
-                } else {
-                    canvasRenderer.cleanupCanvas(prepared.render.canvas);
-                }
-                return false;
-            }
+                version: prepared.job.demand.consumerGeneration,
+                requestId: prepared.job.requestId,
+                scale: prepared.job.targetScale,
+                container: prepared.container,
+                renderResult: prepared.render,
+                renderOptions: prepared.job.renderOptions,
+            }, publishRaster);
+            if (!isPreparedRasterCurrent(prepared) || pageCanvases.get(pageNumber) !== prepared.render.canvas) return false;
             prepared.job.rasterState = 'current';
-            pageCanvases.set(pageNumber, prepared.render.canvas);
             clearPageRotationPreview(pageNumber, false);
-            if (preservedRevisionSwapCanvases.delete(pageNumber)) {
-                renderedPageStateVersion.value += 1;
-                queueFrame();
-            }
             if (previousCanvas && previousCanvas !== prepared.render.canvas) canvasRenderer.cleanupCanvas(previousCanvas);
             initialVisual.handlePageCanvasMounted({
                 openSurfaceGeneration: prepared.job.renderOptions.openSurfaceGeneration ?? 0,
@@ -407,27 +373,20 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 requestId: prepared.job.requestId,
                 pageNumber,
             });
-            resolveViewportRasterWaiters(pageNumber);
-            void pageRenderer.renderCommittedPageLayers({
-                pageNumber,
-                version: prepared.job.demand.consumerGeneration,
-                requestId: prepared.job.requestId,
-                scale: prepared.job.targetScale,
-                container: prepared.container,
-                renderResult: prepared.render,
-                renderOptions: prepared.job.renderOptions,
-            });
             return true;
         },
         discard(prepared) {
-            canvasRenderer.cleanupCanvasRenderResult(prepared.render);
             const pageNumber = prepared.job.demand.pageNumber;
+            if (pageCanvases.get(pageNumber) === prepared.render.canvas) {
+                pageCanvases.delete(pageNumber);
+                pageRenderState.renderedPages.delete(pageNumber);
+                pageRenderer.releasePageLayers(pageNumber);
+            }
+            canvasRenderer.cleanupCanvasRenderResult(prepared.render);
             const generation = prepared.job.demand.consumerGeneration;
             if (!isPreparedRasterCurrent(prepared)) pageRenderState.completeRender(pageNumber, generation, prepared.job.requestId);
-            if (!isViewportRasterDemanded(pageNumber)) resolveViewportRasterWaiters(pageNumber);
         },
         release(pageNumber) {
-            resolveViewportRasterWaiters(pageNumber);
             if (!isViewportRasterDemanded(pageNumber)) clearAuthoritativePage(pageNumber, false);
         },
     };
@@ -546,11 +505,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         if (!document || !isRasterOperational()) {
             return;
         }
-        const generation = ++viewportDemandGeneration;
         const didHydrateMetrics = await documentSession.ensurePageMetricsInRange(range.start, range.end);
         if (
-            generation !== viewportDemandGeneration
-            || document !== documentSession.pdfDocument.value
+            document !== documentSession.pdfDocument.value
             || !isRasterOperational()
         ) {
             return;
@@ -619,33 +576,22 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         const schedulableJobs = jobs
             .filter(job => job.rasterState !== 'failed');
-        const rasterJobs = schedulableJobs.filter(shouldRasterizeViewportJob);
-        const waits = schedulableJobs.filter(job => (
-            shouldRasterizeViewportJob(job) || (job.rasterState === 'in-flight'
-                && renderOptions.preserveInFlightRequiredPages === true && requestedPages.has(job.demand.pageNumber))
-        )).map(job => waitForViewportRaster(job.demand.pageNumber));
-        rasterJobs.forEach((job) => {
-            job.rasterState = 'in-flight';
+        schedulableJobs.filter(job => (job.rasterState === 'absent' || job.rasterState === 'stale-scale'
+            || job.renderOptions.contentIntent === 'canvas-only-refine')).forEach((job) => {job.rasterState = 'in-flight';});
+        scheduler.setDemand({
+            sourceId: viewportRasterSourceId,
+            input: schedulableJobs.map(job => job.demand),
+            policy: {
+                expand: (input: readonly IPdfRasterDemand[]) => input,
+                compareWithinLane: (left: IPdfRasterDemand, right: IPdfRasterDemand) => left.ordinal - right.ordinal,
+            },
+            target: viewportRasterTarget,
         });
-        const navigationJobs = rasterJobs.filter(job => job.demand.lane === 'navigation-target');
-        if (navigationJobs.length > 0) {
-            await Promise.all(navigationJobs.map(job => scheduler.request({
-                sourceId: viewportRasterSourceId,
-                demand: job.demand,
-                target: viewportRasterTarget,
-            })));
-        } else {
-            scheduler.setDemand({
-                sourceId: viewportRasterSourceId,
-                input: schedulableJobs.map(job => job.demand),
-                policy: {
-                    expand: (input: readonly IPdfRasterDemand[]) => input,
-                    compareWithinLane: (left: IPdfRasterDemand, right: IPdfRasterDemand) => left.ordinal - right.ordinal,
-                },
-                target: viewportRasterTarget,
-            });
-            await Promise.all(waits);
-        }
+        await Promise.all(schedulableJobs.filter(job => requestedPages.has(job.demand.pageNumber)).map(job => scheduler.request({
+            sourceId: viewportRasterSourceId,
+            demand: job.demand,
+            target: viewportRasterTarget,
+        })));
         await promotePrioritizedTextLayers(pageRenderer, [...requestedPages].filter(page => page >= range.start && page <= range.end), renderOptions);
         // The committed canvas is mounted synchronously, but the page
         // container's rendered class controls its visibility through Vue.
@@ -694,11 +640,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         excludedPages: readonly number[] = getRevisionSwapInvalidatedPages(),
     ) {
         renderVersion += 1;
-        viewportDemandGeneration += 1;
         viewportRasterJobs.clear();
-        for (const pageNumber of viewportRasterWaiters.keys()) {
-            resolveViewportRasterWaiters(pageNumber);
-        }
         if (reauthorizeCommittedCanvases) {
             pageRenderer.adoptCommittedCanvasVersions(
                 renderVersion,
@@ -712,9 +654,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     function cancelRasterDemand() {
         viewportRasterJobs.clear();
         const cancellation = activeRasterScheduler?.cancelSource(viewportRasterSourceId) ?? Promise.resolve();
-        for (const pageNumber of viewportRasterWaiters.keys()) {
-            resolveViewportRasterWaiters(pageNumber);
-        }
         return cancellation;
     }
     async function cancelInFlightRenders() {
@@ -753,13 +692,10 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                     const invalidatedPages = isPreservedSelectiveReload
                         ? documentSession.activeLoadPlan.pagesToInvalidate ?? []
                         : [];
-                    invalidatedPages.forEach(page => preservedRevisionSwapCanvases.add(requirePageNumber(page)));
                     bumpRenderVersion(isPreservedSelectiveReload, invalidatedPages);
                 }
             } else if (token !== previous.token) {
-                const invalidatedPages = getRevisionSwapInvalidatedPages();
-                invalidatedPages.forEach(page => preservedRevisionSwapCanvases.add(requirePageNumber(page)));
-                bumpRenderVersion(true, invalidatedPages);
+                bumpRenderVersion(true);
             }
         },
         {flush: 'post'},
@@ -812,7 +748,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 canvasStyle: canvas.getAttribute('style'),
                 previousPreview: target.container.dataset.pageMutationPreview ?? null,
             });
-            preservedRevisionSwapCanvases.add(pageNumber);
             const previewWidth = isQuarterTurn ? pageRect.height : pageRect.width;
             const previewHeight = isQuarterTurn ? pageRect.width : pageRect.height;
             canvas.style.setProperty('position', 'absolute', 'important');
@@ -846,7 +781,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 continue;
             }
             clearPageRotationPreview(brandedPageNumber, true);
-            preservedRevisionSwapCanvases.delete(brandedPageNumber);
             didCancel = true;
         }
         if (didCancel) {
@@ -867,11 +801,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 sourceId: viewportRasterSourceId,
             });
         }
-        resolveViewportRasterWaiters(pageNumber);
         const canvas = pageCanvases.get(pageNumber);
         if (canvas) canvasRenderer.cleanupCanvas(canvas);
         pageCanvases.delete(pageNumber);
-        preservedRevisionSwapCanvases.delete(pageNumber);
         pageRenderState.clearPage(pageNumber);
         pageRenderer.releasePageLayers(pageNumber);
         const target = getMountedRasterTarget(pageNumber);
@@ -891,7 +823,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     async function cleanupRenderedPages() {
         const release = activeRasterScheduler?.releaseSource(viewportRasterSourceId);
         bumpRenderVersion();
-        preservedRevisionSwapCanvases.clear();
         new Set([
             ...pageCanvases.keys(),
             ...pageRenderState.renderedPages,
@@ -901,9 +832,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             release,
             pageRenderer.cleanupAllLayers(),
         ]);
-    }
-    function isPageVisualReady(pageNumber: TPageNumber) {
-        void renderedPageStateVersion.value; return isCommittedVisual(pageNumber);
     }
     function isPageRenderFailed(pageNumber: TPageNumber) {
         const slot = pageRenderState.getSlot(pageNumber);
@@ -1205,9 +1133,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             if (transition.plan.isSelectiveReload && transition.plan.pagesToInvalidate) {
                 for (const pageNumber of transition.plan.pagesToInvalidate) {
                     const brandedPage = requirePageNumber(pageNumber);
-                    if (transition.plan.preserveVisibleContent) {
-                        preservedRevisionSwapCanvases.add(brandedPage);
-                    } else {
+                    if (!transition.plan.preserveVisibleContent) {
                         clearAuthoritativePage(brandedPage);
                     }
                 }
@@ -1272,11 +1198,15 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         isPageRendering: (pageNumber: TPageNumber) => pageRenderState.getSlot(pageNumber).job === 'rendering',
         waitForPageTextLayerReady: pageTextLayerReadyWaiter.waitForPageTextLayerReady,
         renderedPageStateVersion,
-        isPageVisualReady,
+        isPageVisualReady: (pageNumber: TPageNumber) => isCommittedVisual(pageNumber),
         getCommittedPageScale: (pageNumber: TPageNumber) => isCommittedVisual(pageNumber, false)
             ? pageRenderState.getSlot(pageNumber).targetScale
             : null,
-        isPageRenderedForClass: (pageNumber: TPageNumber) => isCommittedVisual(pageNumber, false),
+        isPageRenderedForClass: (pageNumber: TPageNumber) => isCommittedVisual(pageNumber, false)
+            && (!latestDemand.requiredPages.includes(pageNumber) || (pageRenderState.getSlot(pageNumber).textLayerReadiness === 'ready'
+                && getMountedRasterTarget(pageNumber)?.container.querySelector<HTMLElement>('.text-layer')?.dataset.pdfTextLayerReady === 'true')
+                || (pageRenderState.getSlot(pageNumber).layerReadiness === 'canvas-only' && pageRenderState.getSlot(pageNumber).job === 'idle'
+                    && pageRenderState.getSlot(pageNumber).committedRasterQuality?.intent === 'settled')),
         isPageRenderFailed,
         invalidatePages,
         handlePageRenderStall,

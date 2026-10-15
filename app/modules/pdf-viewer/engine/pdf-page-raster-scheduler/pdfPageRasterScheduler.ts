@@ -66,7 +66,7 @@ export interface IPdfRasterRenderTarget<TPrepared> {
         captureSettlement: TPdfPageOperationSettlementCapture,
     ): Promise<TPrepared | null>;
     start(prepared: TPrepared, page: IPdfPage): IPdfRenderTask;
-    commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean;
+    commit(prepared: TPrepared, demand: IPdfRasterDemand): boolean | Promise<boolean>;
     discard(prepared: TPrepared): void;
     onRenderStall?: ((payload: IPageRenderStallPayload) => void) | undefined;
     /** Every current demand settles when its bounded attempts run out. */
@@ -279,18 +279,6 @@ export function createPdfPageRasterScheduler(
         void settlement.then(() => work.coordinatedOperationSettlements.delete(settlement));
     }
 
-    async function releasePageLease(work: IRasterWork) {
-        const pageLease = work.pageLease;
-        if (!pageLease) {
-            return;
-        }
-        if (work.coordinatedOperationSettlements.size > 0) {
-            await Promise.allSettled(work.coordinatedOperationSettlements);
-        }
-        pageLease.release();
-        work.pageLease = null;
-    }
-
     function hasPendingReplacement(work: IRasterWork) {
         return [
             ...queued.values(),
@@ -349,18 +337,14 @@ export function createPdfPageRasterScheduler(
         work.retryTimer?.clear();
         work.retryTimer = null;
         work.controller.abort();
-        if (work.stage !== 'rendering') {
-            releaseReservation(work);
-        }
         queued.delete(work.key);
         settleWork(work, {
             status: 'cancelled',
             demand: work.demand,
         });
-        if (work.prepared !== null && work.stage !== 'rendering') {
-            discardPrepared(work);
-        }
         if (work.stage !== 'rendering' && work.stage !== 'committing') {
+            releaseReservation(work);
+            if (work.prepared !== null) discardPrepared(work);
             releaseTarget(work, reason);
         }
     }
@@ -609,7 +593,7 @@ export function createPdfPageRasterScheduler(
                 return;
             }
             work.stage = 'committing';
-            committed = work.target.commit(work.prepared, work.demand);
+            committed = await work.target.commit(work.prepared, work.demand);
             if (!committed) {
                 discardPrepared(work);
                 releaseReservation(work);
@@ -657,7 +641,9 @@ export function createPdfPageRasterScheduler(
                     error,
                 });
         } finally {
-            await releasePageLease(work);
+            if (work.coordinatedOperationSettlements.size > 0) await Promise.allSettled(work.coordinatedOperationSettlements);
+            work.pageLease?.release();
+            work.pageLease = null;
             if (inFlight.get(work.key) === work) {
                 inFlight.delete(work.key);
             }

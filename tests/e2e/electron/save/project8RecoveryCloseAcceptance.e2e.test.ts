@@ -540,6 +540,33 @@ describe('Project 8 recovered close decisions', () => {
             await openPdfInApp(session.page, pdfPath, 60_000);
             await waitForPdfLoaded(session.page, 60_000);
             await waitForViewerInteractive(session.page, 60_000);
+            await session.page.evaluate(() => {
+                const probe = window as Window & {__cropAspectProbe?: {
+                    frame: number;
+                    stretched: number[][]
+                }};
+                const state = {
+                    frame: 0,
+                    stretched: new Array<number[]>(),
+                };
+                probe.__cropAspectProbe = state;
+                const sample = () => {
+                    for (const canvas of document.querySelectorAll<HTMLCanvasElement>('.page_container--rendered .page_canvas__render-layer > canvas')) {
+                        const box = canvas.getBoundingClientRect();
+                        if (canvas.width && canvas.height && box.width && box.height && getComputedStyle(canvas).visibility === 'visible'
+                            && Math.abs(box.width / box.height - canvas.width / canvas.height) > 0.005) {
+                            state.stretched.push([
+                                canvas.width,
+                                canvas.height,
+                                box.width,
+                                box.height,
+                            ]);
+                        }
+                    }
+                    state.frame = requestAnimationFrame(sample);
+                };
+                sample();
+            });
             const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
             for (const inset of [
                 80,
@@ -600,6 +627,17 @@ describe('Project 8 recovered close decisions', () => {
                     return rect.width / rect.height;
                 }), {timeout: 30_000}).toBeCloseTo(visibleCropBox.width / visibleCropBox.height, 2);
             }
+            const stretched = await session.page.evaluate(() => {
+                const probe = window as Window & {__cropAspectProbe?: {
+                    frame: number;
+                    stretched: number[][]
+                }};
+                const state = probe.__cropAspectProbe!;
+                cancelAnimationFrame(state.frame);
+                delete probe.__cropAspectProbe;
+                return state.stretched;
+            });
+            expect(stretched).toEqual([]);
             const croppedPdf = await PDFDocument.load(await readFile(workingCopyPath));
             expectedBox = croppedPdf.getPages()[0]!.getCropBox();
             expect(expectedBox.width).toBeGreaterThan(0);

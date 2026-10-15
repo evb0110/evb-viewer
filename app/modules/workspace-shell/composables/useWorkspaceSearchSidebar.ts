@@ -45,6 +45,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         clearSearch,
         searchProgress,
         resetSearchCache,
+        adoptPageRotation,
         isTruncated,
         minQueryLength,
     } = usePdfSearch({documentRevisionToken});
@@ -115,6 +116,7 @@ export const useWorkspaceSearchSidebar = (options: IWorkspaceSearchSidebarOption
         handleSearchPrevious,
         handleGoToResult,
         resetSearchCache,
+        adoptPageRotation,
         sidebarWidth,
         sidebarContentWidth,
         sidebarWrapperStyle,

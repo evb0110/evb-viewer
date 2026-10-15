@@ -33,7 +33,7 @@ function createCanvas() {
     return {
         width: 0,
         height: 0,
-        style: {} as CSSStyleDeclaration,
+        style: {setProperty(property: string, value: string) {Reflect.set(this, property, value);}} as CSSStyleDeclaration,
         getContext: vi.fn(() => ({})),
         remove: vi.fn(),
     };
@@ -169,25 +169,24 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.annotationCanvasMap).toBeNull();
     });
 
-    it('disables annotation appearances while the canonical projection is pending', async () => {
-        const { canvas } = installCanvasDocument();
-        const annotationProjectionReady = ref(false);
-        const pdfPage = createPdfPage({ getOperatorList: vi.fn() });
+    it('awaits the canonical projection before painting annotation appearances', async () => {
+        installCanvasDocument();
+        const prepared = Promise.withResolvers<undefined>();
+        const started = Promise.withResolvers<undefined>();
+        const pdfPage = createPdfPage({getOperatorList: vi.fn()});
         const renderer = usePdfCanvasRenderer({
             outputScale: 1,
-            annotationProjectionReady,
+            prepareAnnotations: async () => {started.resolve(undefined); await prepared.promise;},
         });
-
-        const result = await renderer.renderCanvas(pdfPage as never, 1);
-
-        expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
-        expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode.DISABLE,
-            canvas,
-        }));
-        const renderContext = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls)[0]?.[0];
-        expect(renderContext).not.toHaveProperty('annotationCanvasMap');
-        expect(result?.annotationCanvasMap).toBeNull();
+        const raster = renderer.renderCanvas(pdfPage as never, 1);
+        try {
+            await started.promise;
+            expect(pdfPage.render).not.toHaveBeenCalled();
+            prepared.resolve(undefined);
+            const result = await raster;
+            expect(result?.paintsAnnotations).toBe(true);
+            expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({annotationMode: AnnotationMode.ENABLE_FORMS}));
+        } finally {prepared.resolve(undefined); await raster;}
     });
 
     it('applies the settled-render default canvas pixel budget', async () => {
@@ -202,7 +201,7 @@ describe('usePdfCanvasRenderer', () => {
         expect(canvas.width).toBe(200);
         expect(canvas.height).toBe(100);
         expect(canvas.style.width).toBe('200px');
-        expect(canvas.style.height).toBe('100px');
+        expect(canvas.style.height).toBe('auto');
         expect(result).toMatchObject({
             requestedPixels: 80_000,
             grantedPixels: 20_000,
@@ -361,7 +360,7 @@ describe('usePdfCanvasRenderer', () => {
         const annotationCanvas = {
             width: 32,
             height: 16,
-            style: {} as CSSStyleDeclaration,
+            style: {setProperty(property: string, value: string) {Reflect.set(this, property, value);}} as CSSStyleDeclaration,
             remove: vi.fn(),
         };
         const renderError = new Error('cancelled');

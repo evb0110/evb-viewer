@@ -1,6 +1,9 @@
+import { normalizePdfViewRotation } from '@app/utils/pdfViewRotation';
 import { getErrorMessage } from '@app/utils/error';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
-import type { TPageIndex } from '@contracts/pageNumbers';
+import {
+    pageNumberToPageIndex, type TPageIndex,
+} from '@contracts/pageNumbers';
 
 import type {
     IPdfPageMatches,
@@ -125,6 +128,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             mix(match.matchIndex);
             mix(match.start);
             mix(match.end);
+            mix(match.rotation ?? 0);
             mix(Math.round(match.pageWidth ?? 0));
             mix(Math.round(match.pageHeight ?? 0));
             hash = mixSearchWordGeometry(hash, match.words);
@@ -146,36 +150,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             && first.startOffset === second.startOffset
             && first.endOffset === second.endOffset
             && (first.pageMatchIndex ?? null) === (second.pageMatchIndex ?? null);
-    }
-
-    function buildSearchMatchGeometrySignature(match: IPdfSearchMatch | null) {
-        if (!match) {
-            return 'null';
-        }
-
-        let hash = 2166136261;
-        hash = mixSearchSignatureHash(hash, Math.round(match.pageWidth ?? 0));
-        hash = mixSearchSignatureHash(hash, Math.round(match.pageHeight ?? 0));
-        hash = mixSearchWordGeometry(hash, match.words);
-
-        return String(hash >>> 0);
-    }
-
-    function isSameSearchMatchGeometry(
-        first: IPdfSearchMatch | null,
-        second: IPdfSearchMatch | null,
-    ) {
-        return buildSearchMatchGeometrySignature(first) === buildSearchMatchGeometrySignature(second);
-    }
-
-    function findSearchMatchTargetIndex(
-        matches: IPdfSearchMatch[],
-        target: IPdfSearchMatch | null,
-    ) {
-        if (!target) {
-            return -1;
-        }
-        return matches.findIndex(match => isSameSearchMatchTarget(match, target));
     }
 
     function cleanupProgressListener() {
@@ -214,33 +188,15 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         response: IPdfSearchResponse,
         query: string,
         options: IResolvedSearchMatchOptions,
-        searchId: string,
     ) {
-        const resultsWithPageIndex = response.results.map(result => ({
-            result,
-            pageIndex: mapPdfSearchResultToUiMatch(result).pageIndex,
-        }));
-        const mergedResults = resultsWithPageIndex.map(({ result }, idx): IPdfSearchMatch => {
-            if (idx < 3) {
-                BrowserLogger.debug('pdf-search', `Result ${idx}`, {
-                    searchId,
-                    page: result.pageNumber,
-                    startOffset: result.startOffset,
-                    endOffset: result.endOffset,
-                });
-            }
+        const mergedResults = response.results.map(mapPdfSearchResultToUiMatch);
 
-            return mapPdfSearchResultToUiMatch(result);
-        });
-
-        const pageResults = new Map<typeof resultsWithPageIndex[number]['pageIndex'], IPdfSearchResult[]>();
-        resultsWithPageIndex.forEach((item) => {
-            const pageSearchResults = pageResults.get(item.pageIndex) ?? [];
-            if (pageSearchResults.length === 0) {
-                BrowserLogger.debug('pdf-search', `Created pageMatches for page ${item.result.pageNumber}`, { searchId });
-                pageResults.set(item.pageIndex, pageSearchResults);
-            }
-            pageSearchResults.push(item.result);
+        const pageResults = new Map<TPageIndex, IPdfSearchResult[]>();
+        response.results.forEach((result) => {
+            const pageIndex = pageNumberToPageIndex(result.pageNumber);
+            const pageSearchResults = pageResults.get(pageIndex) ?? [];
+            if (pageSearchResults.length === 0) pageResults.set(pageIndex, pageSearchResults);
+            pageSearchResults.push(result);
         });
 
         const matchesMap = new Map(Array.from(pageResults.entries()).map(([
@@ -274,11 +230,10 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         response: IPdfSearchResponse,
         query: string,
         options: IResolvedSearchMatchOptions,
-        searchId: string,
         direction?: TSearchDirection,
         targetMatchIndex?: number,
     ) {
-        const normalizedResponse = normalizeSearchResponse(response, query, options, searchId);
+        const normalizedResponse = normalizeSearchResponse(response, query, options);
         const previousCurrentResult = currentResult.value;
 
         results.value = normalizedResponse.results;
@@ -303,16 +258,16 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             return;
         }
 
-        const preservedCurrentResultIndex = findSearchMatchTargetIndex(
-            normalizedResponse.results,
-            previousCurrentResult,
-        );
+        const preservedCurrentResultIndex = normalizedResponse.results.findIndex(match =>
+            isSameSearchMatchTarget(match, previousCurrentResult));
         if (preservedCurrentResultIndex >= 0) {
             currentResultIndex.value = preservedCurrentResultIndex;
-            if (!isSameSearchMatchGeometry(
-                previousCurrentResult,
-                normalizedResponse.results[preservedCurrentResultIndex] ?? null,
-            )) {
+            const preserved = normalizedResponse.results[preservedCurrentResultIndex]!;
+            if (previousCurrentResult && (Math.round(previousCurrentResult.pageWidth ?? 0) !== Math.round(preserved.pageWidth ?? 0)
+                || Math.round(previousCurrentResult.pageHeight ?? 0) !== Math.round(preserved.pageHeight ?? 0)
+                || previousCurrentResult.rotation !== preserved.rotation
+                || mixSearchWordGeometry(2166136261, previousCurrentResult.words)
+                    !== mixSearchWordGeometry(2166136261, preserved.words))) {
                 currentResultNavigationId.value += 1;
             }
         } else if (currentResultIndex.value >= normalizedResponse.results.length) {
@@ -371,6 +326,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
      * leaving the search tab can actually drop work that has not started yet.
      */
     function scheduleSearch(payload: IScheduledPdfSearch) {
+        searchCommand = payload;
         clearPendingSearchTimer();
         if (SEARCH_DEBOUNCE_MS <= 0) {
             void runScheduledSearch(payload);
@@ -490,7 +446,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                         results: streamedResults,
                         truncated: Boolean(progress.truncated),
                         ...(progress.coverage ? {coverage: progress.coverage} : {}),
-                    }, query, options, searchId);
+                    }, query, options);
                 }
             });
 
@@ -529,7 +485,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 ...payload,
                 ...(resultOffset === undefined ? {} : {resultOffset}),
             };
-            applySearchResponse(response, query, options, searchId, direction, targetMatchIndex);
+            applySearchResponse(response, query, options, direction, targetMatchIndex);
             isTruncated.value = response.truncated;
         } finally {
             const isActiveRequest = activeRequestId === requestId;
@@ -679,8 +635,41 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         return pageMatches.value.get(pageIndex) ?? null;
     }
 
+    function adoptPageRotation(documentRevisionToken: TDocumentRevisionToken, pages: readonly number[], rotationDelta: 90 | 180 | 270) {
+        const interrupted = isSearching.value;
+        cancelSearch();
+        if (!searchCommand) return;
+        searchCommand = {
+            ...searchCommand,
+            runId: searchRunId,
+            documentRevisionToken,
+        };
+        const rotatedPages = new Set(pages.map(page => page - 1));
+        const rotate = <T extends Pick<IPdfSearchMatch, 'rotation'>>(match: T): T => ({
+            ...match,
+            rotation: normalizePdfViewRotation((match.rotation ?? 0) + rotationDelta),
+        });
+        results.value = results.value.map(match => rotatedPages.has(match.pageIndex) ? rotate(match) : match);
+        const rotatedMatches = new Map(pageMatches.value);
+        for (const pageIndex of rotatedPages) {
+            const data = rotatedMatches.get(pageIndex);
+            if (!data) continue;
+            const rotated = {
+                ...data,
+                matches: data.matches.map(rotate),
+            };
+            rotatedMatches.set(pageIndex, {
+                ...rotated,
+                signatureToken: buildPageMatchSignatureToken(rotated),
+            });
+        }
+        pageMatches.value = rotatedMatches;
+        if (currentResult.value && rotatedPages.has(currentResult.value.pageIndex)) currentResultNavigationId.value += 1;
+        if (interrupted) void runScheduledSearch(searchCommand, searchCommand.resultOffset, 'next', currentResult.value?.matchIndex);
+    }
+
     function resetSearchCache() {
-        clearSearch();
+        if (!searchCommand || searchCommand.documentRevisionToken !== getCurrentDocumentRevisionToken()) clearSearch();
         void Promise.resolve(getSearchCapability().resetCache()).catch((error) => {
             BrowserLogger.debug(
                 'pdf-search',
@@ -717,6 +706,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         cancelSearch,
         clearSearch,
         resetSearchCache,
+        adoptPageRotation,
         getMatchesForPage,
     };
 };

@@ -1323,6 +1323,8 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         const postFastFirstCanvasReady = await waitForVisiblePageCanvas(session, 1, 20_000);
         const postFastFirstState = await collectPagedState();
 
+        expect(postFastFirstCanvasReady).toBe(true);
+        expectPagedStateConverged(postFastFirstState);
         const removedCurrentCanvas = await session.page.evaluate(() => {
             const canvas = document.querySelector<HTMLCanvasElement>(
                 '#pdf-viewer .page_container[data-page="1"] .page_canvas canvas',
@@ -1393,8 +1395,6 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
         expect(fastPage).toBeGreaterThanOrEqual(4);
         expect(fastCanvasReady).toBe(true);
         expectPagedStateConverged(fastState);
-        expect(postFastFirstCanvasReady).toBe(true);
-        expectPagedStateConverged(postFastFirstState);
         expect(samePageRecoveryCanvasReady).toBe(true);
         expectPagedStateConverged(samePageRecoveryState);
     }, 90_000);

@@ -26,7 +26,6 @@ function createHarness(options?: {
     shouldShowSkeleton?: (page: number) => boolean;
 }) {
     const scope = effectScope();
-    const mountedPages = ref([1]);
     const visibleRange = ref({
         start: 1,
         end: 1,
@@ -40,10 +39,8 @@ function createHarness(options?: {
         openSurface: createDocumentOpenSurfaceSession(),
         isVisualReloadTransitionActive: ref(false),
         skeletonContentInsets: ref(null),
-        pagesToRender: computed(() => mountedPages.value),
         isPageBuffered: options?.isPageBuffered ?? vi.fn(() => false),
         isPageRenderedForClass: options?.isPageRenderedForClass ?? vi.fn(() => false),
-        isPageRendering: options?.isPageRendering ?? vi.fn(() => false),
         isPageRenderFailed: options?.isPageRenderFailed ?? vi.fn(() => false),
         shouldShowSkeleton: options?.shouldShowSkeleton ?? vi.fn(() => false),
         visibleRange,

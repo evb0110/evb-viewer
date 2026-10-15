@@ -168,7 +168,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         emitAnnotationState: state => options.emitAnnotationState(state),
         emitAnnotationModified: () => options.emitAnnotationModified(),
         onHistoryReplay: () => {
-            annotations.commentSync.discardInFlightSync();
             annotations.commentSync.scheduleAnnotationCommentsSync();
         },
         commitPendingDraftsForSave: () => annotationEditorSurface.commitPendingTextBoxDraftsForSave(),
@@ -330,9 +329,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         ensurePdfAnnotationNameReconciliation: (
             _reason: 'annotations-ui-open' | 'existing-annotation-mutation',
         ) => Promise.resolve('already-reconciled' as const),
-        incrementSyncToken: () => {},
-        discardInFlightSync: () => {},
-        clearSyncState: () => {},
         setActiveCommentStableKey: (key: string | null) => {
             activeCommentStableKey.value = key;
         },
@@ -915,6 +911,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const detachProjection = rendering.attachAnnotationProjection({
         hiddenAnnotationIds: hiddenPdfAnnotationIds,
         annotationProjectionReady,
+        ensureAnnotationProjectionReady,
         canvasHiddenAnnotationIds,
         thumbnailHiddenAnnotationIds,
         pageCommitted: () => undefined,
@@ -935,13 +932,19 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             annotationProjectionReady.value = true;
         }
     }
+    function ensureAnnotationProjectionReady() {
+        const fence = documentSession.captureFence();
+        return feedStoreFromWriterParse({
+            fence,
+            isCurrent: () => documentSession.isCurrent(fence),
+        });
+    }
     const unsubscribeDocumentTransitions = documentSession.subscribe((transition) => {
         if (!transition.isCurrent()) {
             return;
         }
         if (transition.phase === 'invalidated') {
             annotationProjectionReady.value = true;
-            annotations.commentSync.incrementSyncToken();
             annotations.highlight.clearSelectionCache();
             if (transition.reason === 'source-cleared' || transition.reason === 'empty-source') {
                 annotationCommentModel.clearProjection();
@@ -995,11 +998,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!documentSession.pdfDocument.value || documentSession.pendingPageMutationRevisionSwap) {
             return;
         }
-        const fence = documentSession.captureFence();
-        void feedStoreFromWriterParse({
-            fence,
-            isCurrent: () => documentSession.isCurrent(fence),
-        });
+        void ensureAnnotationProjectionReady();
     }, {
         flush: 'post',
         immediate: true,
