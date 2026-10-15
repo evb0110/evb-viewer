@@ -465,10 +465,7 @@ function resolveProductionAliasUrl(deployTarget) {
 }
 
 // The deployment an alias serves, as `vercel inspect` reports it.
-function parseVercelDeployment(output, {
-    expectedAliasUrl,
-    expectedProjectName,
-} = {}) {
+function parseVercelDeployment(output, {expectedProjectName} = {}) {
     let parsed;
     try {
         parsed = JSON.parse(output);
@@ -479,13 +476,6 @@ function parseVercelDeployment(output, {
     const url = typeof parsed?.url === 'string' ? parsed.url.trim() : '';
     if (expectedProjectName && parsed?.name !== expectedProjectName) {
         throw new Error('Vercel inspect returned a deployment from a different project.');
-    }
-    if (expectedAliasUrl) {
-        const expectedAlias = new URL(expectedAliasUrl).hostname;
-        const aliases = Array.isArray(parsed?.aliases) ? parsed.aliases : [];
-        if (!aliases.includes(expectedAlias)) {
-            throw new Error('Vercel inspect returned a deployment that does not own the production alias.');
-        }
     }
     if (!id && !url) {
         throw new Error('Vercel inspect did not identify the current production deployment.');
@@ -511,8 +501,9 @@ export function extractVercelDeploymentIdentity(output, options) {
 }
 
 function inspectDeployment({
-    url, expectedAliasUrl, expectedProjectName, runCommand,
+    url, expectedProjectName, runCommand,
 }) {
+    // Inspect resolves this exact URL. Its aliases list can omit custom domains after promotion.
     const result = runCommand([
         'inspect',
         url,
@@ -521,10 +512,7 @@ function inspectDeployment({
     if ((result.status ?? 1) !== 0) {
         throw new Error(`Vercel inspect exited with ${result.status ?? 1}; refusing a production deploy without a rollback target.`);
     }
-    const deployment = parseVercelDeployment(result.stdout ?? '', {
-        expectedAliasUrl,
-        expectedProjectName,
-    });
+    const deployment = parseVercelDeployment(result.stdout ?? '', {expectedProjectName});
     if (!deployment.id) {
         throw new Error('Vercel inspect did not return an immutable deployment id.');
     }
@@ -734,7 +722,6 @@ function rollBackPromotedDeployment({
     try {
         production = inspectDeployment({
             url: aliasUrl,
-            expectedAliasUrl: aliasUrl,
             expectedProjectName,
             runCommand,
         });
@@ -836,7 +823,6 @@ export async function runPrivateVercelDeploy({
         };
         const inspectProduction = () => inspectDeployment({
             url: productionAliasUrl,
-            expectedAliasUrl: productionAliasUrl,
             expectedProjectName: projectLink.projectName,
             runCommand,
         });

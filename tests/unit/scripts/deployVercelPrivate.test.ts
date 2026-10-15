@@ -56,10 +56,7 @@ interface IPrivateDeployModule {
     ) => string[];
     extractVercelDeploymentUrl: (output: string) => string | null;
     getProductionDeployLockPath: (projectId: string) => string;
-    extractVercelDeploymentIdentity: (output: string, options?: {
-        expectedAliasUrl?: string;
-        expectedProjectName?: string;
-    }) => string;
+    extractVercelDeploymentIdentity: (output: string, options?: {expectedProjectName?: string;}) => string;
     parsePrivateDeployOptions: (rawArgs?: string[]) => {
         deployArgs: string[];
         deployTarget: string;
@@ -247,7 +244,9 @@ function createVercelAlias(initial: IProductionRecord) {
                     stderr: '',
                     stdout: JSON.stringify({
                         ...record,
-                        aliases: ['web.evb-viewer.com'],
+                        // Vercel inspect omits the custom domain after promotion,
+                        // even while inspecting that exact alias resolves its owner.
+                        aliases: ['fixture-project.vercel.app'],
                         name: 'fixture-project',
                     }),
                     status: record ? 0 : 1,
@@ -1605,18 +1604,12 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         );
         expect(() => extractVercelDeploymentIdentity(
             '{"aliases":["other.example"],"id":"dpl_other","name":"other-project"}',
-            {
-                expectedAliasUrl: 'https://web.evb-viewer.com/',
-                expectedProjectName: 'fixture-project',
-            },
+            {expectedProjectName: 'fixture-project'},
         )).toThrow('different project');
-        expect(() => extractVercelDeploymentIdentity(
+        expect(extractVercelDeploymentIdentity(
             '{"aliases":["other.example"],"id":"dpl_other","name":"fixture-project"}',
-            {
-                expectedAliasUrl: 'https://web.evb-viewer.com/',
-                expectedProjectName: 'fixture-project',
-            },
-        )).toThrow('does not own the production alias');
+            {expectedProjectName: 'fixture-project'},
+        )).toBe('dpl_other');
         expect(buildVercelRollbackArgs('dpl_previous')).toEqual([
             'promote',
             'dpl_previous',
