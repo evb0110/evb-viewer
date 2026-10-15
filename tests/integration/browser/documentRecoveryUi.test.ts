@@ -367,14 +367,15 @@ describe('browser document lifecycle UI', () => {
             const container = page.locator('.page_container[data-page="1"]').first();
             const annotationCanvas = container.locator('.annotation-layer canvas').first();
             await annotationCanvas.waitFor({state: 'visible'});
-            const readCanvas = async (element: Element) => {
-                if (!(element instanceof HTMLCanvasElement)) throw new Error('The appearance is not a painted canvas');
-                const context = element.getContext('2d');
+            const readCanvas = async (element: Element, selector: string) => {
+                const canvas = element.querySelector(selector);
+                if (!(canvas instanceof HTMLCanvasElement)) throw new Error('The appearance is not a painted canvas');
+                const context = canvas.getContext('2d');
                 if (!context) throw new Error('The painted canvas has no pixel reader');
-                const width = element.width;
-                const height = element.height;
+                const width = canvas.width;
+                const height = canvas.height;
                 const rgba = context.getImageData(0, 0, width, height).data;
-                const pixels = element.toDataURL();
+                const pixels = canvas.toDataURL();
                 const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', rgba));
                 return {
                     width,
@@ -388,7 +389,7 @@ describe('browser document lifecycle UI', () => {
                 height: paint.height,
                 rgbaSHA256: paint.rgbaSHA256,
             });
-            const originalAppearance = await annotationCanvas.evaluate(readCanvas);
+            const originalAppearance = await container.evaluate(readCanvas, '.annotation-layer canvas');
             expect(originalAppearance.width).toBeGreaterThan(0);
             expect(originalAppearance.height).toBeGreaterThan(0);
             const placeNote = page.getByRole('button', {
@@ -410,7 +411,7 @@ describe('browser document lifecycle UI', () => {
             }).click();
             const selectedNote = container.locator('.pdf-annotation-editor-note.is-selected');
             expect(await selectedNote.count()).toBe(1);
-            const originalRaster = await container.locator('.page_canvas__render-layer canvas').evaluate(readCanvas);
+            const originalRaster = await container.evaluate(readCanvas, '.page_canvas__render-layer canvas');
             // Setup-only arming; the replacement itself uses trusted zoom input.
             await container.evaluate(element => {
                 element.setAttribute('data-required-hydration-baseline-width', String(element.getBoundingClientRect().width));
@@ -419,8 +420,8 @@ describe('browser document lifecycle UI', () => {
             });
             await page.getByRole('button', {name: /^Zoom In/u}).first().click();
             await expect.poll(() => container.getAttribute('data-required-hydration-fault')).toBe('held');
-            expect(signature(await container.locator('canvas').first().evaluate(readCanvas))).toEqual(signature(originalRaster));
-            expect(signature(await annotationCanvas.evaluate(readCanvas))).toEqual(signature(originalAppearance));
+            expect(signature(await container.evaluate(readCanvas, '.page_canvas__render-layer canvas'))).toEqual(signature(originalRaster));
+            expect(signature(await container.evaluate(readCanvas, '.annotation-layer canvas'))).toEqual(signature(originalAppearance));
             expect(await selectedNote.count()).toBe(1);
             const download = page.waitForEvent('download');
             await page.getByRole('button', {
@@ -440,8 +441,8 @@ describe('browser document lifecycle UI', () => {
             await expect.poll(() => container.getAttribute('data-page-layer-readiness'), {timeout: 15_000}).toBe('ready');
             await expect.poll(async () => Number(await container.locator('canvas').first().getAttribute('width')), {timeout: 15_000}).toBeGreaterThan(originalRaster.width);
             expect(await selectedNote.count()).toBe(1);
-            const savedRaster = await container.locator('.page_canvas__render-layer canvas').evaluate(readCanvas);
-            const savedAppearance = await annotationCanvas.evaluate(readCanvas);
+            const savedRaster = await container.evaluate(readCanvas, '.page_canvas__render-layer canvas');
+            const savedAppearance = await container.evaluate(readCanvas, '.annotation-layer canvas');
             await container.evaluate(element => {
                 element.setAttribute('data-required-hydration-baseline-width', String(element.getBoundingClientRect().width));
                 element.removeAttribute('data-required-hydration-target');
@@ -449,12 +450,12 @@ describe('browser document lifecycle UI', () => {
             });
             await page.getByRole('button', {name: /^Zoom In/u}).first().click();
             await expect.poll(() => container.getAttribute('data-required-hydration-fault')).toBe('held');
-            expect(signature(await container.locator('canvas').first().evaluate(readCanvas))).toEqual(signature(savedRaster));
-            expect(signature(await annotationCanvas.evaluate(readCanvas))).toEqual(signature(savedAppearance));
+            expect(signature(await container.evaluate(readCanvas, '.page_canvas__render-layer canvas'))).toEqual(signature(savedRaster));
+            expect(signature(await container.evaluate(readCanvas, '.annotation-layer canvas'))).toEqual(signature(savedAppearance));
             expect(await selectedNote.count()).toBe(1);
             await page.getByRole('button', {name: /^Zoom In/u}).first().click();
             await expect.poll(() => container.getAttribute('data-required-hydration-fault'), {timeout: 15_000}).toBe('settled');
-            await expect.poll(async () => signature(await container.locator('canvas').first().evaluate(readCanvas)), {timeout: 15_000}).not.toEqual(signature(savedRaster));
+            await expect.poll(async () => signature(await container.evaluate(readCanvas, '.page_canvas__render-layer canvas')), {timeout: 15_000}).not.toEqual(signature(savedRaster));
             expect(await page.locator('body').getAttribute('data-required-hydration-deadline-fired')).toBeNull();
             expect(await selectedNote.count()).toBe(1);
             const retiredContainer = await container.elementHandle();

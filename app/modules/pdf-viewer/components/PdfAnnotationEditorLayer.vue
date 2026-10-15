@@ -874,6 +874,7 @@ async function handlePointerUp(event: PointerEvent) {
     const resizeHandle = pointerGesture.resizeHandle.value;
     if (point) pointerGesture.update(point, event);
     const selection = surface.selectedIds.value;
+    if (point && (pointerGesture.hasMoved.value || pointerGesture.mode.value === 'create')) markClickSuppressed();
     const pending = point && draggedAnnotationId.value === editingId.value ? prepareTextBoxGeometryChange() : undefined;
     releasePointer(event);
     surface.endPointerInteraction(props.pageIndex);
@@ -893,9 +894,6 @@ async function handlePointerUp(event: PointerEvent) {
     if (!completion) {
         pointerGesture.cancel();
         return;
-    }
-    if (completion.hasMoved || completion.mode === 'create') {
-        markClickSuppressed();
     }
     if (completion.mode === 'create') {
         if (!tool) {
