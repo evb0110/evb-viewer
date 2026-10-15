@@ -532,7 +532,7 @@ jobs:
         run: tar -xf electron-e2e-build.tar && rm electron-e2e-build.tar
 
       - name: Install PDF test tools
-        run: scripts/ci/apt-install.sh imagemagick poppler-utils qpdf xdotool
+        run: scripts/ci/apt-install.sh ffmpeg imagemagick poppler-utils qpdf xdotool
 
       - name: Install Playwright Chromium
         # annotationStrokeParity compares Electron with standalone Chromium.

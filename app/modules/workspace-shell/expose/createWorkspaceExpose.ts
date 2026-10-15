@@ -36,18 +36,11 @@ function selectedPagePayloadCount(payload: number[] | TPageSelection) {
     return Array.isArray(payload) ? payload.length : pageSelectionCount(payload);
 }
 
-function normalizeToolbarSnapshotPage(page: number | undefined) {
+function normalizeToolbarSnapshotPage(page: number | undefined, minimum = 1) {
     if (typeof page !== 'number' || !Number.isFinite(page)) {
-        return 1;
-    }
-    return Math.max(1, Math.floor(page));
-}
-
-function normalizeToolbarSnapshotTotalPages(totalPages: number | undefined, minimum: number) {
-    if (typeof totalPages !== 'number' || !Number.isFinite(totalPages)) {
         return minimum;
     }
-    return Math.max(minimum, Math.floor(totalPages));
+    return Math.max(minimum, Math.floor(page));
 }
 
 /** Builds the workspace command surface that tabs, menus and automation call. */
@@ -116,7 +109,7 @@ export function createWorkspaceExpose(
         const currentPage = isOpening
             ? 1
             : normalizeToolbarSnapshotPage(view.currentPage.value);
-        const totalPages = normalizeToolbarSnapshotTotalPages(
+        const totalPages = normalizeToolbarSnapshotPage(
             view.totalPages.value,
             isOpening ? 0 : currentPage,
         );
@@ -246,7 +239,7 @@ export function createWorkspaceExpose(
         handleGoToPage: owners.handleGoToPage,
         handleToggleSidebar: () => { view.showSidebar.value = !view.showSidebar.value; },
         handleEnableDragMode: () => { navigation.enableDragMode(); },
-        handleDisableDragMode: () => { viewContext.annotationToolState.handleAnnotationToolChange('none'); },
+        handleDisableDragMode: () => { void viewContext.annotationToolState.handleAnnotationToolChange('none'); },
         handleQuickNote: () => { if (!document.isMoving.value) void viewContext.annotationActions.handleQuickNoteAction(); },
         handleInsertImageFromFile: async () => { if (!document.isMoving.value) await owners.handleInsertImageFromFile(); },
         handlePasteImageFromClipboard: async () => { if (!document.isMoving.value) await owners.handlePasteImageFromClipboard(); },

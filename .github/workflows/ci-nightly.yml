@@ -275,7 +275,7 @@ jobs:
       - name: Install PDF test tools
         # The interop checks validate and render saved PDFs with independent
         # qpdf and Poppler, as ci.yml installs them on Linux.
-        run: brew install imagemagick poppler qpdf
+        run: brew install ffmpeg imagemagick poppler qpdf
 
       - name: Install Playwright Chromium
         # annotationStrokeParity compares Electron with standalone Chromium.
