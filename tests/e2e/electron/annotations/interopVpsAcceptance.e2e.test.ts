@@ -536,14 +536,14 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
             });
         }
         async function rotatePage(direction: 'clockwise' | 'counterclockwise') {
-            const previous = await page.$eval(selector, entity => (entity as HTMLElement).style.cssText);
+            const previous = await page.$eval(selector, entity => (entity as HTMLElement).style.transform);
             await openDocumentSidebarTab(page, 'Pages');
             await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="1"]', {button: 'right'});
             await clickFoundAsUser(page, target => Array.from(document.querySelectorAll('[role="menuitem"]'))
                 .find(item => item.textContent?.trim().toLowerCase() === `rotate ${target}`), direction, {description: `Rotate page ${direction}`});
             await page.waitForFunction((target: string, before: string) => {
                 const entity = document.querySelector<HTMLElement>(target);
-                return entity && entity.style.cssText !== before;
+                return entity && entity.style.transform !== before;
             }, {timeout: SAVE_TIMEOUT_MS}, selector, previous);
             await waitForViewerInteractive(page);
         }

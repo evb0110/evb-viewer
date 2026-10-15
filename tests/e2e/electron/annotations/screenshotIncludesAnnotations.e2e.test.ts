@@ -26,9 +26,6 @@ import {
 import {
     clickAsUser, revealForPointer,
 } from '@tests/e2e/electron/helpers/userInput';
-import {
-    startElectronE2ESession, type IElectronE2ESession,
-} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
 async function countAnnotationColourPixels(
     imagePath: string,
@@ -214,7 +211,7 @@ describe('Electron E2E - screenshot annotation output', () => {
         const generated = await createMultiPageTextFixturePdf(`screenshot-annotation-${Date.now()}.pdf`, 1);
         const path = join(evidenceDirectory, `annotated-source-${Date.now()}.pdf`);
         await copyFile(generated, path);
-        let session: IElectronE2ESession = sessions.getSession();
+        let session = sessions.getSession();
         let {page} = session;
         await openPdfInApp(page, path);
         await waitForPdfLoaded(page);
@@ -240,8 +237,9 @@ describe('Electron E2E - screenshot annotation output', () => {
         await page.waitForSelector('.pdf-annotation-editor-layer g[data-annotation-kind="shape"]');
         await saveViaWindowHandle(page);
 
-        await session.stop();
-        session = await startElectronE2ESession(`e2e-screenshot-annotation-reopen-${Date.now()}`, {
+        session = await sessions.restart({
+            hard: true,
+            sessionName: `e2e-screenshot-annotation-reopen-${Date.now()}`,
             clean: true,
             // Chromium's lazy ClipboardItem rejects getType() once the clipboard
             // sequence number moves after read(). On X11 this Chromium bumps it
@@ -250,7 +248,6 @@ describe('Electron E2E - screenshot annotation output', () => {
             // reads take the bytes during read() and check the same PNG.
             extraEnv: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '--disable-blink-features=ReadClipboardDataOnClipboardItemGetType'},
         });
-        onTestFinished(async () => { await session.stop(); });
         page = session.page;
         await openPdfInApp(page, path);
         await waitForPdfLoaded(page);
