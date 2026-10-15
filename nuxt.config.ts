@@ -586,6 +586,7 @@ export default defineNuxtConfig({
                 '@vueuse/math',
                 'agentation-vue3',
                 'devalue',
+                'es-toolkit',
                 'es-toolkit/array',
                 'es-toolkit/math',
                 'es-toolkit/object',

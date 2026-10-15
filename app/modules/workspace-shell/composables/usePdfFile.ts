@@ -59,14 +59,6 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         notifyPdfInitialVisualReady,
         shouldForceSaveAsForWorkingCopy,
     } = createDocumentConformance(sessionState);
-    const documentOpenFlowRef: { current: ReturnType<typeof createDocumentOpenFlow> | null } = {current: null};
-    function getDocumentOpenFlow() {
-        if (!documentOpenFlowRef.current) {
-            throw new Error('Document open flow is not initialized');
-        }
-        return documentOpenFlowRef.current;
-    }
-
     const {
         canRedo,
         canUndo,
@@ -87,7 +79,7 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         syncDirtyFromHistory,
         undo,
     } = createDocumentHistory(sessionState, {
-        applyLoadedPdfState: (...args) => getDocumentOpenFlow().applyLoadedPdfState(...args),
+        applyLoadedPdfState: (...args) => documentOpenFlow.applyLoadedPdfState(...args),
         clearPdfConformanceProfile,
         clearOcrCache,
         deferPdfConformanceProfile,
@@ -95,8 +87,8 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         documentWorkingCopy: getDocumentWorkingCopyCapability,
         getOpenEpoch: () => openEpoch.current(),
         isCurrentOpenEpoch: token => openEpoch.isCurrent(token),
-        readPdfStateFromPath: (...args) => getDocumentOpenFlow().readPdfStateFromPath(...args),
-        toPdfBlob: (...args) => getDocumentOpenFlow().toPdfBlob(...args),
+        readPdfStateFromPath: (...args) => documentOpenFlow.readPdfStateFromPath(...args),
+        toPdfBlob: (...args) => documentOpenFlow.toPdfBlob(...args),
     });
     if (!isElectron.value) {
         const readDependencies = () => [
@@ -106,7 +98,7 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         ].flatMap(ref => ref ? [ref] : []);
         tryOnScopeDispose(registerBrowserDocumentDependencyReader(readDependencies));
     }
-    const documentOpenFlow = createDocumentOpenFlow(sessionState, {
+    const documentOpenFlow: ReturnType<typeof createDocumentOpenFlow> = createDocumentOpenFlow(sessionState, {
         cleanupAbandonedWorkingCopy: path => getDocumentWorkingCopyCapability().cleanupFile(path),
         clearPdfConformanceProfile,
         cleanupPreviousWorkingCopy,
@@ -121,7 +113,6 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         t,
         ...options,
     });
-    documentOpenFlowRef.current = documentOpenFlow;
     const {
         loadPdfFromData,
         loadPdfFromPath,
@@ -143,6 +134,7 @@ export const usePdfFile = (options: Pick<ICreateDocumentOpenFlowDeps, 'admitOpen
         trySaveEmbeddedNoteTextUpdates,
         trySavePdfNativeMutations,
     } = createDocumentPersistence(sessionState, {
+        refreshDocumentRevisionToken: documentOpenFlow.refreshDocumentRevisionToken,
         deferPdfConformanceProfile,
         ensureHistoryBaselineForMutation,
         getHistoryDebugState,

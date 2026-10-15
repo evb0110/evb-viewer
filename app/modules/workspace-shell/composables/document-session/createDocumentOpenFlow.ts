@@ -768,32 +768,18 @@ export function createDocumentOpenFlow(
             return false;
         }
 
-        const revision = await resolveDocumentRevision(path, isCurrent);
-        if (isCurrent?.() === false) {
-            return false;
-        }
-        state.documentRevisionInfo.value = revision;
-        state.documentRevisionToken.value = revision?.token ?? null;
-        return true;
-    }
-
-    async function resolveDocumentRevision(
-        path: TDocumentRef,
-        isCurrent?: (() => boolean) | undefined,
-    ) {
-        try {
-            const revision = await getDocumentFilesCapability().getDocumentRevision(path);
-            return isCurrent?.() === false ? null : revision;
-        } catch (error) {
-            if (isCurrent?.() === false) {
-                return null;
-            }
+        const revision = await getDocumentFilesCapability().getDocumentRevision(path).catch((error: unknown) => {
+            if (isCurrent?.() === false) return null;
             BrowserLogger.warn('pdf-file', 'Failed to resolve document revision', {
                 path,
                 error,
             });
             return null;
-        }
+        });
+        if (isCurrent?.() === false) return false;
+        state.documentRevisionInfo.value = revision;
+        state.documentRevisionToken.value = revision?.token ?? null;
+        return true;
     }
 
     async function readPdfStateFromPath(
@@ -1073,6 +1059,7 @@ export function createDocumentOpenFlow(
         openFileDirectBatch,
         pickFileToOpen,
         readPdfStateFromPath,
+        refreshDocumentRevisionToken,
         toPdfBlob,
     };
 }

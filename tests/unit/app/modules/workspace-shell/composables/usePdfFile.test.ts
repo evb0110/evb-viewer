@@ -184,6 +184,14 @@ describe('usePdfFile façade', () => {
         'blob',
         'path',
     ])('commits the saved replacement while previous-copy cleanup is pending (source: %s)', async (sourceKind) => {
+        mocks.getRevision.mockImplementation(async (path: string) => ({
+            version: 1,
+            documentRef: path,
+            authority: 'electron-working-copy',
+            contentRevision: 1,
+            mintedAt: 1,
+            token: path === '/tmp/saved-working.pdf' ? 'saved-revision' : 'opened-revision',
+        }));
         const file = createFacade();
         await file.openFile(pdfResult('save-cleanup'));
         file.isDirty.value = true;
@@ -212,6 +220,8 @@ describe('usePdfFile façade', () => {
                 outPath: 'browser://documents/saved.pdf',
             });
             expect(file.workingCopyPath.value).toBe('/tmp/saved-working.pdf');
+            expect(file.documentRevisionInfo.value?.documentRef).toBe('/tmp/saved-working.pdf');
+            expect(file.documentRevisionToken.value).toBe('saved-revision');
             expect(file.pdfSrc.value === loadedSource).toBe(sourceKind === 'blob');
             expect(file.pdfReloadSrc.value).not.toBe(loadedSource);
             expect(file.pdfData.value).toEqual(PDF_BYTES);

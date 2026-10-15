@@ -59,6 +59,7 @@ interface IPdfPersistPhaseTiming {
 }
 
 interface ICreateDocumentPersistenceDeps {
+    refreshDocumentRevisionToken: (path: TDocumentRef, isCurrent: () => boolean) => Promise<boolean>;
     deferPdfConformanceProfile: (path: TDocumentRef) => void;
     ensureHistoryBaselineForMutation: () => Promise<boolean>;
     getHistoryDebugState: () => {
@@ -152,6 +153,7 @@ export function createDocumentPersistence(
         // become a history/recovery snapshot. Keep the path and revision token
         // instead, so a 2+ GiB working copy never crosses into renderer memory.
         const hasNativePathSource = hasNativePathBackedSource(state, path);
+        if (!hasNativePathSource && !await deps.refreshDocumentRevisionToken(path, () => state.isActiveWorkingCopy(path))) return false;
         if (hasNativePathSource && !opts?.preserveLoadedSource) {
             if (!await adoptStablePathBackedPersistedState({
                 state,
@@ -164,9 +166,6 @@ export function createDocumentPersistence(
         } else if (opts?.preserveLoadedSource) {
             if (!hasNativePathSource && snapshotHint && snapshotHint.byteLength <= MAX_IN_MEMORY_PDF_BYTES) {
                 const snapshot = snapshotHint.slice();
-                if (!state.isActiveWorkingCopy(path)) {
-                    return false;
-                }
                 state.pdfData.value = snapshot;
                 state.pdfReloadSrc.value = state.pdfSrc.value instanceof Blob
                     ? deps.toPdfBlob(snapshot)

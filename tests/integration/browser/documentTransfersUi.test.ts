@@ -382,7 +382,10 @@ describe('browser document lifecycle UI', () => {
         }
     }, 120_000);
 
-    it('proves a dirty viewer transfer after source loss before target authority readback', async () => {
+    it.each([
+        'command',
+        'toolbar',
+    ])('proves a dirty viewer transfer after source loss before target authority readback (%s)', async saveEntry => {
         const context = await lifecycle.browser.newContext();
         const source = await context.newPage();
         const target = await context.newPage();
@@ -536,13 +539,24 @@ describe('browser document lifecycle UI', () => {
             }), {timeout: 30_000}).toBe(true);
 
             const downloadPromise = target.waitForEvent('download');
-            const saveResult = await target.evaluate(async () => {
-                const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                return api.callActiveWorkspaceCommand?.('handleSaveAs');
-            });
-            expect(saveResult?.called).toBe(true);
-            expect(saveResult?.value).toBe(true);
+            if (saveEntry === 'toolbar') {
+                await target.getByRole('button', {
+                    name: 'Save options',
+                    exact: true,
+                }).click();
+                await target.getByRole('menuitem', {name: /^Save As/u}).click();
+            } else {
+                const saveResult = await target.evaluate(async () => {
+                    const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
+                    return api.callActiveWorkspaceCommand?.('handleSaveAs');
+                });
+                expect(saveResult?.called).toBe(true);
+                expect(saveResult?.value).toBe(true);
+            }
             const download = await downloadPromise;
+            await expect.poll(async () => await target.locator(
+                '[data-tab-list] [role="tab"][aria-selected="true"]',
+            ).getAttribute('aria-description') ?? '', {timeout: 30_000}).not.toMatch(/unsaved/i);
             const savedPath = resolve(process.cwd(), '.devkit/browser-transfer-save-reopen/transferred-edited.pdf');
             await download.saveAs(savedPath);
 
