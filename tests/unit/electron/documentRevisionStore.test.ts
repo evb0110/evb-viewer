@@ -45,6 +45,9 @@ import {
 } from '@electron/file-access/workingCopyJournal';
 import {writeWorkingCopyManifestRevision} from '@electron/file-access/workingCopyManifest';
 import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
+import {
+    getUnprovenNativeTerminationDetail, markUnprovenNativeTermination,
+} from '@electron/utils/nativeTerminationProof';
 
 let tempRoot = '';
 
@@ -318,6 +321,60 @@ describe('documentRevisionStore', () => {
         await expect(getWorkingCopyRevision(readingPath, 8)).resolves.toMatchObject({token: revision.token});
         release();
         await save;
+    });
+
+    it('retains both primary and rollback errors, journal bytes and revision until restoration succeeds', async () => {
+        const originalPath = join(tempRoot, 'rollback-original.pdf');
+        const workingPath = join(tempRoot, 'pdf-work-rollback', 'document.pdf');
+        mkdirSync(dirname(workingPath), {recursive: true});
+        writeFileSync(originalPath, 'original');
+        writeFileSync(workingPath, 'before');
+        const rollbackError = Object.assign(new Error('rollback replacement locked'), {code: 'EPERM'});
+        const primaryError = markUnprovenNativeTermination(
+            Object.assign(new Error('primary replacement busy'), {code: 'EBUSY'}), 'native tree was not confirmed stopped',
+        );
+        vi.doMock('fs/promises', async (importOriginal) => {
+            const actual = await importOriginal<typeof FsPromises>();
+            return {
+                ...actual,
+                rename: async (...args: Parameters<typeof actual.rename>) => {
+                    if (String(args[0]).includes('journal-') && String(args[1]) === workingPath) throw rollbackError;
+                    return actual.rename(...args);
+                },
+            };
+        });
+        try {
+            const {setWorkingCopyOriginalPath} = await import('@electron/file-access/workingCopyStore');
+            const {
+                ensureWorkingCopyRevision, transitionWorkingCopyContentRevision,
+            } = await import('@electron/file-access/documentRevisionStore');
+            const {readWorkingCopyRevision} = await import('@electron/file-access/workingCopyManifest');
+            const {readJournal} = await import('@electron/file-access/workingCopyJournal');
+            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+            const initial = await ensureWorkingCopyRevision(workingPath, 7);
+            const outcome = await transitionWorkingCopyContentRevision(workingPath, 'page-ops', async () => {
+                await writeFile(workingPath, 'after');
+                throw primaryError;
+            }, 7).catch((error: unknown) => error);
+            expect(outcome).toBeInstanceOf(AggregateError);
+            expect(outcome).toMatchObject({errors: [
+                primaryError,
+                rollbackError,
+            ]});
+            expect(getUnprovenNativeTerminationDetail(outcome)).toBe('native tree was not confirmed stopped');
+            const journal = await readJournal(workingPath);
+            expect(journal).not.toBeNull();
+            expect(await readFile(journal!.backupPath, 'utf8')).toBe('before');
+            expect(await readFile(workingPath, 'utf8')).toBe('after');
+            expect((await readWorkingCopyRevision(workingPath))?.token).toBe(initial.token);
+        } finally {
+            vi.doUnmock('fs/promises');
+        }
+        vi.resetModules();
+        const {recoverWorkingCopyTransition: recover} = await import('@electron/file-access/workingCopyJournal');
+        await recover(workingPath);
+        expect(await readFile(workingPath, 'utf8')).toBe('before');
+        expect(existsSync(join(dirname(workingPath), 'journal.json'))).toBe(false);
     });
 
     it('publishes a transition revision only after its commit succeeds', async () => {

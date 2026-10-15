@@ -12,6 +12,7 @@ import {
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { requireDocumentRef } from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 
 const { mockReadPdfConformanceProfile } = vi.hoisted(() => (
     {mockReadPdfConformanceProfile: vi.fn()}
@@ -220,6 +221,58 @@ describe('createDocumentConformance', () => {
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledWith(path, {purpose: 'save-restrictions'});
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledTimes(1);
         expect(state.pdfConformanceAnalysisState.value).toBe('on-demand-only');
+    });
+
+    it('uses current-content restrictions after an unsigned idle result and full profile', async () => {
+        const {
+            conformance, idle, path, state,
+        } = createHarness();
+        const signedProfile = {
+            ...unsignedProfile,
+            isSigned: true,
+            canIncrementalSave: false,
+            saveRestrictions: ['signed'],
+        };
+        conformance.deferPdfConformanceProfile(path, {fileSize: 64 * 1024 * 1024 + 1});
+        conformance.notifyPdfInitialVisualReady(path);
+        idle.flush();
+        await vi.waitFor(() => expect(mockReadPdfConformanceProfile).toHaveBeenCalledOnce());
+        state.pdfConformanceProfile.value = unsignedProfile;
+        state.documentRevisionToken.value = requireDocumentRevisionToken('drt1:7:2:changed');
+        mockReadPdfConformanceProfile.mockResolvedValue(signedProfile);
+
+        await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).resolves.toBe(true);
+    });
+
+    it('refuses a stale same-path result and separately checks the new revision', async () => {
+        const {
+            conformance, path, state,
+        } = createHarness();
+        const oldRead = deferred<typeof unsignedProfile>();
+        const currentRead = deferred<typeof unsignedProfile>();
+        mockReadPdfConformanceProfile.mockReturnValueOnce(oldRead.promise).mockReturnValueOnce(currentRead.promise);
+        state.documentRevisionToken.value = requireDocumentRevisionToken('drt1:7:1:old');
+        const oldSave = conformance.shouldForceSaveAsForWorkingCopy('rewrite', path);
+        const oldRefused = expect(oldSave).rejects.toMatchObject({code: 'STALE_REVISION'});
+        state.documentRevisionToken.value = requireDocumentRevisionToken('drt1:7:2:new');
+        const currentSave = conformance.shouldForceSaveAsForWorkingCopy('rewrite', path);
+        oldRead.resolve(unsignedProfile);
+        await oldRefused;
+        currentRead.resolve({
+            ...unsignedProfile,
+            isSigned: true,
+            saveRestrictions: ['signed'],
+        });
+        await expect(currentSave).resolves.toBe(true);
+    });
+
+    it('keeps current save-restriction failure as a refusal even with an older full profile', async () => {
+        const {
+            conformance, path, state,
+        } = createHarness();
+        state.pdfConformanceProfile.value = unsignedProfile;
+        mockReadPdfConformanceProfile.mockRejectedValue(new Error('current bytes could not be read'));
+        await expect(conformance.shouldForceSaveAsForWorkingCopy('rewrite', path)).rejects.toThrow('current bytes could not be read');
     });
 
     it('cancels idle work when cleared', () => {

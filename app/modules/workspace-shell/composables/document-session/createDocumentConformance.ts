@@ -3,6 +3,8 @@ import type {
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {createStaleRevisionError} from '@contracts/documentMutationErrors';
 import type { IDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentPdfCapability } from '@app/utils/platformDocuments';
@@ -24,6 +26,7 @@ interface IPdfSaveRestrictionRequest {
     path: TDocumentRef;
     promise: Promise<IPdfConformanceProfile | null>;
     requestId: number;
+    revision: TDocumentRevisionToken | null;
 }
 
 export interface IPdfConformanceIdleScheduler {
@@ -60,11 +63,6 @@ export function createDocumentConformance(
     let conformanceProfileInFlight: IConformanceProfileRequest | null = null;
     let pendingConformanceProfile: IPendingConformanceProfileRequest | null = null;
     let saveRestrictionInFlight: IPdfSaveRestrictionRequest | null = null;
-    let saveRestrictionProfile: {
-        path: TDocumentRef;
-        profile: IPdfConformanceProfile | null;
-        requestId: number;
-    } | null = null;
     let scheduledConformanceHandle: number | null = null;
 
     function cancelScheduledConformanceAnalysis() {
@@ -80,28 +78,24 @@ export function createDocumentConformance(
         conformanceProfileInFlight = null;
         pendingConformanceProfile = null;
         saveRestrictionInFlight = null;
-        saveRestrictionProfile = null;
         state.pdfConformanceAnalysisState.value = 'none';
         state.pdfConformanceProfile.value = null;
     }
 
     function startPdfSaveRestrictionAnalysis(path: TDocumentRef, requestId: number) {
-        if (
-            saveRestrictionProfile?.path === path
-            && saveRestrictionProfile.requestId === requestId
-        ) {
-            return Promise.resolve(saveRestrictionProfile.profile);
-        }
+        const revision = state.documentRevisionToken.value;
         if (
             saveRestrictionInFlight?.path === path
             && saveRestrictionInFlight.requestId === requestId
+            && saveRestrictionInFlight.revision === revision
         ) {
             return saveRestrictionInFlight.promise;
         }
 
         const promise = getDocumentPdfCapability().analyzePdfConformance(path, {purpose: 'save-restrictions'})
             .catch((error: unknown) => {
-                if (conformanceProfileRequestId === requestId && state.workingCopyPath.value === path) {
+                if (conformanceProfileRequestId === requestId && state.workingCopyPath.value === path
+                    && state.documentRevisionToken.value === revision) {
                     BrowserLogger.warn('pdf-file', 'PDF save restriction analysis failed', {
                         path,
                         error,
@@ -110,21 +104,8 @@ export function createDocumentConformance(
                 }
                 return null;
             })
-            .then((profile) => {
-                if (
-                    conformanceProfileRequestId === requestId
-                    && state.workingCopyPath.value === path
-                ) {
-                    saveRestrictionProfile = {
-                        path,
-                        profile,
-                        requestId,
-                    };
-                }
-                return profile;
-            })
             .finally(() => {
-                if (saveRestrictionInFlight?.requestId === requestId) {
+                if (saveRestrictionInFlight?.promise === promise) {
                     saveRestrictionInFlight = null;
                 }
             });
@@ -132,6 +113,7 @@ export function createDocumentConformance(
             path,
             promise,
             requestId,
+            revision,
         };
         return promise;
     }
@@ -198,7 +180,6 @@ export function createDocumentConformance(
         cancelScheduledConformanceAnalysis();
         conformanceProfileInFlight = null;
         saveRestrictionInFlight = null;
-        saveRestrictionProfile = null;
         state.pdfConformanceProfile.value = null;
         pendingConformanceProfile = {
             fileSize: options?.fileSize ?? null,
@@ -305,18 +286,18 @@ export function createDocumentConformance(
         if (state.requiresSaveAsOnFirstSave.value) {
             return true;
         }
-        if (!state.pdfConformanceProfile.value) {
-            const profile = await startPdfSaveRestrictionAnalysis(
-                workingPath,
-                conformanceProfileRequestId,
-            );
-            return shouldForcePdfSaveAs(
-                mode,
-                profile,
-                state.requiresSaveAsOnFirstSave.value,
-            );
+        const revision = state.documentRevisionToken.value;
+        const requestId = conformanceProfileRequestId;
+        const profile = await startPdfSaveRestrictionAnalysis(workingPath, requestId);
+        if (state.documentRevisionToken.value !== revision || state.workingCopyPath.value !== workingPath
+            || conformanceProfileRequestId !== requestId) {
+            throw createStaleRevisionError({
+                expectedRevision: revision,
+                actualRevision: state.documentRevisionToken.value,
+                message: 'Document changed during PDF save restriction analysis',
+            });
         }
-        return shouldForceSaveAs(mode);
+        return shouldForcePdfSaveAs(mode, profile, state.requiresSaveAsOnFirstSave.value);
     }
 
     return {

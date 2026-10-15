@@ -3,7 +3,6 @@ import {existsSync} from 'node:fs';
 import {
     open as openFileHandle,
     readFile,
-    rename,
     rm,
     stat,
 } from 'node:fs/promises';
@@ -40,7 +39,7 @@ import {
     getWorkingCopyJournalPath,
 } from '@electron/file-access/workingCopyDirectory';
 import {
-    fsyncParentDirectory, writeJsonAtomic,
+    atomicReplace, writeJsonAtomic,
 } from '@electron/utils/atomicReplace';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
@@ -138,7 +137,7 @@ export async function recordWorkingCopyJournalOriginal(
 // a backup already gone was moved there. An append-mode backup is a hard link to the appended file, so it stays, and
 // the append is cut off afterwards.
 async function restoreWorkingCopyContent(journal: IWorkingCopyJournal) {
-    if (existsSync(journal.backupPath) && !await isSameFile(journal.workingCopyPath, journal.backupPath)) await rename(journal.backupPath, journal.workingCopyPath).then(() => fsyncParentDirectory(journal.workingCopyPath));
+    if (existsSync(journal.backupPath) && !await isSameFile(journal.workingCopyPath, journal.backupPath)) await atomicReplace(journal.backupPath, journal.workingCopyPath, {markMutationCommitStarted: false});
     if (journal.backupMode !== 'append-hard-link') return;
     const handle = await openFileHandle(journal.workingCopyPath, 'r+');
     try {

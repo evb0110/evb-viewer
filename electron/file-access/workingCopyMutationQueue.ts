@@ -1,5 +1,6 @@
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {abortErrorFromSignal} from '@electron/utils/abort';
 import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import {
@@ -61,58 +62,43 @@ export function onWorkingCopyMutationStarting(
 // replacement have been released. Settled listeners run after the operation,
 // so they cannot provide this ordering guarantee.
 function notifyWorkingCopyMutationStarting(workingCopyPath: string, signal: AbortSignal) {
-    const logListenerFailure = (error: unknown) => {
-        log.debug('Failed to notify working copy mutation starting listener', {error: getErrorMessage(error)});
-    };
-    const notifyListener = (listener: (workingCopyPath: string, signal: AbortSignal) => void | Promise<void>) => {
+    const preparations: Array<Promise<void>> = [];
+    for (const listener of workingCopyMutationStartingListeners) {
         try {
             const result = listener(workingCopyPath, signal);
-            return result ? result.catch(logListenerFailure) : undefined;
+            if (result) preparations.push(result);
         } catch (error) {
-            logListenerFailure(error);
-            return undefined;
-        }
-    };
-    let pending: Promise<void> | undefined;
-    for (const listener of workingCopyMutationStartingListeners) {
-        if (pending) {
-            pending = pending
-                .then(() => notifyListener(listener))
-                .then(() => undefined);
-            continue;
-        }
-        const result = notifyListener(listener);
-        if (result !== undefined) {
-            pending = result;
+            preparations.push(Promise.reject(error));
         }
     }
-    return pending;
+    return preparations.length ? Promise.all(preparations).then(() => undefined) : undefined;
 }
 
-/**
- * A listener that prepares for a mutation holds the path's queue while it works.
- * One that never settles would hold it for the life of the process, so the wait
- * is bounded. Expiry only logs: the preparation is advisory and the mutation is
- * correct without it.
- */
-async function awaitMutationStartPreparation(workingCopyPath: string, preparation: Promise<void>) {
+async function awaitMutationStartPreparation(
+    workingCopyPath: string,
+    preparation: Promise<void>,
+    signal: AbortSignal,
+) {
     let timeout: NodeJS.Timeout | undefined;
-    const expiry = new Promise<'timed-out'>((resolve) => {
-        timeout = setTimeout(() => resolve('timed-out'), WORKING_COPY_MUTATION_START_TIMEOUT_MS);
+    let rejectWait!: (error: unknown) => void;
+    const handleAbort = () => rejectWait(abortErrorFromSignal(signal));
+    const expiry = new Promise<never>((_, reject) => {
+        rejectWait = reject;
+        timeout = setTimeout(() => reject(new Error(
+            `Mutation-start preparation timed out after ${WORKING_COPY_MUTATION_START_TIMEOUT_MS}ms for "${workingCopyPath}"`,
+        )), WORKING_COPY_MUTATION_START_TIMEOUT_MS);
         timeout.unref();
     });
+    signal.addEventListener('abort', handleAbort, {once: true});
+    if (signal.aborted) handleAbort();
     try {
-        const outcome = await Promise.race([
-            preparation.then(() => 'settled' as const),
+        await Promise.race([
+            preparation,
             expiry,
         ]);
-        if (outcome === 'timed-out') {
-            log.warn(
-                `Mutation-start preparation timed out after ${WORKING_COPY_MUTATION_START_TIMEOUT_MS}ms for "${workingCopyPath}"`,
-            );
-        }
     } finally {
         clearTimeout(timeout);
+        signal.removeEventListener('abort', handleAbort);
     }
 }
 
@@ -128,6 +114,10 @@ function notifyWorkingCopyMutationSettled(workingCopyPath: string) {
 
 function getWorkingCopyQueueKey(workingCopyPath: string) {
     return normalizePathForLookup(workingCopyPath) || workingCopyPath;
+}
+
+export function isWorkingCopyMutationActive(workingCopyPath: string) {
+    return activeWorkingCopyMutations.has(getWorkingCopyQueueKey(workingCopyPath));
 }
 
 const MUTATION_ORIGIN_STACK_TRACE_LIMIT = 8;
@@ -266,7 +256,7 @@ export function enqueueWorkingCopyMutation<T>(
                 // unconditional await here would let a cancellation land between
                 // the queue admitting this mutation and the mutation starting.
                 if (preparation) {
-                    await awaitMutationStartPreparation(workingCopyPath, preparation);
+                    await awaitMutationStartPreparation(workingCopyPath, preparation, mutationOperation.signal);
                 }
                 if (isMutationAborted()) {
                     throw mutationOperation.signal.reason instanceof Error

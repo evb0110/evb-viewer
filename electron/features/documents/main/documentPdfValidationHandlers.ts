@@ -10,7 +10,10 @@ import {
     validatePdfFileForOpening,
     validatePdfFileForSave,
 } from '@electron/features/documents/main/pdfConformance';
-import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
+import {
+    resolveOriginalBackedReadTransport,
+    withContentReadLease,
+} from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
@@ -23,9 +26,7 @@ async function readResolvedPdf<T>(
 ) {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, context.senderId);
     const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
-    return originalBackedRead
-        ? originalBackedRead.read(read)
-        : read(resolvedPath);
+    return originalBackedRead?.read(read) ?? withContentReadLease(resolvedPath, () => read(resolvedPath));
 }
 
 export async function handleAnalyzePdfConformance(
@@ -41,7 +42,7 @@ export async function handleAnalyzePdfConformance(
         ? undefined
         : registerMainOperation({
             kind: 'abortable-work',
-            ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
+            ownerWebContentsId: context.senderId,
             workingCopyPath,
             // The worker listens to operation.signal; the lifecycle hook marks
             // this read as eligible for cancellation when the copy is released.
@@ -62,7 +63,6 @@ export async function handleAnalyzePdfConformance(
         operation?.complete();
     }
 }
-
 
 export async function handleValidatePdfPath(
     context: IDocumentsSenderIdContext,

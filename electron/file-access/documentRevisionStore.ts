@@ -19,6 +19,7 @@ import {
 import {createEpochMs} from '@contracts/timestamps';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {aggregateErrorsKeepingUnprovenTermination} from '@electron/utils/nativeTerminationProof';
 import {
     readWorkingCopyRevision,
     readWorkingCopySyncRequired,
@@ -199,15 +200,17 @@ async function refreshOriginalExpectationAfterManagedLinkedDetach(
 }
 
 function assertCanUseWorkingCopyRevision(workingCopyPath: string, senderId?: number) {
+    workingCopyPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
+    if (!workingCopyPath) throw new Error('Invalid file path');
     const ownerWebContentsId = getWorkingCopyOwnerWebContentsId(workingCopyPath);
     if (typeof ownerWebContentsId === 'number' && ownerWebContentsId !== senderId) {
         throw new Error('Working copy path is owned by another sender');
     }
     if (workingCopyMap.has(workingCopyPath) || (isManagedWorkingCopyPath(workingCopyPath) && isExistingFile(workingCopyPath))) {
-        return;
+        return workingCopyPath;
     }
     if (existsSync(getWorkingCopyManifestPath(workingCopyPath))) {
-        return;
+        return workingCopyPath;
     }
 
     throw new Error('Working copy path is not managed');
@@ -248,11 +251,7 @@ export async function initializeFreshWorkingCopyRevision(
     workingCopyPath: string,
     senderId?: number,
 ): Promise<IDocumentRevisionInfo> {
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        throw new Error('Invalid file path');
-    }
-    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const normalizedWorkingPath = assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
     const queueKey = getRevisionQueueKey(normalizedWorkingPath);
     const active = provisionalWorkingCopyRevisions.get(queueKey);
     if (active) {
@@ -334,11 +333,7 @@ export async function ensureWorkingCopyRevision(
     workingCopyPath: string,
     senderId?: number,
 ): Promise<IDocumentRevisionInfo> {
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        throw new Error('Invalid file path');
-    }
-    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const normalizedWorkingPath = assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
     const provisional = provisionalWorkingCopyRevisions.get(getRevisionQueueKey(normalizedWorkingPath));
     if (provisional) {
         return provisional.revision;
@@ -366,11 +361,7 @@ export async function markWorkingCopyContentChanged(
     reason: TDocumentRevisionChangeReason,
     senderId?: number,
 ): Promise<IDocumentRevisionChangedEvent> {
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        throw new Error('Invalid file path');
-    }
-    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const normalizedWorkingPath = assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
     await awaitWorkingCopyRevisionDurability(normalizedWorkingPath);
 
     const previous = await readWorkingCopyRevision(normalizedWorkingPath);
@@ -401,11 +392,7 @@ async function runWorkingCopyContentRevisionTransition(
 ): Promise<IDocumentRevisionChangedEvent> {
     const measureRevisionTransitionPhase = <T>(phase: string, operation: () => Promise<T>) =>
         measureOperationPhase(operation, durationMs => onPhase?.(phase, durationMs));
-    const normalizedWorkingPath = typeof workingCopyPath === 'string' ? workingCopyPath.trim() : '';
-    if (!normalizedWorkingPath) {
-        throw new Error('Invalid file path');
-    }
-    assertCanUseWorkingCopyRevision(normalizedWorkingPath, senderId);
+    const normalizedWorkingPath = assertCanUseWorkingCopyRevision(workingCopyPath, senderId);
     await measureRevisionTransitionPhase('revision-await-existing-durability', () =>
         awaitWorkingCopyRevisionDurability(normalizedWorkingPath));
     const linkedOriginalExpectationFence = await captureLinkedOriginalExpectationFence(
@@ -436,7 +423,15 @@ async function runWorkingCopyContentRevisionTransition(
                     }
                     : undefined));
     } catch (error) {
-        await rollbackWorkingCopyTransition(journal);
+        try {
+            await rollbackWorkingCopyTransition(journal);
+        } catch (rollbackError) {
+            throw aggregateErrorsKeepingUnprovenTermination([
+                error,
+                rollbackError,
+            ],
+            `Working-copy transition and rollback failed: ${getErrorMessage(error)}; ${getErrorMessage(rollbackError)}`);
+        }
         throw error;
     }
     try {

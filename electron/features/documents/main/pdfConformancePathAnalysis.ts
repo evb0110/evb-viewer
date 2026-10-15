@@ -18,6 +18,7 @@ import {
     isAbortError,
 } from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
     PdfConformanceCapabilityError,
     type TPdfConformanceCapabilityErrorCode,
@@ -66,6 +67,7 @@ function capabilityError(
     message: string,
     cause?: unknown,
 ): PdfConformanceCapabilityError {
+    if (getUnprovenNativeTerminationDetail(cause) !== undefined) throw cause;
     return new PdfConformanceCapabilityError(code, message, {
         ...(cause === undefined ? {} : {cause}),
         operation: 'pdf-conformance-path-analysis',
@@ -73,12 +75,8 @@ function capabilityError(
 }
 
 function getSafeFileSize(value: number | bigint) {
-    const size = typeof value === 'bigint'
-        ? value
-        : Number.isSafeInteger(value) && value >= 0
-            ? BigInt(value)
-            : null;
-    if (size === null || size < 0n || size > BigInt(Number.MAX_SAFE_INTEGER)) {
+    const size = typeof value === 'number' && Number.isSafeInteger(value) ? BigInt(value) : value;
+    if (typeof size !== 'bigint' || size < 0n || size > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw capabilityError(
             'native-failure',
             'PDF conformance source size is outside the safe range for bounded range reads',
@@ -161,7 +159,7 @@ async function readPdfMarkerEvidenceFromPath(
 
         let offset = 0n;
         let overlap = Buffer.alloc(0);
-        let evidence: IPdfMarkerEvidence = {
+        const evidence: IPdfMarkerEvidence = {
             isSigned: false,
             isEncrypted: false,
             pdfaLevel: null,
@@ -203,11 +201,9 @@ async function readPdfMarkerEvidenceFromPath(
                     bytes,
                 ]);
             const windowEvidence = scanPdfMarkerEvidence(window);
-            evidence = {
-                isSigned: evidence.isSigned || windowEvidence.isSigned,
-                isEncrypted: evidence.isEncrypted || windowEvidence.isEncrypted,
-                pdfaLevel: evidence.pdfaLevel ?? windowEvidence.pdfaLevel,
-            };
+            evidence.isSigned ||= windowEvidence.isSigned;
+            evidence.isEncrypted ||= windowEvidence.isEncrypted;
+            evidence.pdfaLevel ??= windowEvidence.pdfaLevel;
             overlap = bytes.subarray(
                 Math.max(0, bytes.length - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES),
             );
