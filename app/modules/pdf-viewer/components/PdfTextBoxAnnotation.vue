@@ -167,12 +167,8 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
         + pixels(styles.borderTopWidth)
         + pixels(styles.borderBottomWidth);
 
-    const rootWidth = root.style.width;
-    const rootHeight = root.style.height;
-    const editorWidth = editor.style.width;
-    const editorHeight = editor.style.height;
-    const editorWhiteSpace = editor.style.whiteSpace;
-    const editorOverflowWrap = editor.style.overflowWrap;
+    const rootStyle = root.style.cssText;
+    const editorStyle = editor.style.cssText;
     let next = draftRect.value ?? props.entity.rect;
     try {
         root.style.width = 'max-content';
@@ -236,12 +232,8 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
             next.top += bounds.top < 0 ? -bounds.top : Math.min(0, 1 - bounds.top - bounds.height);
         }
     } finally {
-        root.style.width = rootWidth;
-        root.style.height = rootHeight;
-        editor.style.width = editorWidth;
-        editor.style.height = editorHeight;
-        editor.style.whiteSpace = editorWhiteSpace;
-        editor.style.overflowWrap = editorOverflowWrap;
+        root.style.cssText = rootStyle;
+        editor.style.cssText = editorStyle;
     }
     draftRect.value = next;
     emit('draft-change', inlineEdit.draftText.value);
@@ -354,7 +346,7 @@ const rectStyle = computed(() => ({
 defineExpose({
     commitDraft: commit,
     getDraftRect: () => toRaw(draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect),
-    getDraftText: () => inlineEdit.draftText.value,
+    get pendingCompletion() { return inlineEdit.pendingCompletion; },
     fitRectToContent,
 });
 </script>

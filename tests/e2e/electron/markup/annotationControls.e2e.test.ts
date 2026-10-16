@@ -542,20 +542,142 @@ async function readActiveAnnotationTool(page: Page) {
 }
 
 async function expectMatchingTextCardColor(page: Page, id: string, expected: string) {
-    await expect.poll(() => page.evaluate((annotationId: string) => {
+    await expect.poll(() => page.evaluate((annotationId: string, expectedColor: string) => {
         const entity = document.querySelector<HTMLElement>(`.pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`);
         const chip = document.querySelector<HTMLElement>(`.note-item[data-annotation-id="${annotationId}"] .note-item-color-chip`);
+        const canvas = entity?.closest('.page_container')?.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+        let text: string | null = null;
+        if (entity && canvas?.isConnected && canvas.width && canvas.height) {
+            const bounds = entity.getBoundingClientRect();
+            const pageBounds = canvas.getBoundingClientRect();
+            const left = Math.max(0, Math.floor((bounds.left - pageBounds.left) * canvas.width / pageBounds.width));
+            const top = Math.max(0, Math.floor((bounds.top - pageBounds.top) * canvas.height / pageBounds.height));
+            const width = Math.min(canvas.width - left, Math.ceil(bounds.width * canvas.width / pageBounds.width));
+            const height = Math.min(canvas.height - top, Math.ceil(bounds.height * canvas.height / pageBounds.height));
+            const rgb = expectedColor.match(/\d+/gu)!.map(Number);
+            const pixels = canvas.getContext('2d')!.getImageData(left, top, width, height).data;
+            for (let offset = 0; offset < pixels.length; offset += 4) {
+                if (rgb.every((value, channel) => pixels[offset + channel] === value) && pixels[offset + 3] === 255) {
+                    text = `rgb(${pixels[offset]}, ${pixels[offset + 1]}, ${pixels[offset + 2]})`;
+                    break;
+                }
+            }
+        }
         return {
-            text: entity ? getComputedStyle(entity).color : null,
+            text,
             card: chip ? getComputedStyle(chip).backgroundColor : null,
             chipWidth: chip?.getBoundingClientRect().width ?? 0,
         };
-    }, id)).toEqual({
+    }, id, expected)).toEqual({
         text: expected,
         card: expected,
         chipWidth: expect.any(Number),
     });
     expect(await page.$eval(`.note-item[data-annotation-id="${id}"] .note-item-color-chip`, chip => chip.getBoundingClientRect().width)).toBeGreaterThan(0);
+}
+
+// Compare the page's actual annotation ink with independently opened PDF bytes.
+// Both renders use Chromium, the same public runtime and the same canvas transform;
+// the reference canvas remains detached and never replaces or paints over the page.
+async function expectTextBoxPagePaint(page: Page, bytes: Uint8Array, greenFrameOnly = false) {
+    await expect.poll(async () => {
+        const capture = await page.evaluate(async ({
+            data, expectedVersion, expectedBuild,
+        }) => {
+            const box = document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-text-box');
+            const container = box?.closest<HTMLElement>('.page_container');
+            const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+            if (!box || !container || !canvas?.isConnected || !canvas.width || !canvas.height) throw new Error('Current text box page canvas unavailable');
+            const context = canvas.getContext('2d')!;
+            const boxBounds = box.getBoundingClientRect();
+            const bounds = canvas.getBoundingClientRect();
+            const left = Math.max(0, Math.floor((boxBounds.left - bounds.left) * canvas.width / bounds.width) - 2);
+            const top = Math.max(0, Math.floor((boxBounds.top - bounds.top) * canvas.height / bounds.height) - 2);
+            const width = Math.min(canvas.width - left, Math.ceil(boxBounds.width * canvas.width / bounds.width) + 4);
+            const height = Math.min(canvas.height - top, Math.ceil(boxBounds.height * canvas.height / bounds.height) + 4);
+            const crop = document.createElement('canvas');
+            crop.width = width;
+            crop.height = height;
+            const cropContext = crop.getContext('2d')!;
+            cropContext.putImageData(context.getImageData(left, top, width, height), 0, 0);
+            const actual = crop.toDataURL();
+            const browserPdfjs = Object.getOwnPropertyDescriptor(globalThis, 'pdfjsLib')?.value as typeof pdfjs | undefined;
+            if (!browserPdfjs || browserPdfjs.version !== expectedVersion || browserPdfjs.build !== expectedBuild) throw new Error('Independent Browser PDF.js reference runtime is unavailable or mismatched');
+            if (browserPdfjs.GlobalWorkerOptions.workerPort !== null) throw new Error('Independent reference cannot own a shared explicit worker port');
+            const task = browserPdfjs.getDocument({
+                data: new Uint8Array(data),
+                verbosity: browserPdfjs.VerbosityLevel.ERRORS,
+                standardFontDataUrl: '/pdf/standard_fonts/',
+                cMapUrl: '/pdf/cmaps/',
+                cMapPacked: true,
+                wasmUrl: '/pdf/wasm/',
+                iccUrl: '/pdf/iccs/',
+                useSystemFonts: false,
+            });
+            try {
+                const referencePage = await (await task.promise).getPage(1);
+                const scale = Number.parseFloat(getComputedStyle(container).getPropertyValue('--scale-factor'));
+                if (!(scale > 0)) throw new Error('Current page scale is unavailable');
+                const viewport = referencePage.getViewport({scale});
+                const reference = document.createElement('canvas');
+                reference.width = canvas.width;
+                reference.height = canvas.height;
+                await referencePage.render({
+                    canvas: reference,
+                    canvasContext: reference.getContext('2d', context.getContextAttributes())!,
+                    viewport,
+                    transform: [
+                        canvas.width / viewport.width,
+                        0,
+                        0,
+                        canvas.height / viewport.height,
+                        0,
+                        0,
+                    ],
+                    annotationMode: browserPdfjs.AnnotationMode.ENABLE_FORMS,
+                }).promise;
+                cropContext.putImageData(reference.getContext('2d')!.getImageData(left, top, width, height), 0, 0);
+                return {
+                    actual,
+                    expected: crop.toDataURL(),
+                };
+            } finally { await task.destroy(); }
+        }, {
+            data: Array.from(bytes),
+            expectedVersion: pdfjs.version,
+            expectedBuild: pdfjs.build,
+        });
+        const images = await Promise.all([
+            capture.actual,
+            capture.expected,
+        ].map(png => loadImage(Buffer.from(png.split(',')[1]!, 'base64'))));
+        const pixels = images.map(image => {
+            const canvas = createCanvas(image.width, image.height);
+            canvas.getContext('2d').drawImage(image, 0, 0);
+            return canvas.getContext('2d').getImageData(0, 0, image.width, image.height).data;
+        });
+        const actual = pixels[0]!;
+        const expected = pixels[1]!;
+        let differences = 0;
+        let expectedInk = 0;
+        const isGreen = (data: Uint8ClampedArray, offset: number) => data[offset + 1]! > data[offset]! && data[offset + 1]! > data[offset + 2]!;
+        for (let offset = 0; offset < expected.length; offset += 4) {
+            if (greenFrameOnly ? isGreen(expected, offset) : Math.min(expected[offset]!, expected[offset + 1]!, expected[offset + 2]!) < 160) expectedInk += 1;
+            if (greenFrameOnly ? isGreen(actual, offset) !== isGreen(expected, offset) : [
+                0,
+                1,
+                2,
+                3,
+            ].some(channel => actual[offset + channel] !== expected[offset + channel])) differences += 1;
+        }
+        return {
+            differences,
+            hasReferenceInk: expectedInk > 0,
+        };
+    }, {timeout: STYLE_UPDATE_TIMEOUT_MS}).toEqual({
+        differences: 0,
+        hasReferenceInk: true,
+    });
 }
 
 async function expectVisibleTypingFrame(page: Page, selector: string) {
@@ -1955,17 +2077,11 @@ describe('Electron E2E - annotation controls', () => {
             'C',
             'RD',
         ].map(key => dict.get(PDFName.of(key))?.toString() ?? null);
-        const rect = sourceText.lookup(PDFName.of('Rect'), PDFArray).asArray().map(value => (value as PDFNumber).asNumber());
         const borderWidth = (/\/W (\d+(?:\.\d+)?)/u.exec(sourceText.get(PDFName.of('BS'))?.toString() ?? '')
             ?? /^\[\s*\d+\s+\d+\s+(\d+(?:\.\d+)?)/u.exec(sourceText.get(PDFName.of('Border'))?.toString() ?? ''))?.[1];
-        // On screen the border has the width its producer gave it, relative to the box.
-        const screenBorder = await page.$eval('.editor-pane.is-active .pdf-annotation-editor-text-box', box => {
-            const frame = box.querySelector<HTMLElement>('.pdf-annotation-editor-text-box__frame');
-            // The frame strokes its border as an inset shadow: "<colour> 0px 0px 0px <width> inset".
-            const spread = frame ? /([\d.]+)px inset$/u.exec(getComputedStyle(frame).boxShadow)?.[1] : undefined;
-            return Number(spread ?? 0) / box.getBoundingClientRect().width;
-        });
-        expect.soft(screenBorder, 'the editor draws the label\'s border').toBeCloseTo(Number(borderWidth ?? 0) / (rect[2]! - rect[0]!), 3);
+        // Untouched paint keeps the producer's actual AP, including an AP that
+        // predates border entries another program subsequently added to its dictionary.
+        await expectTextBoxPagePaint(page, readFileSync(saved));
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active .annotation-style-editor .swatch[aria-label="#f59e0b"]');
         await saveViaVisibleToolbar(page, 12_000, saved);
         const pdf = await PDFDocument.load(readFileSync(saved));
@@ -1980,6 +2096,9 @@ describe('Electron E2E - annotation controls', () => {
             // Its frame keeps PDF's mitred corners, turned or not.
             expect.soft(appearance, 'the saved label draws its frame').toContain(`${borderWidth} w 1 J 0 j`);
         }
+        // The border width above is in PDF points. Matching the actual page ink
+        // to those independently rendered bytes checks its screen width and fill.
+        await expectTextBoxPagePaint(page, readFileSync(saved));
         const drawnSizes = new Set(Array.from(appearance
             .matchAll(/\/TextFont\d+ ([\d.]+) Tf/gu), match => Number(match[1])));
         const recordedSize = Number(/([\d.]+) Tf/u.exec(freeText.lookup(PDFName.of('DA'), PDFString).decodeText())?.[1]);
@@ -1999,7 +2118,6 @@ describe('Electron E2E - annotation controls', () => {
         const saved = join(evidence, 'saved.pdf');
         copyFileSync(resolve('tests/fixtures/electron/semtext/unfilled-black-c.pdf'), saved);
         const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
-        const frameFill = (page: Page) => page.$eval(box, element => getComputedStyle(element.querySelector('.pdf-annotation-editor-text-box__frame')!).backgroundColor);
         const openLabel = async (page: Page) => {
             await openPdfInApp(page, saved);
             await waitForViewerInteractive(page);
@@ -2009,7 +2127,7 @@ describe('Electron E2E - annotation controls', () => {
         };
         const {page} = sessionFixture.getSession();
         await openLabel(page);
-        expect.soft(await frameFill(page), 'the label shows no fill its appearance never painted').toBe('rgba(0, 0, 0, 0)');
+        await expectTextBoxPagePaint(page, readFileSync(saved));
         await clickAsUser(page, box, {count: 2});
         await page.waitForSelector('.editor-pane.is-active .pdf-annotation-editor-text-box.is-editing [contenteditable="true"]');
         await selectAllFocusedAnnotationText(page);
@@ -2032,7 +2150,7 @@ describe('Electron E2E - annotation controls', () => {
         expect.soft(appearance, 'the saved label draws its border and no fill').not.toMatch(/ re f\b/u);
         const restarted = await sessionFixture.restart({hard: true});
         await openLabel(restarted.page);
-        expect.soft(await frameFill(restarted.page), 'the reopened label is still unfilled').toBe('rgba(0, 0, 0, 0)');
+        await expectTextBoxPagePaint(restarted.page, readFileSync(saved));
     });
 
     it('turns a foreign label\'s frame with its box through Save and reopen', async () => {
@@ -2045,18 +2163,51 @@ describe('Electron E2E - annotation controls', () => {
         }));
         const saved = join(evidence, 'saved.pdf');
         copyFileSync(resolve('tests/fixtures/electron/semtext/asymmetric-frame.pdf'), saved);
+        const original = readFileSync(saved);
         const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
-        const frameInsets = (page: Page) => page.$eval(box, (element) => {
-            const frame = getComputedStyle(element.querySelector<HTMLElement>('.pdf-annotation-editor-text-box__frame')!);
-            // The box lays out at the label's unturned 300 pt width.
-            const points = 300 / (element as HTMLElement).offsetWidth;
-            return [
-                frame.top,
-                frame.right,
-                frame.bottom,
-                frame.left,
-            ].map(inset => Math.round(Number.parseFloat(inset) * points * 10) / 10);
-        });
+        const frameReference = async (turn: 0 | 90, insets: number[]) => {
+            const pdf = await PDFDocument.load(original);
+            const pdfPage = pdf.getPage(0);
+            const label = pdf.context.lookup(pdfPage.node.Annots()!.get(0), PDFDict);
+            const rect = label.lookup(PDFName.of('Rect'), PDFArray).asArray().map(value => (value as PDFNumber).asNumber());
+            const width = rect[2]! - rect[0]!;
+            const height = rect[3]! - rect[1]!;
+            const centerX = (rect[0]! + rect[2]!) / 2;
+            const centerY = (rect[1]! + rect[3]!) / 2;
+            const pageWidth = turn === 90 ? height : width;
+            const pageHeight = turn === 90 ? width : height;
+            // The expected offsets are on the box's own sides. A quarter turn
+            // maps them to the page's sides; the independent PDF paints that frame.
+            const [
+                top,
+                right,
+                bottom,
+                left,
+            ] = insets.map((_, side) => insets[(side + 4 - turn / 90) % 4]!);
+            const x = centerX - pageWidth / 2 + left!;
+            const y = centerY - pageHeight / 2 + bottom!;
+            const innerWidth = pageWidth - left! - right!;
+            const innerHeight = pageHeight - top! - bottom!;
+            const stroke = (label.lookup(PDFName.of('Border'), PDFArray).get(2) as PDFNumber).asNumber();
+            const fill = label.lookup(PDFName.of('C'), PDFArray).asArray().map(value => (value as PDFNumber).asNumber());
+            pdfPage.node.delete(PDFName.of('Annots'));
+            pdfPage.drawRectangle({
+                x,
+                y,
+                width: innerWidth,
+                height: innerHeight,
+                color: rgb(fill[0]!, fill[1]!, fill[2]!),
+            });
+            pdfPage.drawRectangle({
+                x: x + stroke / 2,
+                y: y + stroke / 2,
+                width: innerWidth - stroke,
+                height: innerHeight - stroke,
+                borderColor: rgb(0, 0.5, 0),
+                borderWidth: stroke,
+            });
+            return pdf.save();
+        };
         const openLabel = async (page: Page) => {
             await openPdfInApp(page, saved);
             await waitForViewerInteractive(page);
@@ -2066,25 +2217,26 @@ describe('Electron E2E - annotation controls', () => {
         };
         const {page} = sessionFixture.getSession();
         await openLabel(page);
-        expect(await frameInsets(page), 'the upright label').toEqual([
+        await expectTextBoxPagePaint(page, await frameReference(0, [
             12,
             7,
             2,
             1,
-        ]);
+        ]), true);
         await clickVisibleAnnotationControl(page, '.editor-pane.is-active [data-annotation-rotate="cw"]');
         await page.waitForFunction(() => document.querySelector('.editor-pane.is-active [data-annotation-rotation-value]')?.textContent?.includes('90'));
-        const turned = await frameInsets(page);
-        expect(turned, 'the turned box faces the page\'s next sides').toEqual([
+        const turned = await frameReference(90, [
             7,
             2,
             1,
             12,
         ]);
+        await expectTextBoxPagePaint(page, turned, true);
         await saveViaVisibleToolbar(page, 12_000, saved);
         const restarted = await sessionFixture.restart({hard: true});
         await openLabel(restarted.page);
-        expect(await frameInsets(restarted.page), 'the reopened label keeps the frame it had before Save').toEqual(turned);
+        await expectTextBoxPagePaint(restarted.page, turned, true);
+        await expectTextBoxPagePaint(restarted.page, readFileSync(saved));
     });
 
     it.each([

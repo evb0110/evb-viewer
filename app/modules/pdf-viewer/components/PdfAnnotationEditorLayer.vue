@@ -216,7 +216,7 @@ const autoSizeTextBoxIds = reactive(new Set<AnnotationId>());
 interface IPdfTextBoxAnnotationExpose {
     commitDraft: () => void | Promise<void>;
     getDraftRect: () => IAnnotationMarkerRect;
-    getDraftText: () => string;
+    readonly pendingCompletion: Promise<void> | null;
     fitRectToContent?: (rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize?: number) => IAnnotationMarkerRect | null;
 }
 const textBoxRefs = shallowReactive(new Map<AnnotationId, IPdfTextBoxAnnotationExpose>());
@@ -438,16 +438,8 @@ function setTextBoxRef(
     annotationId: AnnotationId,
     element: Element | ComponentPublicInstance | null,
 ) {
-    if (
-        element
-        && 'commitDraft' in element
-        && typeof element.commitDraft === 'function'
-        && 'getDraftRect' in element
-        && typeof element.getDraftRect === 'function'
-        && 'getDraftText' in element
-        && typeof element.getDraftText === 'function'
-    ) {
-        textBoxRefs.set(annotationId, element as IPdfTextBoxAnnotationExpose);
+    if (element) {
+        textBoxRefs.set(annotationId, element as ComponentPublicInstance & IPdfTextBoxAnnotationExpose);
         return;
     }
     textBoxRefs.delete(annotationId);
@@ -726,7 +718,7 @@ function handleNoteActivate(entity: INoteEntity) {
 
 function prepareTextBoxGeometryChange() {
     const id = editingId.value;
-    if (id && newTextBoxIds.has(id) && textBoxRefs.get(id)?.getDraftText().trim().length === 0) {
+    if (id && newTextBoxIds.has(id) && !surface.getTextBoxDraftText(id)?.trim()) {
         return;
     }
     return commitActiveTextBoxDraftForSave();
@@ -769,6 +761,7 @@ function handleSurfacePointerDown(event: PointerEvent) {
         return;
     }
     const wasEditingText = editingId.value !== null;
+    const acceptedCompletion = editingId.value === null ? null : textBoxRefs.get(editingId.value)?.pendingCompletion;
     focusLayer();
     const tool = surface.activeTool.value;
     const id = entityIdFromEvent(event);
@@ -803,7 +796,7 @@ function handleSurfacePointerDown(event: PointerEvent) {
     // A click outside the editor finishes the current text. Creation settings
     // can reset through a parent prop on the next render, so this same press
     // must not start another box with the previous tool value.
-    if (wasEditingText) {
+    if (wasEditingText && !acceptedCompletion) {
         surface.clearSelection();
         return;
     }
@@ -877,7 +870,8 @@ async function handlePointerUp(event: PointerEvent) {
     if (point) pointerGesture.update(point, event);
     const selection = surface.selectedIds.value;
     if (point && (pointerGesture.hasMoved.value || pointerGesture.mode.value === 'create')) markClickSuppressed();
-    const pending = point && draggedAnnotationId.value === editingId.value ? prepareTextBoxGeometryChange() : undefined;
+    const pending = point && draggedAnnotationId.value === editingId.value ? prepareTextBoxGeometryChange()
+        : point && isCreating.value && editingId.value !== null ? textBoxRefs.get(editingId.value)?.pendingCompletion : undefined;
     releasePointer(event);
     surface.endPointerInteraction(props.pageIndex);
     if (pending) {

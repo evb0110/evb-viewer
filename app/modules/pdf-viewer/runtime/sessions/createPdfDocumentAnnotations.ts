@@ -27,25 +27,12 @@ import { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/anno
 // Pathless sources are keyed by Blob instance because their metadata can collide.
 // The `blob-instance:` prefix avoids collisions with file paths.
 const annotationBlobIdentities = new WeakMap<Blob, string>();
-let nextAnnotationBlobIdentity = 0;
-function annotationBlobIdentity(source: Blob) {
-    const existing = annotationBlobIdentities.get(source);
-    if (existing) {
-        return existing;
-    }
-    nextAnnotationBlobIdentity += 1;
-    const identity = `blob-instance:${nextAnnotationBlobIdentity}`;
+export function annotationDocumentKey(source: TPdfSource | null) {
+    if (!source) return 'no-document';
+    if (!(source instanceof Blob)) return `path:${source.path}`;
+    const identity = annotationBlobIdentities.get(source) ?? `blob-instance:${crypto.randomUUID()}`;
     annotationBlobIdentities.set(source, identity);
     return identity;
-}
-
-export function annotationDocumentKey(source: TPdfSource | null) {
-    if (!source) {
-        return 'no-document';
-    }
-    return source instanceof Blob
-        ? annotationBlobIdentity(source)
-        : `path:${source.path}`;
 }
 
 /** What one viewer of the document takes part in: its emits and its editor's pending drafts. */
@@ -56,8 +43,6 @@ export interface IPdfDocumentAnnotationsView {
     onHistoryReplay: () => void;
     /** Commits text-box drafts open in this view's editor. */
     commitPendingDraftsForSave: () => void | Promise<void>;
-    /** Commits this view's open draft of one annotation, when it has one. */
-    commitDraftIfOpen: (annotationId: string) => void | Promise<void>;
     /** Where this view's editor shows an open draft, or null when it holds none. */
     getTextBoxDraftRect: (annotationId: string) => IAnnotationMarkerRect | null;
 }
@@ -338,8 +323,8 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         // One editor per annotation: editing it in one viewer first commits the
         // draft another viewer still has open, as clicking elsewhere does in one.
         commitDraftIfOpen(annotationId: string, except: IPdfDocumentAnnotationsView) {
-            const others = [...views].filter(view => view !== except);
-            return others.length ? Promise.all(others.map(view => Promise.resolve(view.commitDraftIfOpen(annotationId)))).then(() => {}) : undefined;
+            const others = [...views].filter(view => view !== except && view.getTextBoxDraftRect(annotationId) !== null);
+            return others.length ? Promise.all(others.map(view => Promise.resolve(view.commitPendingDraftsForSave()))).then(() => {}) : undefined;
         },
         /** Commits every viewer's open text-box drafts, so a save sees them all. */
         async commitPendingDraftsForSave() {
@@ -350,7 +335,10 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         attachView(view: IPdfDocumentAnnotationsView) {
             views.add(view);
             return () => {
-                views.delete(view);
+                const pending = view.commitPendingDraftsForSave();
+                view.commitPendingDraftsForSave = () => pending;
+                const release = () => { views.delete(view); };
+                return Promise.resolve(pending).then(release, release);
             };
         },
     });

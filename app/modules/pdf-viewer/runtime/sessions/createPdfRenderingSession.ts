@@ -267,7 +267,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 pageRenderState.completeRender(demand.pageNumber, demand.consumerGeneration, job.requestId);
                 return null;
             }
-            if (job.renderOptions.annotationCommit && render.annotationInput) job.renderOptions.annotationCommit.input = render.annotationInput;
             return {
                 job,
                 ...target,
@@ -291,7 +290,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             }
             renderedPageStateVersion.value += 1;
             if (outcome.status !== 'failed') return queueFrame();
-            if (job.renderOptions.annotationCommit) return;
             initialVisual.handlePageRasterFailed({
                 openSurfaceGeneration: job.renderOptions.openSurfaceGeneration ?? 0,
                 documentRevision: job.renderOptions.openSurfaceRevision ?? documentSession.openSurfaceRevision,
@@ -415,11 +413,13 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 ...(maxCanvasPixels !== undefined
                     ? {maxCanvasPixels}
                     : {}),
-            } : renderOptions;
+            } : renderOptions.annotationCommit ? renderOptions : [...viewportRasterJobs.values()].find(job => (
+                job.demand.pageNumber === pageNumber && job.renderOptions.annotationCommit?.isCurrent() && isViewportRasterJobCurrent(job)
+            ))?.renderOptions ?? renderOptions;
             const committedRasterState = getPageRasterState(pageNumber);
             // A forced rerender replaces current pixels after content changes; it and a
             // deliberate navigation target also retry a page whose earlier raster failed.
-            const rasterState = committedRasterState === 'current' && renderOptions.forceRerender === true
+            const rasterState = committedRasterState === 'current' && (renderOptions.forceRerender === true || renderOptions.annotationCommit)
                 || committedRasterState === 'failed' && (renderOptions.forceRerender === true || lane === 'navigation-target')
                 ? 'stale-scale'
                 : committedRasterState;
@@ -478,6 +478,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         }
         return jobs;
     }
+    function renderVisiblePages(range: PdfUi.IPageRange, options: IRenderVisiblePagesOptions & {annotationCommit: NonNullable<IRenderVisiblePagesOptions['annotationCommit']>}): Promise<Array<Awaited<ReturnType<IPdfPageRasterScheduler['request']>>> | undefined>;
+    function renderVisiblePages(range: PdfUi.IPageRange, options?: IRenderVisiblePagesOptions): Promise<void>;
     async function renderVisiblePages(
         range: PdfUi.IPageRange,
         requestedRenderOptions: IRenderVisiblePagesOptions = {},
@@ -578,6 +580,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         // reached the DOM, otherwise scroll can expose the hidden canvas for
         // one compositor frame.
         await nextTick();
+        return outcomes;
     }
     const pageRenderer = usePdfPageRenderer({
         container: options.viewerContainer,
@@ -1170,15 +1173,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             annotationCommit: NonNullable<IRenderVisiblePagesOptions['annotationCommit']>,
         ) {
             if (!rasterOperational.value || !getMountedRasterTarget(pageNumber) || !isViewportRasterDemanded(pageNumber)) return false;
-            await renderVisiblePages(singlePageRange(pageNumber), {
+            const outcomes = await renderVisiblePages(singlePageRange(pageNumber), {
                 bufferOverride: 0,
-                forceRerender: true,
                 annotationCommit,
             });
-            const input = annotationCommit.input;
-            const render = pageRenderState.getSlot(pageNumber).committedRender;
-            if (!input || render?.annotationInput?.document !== input.document || render.annotationInput.semanticInputs !== input.semanticInputs
-                || !isCommittedVisual(pageNumber, false)) {
+            if (!outcomes?.some(outcome => outcome.demand.pageNumber === pageNumber && outcome.status === 'committed')) {
                 throw new DOMException('The accepted annotation paint was not published', 'AbortError');
             }
             return true;

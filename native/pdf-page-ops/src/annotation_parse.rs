@@ -2,7 +2,7 @@ use super::*;
 use evb_native_support::output::AtomicOutput;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     io::Write,
     path::Path,
 };
@@ -589,11 +589,13 @@ where
             _ => Err(format!("Unsupported annotation subtype /{subtype}")),
         };
 
+        let mut reply_refs = Vec::new();
         let replies = if entry.is_ok() && object_id != (0, 0) {
             parse_replies(
                 document,
                 object_id,
                 reply_children,
+                &mut reply_refs,
                 |reply_id, page_index, reason| {
                     let dict = document.dictionary(reply_id)?;
                     let subtype = annotation_subtype_name(document, dict);
@@ -616,10 +618,6 @@ where
                 PdfAnnotationParseEntry::Stamp(parent) => &mut parent.replies,
                 PdfAnnotationParseEntry::Shape(parent) => &mut parent.replies,
                 PdfAnnotationParseEntry::Note(parent) => {
-                    let reply_refs = replies
-                        .iter()
-                        .map(|reply| (reply.object_number as u32, reply.generation_number as u16))
-                        .collect::<Vec<_>>();
                     parent.recovery_data = Some(
                         capture_note_recovery(document, object_id, &reply_refs)
                             .map_err(|error| error.to_string())?,
@@ -1106,16 +1104,12 @@ fn parse_replies(
     document: &impl PdfObjectSource,
     parent_id: ObjectId,
     reply_children: &HashMap<ObjectId, Vec<(ObjectId, u64)>>,
+    reply_refs: &mut Vec<ObjectId>,
     mut on_unreadable: impl FnMut(ObjectId, u64, &str) -> Result<()>,
 ) -> Result<std::result::Result<Vec<PdfAnnotationParseReply>, String>> {
     let mut replies = Vec::new();
-    let mut pending = reply_children
-        .get(&parent_id)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<VecDeque<_>>();
-    let mut seen = HashSet::new();
+    let mut pending = VecDeque::from(reply_children.get(&parent_id).cloned().unwrap_or_default());
+    let mut seen = BTreeSet::new();
     while let Some((reply_id, page_index)) = pending.pop_front() {
         if !seen.insert(reply_id) {
             continue;
@@ -1147,6 +1141,7 @@ fn parse_replies(
             pending.extend(children.iter().copied());
         }
     }
+    reply_refs.extend(seen);
     Ok(Ok(replies))
 }
 

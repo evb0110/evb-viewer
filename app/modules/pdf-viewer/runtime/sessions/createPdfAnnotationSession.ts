@@ -177,15 +177,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             annotations.commentSync.scheduleAnnotationCommentsSync();
         },
         commitPendingDraftsForSave: () => annotationEditorSurface.commitPendingTextBoxDraftsForSave(),
-        commitDraftIfOpen: (annotationId) => {
-            if (annotationEditorSurface.hasTextBoxDraftPending(asAnnotationId(annotationId))) {
-                return annotationEditorSurface.commitPendingTextBoxDraftsForSave();
-            }
-        },
         getTextBoxDraftRect: annotationId => annotationEditorSurface.hasTextBoxDraftPending(asAnnotationId(annotationId))
             ? annotationEditorSurface.getTextBoxDraftRect(asAnnotationId(annotationId)) : null,
     };
-    onScopeDispose(documentAnnotations.attachView(documentAnnotationsView));
+    const detachAnnotationsView = documentAnnotations.attachView(documentAnnotationsView);
+    onScopeDispose(detachAnnotationsView);
+    documentSession.registerDisposable(detachAnnotationsView);
     function emitForcedAnnotationMutation(mutationOptions: { scheduleCommentSync?: boolean } = {}) {
         options.emitAnnotationModified({ forceDirty: true });
         if (mutationOptions.scheduleCommentSync) {
@@ -353,12 +350,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         currentPage: viewport.currentPage,
         allowCrossPage: true,
     });
-    function textBoxAppearanceOperation<T>(proposal: ITextBoxEntity, operation: () => Promise<T>) {
-        return operation().catch((error: unknown) => {
-            rendering.presentPageRenderFailure(requirePageNumber(proposal.pageIndex + 1), error);
-            throw error;
-        });
-    }
     const annotationEditorSurface = usePdfAnnotationEditorSurface({
         annotationApplication,
         isActive: options.isActive,
@@ -373,22 +364,30 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         isOriginalAppearance: entity => isReadOnlyAnnotation(entity)
             || rendering.isOriginalAppearance(requirePageNumber(entity.pageIndex + 1), originalAnnotationPaintRef(documentSession.pdfDocument.value, entity)),
         isNativeTextBoxAppearance: entity => rendering.isNativeTextBoxAppearance(requirePageNumber(entity.pageIndex + 1), entity.identity.id),
-        fitTextBox: (_entity, proposal) => textBoxAppearanceOperation(proposal, async () => {
+        fitTextBox: async (_entity, proposal) => {
+            const identity = annotationDocumentIdentity.value;
+            const revision = options.documentRevisionToken.value;
             await ensureAnnotationProjectionReady();
             const document = documentSession.pdfDocument.value;
             if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
-            return fitNativeTextBox(proposal, await document.getPage(proposal.pageIndex + 1), documentAnnotations.getWriterParseResult() ?? readPdfDocumentOriginalAnnotations(document), options.workingCopyPath.value);
-        }),
-        publishTextBoxAppearance: (proposal, handoff) => textBoxAppearanceOperation(proposal, async () => {
+            return fitNativeTextBox(proposal, await document.getPage(proposal.pageIndex + 1), documentAnnotations.getWriterParseResult() ?? readPdfDocumentOriginalAnnotations(document), options.workingCopyPath.value).then(fitted => {
+                if (annotationDocumentIdentity.value !== identity || options.documentRevisionToken.value !== revision) throw new DOMException('Text appearance source changed', 'AbortError');
+                return fitted;
+            }).catch((error: unknown) => {
+                rendering.presentPageRenderFailure(requirePageNumber(proposal.pageIndex + 1), error);
+                throw error;
+            });
+        },
+        publishTextBoxAppearance: async (proposal, handoff) => {
             const signature = paintSignature.value;
-            const fence = documentSession.captureFence();
+            const documentIdentity = annotationDocumentIdentity.value;
             const document = documentSession.pdfDocument.value;
             const entities = paintEntities.value;
             if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
             const pageNumber = requirePageNumber(proposal.pageIndex + 1);
-            const isCurrent = () => documentSession.isCurrent(fence) && paintSignature.value === signature;
+            const isCurrent = () => annotationDocumentIdentity.value === documentIdentity && paintSignature.value === signature;
             const accept = () => {if (!isCurrent()) throw new DOMException('Text appearance input changed', 'AbortError'); handoff();};
-            const published = await rendering.publishAnnotationPaint(pageNumber, {
+            if (!await rendering.publishAnnotationPaint(pageNumber, {
                 signature: nativeAnnotationPaintSignature(entities.map(entity => entity.identity.id === proposal.identity.id ? proposal : entity), retiredPdfAnnotationIds.value, null, options.documentRevisionToken.value),
                 async prepare(signal, reserveAppearanceBytes) {
                     const page = await document.getPage(pageNumber);
@@ -404,9 +403,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                         signature: paintSignature.value,
                     });
                 },
-            });
-            if (!published) accept();
-        }),
+            }).catch((error: unknown) => {
+                if (!(error instanceof DOMException && error.name === 'AbortError') || options.isActive.value && documentSession.pdfDocument.value === document) throw error;
+                return false;
+            })) accept();
+        },
         textBoxDraftRects: documentAnnotations.textBoxDraftRects,
         getTextBoxDraftGeneration: annotationId => textBoxDraftGenerations.get(annotationId),
         beforeTextBoxEdit: annotationId => documentAnnotations.commitDraftIfOpen(annotationId, documentAnnotationsView),
@@ -994,12 +995,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         flush: 'post',
         immediate: true,
     });
-    documentSession.registerDisposable(() => {
-        unsubscribeDocumentTransitions();
-        detachProjection();
-        textSelectionCache.clearSelectionCache();
-        // The document's comments list outlives this view; its other views show it.
-    });
+    documentSession.registerDisposable(() => textSelectionCache.clearSelectionCache());
+    documentSession.registerDisposable(detachProjection);
+    documentSession.registerDisposable(unsubscribeDocumentTransitions);
     const saveTransaction = usePdfViewerSaveTransaction({
         pdfDocument: documentSession.pdfDocument,
         annotationApplication,

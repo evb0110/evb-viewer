@@ -34,6 +34,7 @@ interface ITextBoxKeydownEvent {
 export interface ITextBoxInlineEdit {
     readonly editorRef: Ref<HTMLElement | null>;
     readonly draftText: Ref<string>;
+    readonly pendingCompletion: Promise<void> | null;
     commit(): void | Promise<void>;
     handleInput(event: ITextBoxInputEvent): void;
     handleKeydown(event: ITextBoxKeydownEvent): void;
@@ -153,13 +154,10 @@ export const useTextBoxInlineEdit = (
             && Boolean(target.closest('[data-annotation-inspector]'));
     }
 
-    function isTextContextTarget(target: EventTarget | null | undefined) {
-        return isInspectorTarget(target)
-            || (typeof Node !== 'undefined' && target instanceof Node && Boolean(editorRef.value?.contains(target)));
-    }
-
     function handleContextFocusOut(event: FocusEvent) {
-        if (options.editing.value && isInspectorTarget(event.target) && !isTextContextTarget(event.relatedTarget)) {
+        const target = event.relatedTarget;
+        if (options.editing.value && isInspectorTarget(event.target) && !isInspectorTarget(target)
+            && !(typeof Node !== 'undefined' && target instanceof Node && editorRef.value?.contains(target))) {
             void commit();
         }
     }
@@ -178,12 +176,12 @@ export const useTextBoxInlineEdit = (
 
     onScopeDispose(() => {
         if (typeof document !== 'undefined') document.removeEventListener('focusout', handleContextFocusOut);
-        completion = Promise.resolve();
     });
 
     return {
         editorRef,
         draftText,
+        get pendingCompletion() { return options.editing.value ? completion : null; },
         commit,
         handleInput,
         handleKeydown,

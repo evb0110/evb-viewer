@@ -37,7 +37,6 @@ export type TPdfPageRenderContentIntent =
 
 export interface IRenderVisiblePagesOptions {
     annotationCommit?: {
-        input?: IPdfAnnotationRenderInput;
         signature: string;
         prepare(signal: AbortSignal, reserveAppearanceBytes: (bytes: number) => void): Promise<IPdfAnnotationRenderInput>;
         isCurrent(): boolean;

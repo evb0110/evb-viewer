@@ -64,7 +64,9 @@ fn saved_deleted_stamp_recreates_after_hard_parse_in_both_writers() {
 
 #[test]
 fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
-    for append in [false, true] {
+    for (append, malformed_name) in [false, true].into_iter().flat_map(|append| {
+        [None, Some("reply-one"), Some("reply-two")].map(|name| (append, name))
+    }) {
         let (document, page) = create_test_document();
         let note = binding_note();
         let mut document = recovery_save(document, &NativeMutationsFile { notes: vec![note], ..Default::default() }, append);
@@ -80,14 +82,23 @@ fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
             "NM" => Object::string_literal("reply-two"), "Contents" => Object::string_literal("nested reply"),
             "T" => Object::string_literal("Second author"), "Rect" => vec![10.into(), 10.into(), 20.into(), 20.into()],
         });
+        if let Some(name) = malformed_name {
+            let id = if name == "reply-one" { reply } else { child };
+            document.get_dictionary_mut(id).unwrap().set("State", Object::Name(b"Marked".to_vec()));
+        }
         let mut annots = get_page_annots(&document, page).unwrap();
         annots.extend([Object::Reference(reply), Object::Reference(child)]);
         document.get_dictionary_mut(page).unwrap().set("Annots", annots);
         let mut bytes = Vec::new(); document.save_to(&mut bytes).unwrap();
         document = Document::load_mem(&bytes).unwrap();
         let parsed = collect_parsed_annotations(&document, "").unwrap();
-        let saved_note = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::Note(value) => Some(value.clone()), _ => None }).unwrap();
-        assert_eq!(saved_note.replies.len(), 2);
+        let saved_note = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::Note(value) => Some(value.clone()), _ => None }).expect("parent note must remain canonical when reply metadata is unreadable");
+        let readable_count = if malformed_name.is_some() { 1 } else { 2 };
+        assert_eq!(saved_note.replies.len(), readable_count);
+        if let Some(name) = malformed_name {
+            assert!(parsed.iter().any(|entry| matches!(entry, PdfAnnotationParseEntry::Foreign(value)
+                if value.name == name && value.reason == "/State must be a PDF string")));
+        }
         document = recovery_save(document, &NativeMutationsFile { deletes: vec![AnnotationDelete {
             page_index: 0, object_number: Some(root.0), generation_number: Some(root.1), stable_key: None, created_at: None,
         }], ..Default::default() }, append);
@@ -98,8 +109,21 @@ fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
         let parsed = collect_parsed_annotations(&document, "").unwrap();
         let restored = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::Note(value) => Some(value), _ => None }).unwrap();
         assert_ne!(restored.object_number, root.0 as u64);
-        assert_eq!(restored.replies.len(), 2);
-        let reply_ref = (restored.replies[0].object_number as u32, restored.replies[0].generation_number as u16);
+        assert_eq!(restored.replies.len(), readable_count);
+        let recovered_replies = get_page_annots(&document, page).unwrap().into_iter()
+            .filter_map(|object| object.as_reference().ok())
+            .filter(|id| document.get_dictionary(*id).unwrap().has(b"IRT"))
+            .collect::<Vec<_>>();
+        assert_eq!(recovered_replies.len(), 2, "recovery must retain unreadable replies too");
+        let find_reply = |name: &str| *recovered_replies.iter().find(|id|
+            read_annotation_name(document.get_dictionary(**id).unwrap()).as_deref() == Some(name)).unwrap();
+        let reply_ref = find_reply("reply-one");
+        let child_ref = find_reply("reply-two");
+        assert_eq!(annotation_related_ref(document.get_dictionary(child_ref).unwrap(), b"IRT"), Some(reply_ref));
+        if let Some(name) = malformed_name {
+            assert_eq!(document.get_dictionary(find_reply(name)).unwrap().get(b"State").unwrap(),
+                &Object::Name(b"Marked".to_vec()));
+        }
         assert_eq!(pdf_string_to_text(document.get_dictionary(reply_ref).unwrap().get(b"PrivateField").unwrap()).unwrap(), "preserve me");
         document.get_dictionary_mut(reply_ref).unwrap().set("Contents", Object::string_literal("corrupted reply"));
         assert!(validate_appended_revision_postconditions(&document, &mutations, "D:20260908120000Z").is_err());

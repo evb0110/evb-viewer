@@ -60,9 +60,6 @@ function createEditorView() {
         commitPendingDraftsForSave: () => {
             open.value = null;
         },
-        commitDraftIfOpen: (annotationId) => {
-            if (open.value?.annotationId === annotationId) view.commitPendingDraftsForSave();
-        },
         getTextBoxDraftRect: annotationId => (open.value?.annotationId === annotationId ? open.value.rect : null),
     };
     return {
@@ -130,6 +127,48 @@ describe('text-box drafts of a document shown in two views', () => {
         expect(document.textBoxDrafts.get('box-1')).toBe('continued in the right view');
     });
 
+    it('keeps a retiring editor responsible for its held draft until Save and a linked handoff can use it', async () => {
+        const document = createDocument();
+        const left = createEditorView();
+        const right = createEditorView();
+        const fit = Promise.withResolvers<undefined>();
+        left.open.value = {
+            annotationId: 'retiring-box',
+            rect: rightRect,
+        };
+        document.setTextBoxDraft('retiring-box', 'Accepted while moving');
+        left.view.commitPendingDraftsForSave = () => fit.promise.then(() => {
+            document.setTextBoxDraft('retiring-box', null);
+            left.open.value = null;
+        });
+        const detach = document.attachView(left.view);
+        document.attachView(right.view);
+        const retiring = detach();
+        let saved = false;
+        let handedOff = false;
+        let saveFailure: unknown;
+        const saving = document.commitPendingDraftsForSave().then(() => {saved = true;}, (error: unknown) => {saved = true; saveFailure = error;});
+        const handoff = Promise.resolve(document.commitDraftIfOpen('retiring-box', right.view)).then(() => {handedOff = true;});
+        try {
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(saved).toBe(false);
+            expect(handedOff).toBe(false);
+            expect(document.textBoxDrafts.get('retiring-box')).toBe('Accepted while moving');
+            fit.resolve(undefined);
+            await Promise.all([
+                retiring,
+                saving,
+                handoff,
+            ]);
+            expect(saved).toBe(true);
+            expect(saveFailure).toBeUndefined();
+            expect(handedOff).toBe(true);
+            expect(document.textBoxDrafts.size).toBe(0);
+            expect(document.getTextBoxDraftRect('retiring-box')).toBeNull();
+        } finally {fit.resolve(undefined);}
+    });
+
     it('keeps a rejected shared draft editable and refuses both Save and a linked editor handoff', async () => {
         const document = createDocument();
         const left = createEditorView();
@@ -144,7 +183,6 @@ describe('text-box drafts of a document shown in two views', () => {
             left.open.value = null;
             document.setTextBoxDraft('box-1', null);
         });
-        left.view.commitDraftIfOpen = () => left.view.commitPendingDraftsForSave();
         document.attachView(left.view);
         document.attachView(right.view);
         const saving = document.commitPendingDraftsForSave();
