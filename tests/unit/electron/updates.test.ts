@@ -12,6 +12,19 @@ import {
 import {
     ref, computed, watch, onScopeDispose, effectScope, nextTick,
 } from 'vue';
+import {
+    execFileSync, spawnSync,
+} from 'node:child_process';
+import {
+    chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync,
+} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {
+    dirname, join,
+} from 'node:path';
+import {createRequire} from 'node:module';
+import {randomUUID} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
 import type * as UpdatesOwner from '@electron/updates';
 import type {useAppUpdates} from '@app/composables/useAppUpdates';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
@@ -95,6 +108,7 @@ const mocks = vi.hoisted(() => {
     };
 
     return {
+        systemPreferences: {setUserDefault: vi.fn()},
         app: {
             getVersion: vi.fn(() => '1.0.0'),
             isPackaged: true,
@@ -127,6 +141,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('electron', () => ({
     app: mocks.app,
+    systemPreferences: mocks.systemPreferences,
     session: mocks.session,
 }));
 
@@ -168,6 +183,8 @@ vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: 
 const originalPlatform = process.platform;
 const originalArch = process.arch;
 const originalWindowsStore = process.windowsStore;
+const hostExecPath = process.execPath;
+let writableBundle: string;
 
 function createMetadataResponse(version: string, setCookie?: string) {
     const headers = new Headers();
@@ -205,6 +222,8 @@ async function loadUpdatesModule() {
 }
 
 beforeAll(() => {
+    writableBundle = mkdtempSync(join(tmpdir(), 'evb-updater-bundle-'));
+    mkdirSync(join(writableBundle, 'Contents', 'MacOS'), {recursive: true});
     Object.defineProperty(process, 'platform', {
         configurable: true,
         value: 'darwin',
@@ -221,6 +240,10 @@ beforeAll(() => {
 
 describe('updates robustness', () => {
     beforeEach(() => {
+        Object.defineProperty(process, 'execPath', {
+            configurable: true,
+            value: join(writableBundle, 'Contents', 'MacOS', 'EVB Viewer'),
+        });
         Object.defineProperty(process, 'platform', {
             configurable: true,
             value: 'darwin',
@@ -278,6 +301,206 @@ describe('updates robustness', () => {
         vi.unstubAllGlobals();
         vi.useRealTimers();
     });
+
+    it('prepares a macOS install without requiring access to the Applications folder', async () => {
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => {});
+        mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+        let install: (() => Promise<void>) | undefined;
+        updates.configureUpdateInstallShutdown(callback => { install = callback; });
+
+        await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: true});
+        // ShipIt is a separate process: the mode must be persisted in native defaults.
+        expect(mocks.systemPreferences.setUserDefault).toHaveBeenCalledWith(
+            'SquirrelMacEnableDirectContentsWrite', 'boolean', true,
+        );
+        expect(install).toBeDefined();
+    });
+
+    it.skipIf(originalPlatform === 'win32' || process.getuid?.() === 0)('keeps the app running and explains a non-writable macOS installation before shutdown', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-update-permission-'));
+        const bundle = join(root, 'EVB Viewer.app');
+        mkdirSync(join(bundle, 'Contents', 'MacOS'), {recursive: true});
+        const originalExecPath = process.execPath;
+        Object.defineProperty(process, 'execPath', {
+            configurable: true,
+            value: join(bundle, 'Contents', 'MacOS', 'EVB Viewer'),
+        });
+        chmodSync(bundle, 0o555);
+        try {
+            const updates = await loadUpdatesModule();
+            updates.initializeUpdates(() => {});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+            let shutdownRequested = false;
+            updates.configureUpdateInstallShutdown(() => { shutdownRequested = true; });
+
+            await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: false});
+            expect(shutdownRequested).toBe(false);
+            expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
+            expect(updates.getUpdateStatus(requester)).toMatchObject({
+                phase: 'error',
+                reason: 'install-permission-denied',
+                requestedHere: true,
+            });
+        } finally {
+            Object.defineProperty(process, 'execPath', {
+                configurable: true,
+                value: originalExecPath,
+            });
+            chmodSync(bundle, 0o755);
+            rmSync(root, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it.each([
+        'EACCES',
+        'EPERM',
+        'EROFS',
+    ])('explains native macOS installation access failure %s', async (code) => {
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => {});
+        updates.configureUpdateInstallShutdown(() => {});
+        mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+        await updates.installDownloadedUpdate(requester);
+        mocks.autoUpdater.emit('error', Object.assign(new Error('Installation access failed'), {code}));
+        expect(updates.getUpdateStatus(requester)).toMatchObject({
+            phase: 'error',
+            reason: 'install-permission-denied',
+            requestedHere: true,
+        });
+    });
+
+    // Post-quit installation cannot use page input. Exercise the actual shipped
+    // installer with relaunch disabled and assert the installed bytes instead.
+    it.skipIf(originalPlatform !== 'darwin' || process.getuid?.() === 0)('installs with ShipIt under a non-writable parent without admin rights', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'evb-shipit-permission-'));
+        const parent = join(root, 'Applications');
+        const installed = join(parent, 'EVB Viewer.app');
+        const staged = join(root, 'staged', 'EVB Viewer.app');
+        const domain = `com.evb.viewer.permission-proof.${randomUUID()}`;
+        const require = createRequire(import.meta.url);
+        const runtime = join(dirname(require.resolve('electron/package.json')), 'dist', 'Electron.app');
+        const shipit = join(runtime, 'Contents', 'Frameworks', 'Squirrel.framework', 'Resources', 'ShipIt');
+        const originalExecPath = process.execPath;
+        const nativeTemp = execFileSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], {encoding: 'utf8'}).trim();
+        try {
+            for (const [
+                bundle,
+                version,
+            ] of [
+                    [
+                        installed,
+                        '1.0.0',
+                    ],
+                    [
+                        staged,
+                        '1.1.0',
+                    ],
+                ] as const) {
+                mkdirSync(join(bundle, 'Contents', 'MacOS'), {recursive: true});
+                copyFileSync('/usr/bin/true', join(bundle, 'Contents', 'MacOS', 'EVB Viewer'));
+                writeFileSync(join(bundle, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>${domain}</string>
+<key>CFBundleExecutable</key><string>EVB Viewer</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>${version}</string>
+<key>CFBundleShortVersionString</key><string>${version}</string>
+</dict></plist>`);
+                mkdirSync(join(bundle, 'Contents', 'Resources'));
+                writeFileSync(join(bundle, 'Contents', 'Resources', 'version'), version);
+                execFileSync('/usr/bin/codesign', [
+                    '--force',
+                    '--sign',
+                    '-',
+                    '--requirements',
+                    `=designated => identifier "${domain}"`,
+                    bundle,
+                ], {stdio: 'pipe'});
+            }
+            chmodSync(parent, 0o555);
+            const parentBefore = statSync(parent);
+            Object.defineProperty(process, 'execPath', {
+                configurable: true,
+                value: join(installed, 'Contents', 'MacOS', 'EVB Viewer'),
+            });
+            mocks.systemPreferences.setUserDefault.mockImplementation((key: string, _type: string, value: boolean) => {
+                execFileSync('/usr/bin/defaults', [
+                    'write',
+                    domain,
+                    key,
+                    '-bool',
+                    String(value),
+                ]);
+            });
+            const updates = await loadUpdatesModule();
+            updates.initializeUpdates(() => {});
+            updates.configureUpdateInstallShutdown(() => {});
+            mocks.autoUpdater.emit('update-downloaded', {version: '1.1.0'});
+            await expect(updates.installDownloadedUpdate(requester)).resolves.toEqual({started: true});
+            const state = join(root, 'ShipItState.json');
+            writeFileSync(state, JSON.stringify({
+                updateBundleURL: pathToFileURL(staged).href,
+                targetBundleURL: pathToFileURL(installed).href,
+                bundleIdentifier: null,
+                launchAfterInstallation: false,
+                useUpdateBundleName: false,
+            }));
+            const result = spawnSync(shipit, [
+                `${domain}.ShipIt`,
+                state,
+            ], {
+                encoding: 'utf8',
+                timeout: 30_000,
+            });
+            expect(result.stderr).toContain('Installation completed successfully');
+            expect(result.status).toBe(0);
+            expect(readFileSync(join(installed, 'Contents', 'Resources', 'version'), 'utf8')).toBe('1.1.0');
+            expect(statSync(parent).mode).toBe(parentBefore.mode);
+            expect(statSync(parent).ino).toBe(parentBefore.ino);
+            execFileSync('/usr/bin/codesign', [
+                '--verify',
+                '--deep',
+                '--strict',
+                installed,
+            ], {stdio: 'pipe'});
+        } finally {
+            Object.defineProperty(process, 'execPath', {
+                configurable: true,
+                value: originalExecPath,
+            });
+            mocks.systemPreferences.setUserDefault.mockReset();
+            for (const identifier of [
+                domain,
+                `${domain}.ShipIt`,
+            ]) {
+                spawnSync('/usr/bin/defaults', [
+                    'delete',
+                    identifier,
+                ]);
+                spawnSync('/usr/bin/defaults', [
+                    '-currentHost',
+                    'delete',
+                    identifier,
+                ]);
+            }
+            for (const entry of readdirSync(nativeTemp)) {
+                if (entry.startsWith(`${domain}.ShipIt.`)) rmSync(join(nativeTemp, entry), {
+                    recursive: true,
+                    force: true,
+                });
+            }
+            chmodSync(parent, 0o755);
+            rmSync(root, {
+                recursive: true,
+                force: true,
+            });
+        }
+    }, 45_000);
 
     it('reports the canonical runtime version before updater initialization completes', async () => {
         const updates = await loadUpdatesModule();
@@ -2206,6 +2429,14 @@ describe('updates robustness', () => {
 });
 
 afterAll(() => {
+    Object.defineProperty(process, 'execPath', {
+        configurable: true,
+        value: hostExecPath,
+    });
+    rmSync(writableBundle, {
+        recursive: true,
+        force: true,
+    });
     Object.defineProperty(process, 'platform', {
         configurable: true,
         value: originalPlatform,

@@ -365,6 +365,7 @@ describe('useAppUpdates', () => {
             'runtime-unsupported': 'unsupportedDescription',
             'check-failed': 'checkFailed',
             'install-failed': 'installFailed',
+            'install-permission-denied': 'installPermissionDenied',
         } as const;
         for (const [
             reason,
@@ -389,7 +390,9 @@ describe('useAppUpdates', () => {
                 ));
                 expect(updates.dialog.value.message).not.toContain(raw);
                 expect(updates.status.value.message).toBe(raw);
-                if (updates.status.value.phase === 'error') {
+                if (reason === 'install-permission-denied') {
+                    expect(updates.dialog.value.failure).toBeNull();
+                } else if (updates.status.value.phase === 'error') {
                     expect(updates.dialog.value.failure?.technicalDetails).toBe(raw);
                 }
             }

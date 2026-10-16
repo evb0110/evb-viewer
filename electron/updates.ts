@@ -1,4 +1,10 @@
-import {app} from 'electron';
+import {
+    app, systemPreferences,
+} from 'electron';
+import {
+    accessSync, constants,
+} from 'node:fs';
+import {resolve} from 'node:path';
 import electronUpdater, {CancellationToken} from 'electron-updater';
 import { clamp } from 'es-toolkit/math';
 import type {
@@ -43,8 +49,7 @@ const METADATA_REQUEST_TIMEOUT_MS = 10_000;
 const MIN_POLL_INTERVAL_MS = 60_000;
 const MAX_JITTER_RATIO = 0.12;
 const UPDATE_PROGRESS_BROADCAST_THROTTLE_MS = 250;
-const UPDATER_SHUTDOWN_CHECK_WAIT_TIMEOUT_MS = 3_000;
-const UPDATER_SHUTDOWN_DOWNLOAD_WAIT_TIMEOUT_MS = 3_000;
+const UPDATER_SHUTDOWN_WAIT_TIMEOUT_MS = 3_000;
 const GITHUB_RELEASE_OWNER = 'evb0110';
 const GITHUB_RELEASE_REPOSITORY = 'evb-viewer';
 const GITHUB_RELEASE_DOWNLOAD_BASE_URL = `https://github.com/${GITHUB_RELEASE_OWNER}/${GITHUB_RELEASE_REPOSITORY}/releases/download`;
@@ -216,6 +221,8 @@ function isUpdaterRuntimeSupported() {
 
 function getUpdateFailureReason(error: unknown, operation: 'check' | 'download' | 'install'): TAppUpdateReason {
     const cause = error instanceof Error && error.cause ? error.cause : error;
+    if (operation === 'install' && process.platform === 'darwin' && cause instanceof Error && 'code' in cause
+        && (cause.code === 'EACCES' || cause.code === 'EPERM' || cause.code === 'EROFS')) return 'install-permission-denied';
     if (isAbortError(cause) || (cause instanceof Error && cause.name === 'TimeoutError')) {
         return operation === 'check' ? 'check-timed-out' : `${operation}-failed`;
     }
@@ -475,6 +482,10 @@ function setAutoUpdaterListeners() {
         return;
     }
     listenersRegistered = true;
+    // Configure both Squirrel processes before the native updater creates its feed.
+    if (app.isPackaged && process.platform === 'darwin') {
+        systemPreferences.setUserDefault('SquirrelMacEnableDirectContentsWrite', 'boolean', true);
+    }
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
 
@@ -1074,13 +1085,16 @@ export async function installDownloadedUpdate(requester: IUpdateRequester | null
             throw new Error(`Downloaded update ${downloadedVersion} did not match approved version ${candidateVersion}`);
         }
         validateDownloadedUpdateForInstall(candidateVersion);
+        if (app.isPackaged && process.platform === 'darwin') {
+            accessSync(resolve(process.execPath, '..', '..', '..'), constants.W_OK);
+        }
     } catch (error) {
         clearDownloadedCandidate(downloadedVersion);
         const message = `Update installation failed: ${getErrorMessage(error)}`;
         logger.warn(message);
         updateStatus({
             phase: 'error',
-            reason: 'install-failed',
+            reason: getUpdateFailureReason(error, 'install'),
             origin: 'manual',
             version: candidateVersion,
             percent: null,
@@ -1172,41 +1186,24 @@ export async function shutdownUpdates() {
     lastProgressBroadcastAt = 0;
     currentDownloadCancellationToken?.cancel();
 
-    if (currentCheckPromise) {
+    for (const pending of [
+        currentCheckPromise,
+        currentDownloadPromise,
+    ]) {
+        if (!pending) continue;
         let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
         try {
             await Promise.race([
-                currentCheckPromise,
+                pending,
                 new Promise<void>((resolve) => {
-                    timeoutHandle = setTimeout(resolve, UPDATER_SHUTDOWN_CHECK_WAIT_TIMEOUT_MS);
+                    timeoutHandle = setTimeout(resolve, UPDATER_SHUTDOWN_WAIT_TIMEOUT_MS);
                     timeoutHandle.unref();
                 }),
             ]);
         } catch {
-            // Ignore in-flight check failures during shutdown.
+            // The operation owns its failure; shutdown only drains it.
         } finally {
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-            }
-        }
-    }
-
-    if (currentDownloadPromise) {
-        let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
-        try {
-            await Promise.race([
-                currentDownloadPromise,
-                new Promise<void>((resolve) => {
-                    timeoutHandle = setTimeout(resolve, UPDATER_SHUTDOWN_DOWNLOAD_WAIT_TIMEOUT_MS);
-                    timeoutHandle.unref();
-                }),
-            ]);
-        } catch {
-            // Ignore in-flight download failures during shutdown.
-        } finally {
-            if (timeoutHandle) {
-                clearTimeout(timeoutHandle);
-            }
+            if (timeoutHandle) clearTimeout(timeoutHandle);
         }
     }
 
