@@ -30,6 +30,7 @@ const appUpdateStatusSchema = v.object({
         'feed-unavailable',
         'download-failed',
         'install-failed',
+        'install-permission-denied',
         'install-preparation-failed',
         'store-updates',
         'signed-build-required',

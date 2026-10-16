@@ -1684,6 +1684,7 @@ export default {
         'feedUnavailable': 'Versie {version} heeft geen updatefeed. Download deze versie handmatig.',
         'downloadFailed': 'Het downloaden van de update is mislukt. Probeer de update opnieuw te downloaden.',
         'installFailed': 'De update kon niet worden geïnstalleerd. Download de versie handmatig.',
+        'installPermissionDenied': 'U hebt geen toestemming om deze app bij te werken. Vraag uw beheerder de update te installeren of gebruik een kopie in uw eigen map Apps.',
         'installPreparationFailed': 'De update kon niet worden voorbereid voor installatie. Probeer het later opnieuw.',
         'storeUpdates': 'Updates voor deze versie worden geleverd via Microsoft Store.',
         'signedBuildRequired': 'Updates vereisen een ondertekende, verpakte applicatieversie.',

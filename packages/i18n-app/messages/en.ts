@@ -1684,6 +1684,7 @@ export default {
         'feedUnavailable': 'Version {version} has no updater feed. Download this release manually.',
         'downloadFailed': 'The update download failed. Try downloading it again.',
         'installFailed': 'The update could not be installed. Download the release manually.',
+        'installPermissionDenied': 'You do not have permission to update this app. Ask your administrator to install the update, or use a copy in your Applications folder.',
         'installPreparationFailed': 'The update could not be prepared for installation. Try again later.',
         'storeUpdates': 'Updates for this build are delivered by Microsoft Store.',
         'signedBuildRequired': 'Updates require a signed packaged build.',

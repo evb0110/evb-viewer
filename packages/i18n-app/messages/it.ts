@@ -1684,6 +1684,7 @@ export default {
         'feedUnavailable': 'La versione {version} non dispone di un canale di aggiornamento. Scarica questa versione manualmente.',
         'downloadFailed': 'Il download dell’aggiornamento non è riuscito. Prova a scaricarlo di nuovo.',
         'installFailed': 'Non è stato possibile installare l’aggiornamento. Scarica la versione manualmente.',
+        'installPermissionDenied': 'Non hai il permesso di aggiornare questa app. Chiedi all’amministratore di installare l’aggiornamento o usa una copia nella tua cartella Applicazioni.',
         'installPreparationFailed': 'Non è stato possibile preparare l’aggiornamento per l’installazione. Riprova più tardi.',
         'storeUpdates': 'Gli aggiornamenti di questa versione vengono distribuiti tramite Microsoft Store.',
         'signedBuildRequired': 'Gli aggiornamenti richiedono una versione dell’applicazione distribuita e firmata.',

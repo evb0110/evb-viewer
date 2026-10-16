@@ -1695,6 +1695,7 @@ export default {
         'feedUnavailable': 'La version {version} ne dispose pas de flux de mise à jour. Téléchargez cette version manuellement.',
         'downloadFailed': 'Le téléchargement de la mise à jour a échoué. Réessayez de la télécharger.',
         'installFailed': 'La mise à jour n’a pas pu être installée. Téléchargez la version manuellement.',
+        'installPermissionDenied': 'Vous n’avez pas l’autorisation de mettre à jour cette application. Demandez à votre administrateur d’installer la mise à jour ou utilisez une copie dans votre dossier Applications.',
         'installPreparationFailed': 'La mise à jour n’a pas pu être préparée pour l’installation. Réessayez plus tard.',
         'storeUpdates': 'Les mises à jour de cette version sont fournies par Microsoft Store.',
         'signedBuildRequired': 'Les mises à jour nécessitent une version de l’application distribuée et signée.',

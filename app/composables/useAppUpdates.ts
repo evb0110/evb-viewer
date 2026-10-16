@@ -89,7 +89,7 @@ function applyStatus(
 ) {
     status.value = nextStatus;
 
-    if (nextStatus.phase === 'error') {
+    if (nextStatus.phase === 'error' && nextStatus.reason !== 'install-permission-denied') {
         activeUpdateFailure.value = failure
             ?? activeUpdateFailure.value
             ?? captureUpdateFailure(
@@ -284,9 +284,7 @@ const isCheckInProgress = computed(() => {
     return status.value.phase === 'checking' || status.value.phase === 'downloading';
 });
 
-const isUpdateSupported = computed(() => {
-    return isUpdatesCapabilitySupported(status.value);
-});
+const isUpdateSupported = computed(() => isUpdatesCapabilitySupported(status.value));
 
 const dialogVersion = computed(() => status.value.version);
 
@@ -297,6 +295,7 @@ const updateReasonKeys = {
     'feed-unavailable': 'updates.feedUnavailable',
     'download-failed': 'updates.downloadFailed',
     'install-failed': 'updates.installFailed',
+    'install-permission-denied': 'updates.installPermissionDenied',
     'install-preparation-failed': 'updates.installPreparationFailed',
     'store-updates': 'updates.storeUpdates',
     'signed-build-required': 'updates.signedBuildRequired',

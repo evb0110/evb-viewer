@@ -1695,6 +1695,7 @@ export default {
         'feedUnavailable': 'A versão {version} não tem um canal de atualização. Transfira esta versão manualmente.',
         'downloadFailed': 'A transferência da atualização falhou. Tente transferi-la novamente.',
         'installFailed': 'Não foi possível instalar a atualização. Transfira a versão manualmente.',
+        'installPermissionDenied': 'Não tem permissão para atualizar esta aplicação. Peça ao administrador para instalar a atualização ou use uma cópia na sua pasta Aplicações.',
         'installPreparationFailed': 'Não foi possível preparar a atualização para instalação. Tente novamente mais tarde.',
         'storeUpdates': 'As atualizações desta versão são fornecidas pela Microsoft Store.',
         'signedBuildRequired': 'As atualizações exigem uma versão da aplicação empacotada e assinada.',
