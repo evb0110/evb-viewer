@@ -345,6 +345,39 @@ const schemaArgsExamples: Readonly<Record<string, unknown[]>> = {
         1,
     ],
     'page-ops:read-outline': ['/tmp/fixture.pdf'],
+    'page-ops:text-box-appearance': [
+        '/tmp/fixture.pdf',
+        {
+            page: {
+                view: [
+                    0,
+                    0,
+                    600,
+                    800,
+                ],
+                rotation: 0,
+                userUnit: 1,
+            },
+            textBoxes: [{textBox: {
+                pageIndex: 0,
+                stableKey: 'text-box-fixture',
+                text: 'Text box',
+                rect: [
+                    100,
+                    600,
+                    400,
+                    640,
+                ],
+                rotation: 0,
+                fontSize: 12,
+                color: [
+                    0,
+                    0,
+                    0,
+                ],
+            }}],
+        },
+    ],
     'pdf:search': [{
         pdfPath: '/tmp/search.pdf',
         query: 'needle',

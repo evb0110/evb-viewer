@@ -7952,7 +7952,7 @@ packages:
 
   pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-6.3.314-f88c766a.tgz:
     resolution: {integrity: sha512-8vq2XHtmeNJjPXP55xg1bB/2lTLfYxBkfuUvAG2N83HV5ceL0xl5DKTH9jTKkxPteRoLMx3b0oDAIpDDcAm6Ig==, tarball: file:vendor/pdfjs-dist/pdfjs-dist-6.3.314-f88c766a.tgz}
-    version: 6.3.313
+    version: 6.3.314
     engines: {node: '>=22.13.0 || >=24'}
 
   pe-library@0.4.1:

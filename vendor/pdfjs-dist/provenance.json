@@ -70,7 +70,7 @@
   "verifier": {
     "path": "scripts/verify-pdfjs-provenance.mjs",
     "version": "1",
-    "sourceSha256": "5983c2a39c7e67b731866d959c79fa06e1d374e3687965fb19a28bf718d9aae8"
+    "sourceSha256": "efbaa217a822f7157a29e8a98eedfc4b0b1674e981b27a282ca7194b88b17ef1"
   },
   "verification": {
     "requiredForkMarkers": 20,

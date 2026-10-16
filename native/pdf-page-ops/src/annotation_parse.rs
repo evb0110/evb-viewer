@@ -380,12 +380,10 @@ pub(crate) fn write_annotation_parse_path(
     Ok(())
 }
 
-/// Parsing reads dictionaries, except that a note's recovery data serializes
-/// the note's objects and a stamp reads its appearance and image streams.
-/// qpdf's structural view keeps neither the original object bytes nor the
-/// stream bytes. So a scanned file that the dictionary load reads
-/// structurally below the eager-load ceiling is loaded eagerly after all when
-/// a page holds a note, a legacy note-marker candidate or a stamp.
+/// Notes and FreeText recovery serialize original objects; stamps read appearance
+/// and image streams. qpdf's structural view retains neither original object
+/// encoding nor stream bytes, so these annotations use the admitted eager loader
+/// below its existing byte ceiling.
 fn load_annotation_parse_pdf_path(
     input_path: &Path,
     qpdf_path: Option<&Path>,
@@ -401,7 +399,7 @@ fn load_annotation_parse_pdf_path(
     Ok(incremental)
 }
 
-/// A page annotation that is a note, a legacy note-marker candidate or a stamp,
+/// A page annotation with recovery objects or stamp streams,
 /// or a page tree or /Annots the scan cannot read, which the eager parse
 /// reports as it always has.
 fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
@@ -422,10 +420,10 @@ fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
                 continue;
             };
             let subtype = annotation_subtype_name(document, dict);
-            if subtype.eq_ignore_ascii_case("Text")
-                || subtype.eq_ignore_ascii_case("Stamp")
-                || is_free_text_note_marker_candidate(document, dict)
-            {
+            if matches!(
+                subtype.to_ascii_lowercase().as_str(),
+                "text" | "freetext" | "stamp"
+            ) {
                 found = true;
                 break;
             }

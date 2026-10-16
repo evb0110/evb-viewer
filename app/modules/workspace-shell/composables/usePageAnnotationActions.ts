@@ -337,12 +337,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (comment.annotationKind === 'shape' && comment.appAnnotationId) {
             // Shapes reuse the selection property command, which owns its history entry.
             if (pdfViewerRef.value?.selectAnnotationById?.(comment.appAnnotationId)) {
-                void pdfViewerRef.value.updateSelectedAnnotationProperties?.({color});
+                void Promise.resolve(pdfViewerRef.value.updateSelectedAnnotationProperties?.({color}))
+                    .catch(error => BrowserLogger.debug('annotations', 'Failed to update shape color', error));
             }
-            closeAnnotationContextMenu();
-            return;
-        }
-        updateTextMarkupColorWithHistory(comment, color);
+        } else updateTextMarkupColorWithHistory(comment, color);
         closeAnnotationContextMenu();
     }
 

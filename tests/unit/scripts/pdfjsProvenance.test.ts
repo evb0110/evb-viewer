@@ -245,13 +245,15 @@ describe('PDF.js provenance attack fixtures', () => {
         await mkdir(vendor, {recursive: true});
         const sourceVendor = resolve(process.cwd(), 'vendor/pdfjs-dist');
         try {
-            await Promise.all([
-                copyFile(join(sourceVendor, 'pdfjs-dist-6.3.313-f9ed28c5.tgz'), join(vendor, 'pdfjs-dist-6.3.313-f9ed28c5.tgz')),
-                copyFile(join(sourceVendor, 'pdfjs-dist-6.3.313-f9ed28c5.files.sha256'), join(vendor, 'pdfjs-dist-6.3.313-f9ed28c5.files.sha256')),
-                copyFile(join(sourceVendor, 'provenance.json'), join(vendor, 'provenance.json')),
-            ]);
             const receiptPath = join(vendor, 'provenance.json');
+            await copyFile(join(sourceVendor, 'provenance.json'), receiptPath);
             const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+            const archivePath = join(vendor, receipt.artifact.filename);
+            const manifestPath = join(vendor, receipt.package.manifest);
+            await Promise.all([
+                copyFile(join(sourceVendor, receipt.artifact.filename), archivePath),
+                copyFile(join(sourceVendor, receipt.package.manifest), manifestPath),
+            ]);
             const verifierSource = await readFile(
                 resolve(process.cwd(), 'scripts/verify-pdfjs-provenance.mjs'),
             );
@@ -261,8 +263,8 @@ describe('PDF.js provenance attack fixtures', () => {
             await writeFile(receiptPath, JSON.stringify(receipt));
             await expect(verify({
                 projectRoot: process.cwd(),
-                archivePath: join(vendor, 'pdfjs-dist-6.3.313-f9ed28c5.tgz'),
-                manifestPath: join(vendor, 'pdfjs-dist-6.3.313-f9ed28c5.files.sha256'),
+                archivePath,
+                manifestPath,
                 receiptPath,
             })).rejects.toThrow(/verifier source hash mismatch/u);
             receipt.verifier.sourceSha256 = verifierSourceSha256;
@@ -270,10 +272,30 @@ describe('PDF.js provenance attack fixtures', () => {
             await writeFile(receiptPath, JSON.stringify(receipt));
             await expect(verify({
                 projectRoot: process.cwd(),
-                archivePath: join(vendor, 'pdfjs-dist-6.3.313-f9ed28c5.tgz'),
-                manifestPath: join(vendor, 'pdfjs-dist-6.3.313-f9ed28c5.files.sha256'),
+                archivePath,
+                manifestPath,
                 receiptPath,
             })).rejects.toThrow(/archive SHA-256 mismatch/u);
+            receipt.archive.sha256 = receipt.build.reproduciblePackSha256;
+            await writeFile(receiptPath, JSON.stringify(receipt));
+            await Promise.all([
+                symlink(resolve(process.cwd(), 'node_modules'), join(root, 'node_modules'), 'junction'),
+                symlink(resolve(process.cwd(), 'public'), join(root, 'public'), 'junction'),
+                copyFile(resolve(process.cwd(), 'package.json'), join(root, 'package.json')),
+            ]);
+            const lockfile = await readFile(resolve(process.cwd(), 'pnpm-lock.yaml'), 'utf8');
+            const packageEntryStart = lockfile.indexOf(`  pdfjs-dist@${receipt.artifact.path}:`);
+            expect(packageEntryStart).toBeGreaterThan(-1);
+            const packageEntry = lockfile.slice(packageEntryStart).split(/\r?\n\r?\n/u)[0]!;
+            const invalidPackageEntry = packageEntry.replace(/^ {4}version: .+$/mu, '    version: 0.0.0');
+            expect(invalidPackageEntry).not.toBe(packageEntry);
+            await writeFile(join(root, 'pnpm-lock.yaml'), lockfile.replace(packageEntry, invalidPackageEntry));
+            await expect(verify({
+                projectRoot: root,
+                archivePath,
+                manifestPath,
+                receiptPath,
+            })).rejects.toThrow(/lockfile package identity mismatch/u);
         } finally {
             await rm(root, {
                 recursive: true,

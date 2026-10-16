@@ -126,7 +126,7 @@ const rangeWorkerMarkers = [
 ];
 
 function normalizeCopiedAsset(relativePath, content) {
-    if (relativePath === 'standard_fonts/LICENSE_LIBERATION') {
+    if (relativePath.replaceAll(sep, '/') === 'standard_fonts/LICENSE_LIBERATION') {
         return Buffer.from(content.toString('utf8').replace(/[ \t]+$/gmu, ''));
     }
     return content;
@@ -347,8 +347,12 @@ export async function verify(options = {}) {
     }); }
     const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
     assert(packageJson.dependencies?.['pdfjs-dist'] === dependencyKey && packageJson.devDependencies?.['pdfjs-dist-codex-preview'] === 'npm:pdfjs-dist@5.4.296', 'package dependency mismatch');
-    const lockfile = await readFile(join(root, 'pnpm-lock.yaml'), 'utf8');
+    const lockfile = (await readFile(join(root, 'pnpm-lock.yaml'), 'utf8')).replaceAll('\r\n', '\n');
     assert(lockfile.includes(`specifier: ${dependencyKey}`) && lockfile.includes(`integrity: ${receipt.evb.lockfilePdfjsIntegrity}`), 'lockfile does not bind the committed tarball');
+    const lockedPackage = lockfile.split(`\n  ${expectedPackage.name}@${dependencyKey}:\n`)[1]?.split(/\n(?= {0,2}\S)/u)[0];
+    assert(lockedPackage?.match(/^ {4}version: (\S+)$/mu)?.[1] === expectedPackage.version
+        && lockedPackage.includes(`integrity: ${receipt.evb.lockfilePdfjsIntegrity}`)
+        && lockedPackage.includes(`tarball: ${dependencyKey}`), 'lockfile package identity mismatch');
     assert((await readFile(join(root, receipt.evb.publicVersionStamp), 'utf8')).trim() === expectedPackage.version, 'public version stamp mismatch');
     const publicWorker = await readFile(join(root, 'public/pdf/pdf.worker.min.mjs'));
     const installedWorker = await readFile(join(root, 'node_modules/pdfjs-dist/build/pdf.worker.mjs'), 'utf8');

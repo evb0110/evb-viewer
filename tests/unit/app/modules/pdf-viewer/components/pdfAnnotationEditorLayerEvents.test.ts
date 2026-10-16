@@ -95,20 +95,17 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         {
             failure: new DOMException('Source replaced', 'AbortError'),
             newerInput: false,
-            retained: true,
         },
         {
             failure: new Error('Native appearance unavailable'),
             newerInput: false,
-            retained: false,
         },
         {
             failure: new Error('Native appearance unavailable'),
             newerInput: true,
-            retained: true,
         },
-    ])('settles cancellation with retained=$retained and newer input=$newerInput', async ({
-        failure, newerInput, retained,
+    ])('retains visible draft when cancellation painting fails with newer input=$newerInput', async ({
+        failure, newerInput,
     }) => {
         const annotationApplication = shallowRef(new AnnotationApplication('cancel-failure'));
         const scope = effectScope();
@@ -133,16 +130,24 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         onTestFinished(() => {surface.endTextEditing(box.identity.id, {cancelled: true}); app.unmount(); scope.stop();});
         await nextTick();
         await surface.beginTextEditing(box.identity.id);
-        surface.setTextBoxDraftPending(box.identity.id, 'Unaccepted draft');
+        await nextTick();
+        const editor = host.querySelector<HTMLElement>('[contenteditable="true"]')!;
+        editor.textContent = 'Unaccepted draft';
+        editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
         expect(surface.cancelActiveInteraction()).toBe(true);
-        if (newerInput) surface.setTextBoxDraftPending(box.identity.id, 'Newer input');
+        if (newerInput) {
+            editor.textContent = 'Newer input';
+            editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        }
         publication.reject(failure);
         await new Promise<void>(resolve => setTimeout(resolve, 0));
-        expect(surface.editingId.value).toBe(retained ? box.identity.id : null);
+        expect(surface.editingId.value).toBe(box.identity.id);
         expect(annotationApplication.value.store.get(box.identity.id)?.kind).toBe('text-box');
         expect(surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'Original'});
-        expect(Boolean(host.querySelector('[contenteditable="true"]'))).toBe(retained);
-        if (newerInput) expect(surface.getTextBoxDraftText(box.identity.id)).toBe('Newer input');
+        expect(host.querySelector('[contenteditable="true"]')).toBe(editor);
+        expect(editor.textContent).toBe(newerInput ? 'Newer input' : 'Unaccepted draft');
+        expect(host.querySelector<HTMLElement>('.pdf-annotation-editor-text-box')!.style.color).not.toBe('transparent');
+        expect(surface.getTextBoxDraftText(box.identity.id)).toBe(editor.textContent);
     });
 
     it('selects an SVG markup entity on pointerdown and retains selection through a moved gesture and click', async () => {

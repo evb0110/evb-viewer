@@ -7,7 +7,7 @@ import type { TPdfPageRenderContentIntent } from '@app/modules/pdf-viewer/engine
 import type { MaybeRefOrGetter } from 'vue';
 import { AnnotationMode } from '@app/services/pdfjs/runtimeLib';
 import { toPdfjsHiddenAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-hidden-annotations/toPdfjsHiddenAnnotationIds';
-import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
+import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
@@ -186,10 +186,9 @@ export const usePdfCanvasRenderer = (deps: {
                 ...input,
                 excludedIds: hiddenAnnotationIds ?? new Set<string>(),
             }) : undefined,
-            annotationCanvasMap: input?.nativeAnnotationAppearance || options?.contentIntent === 'canvas-only-buffer' || options?.contentIntent === 'canvas-only-refine'
+            annotationCanvasMap: input?.nativeTextBoxInputs?.length || options?.contentIntent === 'canvas-only-buffer' || options?.contentIntent === 'canvas-only-refine'
                 || input?.original?.entities.some(original => original.kind === 'text-box' && original.pageIndex + 1 === pdfPage.pageNumber
-                    && input.semanticInputs.some(entity => normalizePdfJsAnnotationId(entity.ref) === normalizePdfJsAnnotationId(`${original.objectNumber} ${original.generationNumber} R`))
-                    && !hiddenAnnotationIds?.has(normalizePdfJsAnnotationId(`${original.objectNumber} ${original.generationNumber} R`)!))
+                    && input.semanticInputs.some(entity => entity.ref === formatPdfJsAnnotationRef(original) && !hiddenAnnotationIds?.has(entity.ref)))
                 ? null : new Map<string, HTMLCanvasElement>(),
             annotationMode: AnnotationMode.ENABLE,
             hiddenAnnotationIds,

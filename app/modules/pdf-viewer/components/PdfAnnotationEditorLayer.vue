@@ -1105,10 +1105,7 @@ async function commitTextBox(
         if (entity && newTextBoxIds.has(annotationId) && !created) {
             surface.discardUnsavedAnnotation(annotationId);
             finish();
-        } else if (entity && surface.hasTextBoxDraftPending(annotationId)) await Promise.resolve(surface.publishTextBoxAppearance(entity, finish)).catch(error => {
-            if (draft || error instanceof Error && error.name === 'AbortError') throw error;
-            finish();
-        });
+        } else if (entity && surface.hasTextBoxDraftPending(annotationId)) await surface.publishTextBoxAppearance(entity, finish);
         else finish();
         return;
     }
