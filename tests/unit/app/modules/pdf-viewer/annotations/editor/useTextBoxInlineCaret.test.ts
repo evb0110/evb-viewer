@@ -106,6 +106,69 @@ describe('text box caret ownership', () => {
         expect(window.getSelection()?.isCollapsed).toBe(true);
     });
 
+    it('preserves the focused draft and selected text when completion fails', async () => {
+        const {
+            element,
+            editor,
+            commit,
+        } = await start();
+        const publication = Promise.withResolvers<undefined>();
+        commit.mockImplementation(() => publication.promise);
+        element.textContent = 'Corrected text';
+        editor.handleInput({currentTarget: element});
+        const completing = expect(editor.commit()).rejects.toThrow('Appearance unavailable');
+        const selection = window.getSelection()!;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        expect(selection.toString()).toBe('Corrected text');
+        publication.reject(new Error('Appearance unavailable'));
+        await completing;
+        await nextTick();
+        expect(document.activeElement).toBe(element);
+        expect(element.textContent).toBe('Corrected text');
+        expect(selection.toString()).toBe('Corrected text');
+    });
+
+    it('accepts the latest visible draft after pending fonts settle', async () => {
+        const ready = Promise.withResolvers<FontFaceSet>();
+        const fonts = Object.getOwnPropertyDescriptor(document, 'fonts');
+        Object.defineProperty(document, 'fonts', {
+            configurable: true,
+            value: {ready: ready.promise},
+        });
+        try {
+            const {
+                element, editor, commit,
+            } = await start();
+            const accepted = document.createElement('output');
+            document.body.append(accepted);
+            commit.mockImplementation((text: string) => { accepted.textContent = text; });
+            element.textContent = 'Before fonts';
+            editor.handleInput({currentTarget: element});
+            const completing = editor.commit();
+            await nextTick();
+            expect(accepted.textContent).toBe('');
+            expect(document.activeElement).toBe(element);
+            element.textContent = 'After fonts';
+            editor.handleInput({currentTarget: element});
+            const selection = window.getSelection()!;
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            ready.resolve(document.fonts);
+            await completing;
+            expect(accepted.textContent).toBe('After fonts');
+            expect(element.textContent).toBe('After fonts');
+            expect(selection.toString()).toBe('After fonts');
+        } finally {
+            if (fonts) Object.defineProperty(document, 'fonts', fonts);
+            else Reflect.deleteProperty(document, 'fonts');
+        }
+    });
+
     it('restores object focus for explicit Done but preserves the destination on blur', async () => {
         const {
             editor,

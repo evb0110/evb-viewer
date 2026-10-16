@@ -182,6 +182,83 @@ describe('useTextBoxInlineEdit', () => {
         expect(editing.value).toBe(false);
     });
 
+    it('keeps accepted input when Escape arrives during completion', async () => {
+        const editing = ref(true);
+        const publication = Promise.withResolvers<undefined>();
+        const scope = effectScope();
+        scopes.add(scope);
+        const editor = scope.run(() => useTextBoxInlineEdit({
+            entity: computed(() => entity.value),
+            editing,
+            onCommit: async (text) => {
+                await publication.promise;
+                entity.value = {
+                    ...entity.value,
+                    text,
+                };
+                editing.value = false;
+            },
+            onCancel: () => {editing.value = false;},
+        }))!;
+        editor.handleInput({currentTarget: {textContent: 'Accepted'} as HTMLElement});
+        const completing = editor.commit();
+        editor.handleKeydown({
+            key: 'Escape',
+            ctrlKey: false,
+            metaKey: false,
+            preventDefault: vi.fn(),
+        });
+        expect(editing.value).toBe(true);
+        publication.resolve(undefined);
+        await completing;
+        expect(entity.value.text).toBe('Accepted');
+        expect(editing.value).toBe(false);
+    });
+
+    it('retains the editable draft after failed cancellation and allows another Escape', async () => {
+        const editing = ref(true);
+        let restoration = Promise.withResolvers<undefined>();
+        const scope = effectScope();
+        scopes.add(scope);
+        const editor = scope.run(() => useTextBoxInlineEdit({
+            entity: computed(() => entity.value),
+            editing,
+            onCommit: text => {entity.value = {
+                ...entity.value,
+                text,
+            };},
+            onCancel: async () => {
+                await restoration.promise;
+                editing.value = false;
+            },
+        }))!;
+        editor.handleInput({currentTarget: {textContent: 'Draft'} as HTMLElement});
+        editor.handleKeydown({
+            key: 'Escape',
+            ctrlKey: false,
+            metaKey: false,
+            preventDefault: vi.fn(),
+        });
+        const cancelled = expect(editor.commit()).rejects.toThrow('Restore failed');
+        restoration.reject(new Error('Restore failed'));
+        await cancelled;
+        expect(editing.value).toBe(true);
+        expect(editor.draftText.value).toBe('Draft');
+        expect(entity.value.text).toBe('before');
+        restoration = Promise.withResolvers<undefined>();
+        editor.handleKeydown({
+            key: 'Escape',
+            ctrlKey: false,
+            metaKey: false,
+            preventDefault: vi.fn(),
+        });
+        const retrying = editor.commit();
+        restoration.resolve(undefined);
+        await retrying;
+        expect(editing.value).toBe(false);
+        expect(entity.value.text).toBe('before');
+    });
+
     it.each([
         'Escape',
         'Enter',

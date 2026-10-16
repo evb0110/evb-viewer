@@ -439,7 +439,8 @@ async function readTextBoxComputedStyle(
         const userUnit = Number.parseFloat(style.getPropertyValue('--user-unit')) || 1;
         const fontSizeCssPixels = Number.parseFloat(style.fontSize);
         return {
-            color: style.color,
+            // Resting glyphs live on the page canvas; the editor keeps its text color in the caret.
+            color: style.caretColor,
             fontSize: Number.isFinite(fontSizeCssPixels)
                 ? Number((fontSizeCssPixels / (scaleFactor * userUnit)).toFixed(3))
                 : null,
@@ -1170,6 +1171,11 @@ describe('Electron E2E - native save and reopen', () => {
             color: 'rgb(239, 68, 68)',
             fontSize: fontSizeAfterResize,
         });
+        await expect.poll(() => readTextBoxPaintedStyle(
+            session!.page,
+            annotationId,
+            finalStyle?.color ?? '',
+        ), {timeout: 20_000}).toEqual(finalStyle);
         await saveViaWindowHandle(session.page, 60_000);
         await expect.poll(
             () => readAnnotationDirtyState(session!.page),
@@ -1334,6 +1340,11 @@ describe('Electron E2E - native save and reopen', () => {
         expect(editedRect).toEqual(beforeSaveRect);
         expect(editedRect?.width).toBeCloseTo(initialRect.width, 6);
         expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(editedStyle);
+        await expect.poll(() => readTextBoxPaintedStyle(
+            session!.page,
+            annotationId,
+            editedStyle.color,
+        ), {timeout: 20_000}).toEqual(editedStyle);
         const savedTextBox = await readFreeTextObjectByName(pdfPath, 'lifecycle-text-box-one');
         expect(qpdfObjectContainsText(savedTextBox.object, editedText)).toBe(true);
         expect(savedTextBox.object).toContain(`/DA (/Helvetica ${editedStyle.fontSize} Tf 0 0 1 rg)`);

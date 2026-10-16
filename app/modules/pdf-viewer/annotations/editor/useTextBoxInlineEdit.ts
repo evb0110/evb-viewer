@@ -14,7 +14,7 @@ interface ITextBoxInlineEditOptions {
     recoveredDraftText?: Readonly<Ref<string | null>>;
     caretPoint?: Readonly<Ref<IAnnotationTextEditPoint | null>>;
     onCommit: (text: string, options?: {restoreFocus: boolean}) => void | Promise<void>;
-    onCancel: () => void;
+    onCancel: () => void | Promise<void>;
 }
 
 interface ITextBoxInputEvent {
@@ -34,6 +34,7 @@ interface ITextBoxKeydownEvent {
 export interface ITextBoxInlineEdit {
     readonly editorRef: Ref<HTMLElement | null>;
     readonly draftText: Ref<string>;
+    readonly pendingCompletion: Promise<void> | null;
     commit(): void | Promise<void>;
     handleInput(event: ITextBoxInputEvent): void;
     handleKeydown(event: ITextBoxKeydownEvent): void;
@@ -89,6 +90,10 @@ export const useTextBoxInlineEdit = (
     }
 
     watch(options.editing, (editing) => {
+        if (typeof document !== 'undefined') {
+            if (editing) document.addEventListener('focusout', handleContextFocusOut);
+            else document.removeEventListener('focusout', handleContextFocusOut);
+        }
         if (!editing) {
             return;
         }
@@ -96,12 +101,6 @@ export const useTextBoxInlineEdit = (
         draftText.value = options.recoveredDraftText?.value ?? options.entity.value.text;
         void focusEditor();
     }, {immediate: true});
-
-    watch(options.entity, (entity) => {
-        if (!options.editing.value) {
-            draftText.value = entity.text;
-        }
-    });
 
     function handleInput(event: ITextBoxInputEvent) {
         if (!options.editing.value || event.isComposing) {
@@ -114,29 +113,26 @@ export const useTextBoxInlineEdit = (
         draftText.value = readEditorText(target);
     }
 
-    function commit(restoreFocus = false) {
+    function complete(action: () => void | Promise<void>) {
         if (!options.editing.value) {
             return;
         }
         if (completion) return completion;
-        const pending = (async () => { await options.onCommit(draftText.value, {restoreFocus}); })();
+        const pending = (async () => {
+            if (typeof document !== 'undefined' && document.fonts) await document.fonts.ready;
+            await action();
+        })();
         completion = pending;
         void pending.catch(() => {
             if (completion === pending) {
                 completion = null;
-                void focusEditor();
+                if (editorRef.value?.ownerDocument.activeElement !== editorRef.value) void focusEditor();
             }
         });
         return pending;
     }
 
-    function cancel() {
-        if (!options.editing.value || completion) {
-            return;
-        }
-        completion = Promise.resolve();
-        options.onCancel();
-    }
+    const commit = (restoreFocus = false) => complete(() => options.onCommit(draftText.value, {restoreFocus}));
 
     function handleKeydown(event: ITextBoxKeydownEvent) {
         if (event.isComposing || !options.editing.value) {
@@ -144,7 +140,7 @@ export const useTextBoxInlineEdit = (
         }
         if (event.key === 'Escape') {
             event.preventDefault();
-            cancel();
+            void complete(options.onCancel);
             return;
         }
         if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -159,24 +155,13 @@ export const useTextBoxInlineEdit = (
             && Boolean(target.closest('[data-annotation-inspector]'));
     }
 
-    function isTextContextTarget(target: EventTarget | null | undefined) {
-        return isInspectorTarget(target)
-            || (typeof Node !== 'undefined' && target instanceof Node && Boolean(editorRef.value?.contains(target)));
-    }
-
     function handleContextFocusOut(event: FocusEvent) {
-        if (options.editing.value && isInspectorTarget(event.target) && !isTextContextTarget(event.relatedTarget)) {
+        const target = event.relatedTarget;
+        if (options.editing.value && isInspectorTarget(event.target) && !isInspectorTarget(target)
+            && !(typeof Node !== 'undefined' && target instanceof Node && editorRef.value?.contains(target))) {
             void commit();
         }
     }
-
-    watch(options.editing, (editing) => {
-        if (typeof document === 'undefined') {
-            return;
-        }
-        if (editing) document.addEventListener('focusout', handleContextFocusOut);
-        else document.removeEventListener('focusout', handleContextFocusOut);
-    }, {immediate: true});
 
     function handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>) {
         if (!isInspectorTarget(event?.relatedTarget)) void commit();
@@ -184,12 +169,12 @@ export const useTextBoxInlineEdit = (
 
     onScopeDispose(() => {
         if (typeof document !== 'undefined') document.removeEventListener('focusout', handleContextFocusOut);
-        completion = Promise.resolve();
     });
 
     return {
         editorRef,
         draftText,
+        get pendingCompletion() { return options.editing.value ? completion : null; },
         commit,
         handleInput,
         handleKeydown,

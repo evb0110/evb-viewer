@@ -9,11 +9,15 @@ import {
     MUTATION_HEADER,
     NATIVE_MUTATION_HEADER,
     NATIVE_MUTATION_POSTCONDITIONS_VERIFIED,
+    TEXT_BOX_APPEARANCE_HEADER,
+    RESPONSE_TEXT_BOX_APPEARANCE,
     OPERATION_CODES,
     REQUEST_HEADER,
     REQUEST_MAGIC,
     REQUEST_VERSION,
     REQUEST_VERSION_DOCUMENT_LIST,
+    REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE,
+    REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER,
     RESPONSE_ANNOTATION_PARSE,
     RESPONSE_GEOMETRY,
     RESPONSE_JSON,
@@ -234,6 +238,7 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'readCatalog':
         case 'conformance':
         case 'mergePages':
+        case 'textBoxAppearance':
             return [];
         case 'saveMutations':
             return [];
@@ -258,17 +263,24 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
         case 'printLayout':
             return request.payload.data;
         case 'mergePages':
+        case 'textBoxAppearance':
             return new Uint8Array();
     }
 }
 
 function getInsertionData(request: TBrowserPageOpsWasmRequest): Uint8Array {
+    if (request.type === 'textBoxAppearance') {
+        return new TextEncoder().encode(JSON.stringify(request.payload));
+    }
     if (request.type === 'insertPages') {
         return request.payload.insertionData;
     }
     if (request.type === 'saveMutations') {
+        const {
+            originalAppearanceSource: _source, ...mutations
+        } = request.payload.mutations;
         return new TextEncoder().encode(JSON.stringify({
-            mutations: request.payload.mutations,
+            mutations,
             modifiedAt: request.payload.modifiedAt,
         }));
     }
@@ -334,6 +346,7 @@ function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | nu
         case 'parseAnnotations':
         case 'saveMutations':
         case 'printLayout':
+        case 'textBoxAppearance':
             return null;
     }
 }
@@ -382,6 +395,8 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const data = getRequestData(request);
     const insertionData = getInsertionData(request);
     const password = getPassword(request);
+    const sourceData = request.type === 'saveMutations' ? request.payload.originalAppearanceSourceData : undefined;
+    const headerBytes = sourceData ? REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes : REQUEST_HEADER.bytes;
     const pages = getRequestPages(request).map(toWasmU32);
     const pageNumber = toWasmU32(getPageNumber(request));
     const afterPage = toWasmU32(getAfterPage(request));
@@ -390,16 +405,17 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const insertionDataLength = toWasmU32(insertionData.byteLength);
     const passwordLength = toWasmU32(password.byteLength);
     const output: Uint8Array<ArrayBuffer> = new Uint8Array(
-        REQUEST_HEADER.bytes
+        headerBytes
         + (pages.length * U32_BYTES)
         + dataLength
         + insertionDataLength
-        + passwordLength,
+        + passwordLength
+        + (sourceData?.byteLength ?? 0),
     );
     const view = new DataView(output.buffer);
     const margins = getMargins(request);
     writeMagic(output, REQUEST_HEADER.magic);
-    writeU32(view, REQUEST_HEADER.version, REQUEST_VERSION);
+    writeU32(view, REQUEST_HEADER.version, sourceData ? REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE : REQUEST_VERSION);
     writeU32(view, REQUEST_HEADER.operation, OPERATION_CODES[request.type]);
     writeU32(view, REQUEST_HEADER.pageCount, pages.length);
     writeU32(view, REQUEST_HEADER.pageNumber, pageNumber);
@@ -412,7 +428,8 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     writeU32(view, REQUEST_HEADER.dataLength, dataLength);
     writeU32(view, REQUEST_HEADER.insertionDataLength, insertionDataLength);
     writeU32(view, REQUEST_HEADER.passwordLength, passwordLength);
-    let offset: number = REQUEST_HEADER.bytes;
+    if (sourceData) writeU32(view, REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.sourceDataLength, toWasmU32(sourceData.byteLength));
+    let offset: number = headerBytes;
 
     for (const page of pages) {
         offset = writeU32(view, offset, page);
@@ -423,11 +440,13 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     output.set(insertionData, offset);
     offset += insertionDataLength;
     output.set(password, offset);
+    const passwordOffset = offset;
+    if (sourceData) output.set(sourceData, offset + passwordLength);
     password.fill(0);
 
     return {
         data: output,
-        passwordOffset: output.byteLength - passwordLength,
+        passwordOffset,
         passwordLength,
     };
 }
@@ -539,6 +558,20 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
 
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
     const kind = view.getUint32(MUTATION_HEADER.kind, true);
+    if (type === 'textBoxAppearance') {
+        if (kind !== RESPONSE_TEXT_BOX_APPEARANCE || output.byteLength < TEXT_BOX_APPEARANCE_HEADER.bytes) return null;
+        const dataLength = view.getUint32(TEXT_BOX_APPEARANCE_HEADER.dataLength, true);
+        const metadataLength = view.getUint32(TEXT_BOX_APPEARANCE_HEADER.metadataLength, true);
+        const offset = TEXT_BOX_APPEARANCE_HEADER.bytes;
+        if (offset + dataLength + metadataLength !== output.byteLength) return null;
+        try {
+            const parsed = v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.textBoxAppearance, {
+                ...JSON.parse(new TextDecoder().decode(output.subarray(offset + dataLength))),
+                data: toTransferableUint8Array(output.slice(offset, offset + dataLength)),
+            }, {abortEarly: true});
+            return parsed.success ? parsed.output as IBrowserPageOpsWasmResultMap[K] : null;
+        } catch { return null; }
+    }
     if (type === 'getPageGeometry') {
         const parsed = kind === RESPONSE_GEOMETRY
             ? v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.getPageGeometry, readGeometryResult(output), {abortEarly: true})

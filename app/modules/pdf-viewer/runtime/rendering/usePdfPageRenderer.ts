@@ -47,7 +47,7 @@ interface IPdfAnnotationProjection {
     readonly thumbnailHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     ensureAnnotationProjectionReady?: () => Promise<void>;
     readonly paintSignature: Readonly<Ref<string>>;
-    preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[]): IPdfAnnotationRenderInput | undefined;
+    preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void): IPdfAnnotationRenderInput | undefined | Promise<IPdfAnnotationRenderInput | undefined>;
 }
 
 interface ICommittedPdfPageRaster {
@@ -255,7 +255,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         const annotationLayer = container?.querySelector<HTMLElement>('.annotation-layer');
         if (textLayer) textLayerRenderer.cleanupTextLayerDom(textLayer);
         if (annotationLayer) {
-            zeroCanvasDescendants(annotationLayer);
+            for (const canvas of annotationLayer.querySelectorAll<HTMLCanvasElement>('canvas')) {
+                canvas.width = 0;
+                canvas.height = 0;
+            }
             annotationLayer.replaceChildren();
         }
         if (container) {
@@ -304,7 +307,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         receipt: FailureReceipt;
         error: unknown;
         description: string;
-        retry: () => Promise<unknown>;
+        retry?: (() => Promise<unknown>) | undefined;
     }) {
         const documentFence = options.document.captureFence();
         presentFailureToast({
@@ -313,17 +316,17 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             description: report.description,
             technicalDetails: getErrorMessage(report.error),
             persistent: true,
-            actions: [{
+            actions: report.retry ? [{
                 label: t('common.retry'),
                 onClick: () => {
-                    if (!options.document.isCurrent(documentFence)) return;
+                    if (!options.document.isCurrent(documentFence) || !report.retry) return;
                     runGuardedTask(report.retry, {
                         category: 'user-visible-operation',
                         scope: 'pdf-renderer',
                         message: `Failed to retry page ${String(pageNumber)}`,
                     });
                 },
-            }],
+            }] : [],
         });
     }
     function cleanupPageIfCurrentRender(pageNumber: TPageNumber, version: number, requestId?: number) {
@@ -643,7 +646,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
         renderCommittedPageLayers,
         renderLayerPromotions,
-        presentPageRenderFailure(pageNumber: TPageNumber, error: unknown, retry: () => Promise<unknown>, isVisible: () => boolean = () => true) {
+        presentPageRenderFailure(pageNumber: TPageNumber, error: unknown, retry?: () => Promise<unknown>, isVisible: () => boolean = () => true) {
             const receipt = logNonCriticalStageError(pageNumber, 'canvas', error);
             if (!receipt) return;
             const present = () => presentPageFailure(pageNumber, {
@@ -670,12 +673,12 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         annotationPaintSignature,
         isAnnotationInputCurrent: (input: IPdfAnnotationRenderInput | undefined) => !input
             || input.document === pdfDocument.value && input.signature === annotationPaintSignature.value,
-        async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture) {
+        async prepareCanvasAnnotations(page: IPdfPage, captureSettlement?: TPdfPageOperationSettlementCapture, signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void) {
             const parsed = getParsedPageAnnotations(page);
             captureSettlement?.(parsed.then(() => undefined, () => undefined));
             const annotations = await parsed;
             if (annotations.some(annotation => !isLinkAnnotation(annotation))) await projection.value?.ensureAnnotationProjectionReady?.();
-            return projection.value?.preparePagePaint(page, annotations);
+            return projection.value?.preparePagePaint(page, annotations, signal, reserveAppearanceBytes);
         },
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
         // The raster bakes pixels that survive until the page is re-rendered, so it
@@ -695,10 +698,3 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
     };
 };
-
-function zeroCanvasDescendants(root: HTMLElement) {
-    for (const canvas of root.querySelectorAll<HTMLCanvasElement>('canvas')) {
-        canvas.width = 0;
-        canvas.height = 0;
-    }
-}

@@ -16,7 +16,9 @@ import {
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
-import { recordPdfDocumentLoadedRevision } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
+import {
+    recordPdfDocumentLoadedRevision, releasePdfDocumentOriginalAnnotations,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
@@ -362,8 +364,15 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pdfjsDocumentTeardownCoordinator.track(lifecycleKey, {
             message,
             run: async () => {
-                await disposePdfPageRasterScheduler(document);
-                await document.loadingTask.destroy();
+                try {
+                    await disposePdfPageRasterScheduler(document);
+                } finally {
+                    try {
+                        await document.loadingTask.destroy();
+                    } finally {
+                        await releasePdfDocumentOriginalAnnotations(document);
+                    }
+                }
             },
         });
     }

@@ -20,6 +20,7 @@ export interface IWorkspaceSurfaceLease {
     readonly scopeId: string;
     promotePriority?: (priority: number) => void;
     setPriority?: (priority: number) => void;
+    resize: (bytes: number) => boolean;
     release: () => void;
 }
 
@@ -168,7 +169,7 @@ export function createWorkspaceSurfaceBudgetController(
         evictToBudget();
 
         return {
-            bytes: entry.bytes,
+            get bytes() {return entry.bytes;},
             category: entry.category,
             scopeId: options.scopeId,
             promotePriority(priority) {
@@ -182,6 +183,18 @@ export function createWorkspaceSurfaceBudgetController(
                     return;
                 }
                 entry.priority = priority;
+            },
+            resize(bytes) {
+                if (released || !scopeLeases.has(entry)) return false;
+                const nextBytes = normalizeSurfaceBytes(bytes);
+                const increase = nextBytes - entry.bytes;
+                const reclaimable = getEvictionCandidates().filter(candidate => candidate.entry !== entry)
+                    .reduce((sum, candidate) => sum + candidate.entry.bytes, 0);
+                if (increase > 0 && reservedBytes + increase - reclaimable > getEffectiveMaxBytes()) return false;
+                reservedBytes += increase;
+                entry.bytes = nextBytes;
+                evictToBudget();
+                return scopeLeases.has(entry) && (increase <= 0 || reservedBytes <= getEffectiveMaxBytes());
             },
             release() {
                 if (released) {

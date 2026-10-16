@@ -64,7 +64,9 @@ fn saved_deleted_stamp_recreates_after_hard_parse_in_both_writers() {
 
 #[test]
 fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
-    for append in [false, true] {
+    for (append, malformed_name) in [false, true].into_iter().flat_map(|append| {
+        [None, Some("reply-one"), Some("reply-two")].map(|name| (append, name))
+    }) {
         let (document, page) = create_test_document();
         let note = binding_note();
         let mut document = recovery_save(document, &NativeMutationsFile { notes: vec![note], ..Default::default() }, append);
@@ -80,14 +82,23 @@ fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
             "NM" => Object::string_literal("reply-two"), "Contents" => Object::string_literal("nested reply"),
             "T" => Object::string_literal("Second author"), "Rect" => vec![10.into(), 10.into(), 20.into(), 20.into()],
         });
+        if let Some(name) = malformed_name {
+            let id = if name == "reply-one" { reply } else { child };
+            document.get_dictionary_mut(id).unwrap().set("State", Object::Name(b"Marked".to_vec()));
+        }
         let mut annots = get_page_annots(&document, page).unwrap();
         annots.extend([Object::Reference(reply), Object::Reference(child)]);
         document.get_dictionary_mut(page).unwrap().set("Annots", annots);
         let mut bytes = Vec::new(); document.save_to(&mut bytes).unwrap();
         document = Document::load_mem(&bytes).unwrap();
         let parsed = collect_parsed_annotations(&document, "").unwrap();
-        let saved_note = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::Note(value) => Some(value.clone()), _ => None }).unwrap();
-        assert_eq!(saved_note.replies.len(), 2);
+        let saved_note = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::Note(value) => Some(value.clone()), _ => None }).expect("parent note must remain canonical when reply metadata is unreadable");
+        let readable_count = if malformed_name.is_some() { 1 } else { 2 };
+        assert_eq!(saved_note.replies.len(), readable_count);
+        if let Some(name) = malformed_name {
+            assert!(parsed.iter().any(|entry| matches!(entry, PdfAnnotationParseEntry::Foreign(value)
+                if value.name == name && value.reason == "/State must be a PDF string")));
+        }
         document = recovery_save(document, &NativeMutationsFile { deletes: vec![AnnotationDelete {
             page_index: 0, object_number: Some(root.0), generation_number: Some(root.1), stable_key: None, created_at: None,
         }], ..Default::default() }, append);
@@ -98,8 +109,21 @@ fn saved_deleted_note_restores_nested_read_only_replies_in_both_writers() {
         let parsed = collect_parsed_annotations(&document, "").unwrap();
         let restored = parsed.iter().find_map(|entry| match entry { PdfAnnotationParseEntry::Note(value) => Some(value), _ => None }).unwrap();
         assert_ne!(restored.object_number, root.0 as u64);
-        assert_eq!(restored.replies.len(), 2);
-        let reply_ref = (restored.replies[0].object_number as u32, restored.replies[0].generation_number as u16);
+        assert_eq!(restored.replies.len(), readable_count);
+        let recovered_replies = get_page_annots(&document, page).unwrap().into_iter()
+            .filter_map(|object| object.as_reference().ok())
+            .filter(|id| document.get_dictionary(*id).unwrap().has(b"IRT"))
+            .collect::<Vec<_>>();
+        assert_eq!(recovered_replies.len(), 2, "recovery must retain unreadable replies too");
+        let find_reply = |name: &str| *recovered_replies.iter().find(|id|
+            read_annotation_name(document.get_dictionary(**id).unwrap()).as_deref() == Some(name)).unwrap();
+        let reply_ref = find_reply("reply-one");
+        let child_ref = find_reply("reply-two");
+        assert_eq!(annotation_related_ref(document.get_dictionary(child_ref).unwrap(), b"IRT"), Some(reply_ref));
+        if let Some(name) = malformed_name {
+            assert_eq!(document.get_dictionary(find_reply(name)).unwrap().get(b"State").unwrap(),
+                &Object::Name(b"Marked".to_vec()));
+        }
         assert_eq!(pdf_string_to_text(document.get_dictionary(reply_ref).unwrap().get(b"PrivateField").unwrap()).unwrap(), "preserve me");
         document.get_dictionary_mut(reply_ref).unwrap().set("Contents", Object::string_literal("corrupted reply"));
         assert!(validate_appended_revision_postconditions(&document, &mutations, "D:20260908120000Z").is_err());
@@ -372,4 +396,132 @@ fn dangling_and_non_dictionary_annotations_leave_valid_entries_readable() {
         serde_json::to_value(actual).unwrap(),
         serde_json::to_value(expected).unwrap()
     );
+}
+
+#[test]
+fn original_text_box_appearance_survives_edit_save_undo_save_with_state_oc_and_metadata() {
+    for append in [false, true] {
+        for retained_source in [false, true] {
+            let (mut source, page) = create_test_document();
+            let font = source.add_object(dictionary! {"Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Times-Italic"});
+            let form = source.add_object(Stream::new(dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(),0.into(),140.into(),50.into()], "Resources" => dictionary! {"Font" => dictionary! {"Foreign" => font}}}, b"BT /Foreign 18 Tf 0.0666667 0.0941176 0.152941 rg 0 20 Td (Original text) Tj ET".to_vec()));
+            let group = source.add_object(dictionary! {"Type" => "OCG", "Name" => Object::string_literal("Original layer")});
+            let optional = source.add_object(dictionary! {"Type" => "OCMD", "OCGs" => vec![Object::Reference(group)], "P" => "AnyOff"});
+            let root = source.add_object(dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "P" => page, "NM" => Object::string_literal("history-text"), "Contents" => Object::string_literal("Original text"), "Rect" => vec![10.into(),20.into(),150.into(),70.into()], "DA" => Object::string_literal("/Foreign 18 Tf 0.0666667 0.0941176 0.152941 rg"), "AP" => dictionary! {"N" => dictionary! {"Chosen" => form}}, "AS" => "Chosen", "OC" => optional, "F" => 12});
+            if append {
+                let contents = source.add_object(Object::string_literal("Original text"));
+                source.get_dictionary_mut(root).unwrap().set("Contents", contents);
+            }
+            if retained_source {
+                // Above the inline recovery cap, still an editable source. The
+                // retained source carries all AP resources into the Save.
+                let large = source.add_object(Stream::new(dictionary! {}, vec![42; 1024 * 1024 + 1]));
+                source.get_object_mut(form).unwrap().as_stream_mut().unwrap().dict.set("Resources", dictionary! {"Font" => dictionary! {"Foreign" => font}, "PrivateResource" => large});
+            }
+            source.get_dictionary_mut(page).unwrap().set("Annots", vec![Object::Reference(root)]);
+            let original = collect_parsed_annotations(&source, "").unwrap();
+            let PdfAnnotationParseEntry::TextBox(original) = &original[0] else { panic!("{:?}", original[0]) };
+            assert_eq!(original.recovery_data.is_none(), retained_source);
+            let mut original_plan = serde_json::json!({"pageIndex":0,"stableKey":"history-text","annotationId":format!("{}R{}",root.0,root.1),"text":"Original text","rect":[10,20,150,70],"rotation":0,"fontSize":18,"color":[17,24,39]});
+            let mut edit = original_plan.clone(); edit["text"] = serde_json::json!("Edited portable text");
+            let mut saved = recovery_save(source.clone(), &NativeMutationsFile {text_boxes:vec![serde_json::from_value(edit).unwrap()], ..Default::default()}, append);
+            let popup = saved.add_object(dictionary! {"Type" => "Annot", "Subtype" => "Popup", "Parent" => root, "P" => page});
+            let dict = saved.get_dictionary_mut(root).unwrap();
+            dict.set("Popup", popup); dict.set("T", Object::string_literal("Current author")); dict.set("Subj", Object::string_literal("Current subject"));
+            original_plan["originalAppearance"] = if retained_source { serde_json::json!({"sourceAnnotationId":format!("{}R{}",root.0,root.1)}) } else { serde_json::json!({"recoveryData":original.recovery_data}) };
+            let mut mutations = NativeMutationsFile {text_boxes:vec![serde_json::from_value(original_plan).unwrap()], ..Default::default()};
+            if retained_source { hydrate_text_box_original_appearances(&mut mutations, &source).unwrap(); }
+            let saved = recovery_save(saved, &mutations, append);
+            let restored = saved.get_dictionary(root).unwrap();
+            assert_eq!(restored.get(b"Contents").unwrap(), source.resolved(source.get_dictionary(root).unwrap().get(b"Contents").unwrap()).unwrap());
+            assert_eq!(restored.get(b"Popup").unwrap().as_reference().unwrap(), popup);
+            assert_eq!(pdf_string_to_text(restored.get(b"T").unwrap()).unwrap(), "Current author");
+            assert_eq!(pdf_string_to_text(restored.get(b"Subj").unwrap()).unwrap(), "Current subject");
+            assert_eq!(restored.get(b"F").unwrap().as_i64().unwrap(), 12);
+            assert_eq!(saved.resolved(restored.get(b"OC").unwrap()).unwrap().as_dict().unwrap().get(b"P").unwrap().as_name().unwrap(), b"AnyOff");
+            assert!(!restored.has(b"Rotate"));
+            validate_text_box_recovery(&saved, mutations.text_boxes[0].original_appearance.as_ref().unwrap(), root).unwrap();
+            let appearance = saved.resolved(restored.get(b"AP").unwrap()).unwrap().as_dict().unwrap();
+            let states = saved.resolved(appearance.get(b"N").unwrap()).unwrap().as_dict().unwrap();
+            let stream = saved.resolved(states.get(b"Chosen").unwrap()).unwrap().as_stream().unwrap();
+            assert_eq!(stream.content, source.get_object(form).unwrap().as_stream().unwrap().content);
+            mutations.text_boxes[0].text = "Different canonical text".to_string();
+            let changed = recovery_save(saved, &mutations, append);
+            assert_eq!(changed.get_dictionary(root).unwrap().get(b"Contents").unwrap(), &text_object("Different canonical text"));
+        }
+    }
+}
+
+fn text_box_recovery_budget_fixture() -> Document {
+    let (mut document, first_page) = create_test_document();
+    let pages = document.get_dictionary(first_page).unwrap().get(b"Parent").unwrap().as_reference().unwrap();
+    let second_page = document.add_object(dictionary! {"Type" => "Page", "Parent" => pages});
+    let tree = document.get_dictionary_mut(pages).unwrap();
+    tree.set("Kids", vec![Object::Reference(first_page), Object::Reference(second_page)]);
+    tree.set("Count", 2);
+    let program = crate::text_box_font::FONTS[2];
+    let file = document.add_object(Stream::new(dictionary! {"Length1" => program.len() as i64}, program.to_vec()));
+    let descriptor = document.add_object(dictionary! {"Type" => "FontDescriptor", "FontName" => "DejaVuSans", "Flags" => 32, "FontBBox" => vec![(-1021).into(),(-463).into(),1793.into(),1232.into()], "ItalicAngle" => 0, "Ascent" => 928, "Descent" => -236, "CapHeight" => 728, "StemV" => 80, "FontFile2" => file});
+    let font = document.add_object(dictionary! {"Type" => "Font", "Subtype" => "TrueType", "BaseFont" => "DejaVuSans", "Encoding" => "WinAnsiEncoding", "FirstChar" => 32, "LastChar" => 126, "Widths" => Object::Array((32..=126).map(|_| Object::Integer(600)).collect()), "FontDescriptor" => descriptor});
+    let form = document.add_object(Stream::new(dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![0.into(),0.into(),140.into(),50.into()], "Resources" => dictionary! {"Font" => dictionary! {"Foreign" => font}}}, b"BT /Foreign 18 Tf 0 g 0 20 Td (Original text) Tj ET".to_vec()));
+    for (page_index, page) in [first_page, second_page].into_iter().enumerate() {
+        let mut annots = Vec::new();
+        for local in 0..5 {
+            let index = page_index * 5 + local;
+            let root = document.add_object(dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "P" => page, "NM" => Object::string_literal(format!("budget-{index}")), "Contents" => Object::string_literal("Original text"), "Rect" => vec![10.into(),20.into(),150.into(),70.into()], "DA" => Object::string_literal("/Foreign 18 Tf 0 g"), "AP" => dictionary! {"N" => form}});
+            if index == 0 { document.get_dictionary_mut(root).unwrap().set("BS", dictionary! {"W" => 1, "S" => "D"}); }
+            annots.push(Object::Reference(root));
+        }
+        document.get_dictionary_mut(page).unwrap().set("Annots", annots);
+    }
+    document
+}
+
+#[test]
+fn text_box_inline_recovery_is_bounded_across_pages_and_excludes_read_only_boxes() {
+    let document = text_box_recovery_budget_fixture();
+    let entries = collect_parsed_annotations(&document, "").unwrap();
+    let boxes = entries.iter().map(|entry| match entry { PdfAnnotationParseEntry::TextBox(value) => value, _ => panic!("{entry:?}") }).collect::<Vec<_>>();
+    assert_eq!(boxes.len(), 10);
+    assert!(boxes[0].read_only);
+    assert!(boxes[0].recovery_data.is_none());
+    assert!(boxes[1].recovery_data.is_some(), "Read-only labels must not consume editable recovery admission");
+    assert_eq!(boxes.iter().filter(|value| value.recovery_data.is_some()).count(), 1);
+    assert!(boxes[5].recovery_data.is_none(), "The budget must not restart on another page");
+    assert!(boxes[1..].iter().all(|value| !value.read_only && value.source.is_some()));
+    let recovery_bytes: usize = boxes.iter().filter_map(|value| value.recovery_data.as_ref()).map(String::len).sum();
+    assert!(recovery_bytes <= 2 * MAX_RECOVERY_BYTES);
+    let output = serialize_annotation_parse(&document, "", 2 * MAX_RECOVERY_BYTES + 64 * 1024).unwrap();
+    assert!(output.len() <= 2 * MAX_RECOVERY_BYTES + 64 * 1024);
+}
+
+#[test]
+fn budget_omitted_text_box_recovery_still_restores_the_original_font_in_both_writers() {
+    let source = text_box_recovery_budget_fixture();
+    let entries = collect_parsed_annotations(&source, "").unwrap();
+    for append in [false, true] {
+        for index in [1, 9] {
+            let PdfAnnotationParseEntry::TextBox(original) = &entries[index] else { panic!("{:?}", entries[index]) };
+            assert_eq!(original.recovery_data.is_none(), index == 9);
+            let root = (original.object_number as u32, original.generation_number as u16);
+            let mut plan = serde_json::json!({"pageIndex":original.page_index,"stableKey":original.name,"annotationId":format_pdfjs_annotation_ref(root),"text":"Edited portable text","rect":[10,20,150,70],"rotation":0,"fontSize":18,"color":[0,0,0]});
+            let saved = recovery_save(source.clone(), &NativeMutationsFile {text_boxes:vec![serde_json::from_value(plan.clone()).unwrap()], ..Default::default()}, append);
+            plan["text"] = serde_json::json!(original.text);
+            plan["originalAppearance"] = original.recovery_data.as_ref().map_or_else(|| serde_json::json!({"sourceAnnotationId":format_pdfjs_annotation_ref(root)}), |data| serde_json::json!({"recoveryData":data}));
+            let mut mutations = NativeMutationsFile {text_boxes:vec![serde_json::from_value(plan).unwrap()], ..Default::default()};
+            hydrate_text_box_original_appearances(&mut mutations, &source).unwrap();
+            let restored = recovery_save(saved, &mutations, append);
+            validate_text_box_recovery(&restored, mutations.text_boxes[0].original_appearance.as_ref().unwrap(), root).unwrap();
+            let annotation = restored.get_dictionary(root).unwrap();
+            let appearance = restored.resolved(annotation.get(b"AP").unwrap()).unwrap().as_dict().unwrap();
+            let form = restored.resolved(appearance.get(b"N").unwrap()).unwrap().as_stream().unwrap();
+            assert_eq!(form.content, b"BT /Foreign 18 Tf 0 g 0 20 Td (Original text) Tj ET");
+            let resources = restored.resolved(form.dict.get(b"Resources").unwrap()).unwrap().as_dict().unwrap();
+            let fonts = restored.resolved(resources.get(b"Font").unwrap()).unwrap().as_dict().unwrap();
+            let font = restored.resolved(fonts.get(b"Foreign").unwrap()).unwrap().as_dict().unwrap();
+            let descriptor = restored.resolved(font.get(b"FontDescriptor").unwrap()).unwrap().as_dict().unwrap();
+            let program = restored.resolved(descriptor.get(b"FontFile2").unwrap()).unwrap().as_stream().unwrap();
+            assert_eq!(program.content, crate::text_box_font::FONTS[2]);
+        }
+    }
 }

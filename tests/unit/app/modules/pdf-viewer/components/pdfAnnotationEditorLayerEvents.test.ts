@@ -49,6 +49,174 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         document.body.replaceChildren();
     });
 
+    it('commits the final composition when Chromium sends no ordinary input afterwards', async () => {
+        const annotationApplication = shallowRef(new AnnotationApplication('composition-end'));
+        const scope = effectScope();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication,
+            activeTool: computed(() => 'select'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+        }))!;
+        const box = surface.createTextBoxAt(0, createdTextBox.rect, {text: 'Original'});
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {surface.endTextEditing(box.identity.id, {cancelled: true}); app.unmount(); scope.stop();});
+        await nextTick();
+        await surface.beginTextEditing(box.identity.id);
+        await nextTick();
+        const editor = host.querySelector<HTMLElement>('[contenteditable="true"]')!;
+        editor.dispatchEvent(new CompositionEvent('compositionstart', {bubbles: true}));
+        editor.textContent = 'café';
+        editor.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            isComposing: true,
+        }));
+        expect(surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'Original'});
+        editor.dispatchEvent(new CompositionEvent('compositionend', {
+            bubbles: true,
+            data: 'café',
+        }));
+        editor.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'Enter',
+            ctrlKey: true,
+        }));
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        expect(surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'café'});
+        expect(host.querySelector('[contenteditable="true"]')).toBeNull();
+    });
+
+    it('places the next text box when its pointer gesture arrives during accepted completion', async () => {
+        const annotationApplication = shallowRef(new AnnotationApplication('pending-placement'));
+        const scope = effectScope();
+        const publication = Promise.withResolvers<undefined>();
+        const draft = ref<string | null>(null);
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication,
+            activeTool: computed(() => 'text'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            getPageGeometry: () => ({
+                pageView: [
+                    0,
+                    0,
+                    600,
+                    800,
+                ],
+                rotation: 0,
+            }),
+            getTextBoxDraftText: () => draft.value,
+            onTextBoxDraftChanged: (_id, text) => {draft.value = text;},
+            publishTextBoxAppearance: async (_entity, accept) => {await publication.promise; accept();},
+        }))!;
+        const first = surface.createTextBoxAt(0, createdTextBox.rect);
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {surface.endTextEditing(surface.editingId.value ?? first.identity.id, {cancelled: true}); app.unmount(); scope.stop();});
+        await nextTick();
+        await surface.beginTextEditing(first.identity.id);
+        await nextTick();
+        const editor = host.querySelector<HTMLElement>('[contenteditable="true"]')!;
+        editor.textContent = 'Accepted first';
+        editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        editor.dispatchEvent(new KeyboardEvent('keydown', {
+            bubbles: true,
+            key: 'Enter',
+            ctrlKey: true,
+        }));
+        await nextTick();
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')!;
+        vi.spyOn(layer, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 600, 800));
+        for (const type of [
+            'pointerdown',
+            'pointerup',
+        ]) layer.dispatchEvent(new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            pointerId: 17,
+            button: 0,
+            clientX: 300,
+            clientY: 400,
+        }));
+        layer.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        expect(surface.getEntitiesForPage(0)).toHaveLength(1);
+        publication.resolve(undefined);
+        await vi.waitFor(() => expect(surface.getEntitiesForPage(0)).toHaveLength(2));
+        expect(surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'Accepted first'});
+        const nextEditor = host.querySelector<HTMLElement>('[contenteditable="true"]');
+        expect(nextEditor).not.toBeNull();
+        expect(document.activeElement).toBe(nextEditor);
+        expect(nextEditor?.closest('[data-annotation-id]')?.getAttribute('data-annotation-id')).not.toBe(first.identity.id);
+    });
+
+    it.each([
+        {
+            failure: new DOMException('Source replaced', 'AbortError'),
+            newerInput: false,
+        },
+        {
+            failure: new Error('Native appearance unavailable'),
+            newerInput: false,
+        },
+        {
+            failure: new Error('Native appearance unavailable'),
+            newerInput: true,
+        },
+    ])('retains visible draft when cancellation painting fails with newer input=$newerInput', async ({
+        failure, newerInput,
+    }) => {
+        const annotationApplication = shallowRef(new AnnotationApplication('cancel-failure'));
+        const scope = effectScope();
+        const publication = Promise.withResolvers<undefined>();
+        const draftText = ref<string | null>(null);
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication,
+            activeTool: computed(() => 'select'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            publishTextBoxAppearance: () => publication.promise,
+            getTextBoxDraftText: () => draftText.value,
+            onTextBoxDraftChanged: (_id, text) => {draftText.value = text;},
+        }))!;
+        const box = surface.createTextBoxAt(0, createdTextBox.rect, {text: 'Original'});
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: requirePageIndex(0)});
+        }});
+        app.mount(host);
+        onTestFinished(() => {surface.endTextEditing(box.identity.id, {cancelled: true}); app.unmount(); scope.stop();});
+        await nextTick();
+        await surface.beginTextEditing(box.identity.id);
+        await nextTick();
+        const editor = host.querySelector<HTMLElement>('[contenteditable="true"]')!;
+        editor.textContent = 'Unaccepted draft';
+        editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        expect(surface.cancelActiveInteraction()).toBe(true);
+        if (newerInput) {
+            editor.textContent = 'Newer input';
+            editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
+        }
+        publication.reject(failure);
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        expect(surface.editingId.value).toBe(box.identity.id);
+        expect(annotationApplication.value.store.get(box.identity.id)?.kind).toBe('text-box');
+        expect(surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'Original'});
+        expect(host.querySelector('[contenteditable="true"]')).toBe(editor);
+        expect(editor.textContent).toBe(newerInput ? 'Newer input' : 'Unaccepted draft');
+        expect(host.querySelector<HTMLElement>('.pdf-annotation-editor-text-box')!.style.color).not.toBe('transparent');
+        expect(surface.getTextBoxDraftText(box.identity.id)).toBe(editor.textContent);
+    });
+
     it('selects an SVG markup entity on pointerdown and retains selection through a moved gesture and click', async () => {
         const harness = createSurface();
         const host = document.createElement('div');
@@ -295,19 +463,28 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
     it.each([
         {
             fontSize: 72,
+            draftScale: 1,
             resizeHandle: 'se',
         },
         {
             fontSize: 14,
+            draftScale: 1,
             resizeHandle: 'se',
         },
         {
             fontSize: 14,
+            draftScale: 1,
             resizeHandle: 'e',
         },
-    ] as const)('commits $resizeHandle resize only when its validated proposal changes at font size $fontSize', async ({
+        {
+            fontSize: 14,
+            draftScale: 1.5,
+            resizeHandle: 'se',
+        },
+    ] as const)('keeps $resizeHandle preview and commit consistent at font $fontSize and draft scale $draftScale', async ({
         fontSize,
         resizeHandle,
+        draftScale,
     }) => {
         const harness = createCreationSurface();
         const textBox: ITextBoxEntity = {
@@ -325,7 +502,14 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         harness.selectedIds.value = new Set([textBox.identity.id]);
         vi.mocked(harness.surface.beginResize).mockReturnValue({
             annotationId: textBox.identity.id,
-            entity: textBox,
+            entity: {
+                ...textBox,
+                rect: {
+                    ...textBox.rect,
+                    width: textBox.rect.width * draftScale,
+                    height: textBox.rect.height * draftScale,
+                },
+            },
             kind: 'resize',
         });
         const host = document.createElement('div');
@@ -354,6 +538,10 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
             clientX: 70,
             clientY: 50,
         }));
+        await nextTick();
+        const preview = host.querySelector<HTMLElement>('.pdf-annotation-editor-text-box')!;
+        const previewFont = Number(preview.style.fontSize.match(/\* ([\d.]+)px/)?.[1]);
+        const previewWidth = Number.parseFloat(preview.style.width);
         layer.dispatchEvent(new PointerEvent('pointerup', {
             bubbles: true,
             button: 0,
@@ -367,6 +555,8 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         } else {
             expect(harness.commitGesture).toHaveBeenCalledOnce();
             expect(harness.commitGesture.mock.calls[0]?.[1]).toMatchObject({fontSize: expect.any(Number)});
+            expect(previewFont).toBeCloseTo(harness.commitGesture.mock.calls[0]![1].fontSize!, 5);
+            expect(previewWidth).toBeCloseTo(harness.commitGesture.mock.calls[0]![1].rect!.width * 100, 5);
             if (resizeHandle === 'e') {
                 expect(harness.commitGesture.mock.calls[0]?.[1].fontSize).toBe(fontSize);
                 expect(harness.commitGesture.mock.calls[0]?.[1].rect.width).toBeGreaterThan(textBox.rect.width);

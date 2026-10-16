@@ -74,19 +74,10 @@ export interface ICreatePointNoteAnnotationOptions {
     preferTextAnchor?: boolean | undefined;
 }
 
-export interface ICreatePointNoteAnnotationResult {
-    created: boolean;
-    pageNumber: TPageNumber;
+export interface ICreatePointNoteAnnotationResult extends Pick<ICreateTextMarkupFromTextResult,
+    'created' | 'pageNumber' | 'reason' | 'failureReason' | 'pendingEditor'> {
     pageX: number;
     pageY: number;
-    reason?: string | undefined;
-    /** Machine-readable counterpart of `reason` for automation callers. */
-    failureReason?: TAnnotationCreationFailureReason | undefined;
-    /**
-     * The canonical annotation exists but no editor is bound to it yet, so it
-     * is neither a clean success nor safe to retry: retrying mints a duplicate.
-     */
-    pendingEditor?: boolean | undefined;
 }
 
 export interface ICreateShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageNumber: TPageNumber;}
@@ -187,7 +178,7 @@ export interface IPdfViewerAnnotationCommandExpose {
     selectAnnotationById?: (annotationId: string) => boolean;
     focusSelectedAnnotation?: (annotationId: string) => boolean;
     editAnnotationTextBox?: (comment: IAnnotationCommentSummary) => Promise<void>;
-    updateSelectedAnnotationProperties?: (updates: IAnnotationPropertyUpdate) => boolean;
+    updateSelectedAnnotationProperties?: (updates: IAnnotationPropertyUpdate) => boolean | Promise<boolean>;
     canRotateSelectedAnnotations?: (delta: -90 | 90) => boolean;
     prepareAnnotationToolChange?: () => void | Promise<void>;
     handleAnnotationEscape?: () => boolean;
@@ -195,7 +186,7 @@ export interface IPdfViewerAnnotationCommandExpose {
     getSelectedTextBox?: () => ITextBoxEntity | null;
     updateSelectedTextBoxProperties?: (
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
-    ) => boolean;
+    ) => boolean | Promise<boolean>;
     /** Renderer-owned canonical state for main-process recovery publication. */
     getCanonicalAnnotationRecoveryChangeSignature?: () => readonly [number, ReadonlyArray<readonly [string, number, string]>];
     captureCanonicalAnnotationRecovery?: (drafts?: TAnnotationRecoveryDraftInput) => ICanonicalAnnotationRecovery;

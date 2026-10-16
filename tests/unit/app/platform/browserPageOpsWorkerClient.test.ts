@@ -1,4 +1,5 @@
 import {getBrowserPageOpsWorkerRequestId} from '@contracts/browserPageOpsWorker';
+import {normalizePdfNativeTextBoxAppearanceRequest} from '@contracts/nativePdfMutations';
 import {
     afterEach,
     beforeEach,
@@ -21,6 +22,39 @@ const failureReceipt = vi.hoisted(() => ({
     severity: 'error',
 }));
 const failureReporter = vi.hoisted(() => ({capture: vi.fn(() => failureReceipt)}));
+
+function appearanceRequest() {
+    return normalizePdfNativeTextBoxAppearanceRequest({
+        page: {
+            view: [
+                0,
+                0,
+                200,
+                100,
+            ],
+            rotation: 0,
+            userUnit: 1,
+        },
+        textBoxes: [{textBox: {
+            stableKey: 'worker-text-box',
+            pageIndex: 0,
+            text: 'Text',
+            rect: [
+                10,
+                40,
+                130,
+                70,
+            ],
+            rotation: 0,
+            fontSize: 12,
+            color: [
+                0,
+                0,
+                0,
+            ],
+        }}],
+    });
+}
 
 vi.mock('@app/utils/failureReporter', () => ({captureRendererFailure: failureReporter.capture}));
 vi.mock('@app/platform/browser-api/browserYield', () => ({yieldToBrowser: async () => undefined}));
@@ -369,6 +403,12 @@ describe('browserPageOpsWorkerClient', () => {
         expect(input).toEqual(Uint8Array.of(1));
     });
 
+    it('reports unavailable native appearance generation when a worker cannot start', async () => {
+        vi.stubGlobal('Worker', function () { throw new Error('Worker startup is unavailable'); });
+        const result = runBrowserPageOpsWorkerRequest('textBoxAppearance', appearanceRequest());
+        await expect(result).rejects.toThrow('Text appearance generation requires a worker');
+    });
+
     it('does not report an idle worker termination', async () => {
         const result = runBrowserPageOpsWorkerRequest('rotate', {
             data: new Uint8Array([1]),
@@ -529,6 +569,7 @@ describe('browserPageOpsWorkerClient', () => {
         expect(siblingWorker.terminated).toBe(false);
     });
     it.each([
+        'textBoxAppearance',
         'saveMutations',
         'decrypt',
         'printLayout',
@@ -541,7 +582,7 @@ describe('browserPageOpsWorkerClient', () => {
                 2,
                 3,
             ]);
-            const payload = type === 'saveMutations'
+            const payload = type === 'textBoxAppearance' ? appearanceRequest() : type === 'saveMutations'
                 ? {
                     data: input,
                     mutations: {updates: [{

@@ -22,6 +22,7 @@
 
     fn binding_editor() -> TextBoxMutation {
         TextBoxMutation {
+                    original_appearance: None,
             page_index: 0,
             stable_key: "uid:0:text-box-one".to_string(),
             annotation_id: None,

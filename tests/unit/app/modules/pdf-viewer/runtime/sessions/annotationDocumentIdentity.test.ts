@@ -18,6 +18,7 @@ import {
     computed,
     createApp,
     defineComponent,
+    effectScope,
     h,
     nextTick,
     ref,
@@ -30,6 +31,11 @@ import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement'
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IDocumentsFileIoCapability } from '@contracts/electronApiDocuments';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import {
+    createPdfDocumentAnnotations,
+    pdfDocumentAnnotationsKey,
+    type TPdfDocumentAnnotations,
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 const revisionRead = vi.fn<IDocumentsFileIoCapability['getDocumentRevision']>();
 const electronApi = createElectronPlatformApiFixture({documentFiles: {getDocumentRevision: revisionRead}});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
@@ -80,6 +86,7 @@ afterEach(() => {
 });
 
 function mountAnnotationSession(initial: {
+    annotations?: TPdfDocumentAnnotations;
     authorName?: string | null;
     originalPath?: string | null;
     workingCopyPath?: string | null;
@@ -172,6 +179,7 @@ function mountAnnotationSession(initial: {
         return () => h('div');
     } });
     const app = createApp(AnnotationSessionHost);
+    if (initial.annotations) app.provide(pdfDocumentAnnotationsKey, initial.annotations);
     app.mount(host);
     mountedSessions.push(() => {
         app.unmount();
@@ -238,6 +246,37 @@ function mountAnnotationSession(initial: {
 }
 
 describe('annotation document identity', () => {
+    it('offers Save in every linked view while one editor owns an uncommitted draft', async () => {
+        const scope = effectScope();
+        mountedSessions.push(() => scope.stop());
+        const annotations = scope.run(() => createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => null),
+            source: computed(() => null),
+            documentRevisionToken: computed(() => null),
+        }))!;
+        const left = mountAnnotationSession({annotations}).session;
+        const right = mountAnnotationSession({annotations}).session;
+        const box = left.annotationEditorSurface.createTextBoxAt(0, {
+            left: 0.1,
+            top: 0.1,
+            width: 0.2,
+            height: 0.1,
+        }, {text: 'Saved label'});
+        annotations.application.value.acknowledgeSave(annotations.application.value.beginSave());
+        expect(right.hasCanonicalAnnotationChanges()).toBe(false);
+        await left.annotationEditorSurface.beginTextEditing(box.identity.id);
+        left.annotationEditorSurface.setTextBoxDraftPending(box.identity.id, 'Latest draft');
+        expect(annotations.application.value.store.get(box.identity.id)).toMatchObject({text: 'Saved label'});
+        expect(left.hasCanonicalAnnotationChanges()).toBe(true);
+        expect(right.hasCanonicalAnnotationChanges()).toBe(true);
+        left.annotationEditorSurface.endTextEditing(box.identity.id, {
+            cancelled: true,
+            restoreFocus: false,
+        });
+        expect(left.hasCanonicalAnnotationChanges()).toBe(false);
+        expect(right.hasCanonicalAnnotationChanges()).toBe(false);
+    });
+
     it('does not publish readiness when a revision read resumes after its transition is stale', async () => {
         const revision = requireDocumentRevisionToken('revision-a');
         const revisionReadResult = Promise.withResolvers<IDocumentRevisionInfo>();
@@ -562,7 +601,7 @@ describe('live canonical text box sidebar drafts', () => {
                 text: 'Completed draft',
                 rect: entity.rect,
             });
-        expect(restoredSurface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(restoredSurface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
         expect(restoredSurface.editingId.value).toBeNull();
         expect(restored.session.annotationCommentsCache.value[0]?.text).toBe('Completed draft');
         expect(restored.session.hasCanonicalAnnotationChanges()).toBe(true);

@@ -1,5 +1,13 @@
+import {normalizeTextBoxes} from '@contracts/nativePdfTextBoxAppearance';
+import {
+    PDF_NATIVE_MUTATION_LIMITS,
+    fail,
+    isNativeF32,
+    normalizeOptionalString,
+    normalizeOptionalTimestamp,
+    type IPdfNativeValidationOptions,
+} from '@contracts/nativePdfMutationAdmission';
 import {decodeBookmarkSourceIntent} from '@contracts/pdfBookmarkEntry';
-import { firstUnsupportedAnnotationCharacter } from '@contracts/firstUnsupportedAnnotationCharacter';
 import type {
     Merge,
     SetRequired,
@@ -11,7 +19,6 @@ import type {
     IPdfNativeBookmarksMutation,
     IPdfNativeFreeTextNote,
     IPdfNativeFreeTextNoteMarkerRect,
-    IPdfNativeTextBoxMutation,
     IPdfNativeMarkupMarkerRect,
     IPdfNativeMarkupSubtypeHint,
     IPdfNativeMutationSet,
@@ -46,35 +53,8 @@ import {
     isRecord,
 } from '@contracts/runtimeGuards';
 import {requireEpochMs} from '@contracts/timestamps';
+import {parseDocumentRef} from '@contracts/documentRef';
 import * as v from 'valibot';
-
-export const PDF_NATIVE_MUTATION_LIMITS = {
-    collectionItems: 100_000,
-    noteTextUpdates: 256,
-    noteGeometryUpdates: 256,
-    noteChanges: 256,
-    textBoxes: 256,
-    textBoxTextBytes: 64 * 1024,
-    /** @deprecated Use textBoxes. */
-    freeTextEditors: 256,
-    noteTextLength: 64 * 1024,
-    pageLabelRanges: 2_048,
-    bookmarkItems: 5_000,
-    bookmarkDepth: 64,
-    shapes: 4_096,
-    shapeDeletedItems: 4_096,
-    shapePoints: 20_000,
-    shapeStrokes: 4_096,
-    shapeTextLength: 2_048,
-    markupGeometryItems: 512,
-    markupTextLength: 2_048,
-    placedImages: 16,
-    placedImageBytes: 128 * 1024 * 1024,
-    placedImagesTotalBytes: 512 * 1024 * 1024,
-    // Native sidecars admit 256 MiB. Leave 64 MiB for other mutation families.
-    placedImagesInlineChunkBytes: 192 * 1024 * 1024,
-    placedImageGeometryUpdates: 256,
-} as const;
 
 export const PDF_NATIVE_MUTATION_ENUM_VALUES = {
     pageLabelStyles: PDF_PAGE_LABEL_STYLE_VALUES,
@@ -84,15 +64,6 @@ export const PDF_NATIVE_MUTATION_ENUM_VALUES = {
     markupSubtypes: PDF_ANNOTATION_MARKUP_SUBTYPES,
 } as const;
 
-const PDF_NATIVE_F32_MAX = 3.4028234663852886e38;
-const PDF_NATIVE_ROTATIONS = [
-    0,
-    90,
-    180,
-    270,
-] as const;
-
-type TPdfNativeValidationErrorKind = 'typeError' | 'error';
 export type IPdfNativePlacedImageNativeToolPayload = Simplify<
     Omit<SetRequired<IPdfNativePlacedImage, 'rotationDegrees'>, 'source'> & {
         bytesPath?: string;
@@ -102,7 +73,7 @@ export type IPdfNativePlacedImageNativeToolPayload = Simplify<
 >;
 
 export type TPdfNativeMutationSetNativeToolPayload = Simplify<
-    Merge<IPdfNativeMutationSet, {
+    Merge<Omit<IPdfNativeMutationSet, 'originalAppearanceSource'>, {
         continuation?: IPdfNativeMutationContinuation;
         placedImages?: IPdfNativePlacedImageNativeToolPayload[];
     }>
@@ -125,8 +96,6 @@ export interface IPdfNativeMutationContinuation {
     chunkCount: number;
     bookmarkPath?: number[];
 }
-
-export interface IPdfNativeValidationOptions {errorKind?: TPdfNativeValidationErrorKind;}
 
 interface IPdfNativeNoteTextUpdateValidationOptions extends IPdfNativeValidationOptions {allowEmpty?: boolean;}
 
@@ -239,20 +208,6 @@ function normalizePlacedImageGeometryUpdates(
     });
 }
 
-function createValidationError(message: string, options: IPdfNativeValidationOptions = {}) {
-    return options.errorKind === 'error'
-        ? new Error(message)
-        : new TypeError(message);
-}
-
-function isNativeF32(value: number) {
-    return Number.isFinite(value) && Math.abs(value) <= PDF_NATIVE_F32_MAX;
-}
-
-function fail(message: string, options: IPdfNativeValidationOptions = {}): never {
-    throw createValidationError(message, options);
-}
-
 function normalizePositiveInteger(value: unknown, label: string, options: IPdfNativeValidationOptions) {
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
         fail(`${label} must be a positive integer`, options);
@@ -274,20 +229,6 @@ function normalizeFiniteNonNegativeNumber(value: unknown, label: string, options
     return value;
 }
 
-function normalizeNativeF32(value: unknown, label: string, options: IPdfNativeValidationOptions) {
-    if (typeof value !== 'number' || !isNativeF32(value)) {
-        fail(`${label} must be a finite number`, options);
-    }
-    return value;
-}
-
-function normalizeNativeColorComponent(value: unknown, label: string, options: IPdfNativeValidationOptions) {
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 255) {
-        fail(`${label} must be an integer RGB component from 0 to 255`, options);
-    }
-    return value;
-}
-
 function normalizePdfObjectGeneration(value: unknown, label: string, options: IPdfNativeValidationOptions) {
     if (
         typeof value !== 'number'
@@ -300,33 +241,11 @@ function normalizePdfObjectGeneration(value: unknown, label: string, options: IP
     return value;
 }
 
-function isPdfRotation(value: unknown): value is typeof PDF_NATIVE_ROTATIONS[number] {
-    return PDF_NATIVE_ROTATIONS.some(rotation => rotation === value);
-}
-
 function normalizeOptionalFiniteUnitNumber(value: unknown, label: string, options: IPdfNativeValidationOptions) {
     if (value === undefined || value === null) {
         return null;
     }
     return normalizeFiniteUnitNumber(value, label, options);
-}
-
-function normalizeOptionalString(
-    value: unknown,
-    label: string,
-    options: IPdfNativeValidationOptions,
-    maxUtf8Bytes?: number,
-) {
-    if (value === undefined || value === null) {
-        return null;
-    }
-    if (typeof value !== 'string') {
-        fail(`${label} must be a string or null`, options);
-    }
-    if (maxUtf8Bytes !== undefined && new TextEncoder().encode(value).byteLength > maxUtf8Bytes) {
-        fail(`${label} must contain at most ${maxUtf8Bytes} UTF-8 bytes`, options);
-    }
-    return value;
 }
 
 function normalizeNativeShapeOptionalString(value: unknown, label: string, options: IPdfNativeValidationOptions) {
@@ -335,16 +254,6 @@ function normalizeNativeShapeOptionalString(value: unknown, label: string, optio
         fail(`${label} is too long`, options);
     }
     return normalized;
-}
-
-function normalizeOptionalTimestamp(value: unknown, label: string, options: IPdfNativeValidationOptions) {
-    if (value === undefined || value === null) {
-        return null;
-    }
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-        fail(`${label} must be a finite positive timestamp or null`, options);
-    }
-    return requireEpochMs(Math.trunc(value));
 }
 
 function normalizeNativeMarkerRect(
@@ -474,97 +383,6 @@ function normalizeFreeTextNotes(
                     }
                     return {open: note.open};
                 })()),
-        };
-    });
-}
-
-function normalizeTextBoxes(
-    value: unknown,
-    label: string,
-    options: IPdfNativeValidationOptions,
-) {
-    if (value === undefined) {
-        return [];
-    }
-    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
-        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} text boxes`, options);
-    }
-
-    return Array.from(value, (editor, index): IPdfNativeTextBoxMutation => {
-        if (!isRecord(editor)) {
-            fail(`${label}[${index}] must be an object`, options);
-        }
-        if (
-            typeof editor.pageIndex !== 'number'
-            || !Number.isSafeInteger(editor.pageIndex)
-            || editor.pageIndex < 0
-        ) {
-            fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
-        }
-        const stableKey = normalizeOptionalString(editor.stableKey, `${label}[${index}].stableKey`, options, 512)?.trim() ?? '';
-        if (!stableKey) {
-            fail(`${label}[${index}].stableKey must be a non-empty string with at most 512 UTF-8 bytes`, options);
-        }
-        const annotationId = normalizeOptionalString(
-            editor.annotationId,
-            `${label}[${index}].annotationId`,
-            options,
-        );
-        if (typeof editor.text !== 'string' || editor.text.length > PDF_NATIVE_MUTATION_LIMITS.noteTextLength) {
-            fail(`${label}[${index}].text must be a string with at most ${PDF_NATIVE_MUTATION_LIMITS.noteTextLength} characters`, options);
-        }
-        if (new TextEncoder().encode(editor.text).byteLength > PDF_NATIVE_MUTATION_LIMITS.textBoxTextBytes) {
-            fail(`${label}[${index}].text exceeds the 64 KiB UTF-8 admission ceiling`, options);
-        }
-        const unsupportedCharacter = firstUnsupportedAnnotationCharacter(editor.text);
-        if (unsupportedCharacter !== undefined) {
-            const codepoint = unsupportedCharacter.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0');
-            fail(`${label}[${index}].text uses U+${codepoint}, which the text box fonts DejaVu Sans, Noto Sans Hebrew, Noto Sans Syriac do not support`, options);
-        }
-        if (!Array.isArray(editor.rect) || editor.rect.length !== 4) {
-            fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);
-        }
-        const rect: [number, number, number, number] = [
-            normalizeNativeF32(editor.rect[0], `${label}[${index}].rect[0]`, options),
-            normalizeNativeF32(editor.rect[1], `${label}[${index}].rect[1]`, options),
-            normalizeNativeF32(editor.rect[2], `${label}[${index}].rect[2]`, options),
-            normalizeNativeF32(editor.rect[3], `${label}[${index}].rect[3]`, options),
-        ];
-        if (rect[2] <= rect[0] || rect[3] <= rect[1]) {
-            fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);
-        }
-        if (!isPdfRotation(editor.rotation)) {
-            fail(`${label}[${index}].rotation must be 0, 90, 180, or 270`, options);
-        }
-        if (typeof editor.fontSize !== 'number' || !isNativeF32(editor.fontSize) || editor.fontSize <= 0 || editor.fontSize > 512) {
-            fail(`${label}[${index}].fontSize must be a finite number from 0 to 512`, options);
-        }
-        if (!Array.isArray(editor.color) || editor.color.length !== 3) {
-            fail(`${label}[${index}].color must contain three integer RGB components from 0 to 255`, options);
-        }
-        const color: [number, number, number] = [
-            normalizeNativeColorComponent(editor.color[0], `${label}[${index}].color[0]`, options),
-            normalizeNativeColorComponent(editor.color[1], `${label}[${index}].color[1]`, options),
-            normalizeNativeColorComponent(editor.color[2], `${label}[${index}].color[2]`, options),
-        ];
-        return {
-            pageIndex: requirePageIndex(editor.pageIndex),
-            stableKey,
-            ...(editor.annotationId === undefined ? {} : {annotationId}),
-            text: editor.text,
-            rect,
-            rotation: editor.rotation,
-            fontSize: editor.fontSize,
-            color,
-            ...(editor.author === undefined
-                ? {}
-                : {author: normalizeOptionalString(editor.author, `${label}[${index}].author`, options)}),
-            ...(editor.createdAt === undefined
-                ? {}
-                : {createdAt: normalizeOptionalTimestamp(editor.createdAt, `${label}[${index}].createdAt`, options)}),
-            ...(editor.modifiedAt === undefined
-                ? {}
-                : {modifiedAt: normalizeOptionalTimestamp(editor.modifiedAt, `${label}[${index}].modifiedAt`, options)}),
         };
     });
 }
@@ -1419,7 +1237,10 @@ export function normalizePdfNativeMutationSet(
     ) {
         fail(`${label} must include at least one native PDF mutation`, options);
     }
+    const originalAppearanceSource = value.originalAppearanceSource === undefined ? undefined : parseDocumentRef(value.originalAppearanceSource);
+    if (originalAppearanceSource === null) fail(`${label}.originalAppearanceSource must be a document reference`, options);
     const normalized: IPdfNativeMutationSet = {
+        ...(originalAppearanceSource === undefined ? {} : {originalAppearanceSource}),
         ...(updates.length > 0 ? {updates} : {}),
         ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
         ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
@@ -1493,3 +1314,12 @@ function validateNativeMutationCollectionBudget(
         );
     }
 }
+
+export {
+    PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS,
+    PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA,
+    normalizePdfNativeTextBoxAppearanceRequest,
+    normalizePdfNativeTextBoxAppearanceMetadata,
+} from '@contracts/nativePdfTextBoxAppearance';
+export {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutationAdmission';
+export type {IPdfNativeValidationOptions} from '@contracts/nativePdfMutationAdmission';

@@ -3,8 +3,6 @@ use super::*;
 const MAX_NOTE_TEXT_UPDATES: usize = 256;
 const MAX_NOTE_GEOMETRY_UPDATES: usize = 256;
 const MAX_NOTE_CHANGES: usize = 256;
-const MAX_TEXT_BOXES: usize = 256;
-const MAX_TEXT_BOX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_NOTE_GEOMETRY_COLOR_BYTES: usize = 2_048;
 const MAX_PAGE_LABEL_RANGES: usize = 2_048;
 
@@ -76,44 +74,6 @@ pub(crate) fn validate_text_notes(notes: &[TextNote]) -> Result<()> {
 
 pub(crate) fn validate_free_text_notes(notes: &[FreeTextNote]) -> Result<()> {
     validate_text_notes(notes)
-}
-
-pub(crate) fn validate_text_boxes(editors: &[TextBoxMutation]) -> Result<()> {
-    if editors.len() > MAX_TEXT_BOXES {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            format!("Too many text boxes (maximum {MAX_TEXT_BOXES})"),
-        ));
-    }
-    for editor in editors {
-        if editor.stable_key.trim().is_empty() || editor.stable_key.len() > 512 {
-            return Err("Invalid text box stable key".into());
-        }
-        if editor
-            .annotation_id
-            .as_deref()
-            .is_some_and(|value| parse_pdfjs_annotation_object_id(value).is_none())
-        {
-            return Err("Invalid text box annotation id".into());
-        }
-        if editor.text.len() > MAX_TEXT_BOX_TEXT_BYTES {
-            return Err("Text box text exceeds the 64 KiB admission ceiling".into());
-        }
-        if !editor.rect.iter().all(|coordinate| coordinate.is_finite())
-            || editor.rect[2] <= editor.rect[0]
-            || editor.rect[3] <= editor.rect[1]
-        {
-            return Err("Invalid text box rectangle".into());
-        }
-        if !matches!(editor.rotation, 0 | 90 | 180 | 270) {
-            return Err("Invalid text box rotation".into());
-        }
-        if !editor.font_size.is_finite() || editor.font_size <= 0.0 || editor.font_size > 512.0 {
-            return Err("Invalid text box font size".into());
-        }
-        crate::text_box_font::validate_text(&editor.text)?;
-    }
-    Ok(())
 }
 
 pub(crate) fn validate_annotation_deletes(deletes: &[AnnotationDelete]) -> Result<()> {

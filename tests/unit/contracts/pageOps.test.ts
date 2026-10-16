@@ -11,6 +11,7 @@ describe('page ops platform feature schemas', () => {
 
     it('preserves every async channel without an event layer', () => {
         expect(channels).toEqual({
+            renderTextBoxAppearance: 'page-ops:text-box-appearance',
             delete: 'page-ops:delete',
             deleteRanges: 'page-ops:delete-ranges',
             extract: 'page-ops:extract',
@@ -27,7 +28,7 @@ describe('page ops platform feature schemas', () => {
             readOutline: 'page-ops:read-outline',
         });
         expect(PAGE_OPS_PLATFORM_FEATURE.eventChannels).toEqual({});
-        expect(PAGE_OPS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(14);
+        expect(PAGE_OPS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(15);
     });
 
     it('round-trips the compact native move tuple', () => {
@@ -172,6 +173,39 @@ describe('page ops platform feature schemas', () => {
                 untitledBookmarkLabel: 'Untitled',
             }},
         ]))).toThrow('pageLabelRanges');
+    });
+
+    it.each([
+        0,
+        0.5,
+        1,
+        null,
+        -0.01,
+        1.01,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+    ])('validates bookmark offsets at the IPC boundary: %s', (pageYRatio) => {
+        const codec = codecs[channels.reorder]!;
+        const decode = () => codec.decodeArgs(codec.encodeArgs([
+            '/tmp/work.pdf',
+            [1],
+            {metadataSnapshot: {
+                bookmarks: [{
+                    title: 'Bookmark',
+                    pageIndex: 0,
+                    pageYRatio,
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                }],
+                untitledBookmarkLabel: 'Untitled',
+            }},
+        ]));
+        if (pageYRatio === null || Number.isFinite(pageYRatio) && pageYRatio >= 0 && pageYRatio <= 1) {
+            expect(decode()[2]?.metadataSnapshot?.bookmarks?.[0]?.pageYRatio).toBe(pageYRatio);
+        } else expect(decode).toThrow('pageYRatio');
     });
 
     it('accepts a 10,001-item outline for structural page operations', () => {

@@ -226,24 +226,20 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
     }
 
     async function moveActiveTab(direction: TPaneDirection, targetIndex?: number | null) {
-        await enqueueTabTransition(() => {
+        await enqueueTabTransition(async () => {
             const sourcePane = getPaneById(activePaneId.value);
             const sourceTabId = sourcePane?.activeTabId ?? null;
             if (!sourcePane || !sourceTabId) {
-                return Promise.resolve();
+                return;
             }
 
             const route = ensureTargetPaneForDirection(direction);
             if (!route) {
-                return Promise.resolve();
+                return;
             }
 
-            if (targetIndex === undefined) {
-                moveTabToPane(sourceTabId, route.targetPaneId, true);
-            } else {
-                moveTabToPane(sourceTabId, route.targetPaneId, true, targetIndex);
-            }
-            return Promise.resolve();
+            await options.documentSessionsByTabId.value[sourceTabId]?.prepareTransfer();
+            moveTabToPane(sourceTabId, route.targetPaneId, true, targetIndex);
         });
     }
 

@@ -81,7 +81,7 @@ export interface IPdfSaveRouteCapabilities {
     readonly shapes: IShapeAnnotation[] | null;
     readonly deletedEmbeddedShapeAnnotationIds: string[];
     readonly deletedEmbeddedShapeStableKeys: string[];
-    /** `undefined` preserves the pre-canonical-text-box compatibility path. */
+    /** Missing geometry fails closed for changed canonical text boxes. */
     readonly nativeTextBoxes?: IPdfNativeTextBoxMutation[] | null;
 }
 
@@ -381,7 +381,7 @@ function deriveCanonicalSaveInputs(
             return;
         }
         if (
-            (entity.kind === 'note' || (entity.kind === 'text-box' && capabilities.nativeTextBoxes === undefined))
+            entity.kind === 'note'
             && entity.identity.pdfRef
         ) {
             pendingTexts.set(summary.stableKey, summary.text);
@@ -633,9 +633,7 @@ function buildClassifiedNativeMutationProjection(
         .map(entitySummary);
     // A text box the native payload writes is written once, by its own mutation:
     // never also as a note's geometry or a FreeText note.
-    const changedNotes = capabilities.nativeTextBoxes === undefined
-        ? changedComments
-        : changedComments.filter(comment => !isCanonicalTextBoxComment(comment));
+    const changedNotes = changedComments.filter(comment => !isCanonicalTextBoxComment(comment));
     const noteTextUpdatesResult = replayAllowed && canonical.pendingTexts.size > 0
         ? buildNativeNoteTextUpdatesForSave({
             pendingTexts: canonical.pendingTexts,
@@ -686,9 +684,7 @@ function buildClassifiedNativeMutationProjection(
     // valid when other changed annotations select the writer route.
     const textBoxes = capabilities.nativeTextBoxes ?? [];
     if (
-        capabilities.nativeTextBoxes !== undefined
-        && changedComments.some(isCanonicalTextBoxComment)
-        && changedComments
+        changedComments
             .filter(isCanonicalTextBoxComment)
             .some(comment => !textBoxes.some(textBox => nativeTextBoxCoversComment(textBox, comment)))
     ) {

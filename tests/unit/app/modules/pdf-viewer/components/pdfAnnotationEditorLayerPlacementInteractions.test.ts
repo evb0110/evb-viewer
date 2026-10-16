@@ -600,7 +600,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             }));
             await nextTick();
             expect(surface.getEntitiesForPage(0)).toHaveLength(0);
-            expect(surface.hasPendingTextBoxDrafts()).toBe(false);
+            expect(surface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
             expect(surface.editingId.value).toBeNull();
             expect(application.value.store.dirtyEntities()).toHaveLength(0);
             expect(surface.undo()).toBe(false);
@@ -625,7 +625,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         expect(committed.rect.left).toBeCloseTo(entity.rect.left);
         expect(committed.rect.top).toBeCloseTo(entity.rect.top);
         if (gesture === 'resize') expect(committed.rect.width).toBeCloseTo(entity.rect.width);
-        expect(surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(surface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
         expect(surface.editingId.value).toBeNull();
     });
 });

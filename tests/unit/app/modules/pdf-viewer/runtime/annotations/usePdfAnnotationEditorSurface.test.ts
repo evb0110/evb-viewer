@@ -8,6 +8,7 @@ import {
 import {
     computed,
     effectScope,
+    shallowReactive,
     shallowRef,
 } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
@@ -45,8 +46,8 @@ function baseEntity(id: string, pageIndex = 0) {
     };
 }
 
-function createSurfaceHarness() {
-    const annotationApplication = shallowRef(new AnnotationApplication('surface-test'));
+function createSurfaceHarness(options: Partial<Parameters<typeof usePdfAnnotationEditorSurface>[0]> = {}) {
+    const annotationApplication = options.annotationApplication ?? shallowRef(new AnnotationApplication('surface-test'));
     const isActive = shallowRef(true);
     const emitAnnotationModified = vi.fn();
     const emitShapeContextMenu = vi.fn();
@@ -63,6 +64,7 @@ function createSurfaceHarness() {
         emitShapeContextMenu,
         onCreationCompleted,
         onTextBoxDraftChanged,
+        ...options,
     }))!;
     const stop = () => {
         if (!activeScopes.delete(scope)) {
@@ -250,6 +252,412 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(emitAnnotationModified).not.toHaveBeenCalled();
     });
 
+    it('keeps the requested input size while a text editor owns layout and fits completed styles natively', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness({fitTextBox: async (_entity, proposal) => ({
+            rect: proposal.rect,
+            fontSize: 12.12,
+        })});
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        surface.select([box.identity.id]);
+        await surface.updateSelectedAnnotationProperties({fontSize: 18});
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({fontSize: 12.12});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Typing continues');
+        await surface.updateSelectedAnnotationProperties({fontSize: 18});
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            fontSize: 18,
+            text: 'Original',
+            rect,
+        });
+        expect(surface.editingId.value).toBe(box.identity.id);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
+        expect(surface.settings.value).toEqual(DEFAULT_ANNOTATION_SETTINGS);
+    });
+
+    it('saves the latest text and queued styles after completion closes the editor and a native style fit settles', async () => {
+        const nativeFit = Promise.withResolvers<{
+            rect: IAnnotationMarkerRect;
+            fontSize: number
+        }>();
+        const fittingStarted = Promise.withResolvers<IAnnotationMarkerRect>();
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness({fitTextBox: async (_entity, proposal) => {
+            fittingStarted.resolve(proposal.rect);
+            return nativeFit.promise;
+        }});
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        await surface.beginTextEditing(box.identity.id);
+        const completion = Promise.withResolvers<undefined>();
+        const completedRect = {
+            ...rect,
+            width: 0.3,
+        };
+        const accepted = completion.promise.then(() => {
+            surface.commitGesture(box.identity.id, {
+                text: 'Completed text',
+                rect: completedRect,
+            });
+            surface.endTextEditing(box.identity.id, {restoreFocus: false});
+        });
+        const interaction = {
+            commitTextDraft: () => accepted,
+            get pendingTextCompletion() { return accepted; },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        };
+        surface.registerPageInteraction(0, interaction);
+        const color = surface.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        const size = surface.updateSelectedAnnotationProperties({fontSize: 18});
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            color: box.color,
+            fontSize: box.fontSize,
+            rect,
+        });
+        completion.resolve(undefined);
+        expect(await fittingStarted.promise).toEqual(completedRect);
+        expect(surface.editingId.value).toBeNull();
+        let saved: AnnotationEntity | null | undefined;
+        const saving = Promise.resolve(surface.commitPendingTextBoxDraftsForSave()).then(() => {
+            saved = annotationApplication.value.store.get(box.identity.id);
+        });
+        await Promise.resolve();
+        expect(saved).toBeUndefined();
+        nativeFit.resolve({
+            rect: completedRect,
+            fontSize: 12.12,
+        });
+        await Promise.all([
+            color,
+            size,
+            saving,
+        ]);
+        expect(saved).toMatchObject({
+            text: 'Completed text',
+            color: '#f59e0b',
+            fontSize: 12.12,
+            rect: completedRect,
+        });
+    });
+
+    it.each([
+        'select',
+        'clearSelection',
+    ] as const)('contains a refused queued style and %s while Save rejects and a later Save commits the retained draft', async (selection) => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        const note = surface.createNoteAt(0, rect);
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Retained latest text');
+        const completion = Promise.withResolvers<undefined>();
+        surface.registerPageInteraction(0, {
+            pendingTextCompletion: completion.promise,
+            commitTextDraft: () => {
+                surface.commitGesture(box.identity.id, {text: 'Retained latest text'});
+                surface.endTextEditing(box.identity.id, {restoreFocus: false});
+            },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        const command = surface.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        if (selection === 'select') surface.select([note.identity.id]);
+        else surface.clearSelection();
+        expect(surface.selectedIds.value).toEqual(new Set(selection === 'select' ? [note.identity.id] : []));
+        const saving = surface.commitPendingTextBoxDraftsForSave();
+        const refused = expect(command).resolves.toBe(false);
+        const rejectedSave = expect(saving).rejects.toThrow('The accepted paint failed');
+        completion.reject(new Error('The accepted paint failed'));
+        await Promise.all([
+            refused,
+            rejectedSave,
+        ]);
+        await new Promise(resolve => setImmediate(resolve));
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            color: box.color,
+        });
+        expect(surface.editingId.value).toBe(box.identity.id);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
+        await surface.commitPendingTextBoxDraftsForSave();
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Retained latest text',
+            color: box.color,
+        });
+        expect(surface.editingId.value).toBeNull();
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(false);
+    });
+
+    it('saves accepted consecutive geometry against completed text despite a later pointer and selection', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        const note = surface.createNoteAt(0, {
+            ...rect,
+            left: 0.5,
+        });
+        await surface.beginTextEditing(box.identity.id);
+        const publication = Promise.withResolvers<undefined>();
+        const pending = publication.promise.then(() => {
+            surface.commitGesture(box.identity.id, {text: 'Accepted text'});
+            surface.endTextEditing(box.identity.id, {restoreFocus: false});
+        });
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => pending,
+            pendingTextCompletion: pending,
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        const corner = {
+            ...rect,
+            width: 0.3,
+            height: 0.075,
+        };
+        const narrowed = {
+            ...corner,
+            width: 0.18,
+            height: 0.16,
+        };
+        const first = surface.runAcceptedCommand(() => surface.commitGesture(box.identity.id, {
+            rect: corner,
+            fontSize: 33,
+        }));
+        const second = surface.runAcceptedCommand(() => surface.commitGesture(box.identity.id, {
+            rect: narrowed,
+            fontSize: 33,
+        }));
+        surface.beginPointerInteraction(0);
+        surface.select([note.identity.id]);
+        let saved: AnnotationEntity | null | undefined;
+        const saving = Promise.resolve(surface.commitPendingTextBoxDraftsForSave()).then(() => {saved = annotationApplication.value.store.get(box.identity.id);});
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
+        expect(saved).toBeUndefined();
+        publication.resolve(undefined);
+        await Promise.all([
+            first,
+            second,
+            saving,
+        ]);
+        expect(saved).toMatchObject({
+            text: 'Accepted text',
+            rect: narrowed,
+            fontSize: 33,
+        });
+        expect(annotationApplication.value.store.get(note.identity.id)).toMatchObject({position: {
+            ...rect,
+            left: 0.5,
+        }});
+    });
+
+    it('moves the captured cohort after accepted text without retargeting a newer selection', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        const note = surface.createNoteAt(0, {
+            ...rect,
+            left: 0.5,
+        });
+        const other = surface.createNoteAt(0, {
+            ...rect,
+            left: 0.7,
+        });
+        const publication = Promise.withResolvers<undefined>();
+        await surface.beginTextEditing(box.identity.id);
+        const pending = publication.promise.then(() => {
+            surface.commitGesture(box.identity.id, {text: 'Accepted text'});
+            surface.endTextEditing(box.identity.id, {restoreFocus: false});
+        });
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => pending,
+            pendingTextCompletion: pending,
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        surface.select([
+            box.identity.id,
+            note.identity.id,
+        ]);
+        const cohort = surface.selectedIds.value;
+        const moving = surface.runAcceptedCommand(() => surface.moveSelection(0.1, 0.02, cohort));
+        surface.select([other.identity.id]);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({rect});
+        expect(annotationApplication.value.store.get(note.identity.id)).toMatchObject({position: {
+            ...rect,
+            left: 0.5,
+        }});
+        publication.resolve(undefined);
+        await moving;
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Accepted text',
+            rect: {
+                ...rect,
+                left: 0.2,
+                top: 0.22,
+            },
+        });
+        expect(annotationApplication.value.store.get(note.identity.id)).toMatchObject({position: {
+            ...rect,
+            left: 0.6,
+            top: 0.22,
+        }});
+        expect(annotationApplication.value.store.get(other.identity.id)).toMatchObject({position: {
+            ...rect,
+            left: 0.7,
+        }});
+    });
+
+    it('completes a live draft for Save after a queued style behind another viewer succeeds', async () => {
+        const peerCompletion = Promise.withResolvers<undefined>();
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness({getPendingTextCompletion: () => peerCompletion.promise});
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Live latest text');
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => {
+                surface.commitGesture(box.identity.id, {text: 'Live latest text'});
+                surface.endTextEditing(box.identity.id, {restoreFocus: false});
+            },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        const command = surface.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        let saved: AnnotationEntity | null | undefined;
+        const saving = Promise.resolve(surface.commitPendingTextBoxDraftsForSave()).then(() => {
+            saved = annotationApplication.value.store.get(box.identity.id);
+        });
+        expect(saved).toBeUndefined();
+        peerCompletion.resolve(undefined);
+        await Promise.all([
+            command,
+            saving,
+        ]);
+        expect(saved).toMatchObject({
+            text: 'Live latest text',
+            color: '#f59e0b',
+        });
+        expect(surface.editingId.value).toBeNull();
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(false);
+    });
+
+    it('keeps inspector commands in linked views behind accepted text and style work through Save', async () => {
+        const document = createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/linked-style.pdf')),
+            source: computed(() => null),
+            documentRevisionToken: computed(() => null),
+        });
+        const nativeFit = Promise.withResolvers<{
+            rect: IAnnotationMarkerRect;
+            fontSize: number
+        }>();
+        const fittingStarted = Promise.withResolvers<undefined>();
+        const left = createSurfaceHarness({
+            annotationApplication: document.application,
+            getPendingTextCompletion: document.getPendingTextCompletion,
+            fitTextBox: async () => {fittingStarted.resolve(undefined); return nativeFit.promise;},
+        }).surface;
+        const right = createSurfaceHarness({
+            annotationApplication: document.application,
+            getPendingTextCompletion: document.getPendingTextCompletion,
+        }).surface;
+        for (const surface of [
+            left,
+            right,
+        ]) document.attachView({
+            emitAnnotationState: () => {},
+            emitAnnotationModified: () => {},
+            onHistoryReplay: () => {},
+            commitPendingDraftsForSave: surface.commitPendingTextBoxDraftsForSave,
+            getPendingTextCompletion: surface.getPendingTextCompletion,
+            getTextBoxDraftRect: () => null,
+        });
+        const box = left.createTextBoxAt(0, rect, {text: 'Original'});
+        await left.beginTextEditing(box.identity.id);
+        right.select([box.identity.id]);
+        const completion = Promise.withResolvers<undefined>();
+        const accepted = completion.promise.then(() => {
+            left.commitGesture(box.identity.id, {text: 'Completed in left'});
+            left.endTextEditing(box.identity.id, {restoreFocus: false});
+        });
+        const interaction = {
+            commitTextDraft: () => accepted,
+            get pendingTextCompletion() { return accepted; },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        };
+        left.registerPageInteraction(0, interaction);
+        const color = right.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        const font = left.updateSelectedAnnotationProperties({fontSize: 18});
+        expect(document.application.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            color: box.color,
+            fontSize: box.fontSize,
+        });
+        completion.resolve(undefined);
+        await fittingStarted.promise;
+        expect(left.editingId.value).toBeNull();
+        let savedText: string | undefined;
+        const saving = document.commitPendingDraftsForSave().then(() => {
+            const entity = document.application.value.store.get(box.identity.id);
+            if (entity?.kind === 'text-box') savedText = entity.text;
+        });
+        await Promise.resolve();
+        expect(savedText).toBeUndefined();
+        nativeFit.resolve({
+            rect,
+            fontSize: 12.12,
+        });
+        await Promise.all([
+            color,
+            font,
+            saving,
+        ]);
+        expect(savedText).toBe('Completed in left');
+        expect(document.application.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Completed in left',
+            color: '#f59e0b',
+            fontSize: 12.12,
+        });
+    });
+
+    it('changes live text properties synchronously without completing an unaccepted editor', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Typing continues');
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => {surface.endTextEditing(box.identity.id);},
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        expect(surface.updateSelectedAnnotationProperties({color: '#f59e0b'})).toBe(true);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            color: '#f59e0b',
+        });
+        expect(surface.editingId.value).toBe(box.identity.id);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
+    });
+
     it('rejects font and geometry together when text cannot fit the page', () => {
         const {
             surface,
@@ -304,6 +712,7 @@ describe('usePdfAnnotationEditorSurface', () => {
 
     it('clears a moving page preview when its interaction host unmounts', () => {
         const {surface} = createSurfaceHarness();
+        const ids = new Set([asAnnotationId('moving-annotation')]);
         const cancelPointerGesture = vi.fn();
         const interaction = {
             commitTextDraft: vi.fn(),
@@ -320,11 +729,13 @@ describe('usePdfAnnotationEditorSurface', () => {
         surface.setSelectionMoveDelta({
             x: 0.1,
             y: 0.2,
+            ids,
         });
         unregisterOtherPage();
         expect(surface.selectionMoveDelta.value).toEqual({
             x: 0.1,
             y: 0.2,
+            ids,
         });
         expect(cancelPointerGesture).not.toHaveBeenCalled();
         unregisterMovingPage();
@@ -333,24 +744,34 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(surface.cancelActiveInteraction()).toBe(false);
     });
 
-    it('clears the shared selection preview when its pointer operation ends or cancels', () => {
+    it('retains the shared preview after physical release until its owner settles or cancels', () => {
         const {surface} = createSurfaceHarness();
+        const ids = new Set([asAnnotationId('moving-annotation')]);
         surface.beginPointerInteraction(0);
         surface.setSelectionMoveDelta({
             x: 0.1,
             y: 0.2,
+            ids,
         });
         surface.endPointerInteraction(1);
         expect(surface.selectionMoveDelta.value).toEqual({
             x: 0.1,
             y: 0.2,
+            ids,
         });
         surface.endPointerInteraction(0);
+        expect(surface.selectionMoveDelta.value).toEqual({
+            x: 0.1,
+            y: 0.2,
+            ids,
+        });
+        surface.setSelectionMoveDelta(null);
         expect(surface.selectionMoveDelta.value).toBeNull();
         surface.beginPointerInteraction(0);
         surface.setSelectionMoveDelta({
             x: 0.2,
             y: 0.1,
+            ids,
         });
         surface.cancelActiveInteraction();
         expect(surface.selectionMoveDelta.value).toBeNull();
@@ -680,14 +1101,36 @@ describe('usePdfAnnotationEditorSurface', () => {
         const saving = harness.surface.commitPendingTextBoxDraftsForSave();
         expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'Before'});
         expect(harness.surface.editingId.value).toBe(box.identity.id);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(harness.surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
         protection.resolve(undefined);
         await saving;
         expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({text: 'Accepted after protection'});
         expect(harness.surface.editingId.value).toBeNull();
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(box.identity.id)).toBe(false);
         unregister();
         harness.stop();
+    });
+
+    it('retains a rejected text draft when its page editor unmounts without an unhandled completion', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Before'});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Retained draft');
+        const completion = Promise.withResolvers<undefined>();
+        void completion.promise.catch(() => {});
+        const unregister = surface.registerPageInteraction(0, {
+            commitTextDraft: () => completion.promise,
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        unregister();
+        completion.reject(new DOMException('Text appearance source changed', 'AbortError'));
+        await new Promise(resolve => setImmediate(resolve));
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({text: 'Before'});
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
     });
 
     it('publishes every live text draft without committing it, then retracts it on cancel', () => {
@@ -718,7 +1161,62 @@ describe('usePdfAnnotationEditorSurface', () => {
 
         harness.surface.endTextEditing(entity.identity.id, {cancelled: true});
         expect(harness.onTextBoxDraftChanged).toHaveBeenLastCalledWith(entity.identity.id, null);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
+    });
+
+    it('keeps browser input out of its own raster while peer paint follows draft text and geometry', async () => {
+        const drafts = shallowReactive(new Map<string, string>());
+        const draftRects = shallowReactive(new Map<string, IAnnotationMarkerRect>());
+        const shared = {
+            getTextBoxDraftText: (id: string) => drafts.get(id) ?? null,
+            textBoxDraftRects: draftRects,
+            onTextBoxDraftChanged: (id: string, text: string | null) => {if (text === null) drafts.delete(id); else drafts.set(id, text);},
+        };
+        const owner = createSurfaceHarness(shared);
+        const peer = createSurfaceHarness({
+            ...shared,
+            annotationApplication: owner.annotationApplication,
+        });
+        const box = owner.surface.createTextBoxAt(0, rect, {text: 'Original'});
+        const measured = {
+            ...rect,
+            height: 0.12,
+        };
+        owner.surface.registerPageInteraction(0, {
+            commitTextDraft: () => {},
+            cancelTextDraft: () => {},
+            cancelPointerGesture: () => {},
+            focus: () => {},
+            getTextBoxDraftRect: () => measured,
+        });
+        await owner.surface.beginTextEditing(box.identity.id);
+        owner.surface.setTextBoxDraftPending(box.identity.id, 'First');
+        expect(owner.surface.getPaintInput(box)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
+        expect(peer.surface.getPaintInput(box)).toMatchObject({
+            text: 'First',
+            rect: measured,
+        });
+        owner.surface.setTextBoxDraftPending(box.identity.id, 'Second');
+        expect(owner.surface.getPaintInput(box)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
+        expect(peer.surface.getPaintInput(box)).toMatchObject({
+            text: 'Second',
+            rect: measured,
+        });
+        expect(owner.annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
+        owner.surface.endTextEditing(box.identity.id, {cancelled: true});
+        expect(peer.surface.getPaintInput(box)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
     });
 
     it.each([
@@ -802,22 +1300,22 @@ describe('usePdfAnnotationEditorSurface', () => {
             color: '#111827',
         });
 
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(false);
         harness.surface.setTextBoxDraftPending(annotationId);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(true);
 
         // Repeated input events for one editor must not inflate the count.
         harness.surface.setTextBoxDraftPending(annotationId);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(true);
 
         harness.surface.clearTextBoxDraftPending(annotationId);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(false);
         harness.surface.clearTextBoxDraftPending(annotationId);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(false);
 
         harness.surface.setTextBoxDraftPending(annotationId);
         harness.annotationApplication.value = new AnnotationApplication('surface-next-document');
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(annotationId)).toBe(false);
 
         harness.stop();
     });
@@ -827,7 +1325,7 @@ describe('usePdfAnnotationEditorSurface', () => {
 
         harness.surface.setTextBoxDraftPending(asAnnotationId('stale-text-box'));
 
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(asAnnotationId('stale-text-box'))).toBe(false);
         harness.stop();
     });
 
@@ -849,18 +1347,20 @@ describe('usePdfAnnotationEditorSurface', () => {
         markPending(discarded.identity.id);
         markPending(discardUnrelated.identity.id);
         expect(harness.surface.discardUnsavedAnnotation(discarded.identity.id)).toBe(true);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(harness.surface.hasTextBoxDraftPending(discarded.identity.id)).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(discardUnrelated.identity.id)).toBe(true);
         harness.surface.clearTextBoxDraftPending(discardUnrelated.identity.id);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(discardUnrelated.identity.id)).toBe(false);
 
         const deleted = createTextBox('deleted-pending-text-box');
         const deleteUnrelated = createTextBox('delete-unrelated-pending-text-box');
         markPending(deleted.identity.id);
         markPending(deleteUnrelated.identity.id);
         expect(harness.surface.deleteAnnotation(deleted.identity.id)).toBe(true);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(harness.surface.hasTextBoxDraftPending(deleted.identity.id)).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(deleteUnrelated.identity.id)).toBe(true);
         harness.surface.clearTextBoxDraftPending(deleteUnrelated.identity.id);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(deleteUnrelated.identity.id)).toBe(false);
 
         const selected = createTextBox('selection-pending-text-box');
         const selectionUnrelated = createTextBox('selection-unrelated-pending-text-box');
@@ -868,9 +1368,10 @@ describe('usePdfAnnotationEditorSurface', () => {
         markPending(selectionUnrelated.identity.id);
         harness.surface.select([selected.identity.id]);
         harness.surface.deleteSelection();
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(harness.surface.hasTextBoxDraftPending(selected.identity.id)).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(selectionUnrelated.identity.id)).toBe(true);
         harness.surface.clearTextBoxDraftPending(selectionUnrelated.identity.id);
-        expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(harness.surface.hasTextBoxDraftPending(selectionUnrelated.identity.id)).toBe(false);
 
         harness.stop();
     });

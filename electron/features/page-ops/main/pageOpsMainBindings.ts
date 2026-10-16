@@ -5,10 +5,14 @@ import {
     type WebContents,
 } from 'electron';
 import { existsSync } from 'fs';
-import { stat } from 'fs/promises';
+import {
+    stat, readFile, writeFile,
+} from 'fs/promises';
+import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
 import {
     basename,
     extname,
+    join,
 } from 'path';
 import type {
     ICropMargins,
@@ -56,7 +60,9 @@ import {
 } from '@electron/features/page-ops/main/qpdf';
 import type { TRotationAngle } from '@electron/features/page-ops/main/qpdf';
 import { resolveAllowedWritePath } from '@electron/utils/pathValidator';
-import { ensureWorkingCopyDirectory } from '@electron/file-access/workingCopyCreation';
+import {
+    ensureWorkingCopyDirectory, requireManagedWorkingCopyPath,
+} from '@electron/file-access/workingCopyCreation';
 import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
 import { runWithWorkingCopyReadBacking } from '@electron/file-access/runWithWorkingCopyReadBacking';
 import { readNativePdfCatalogPart } from '@electron/features/page-ops/main/readNativePdfCatalog';
@@ -82,7 +88,13 @@ import {enqueueWorkingCopyMutation} from '@electron/file-access/workingCopyMutat
 import {
     cancelUserCancellableMainOperations,
     isMainOperationUserCanceled,
+    registerMainOperation,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {
+    normalizePdfNativeTextBoxAppearanceMetadata, PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS,
+} from '@contracts/nativePdfMutations';
 import type { IWorkingCopyMutationOperation } from '@electron/file-access/workingCopyMutationQueue';
 import { runWithWorkingCopyMutationCommitSignal } from '@electron/file-access/workingCopyMutationCommitSignal';
 import { transitionWorkingCopyContentRevision } from '@electron/file-access/documentRevisionStore';
@@ -1156,6 +1168,70 @@ function createPageOpsOperationContext(context: {
 }
 
 export const pageOpsMainBindings = {
+    async renderTextBoxAppearance(context, workingCopyPath, request) {
+        const path = workingCopyPath === null ? undefined : await requireManagedWorkingCopyPath(workingCopyPath, context.senderId);
+        const operation = registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: context.senderId,
+            workingCopyPath: path,
+            ownerLifecycle: {
+                destroyed: 'cancel',
+                renderProcessGone: 'cancel',
+                mainFrameNavigation: 'cancel',
+            },
+        });
+        try {
+            const binary = resolveNativePageOpsPath();
+            if (!binary) throw new Error('Native text appearance generation is unavailable');
+            operation.signal.throwIfAborted();
+            return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async directory => {
+                const input = join(directory, 'request.json');
+                const output = join(directory, 'appearance.pdf');
+                const metadata = join(directory, 'metadata.json');
+                await writeFile(input, JSON.stringify(request));
+                await runNativeToolCommand(binary, [
+                    'text-box-appearance',
+                    '--input',
+                    input,
+                    '--output',
+                    output,
+                    '--metadata-file',
+                    metadata,
+                ], {
+                    signal: operation.signal,
+                    timeoutMs: 30_000,
+                    commandLabel: 'evb-pdf-page-ops(text-box-appearance)',
+                    maxStdoutBytes: 64 * 1024,
+                    maxStderrBytes: 512 * 1024,
+                    rejectOnStdoutTruncation: true,
+                });
+                operation.signal.throwIfAborted();
+                const [
+                    pdfStat,
+                    metadataStat,
+                ] = await Promise.all([
+                    stat(output),
+                    stat(metadata),
+                ]);
+                if (pdfStat.size <= 0 || pdfStat.size > PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.outputBytes || metadataStat.size > 1024 * 1024) {
+                    throw new RangeError('Native text appearance exceeds the output budget');
+                }
+                const [
+                    pdf,
+                    json,
+                ] = await Promise.all([
+                    readFile(output),
+                    readFile(metadata, 'utf8'),
+                ]);
+                return {
+                    ...normalizePdfNativeTextBoxAppearanceMetadata(JSON.parse(json)),
+                    data: new Uint8Array(pdf),
+                };
+            });
+        } finally {
+            operation.complete();
+        }
+    },
     delete: withUserCancel(handlePageOpsDelete),
     deleteRanges: withUserCancel(handlePageOpsDeleteRanges),
     extract: withUserCancel(handlePageOpsExtract),

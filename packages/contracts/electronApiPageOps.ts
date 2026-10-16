@@ -1,3 +1,7 @@
+import {decodeBookmarkSourceIntent} from '@contracts/pdfBookmarkEntry';
+import {
+    isFiniteNumber,isRecord,
+} from '@contracts/runtimeGuards';
 import {parseDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
@@ -6,9 +10,10 @@ import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {
     IPageMoveRangeSegment, TPageNumber,
 } from '@contracts/pageNumbers';
-import {requirePageNumber} from '@contracts/pageNumbers';
+import {
+    requirePageIndex, requirePageNumber,
+} from '@contracts/pageNumbers';
 import {parseEpochMs} from '@contracts/timestamps';
-import {isRecord} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 
 const MAX_COLLECTION_ITEMS = 100_000;
@@ -211,4 +216,135 @@ export function mapPageNumberThroughPageIdentityDelta(
         }
     }
     return null;
+}
+
+const PAGE_LABEL_STYLES = [
+    'D',
+    'R',
+    'r',
+    'A',
+    'a',
+] as const;
+
+function decodeBookmarkEntries(
+    value: unknown,
+    depth = 0,
+    counter = {value: 0},
+): IPdfBookmarkEntry[] {
+    if (!Array.isArray(value) || depth > 64) {
+        throw new Error('options.metadataSnapshot.bookmarks must be a bounded bookmark array');
+    }
+    return value.map((raw): IPdfBookmarkEntry => {
+        counter.value += 1;
+        if (counter.value > MAX_COLLECTION_ITEMS) {
+            throw new Error(`options.metadataSnapshot.bookmarks exceeds the item limit (${MAX_COLLECTION_ITEMS})`);
+        }
+        if (!isRecord(raw)) {
+            throw new Error('options.metadataSnapshot.bookmarks contains an invalid bookmark');
+        }
+        const pageIndex = raw.pageIndex;
+        const pageYRatio = raw.pageYRatio;
+        if (
+            pageIndex !== null
+            && (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0)
+        ) {
+            throw new Error('bookmark.pageIndex must be a non-negative integer or null');
+        }
+        if (
+            typeof raw.title !== 'string'
+            || raw.title.length > 4_096
+            || (raw.namedDest !== null && typeof raw.namedDest !== 'string')
+            || typeof raw.bold !== 'boolean'
+            || typeof raw.italic !== 'boolean'
+            || (raw.color !== null && typeof raw.color !== 'string')
+        ) {
+            throw new Error('options.metadataSnapshot.bookmarks contains invalid fields');
+        }
+        if (pageYRatio !== undefined && pageYRatio !== null
+            && (!isFiniteNumber(pageYRatio) || pageYRatio < 0 || pageYRatio > 1)) {
+            throw new Error('bookmark.pageYRatio must be a finite number from 0 to 1 or null');
+        }
+        return {
+            title: raw.title,
+            pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
+            ...(pageYRatio === undefined ? {} : {pageYRatio}),
+            ...decodeBookmarkSourceIntent(raw),
+            namedDest: raw.namedDest,
+            bold: raw.bold,
+            italic: raw.italic,
+            color: raw.color,
+            items: decodeBookmarkEntries(raw.items, depth + 1, counter),
+        };
+    });
+}
+
+export function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot {
+    if (!isRecord(value)) {
+        throw new Error('options.metadataSnapshot must be an object');
+    }
+    const pageLabels = value.pageLabels;
+    if (
+        pageLabels !== undefined
+        && pageLabels !== null
+        && (
+            !Array.isArray(pageLabels)
+            || pageLabels.length > 1_000_000
+            || !pageLabels.every(label => typeof label === 'string' && label.length <= 4_096)
+        )
+    ) {
+        throw new Error('options.metadataSnapshot.pageLabels must be a string array, null, or omitted');
+    }
+    const rawPageLabelRanges = value.pageLabelRanges;
+    let pageLabelRanges: IPdfPageLabelRange[] | undefined;
+    if (rawPageLabelRanges !== undefined) {
+        if (!Array.isArray(rawPageLabelRanges) || rawPageLabelRanges.length > 100_000) {
+            throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
+        }
+        let previousStartPage = 0;
+        pageLabelRanges = rawPageLabelRanges.map((rawRange, index) => {
+            if (!isRecord(rawRange)) {
+                throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
+            }
+            const startPage = rawRange.startPage;
+            const style = rawRange.style;
+            const prefix = rawRange.prefix;
+            const startNumber = rawRange.startNumber;
+            if (
+                typeof startPage !== 'number'
+                || !Number.isSafeInteger(startPage)
+                || startPage < 1
+                || index > 0 && startPage <= previousStartPage
+                || style !== null && !PAGE_LABEL_STYLES.some(candidate => candidate === style)
+                || typeof prefix !== 'string'
+                || prefix.length > 4_096
+                || typeof startNumber !== 'number'
+                || !Number.isSafeInteger(startNumber)
+                || startNumber < 1
+            ) {
+                throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
+            }
+            const normalizedStyle = style === null
+                ? null
+                : PAGE_LABEL_STYLES.find(candidate => candidate === style);
+            if (normalizedStyle === undefined) {
+                throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
+            }
+            previousStartPage = startPage;
+            return {
+                startPage,
+                style: normalizedStyle,
+                prefix,
+                startNumber,
+            };
+        });
+    }
+    if (typeof value.untitledBookmarkLabel !== 'string') {
+        throw new Error('options.metadataSnapshot.untitledBookmarkLabel must be a string');
+    }
+    return {
+        ...(pageLabels === undefined ? {} : {pageLabels}),
+        ...(pageLabelRanges === undefined ? {} : {pageLabelRanges}),
+        ...(value.bookmarks === undefined ? {} : {bookmarks: decodeBookmarkEntries(value.bookmarks)}),
+        untitledBookmarkLabel: value.untitledBookmarkLabel,
+    };
 }

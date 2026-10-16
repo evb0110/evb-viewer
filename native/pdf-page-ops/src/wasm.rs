@@ -16,14 +16,12 @@ use crate::{
     delete_browser_pdf_pages, extract_browser_pdf_pages, get_browser_page_geometry_from_bytes,
     insert_browser_pdf_pages, load_browser_pdf, remove_crop_browser_pdf_bytes,
     reorder_browser_pdf_pages, rotate_browser_pdf_bytes, serialize_annotation_parse,
-    validate_native_mutations, CropMargins, NativeMutationBytesResult, PageGeometry,
-    PageMutationBytes, PdfRect, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES,
-    PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    validate_native_mutations, NativeMutationBytesResult, PageGeometry, PageMutationBytes, PdfRect,
+    Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 use crate::wasm_abi::*;
 
-const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
 const MAX_DOCUMENT_LIST_PAGES: usize = 500;
 const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = BYTES_HEADER.bytes;
 const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = NATIVE_MUTATION_HEADER.bytes;
@@ -34,18 +32,6 @@ thread_local! {
     static REQUEST_ALLOCATION: WasmRequestAllocation = const { WasmRequestAllocation::new(MAX_REQUEST_BYTES) };
     static LAST_OUTPUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
     static LAST_ERROR: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
-}
-
-struct ParsedRequest<'a> {
-    operation: u32,
-    pages: Vec<u32>,
-    page_number: u32,
-    after_page: u32,
-    angle: i64,
-    margins: CropMargins,
-    data: &'a [u8],
-    insertion_data: &'a [u8],
-    password: &'a [u8],
 }
 
 #[no_mangle]
@@ -156,6 +142,37 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
     }
     let parsed = parse_request(request)?;
     match parsed.operation {
+        OP_TEXT_BOX_APPEARANCE => {
+            if !parsed.data.is_empty() || !parsed.pages.is_empty() || !parsed.password.is_empty() {
+                return Err("Text box appearance takes only its JSON request".into());
+            }
+            let request = crate::parse_text_box_appearance_request(parsed.insertion_data)?;
+            let result = crate::build_text_box_appearance_pdf(request)?;
+            let metadata = serde_json::to_vec(&result.metadata)?;
+            let mut output = Vec::with_capacity(
+                TEXT_BOX_APPEARANCE_HEADER.bytes + result.data.len() + metadata.len(),
+            );
+            output.resize(TEXT_BOX_APPEARANCE_HEADER.bytes, 0);
+            for (offset, value) in [
+                (
+                    TEXT_BOX_APPEARANCE_HEADER.kind,
+                    RESPONSE_TEXT_BOX_APPEARANCE,
+                ),
+                (
+                    TEXT_BOX_APPEARANCE_HEADER.data_length,
+                    result.data.len() as u32,
+                ),
+                (
+                    TEXT_BOX_APPEARANCE_HEADER.metadata_length,
+                    metadata.len() as u32,
+                ),
+            ] {
+                output[offset..offset + U32_BYTES].copy_from_slice(&value.to_le_bytes());
+            }
+            output.extend_from_slice(&result.data);
+            output.extend_from_slice(&metadata);
+            Ok(output)
+        }
         OP_DELETE_PAGES => encode_mutation(delete_browser_pdf_pages(parsed.data, &parsed.pages)?),
         OP_EXTRACT_PAGES => encode_mutation(extract_browser_pdf_pages(parsed.data, &parsed.pages)?),
         OP_REORDER_PAGES => encode_mutation(reorder_browser_pdf_pages(parsed.data, &parsed.pages)?),
@@ -189,7 +206,7 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
                 "D:19700101000000Z",
                 PAGE_OP_WASM_MAX_OUTPUT_BYTES - ANNOTATION_PARSE_RESPONSE_HEADER_BYTES,
             )?;
-            encode_annotation_parse(bytes)
+            encode_bytes(RESPONSE_ANNOTATION_PARSE, bytes)
         }
         OP_PRINT_LAYOUT => {
             let options = std::str::from_utf8(parsed.insertion_data)
@@ -210,7 +227,11 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             })
         }
         OP_SAVE_MUTATIONS => {
-            let (mutations, modified_at) = parse_wasm_mutation_payload(parsed.insertion_data)?;
+            let (mut mutations, modified_at) = parse_wasm_mutation_payload(parsed.insertion_data)?;
+            if !parsed.original_appearance_source.is_empty() {
+                let source = load_browser_pdf(parsed.original_appearance_source)?;
+                crate::hydrate_text_box_original_appearances(&mut mutations, &source)?;
+            }
             let result = append_native_mutations_to_bytes(parsed.data, &mutations, &modified_at)?;
             encode_native_mutation_save(result)
         }
@@ -258,12 +279,14 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
         return Err("Trailing bytes in page-op WASM document-list request".into());
     }
     match operation {
-        OP_READ_CATALOG => encode_json_bytes(serde_json::to_vec(&read_pdf_document_catalog(
-            &documents[0],
-        ))?),
-        OP_CONFORMANCE => {
-            encode_json_bytes(serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?)
-        }
+        OP_READ_CATALOG => encode_bytes(
+            RESPONSE_JSON,
+            serde_json::to_vec(&read_pdf_document_catalog(&documents[0]))?,
+        ),
+        OP_CONFORMANCE => encode_bytes(
+            RESPONSE_JSON,
+            serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?,
+        ),
         OP_MERGE_PAGES => {
             let sources = documents.iter().collect::<Vec<_>>();
             let mut sequence = Vec::new();
@@ -348,25 +371,6 @@ fn offset_wasm_bookmark(mut bookmark: BookmarkEntry, page_offset: u32) -> Bookma
         .map(|item| offset_wasm_bookmark(item, page_offset))
         .collect();
     bookmark
-}
-
-fn encode_json_bytes(bytes: Vec<u8>) -> Result<Vec<u8>> {
-    let output_len = bytes
-        .len()
-        .checked_add(BYTES_HEADER.bytes)
-        .ok_or_else(page_op_output_limit)?;
-    if output_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
-        return Err(page_op_output_limit());
-    }
-    let length = u32::try_from(bytes.len()).map_err(|_| page_op_output_limit())?;
-    let mut output = Vec::with_capacity(output_len);
-    output.resize(BYTES_HEADER.bytes, 0);
-    output[BYTES_HEADER.kind..BYTES_HEADER.kind + U32_BYTES]
-        .copy_from_slice(&RESPONSE_JSON.to_le_bytes());
-    output[BYTES_HEADER.data_length..BYTES_HEADER.data_length + U32_BYTES]
-        .copy_from_slice(&length.to_le_bytes());
-    output.extend_from_slice(&bytes);
-    Ok(output)
 }
 
 // Stream flat and enveloped requests into the same typed mutation decoder.
@@ -588,92 +592,6 @@ fn encode_native_mutation_save(result: NativeMutationBytesResult) -> Result<Vec<
     Ok(output)
 }
 
-fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
-    let mut offset = REQUEST_HEADER.magic;
-    let magic = take_bytes(request, &mut offset, REQUEST_MAGIC.len())?;
-    if magic != REQUEST_MAGIC {
-        return Err("Invalid page-op WASM request magic".into());
-    }
-    let version = read_u32_at(request, REQUEST_HEADER.version)?;
-    if version != REQUEST_VERSION {
-        return Err(format!("Unsupported page-op WASM request version: {version}").into());
-    }
-
-    let operation = read_u32_at(request, REQUEST_HEADER.operation)?;
-    let page_count = read_usize_at(request, REQUEST_HEADER.page_count, "page_count")?;
-    let page_number = read_u32_at(request, REQUEST_HEADER.page_number)?;
-    let after_page = read_u32_at(request, REQUEST_HEADER.after_page)?;
-    let angle = i64::from(read_u32_at(request, REQUEST_HEADER.angle)?);
-    let margins = CropMargins {
-        top: read_f64_at(request, REQUEST_HEADER.top)?,
-        bottom: read_f64_at(request, REQUEST_HEADER.bottom)?,
-        left: read_f64_at(request, REQUEST_HEADER.left)?,
-        right: read_f64_at(request, REQUEST_HEADER.right)?,
-    };
-    let data_len = read_usize_at(request, REQUEST_HEADER.data_length, "data_len")?;
-    let insertion_data_len = read_usize_at(
-        request,
-        REQUEST_HEADER.insertion_data_length,
-        "insertion_data_len",
-    )?;
-    let password_len = read_usize_at(request, REQUEST_HEADER.password_length, "password_len")?;
-    let mut offset = REQUEST_HEADER.bytes;
-    if password_len > MAX_WASM_PASSWORD_BYTES {
-        return Err(format!(
-            "Page-op WASM password exceeds the {MAX_WASM_PASSWORD_BYTES}-byte ceiling"
-        )
-        .into());
-    }
-
-    let page_bytes_len = page_count
-        .checked_mul(U32_BYTES)
-        .ok_or("Invalid page-op WASM page count")?;
-    let required_remaining = page_bytes_len
-        .checked_add(data_len)
-        .and_then(|length| length.checked_add(insertion_data_len))
-        .and_then(|length| length.checked_add(password_len))
-        .ok_or("Invalid page-op WASM request length")?;
-    let actual_remaining = request
-        .len()
-        .checked_sub(offset)
-        .ok_or("Invalid page-op WASM request length")?;
-    if required_remaining != actual_remaining {
-        return Err(if required_remaining > actual_remaining {
-            "Truncated page-op WASM request"
-        } else {
-            "Trailing bytes in page-op WASM request"
-        }
-        .into());
-    }
-
-    let mut pages = Vec::new();
-    pages
-        .try_reserve_exact(page_count)
-        .map_err(|_| "Page-op WASM page list is too large")?;
-    for _ in 0..page_count {
-        pages.push(read_u32_le(request, &mut offset)?);
-    }
-
-    let data = take_bytes(request, &mut offset, data_len)?;
-    let insertion_data = take_bytes(request, &mut offset, insertion_data_len)?;
-    let password = take_bytes(request, &mut offset, password_len)?;
-    if offset != request.len() {
-        return Err("Trailing bytes in page-op WASM request".into());
-    }
-
-    Ok(ParsedRequest {
-        operation,
-        pages,
-        page_number,
-        after_page,
-        angle,
-        margins,
-        data,
-        insertion_data,
-        password,
-    })
-}
-
 fn encode_mutation(result: PageMutationBytes) -> Result<Vec<u8>> {
     encode_mutation_with_limit(result, PAGE_OP_WASM_MAX_OUTPUT_BYTES)
 }
@@ -686,13 +604,6 @@ fn mutation_frame_len(data_len: usize, max_output_bytes: usize) -> Result<usize>
         return Err(page_op_output_limit());
     }
     Ok(framed_len)
-}
-
-fn page_op_output_limit() -> Box<dyn std::error::Error> {
-    Box::new(evb_native_support::NativeError::new(
-        NativeErrorCode::TooLarge,
-        "Page-op WASM output exceeds the admission ceiling",
-    ))
 }
 
 fn encode_mutation_with_limit(
@@ -734,24 +645,6 @@ fn encode_geometry(geometry: PageGeometry) -> Result<Vec<u8>> {
     Ok(output)
 }
 
-fn encode_annotation_parse(bytes: Vec<u8>) -> Result<Vec<u8>> {
-    let data_len = u32::try_from(bytes.len()).map_err(|_| page_op_output_limit())?;
-    let framed_len = ANNOTATION_PARSE_RESPONSE_HEADER_BYTES
-        .checked_add(bytes.len())
-        .ok_or_else(page_op_output_limit)?;
-    if framed_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
-        return Err(page_op_output_limit());
-    }
-    let mut output = Vec::with_capacity(framed_len);
-    output.resize(BYTES_HEADER.bytes, 0);
-    output[BYTES_HEADER.kind..BYTES_HEADER.kind + U32_BYTES]
-        .copy_from_slice(&RESPONSE_ANNOTATION_PARSE.to_le_bytes());
-    output[BYTES_HEADER.data_length..BYTES_HEADER.data_length + U32_BYTES]
-        .copy_from_slice(&data_len.to_le_bytes());
-    output.extend_from_slice(&bytes);
-    Ok(output)
-}
-
 fn write_rect(output: &mut [u8], offset: usize, rect: PdfRect) {
     let output = &mut output[offset..offset + BOX_LAYOUT.bytes];
     output[BOX_LAYOUT.x..BOX_LAYOUT.x + F64_BYTES].copy_from_slice(&rect.x1.to_le_bytes());
@@ -760,46 +653,6 @@ fn write_rect(output: &mut [u8], offset: usize, rect: PdfRect) {
         .copy_from_slice(&rect.width().to_le_bytes());
     output[BOX_LAYOUT.height..BOX_LAYOUT.height + F64_BYTES]
         .copy_from_slice(&rect.height().to_le_bytes());
-}
-
-fn read_u32_at(request: &[u8], mut offset: usize) -> Result<u32> {
-    read_u32_le(request, &mut offset)
-}
-
-fn read_usize_at(request: &[u8], mut offset: usize, label: &str) -> Result<usize> {
-    read_usize_le(request, &mut offset, label)
-}
-
-fn read_f64_at(request: &[u8], mut offset: usize) -> Result<f64> {
-    read_f64_le(request, &mut offset)
-}
-
-fn read_usize_le(request: &[u8], offset: &mut usize, label: &str) -> Result<usize> {
-    usize::try_from(read_u32_le(request, offset)?)
-        .map_err(|_| format!("Invalid page-op WASM {label}").into())
-}
-
-fn read_u32_le(request: &[u8], offset: &mut usize) -> Result<u32> {
-    let bytes = take_bytes(request, offset, U32_BYTES)?;
-    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-}
-
-fn read_f64_le(request: &[u8], offset: &mut usize) -> Result<f64> {
-    let bytes = take_bytes(request, offset, F64_BYTES)?;
-    Ok(f64::from_le_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ]))
-}
-
-fn take_bytes<'a>(request: &'a [u8], offset: &mut usize, len: usize) -> Result<&'a [u8]> {
-    let end = offset
-        .checked_add(len)
-        .ok_or("Invalid page-op WASM request length")?;
-    let bytes = request
-        .get(*offset..end)
-        .ok_or("Truncated page-op WASM request")?;
-    *offset = end;
-    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -1459,5 +1312,145 @@ mod tests {
                 .code,
             NativeErrorCode::UnsupportedFilter
         );
+    }
+}
+
+#[cfg(test)]
+mod text_box_appearance_tests {
+    use super::*;
+    use crate::PdfObjectSource;
+    use lopdf::{dictionary, Document, Object, Stream};
+
+    fn request(operation: u32, data: &[u8], payload: &[u8], source: Option<&[u8]>) -> Vec<u8> {
+        let mut request = vec![
+            0;
+            source.map_or(REQUEST_HEADER.bytes, |_| {
+                REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes
+            })
+        ];
+        request[..4].copy_from_slice(REQUEST_MAGIC);
+        let version = if source.is_some() {
+            REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE
+        } else {
+            REQUEST_VERSION
+        };
+        for (offset, value) in [
+            (REQUEST_HEADER.version, version),
+            (REQUEST_HEADER.operation, operation),
+            (REQUEST_HEADER.data_length, data.len() as u32),
+            (REQUEST_HEADER.insertion_data_length, payload.len() as u32),
+        ] {
+            request[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        if let Some(source) = source {
+            request[REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.source_data_length
+                ..REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes]
+                .copy_from_slice(&(source.len() as u32).to_le_bytes());
+        }
+        request.extend_from_slice(data);
+        request.extend_from_slice(payload);
+        if let Some(source) = source {
+            request.extend_from_slice(source);
+        }
+        request
+    }
+
+    #[test]
+    fn wasm_appearance_has_no_source_pdf_and_returns_a_reopenable_pdf_and_fit() {
+        let payload = br#"{"page":{"view":[0,0,200,100],"rotation":0,"userUnit":1},"textBoxes":[{"textBox":{"pageIndex":0,"stableKey":"wasm-appearance","text":"Small office","rect":[10,10,35,30],"rotation":0,"fontSize":18,"color":[17,24,39]},"source":{"version":1,"rawRD":[1,2,7,12],"borderWidth":0,"staleFill":false}}]}"#;
+        let output = run_request(&request(OP_TEXT_BOX_APPEARANCE, &[], payload, None)).unwrap();
+        assert_eq!(
+            read_u32_at(&output, TEXT_BOX_APPEARANCE_HEADER.kind).unwrap(),
+            RESPONSE_TEXT_BOX_APPEARANCE
+        );
+        let data_len =
+            read_u32_at(&output, TEXT_BOX_APPEARANCE_HEADER.data_length).unwrap() as usize;
+        let metadata_len =
+            read_u32_at(&output, TEXT_BOX_APPEARANCE_HEADER.metadata_length).unwrap() as usize;
+        assert_eq!(
+            output.len(),
+            TEXT_BOX_APPEARANCE_HEADER.bytes + data_len + metadata_len
+        );
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&output[TEXT_BOX_APPEARANCE_HEADER.bytes + data_len..]).unwrap();
+        assert!(metadata["textBoxes"][0]["fittedFontSize"].as_f64().unwrap() < 18.0);
+        assert_eq!(
+            metadata["textBoxes"][0]["textBounds"],
+            serde_json::json!([11.0, 12.0, 28.0, 18.0])
+        );
+        let document = Document::load_mem(
+            &output[TEXT_BOX_APPEARANCE_HEADER.bytes..TEXT_BOX_APPEARANCE_HEADER.bytes + data_len],
+        )
+        .unwrap();
+        let annotations = crate::collect_parsed_annotations(&document, "").unwrap();
+        assert!(
+            matches!(&annotations[0], crate::PdfAnnotationParseEntry::TextBox(value) if value.text == "Small office")
+        );
+    }
+
+    #[test]
+    fn wasm_save_restores_original_resources_from_its_v4_source_segment() {
+        let mut source = Document::with_version("1.7");
+        let pages = source.new_object_id();
+        let page = source.new_object_id();
+        let appearance = source.add_object(Stream::new(dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![10.into(),20.into(),150.into(),70.into()]}, b"q 0.5 g 10 20 140 50 re f Q".to_vec()));
+        let root = source.add_object(dictionary! {"Type" => "Annot", "Subtype" => "FreeText", "Rect" => vec![10.into(),20.into(),150.into(),70.into()], "Contents" => Object::string_literal("Original"), "DA" => Object::string_literal("/Helv 18 Tf 0 0 0 rg"), "AP" => dictionary! {"N" => appearance}, "NM" => Object::string_literal("source"), "P" => page});
+        source.set_object(page, dictionary! {"Type" => "Page", "Parent" => pages, "MediaBox" => vec![0.into(),0.into(),200.into(),100.into()], "Annots" => vec![Object::Reference(root)]});
+        source.set_object(
+            pages,
+            dictionary! {"Type" => "Pages", "Kids" => vec![Object::Reference(page)], "Count" => 1},
+        );
+        let catalog = source.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages});
+        source.trailer.set("Root", catalog);
+        let mut original = Vec::new();
+        source.save_to(&mut original).unwrap();
+        let mut current = source.clone();
+        current
+            .get_dictionary_mut(root)
+            .unwrap()
+            .set("Contents", Object::string_literal("Edited"));
+        let mut current_bytes = Vec::new();
+        current.save_to(&mut current_bytes).unwrap();
+        let payload = serde_json::to_vec(&serde_json::json!({"modifiedAt":"D:20261016000000Z","mutations":{"textBoxes":[{"pageIndex":0,"stableKey":"source","annotationId":format!("{}R",root.0),"text":"Original","rect":[10,20,150,70],"rotation":0,"fontSize":18,"color":[0,0,0],"originalAppearance":{"sourceAnnotationId":format!("{}R",root.0)}}]}})).unwrap();
+        let output = run_request(&request(
+            OP_SAVE_MUTATIONS,
+            &current_bytes,
+            &payload,
+            Some(&original),
+        ))
+        .unwrap();
+        let data_len = read_u32_at(&output, NATIVE_MUTATION_HEADER.data_length).unwrap() as usize;
+        let saved = Document::load_mem(
+            &output[NATIVE_MUTATION_HEADER.bytes..NATIVE_MUTATION_HEADER.bytes + data_len],
+        )
+        .unwrap();
+        let dict = saved.get_dictionary(root).unwrap();
+        assert_eq!(
+            crate::pdf_string_to_text(dict.get(b"Contents").unwrap()).unwrap(),
+            "Original"
+        );
+        let normal = saved
+            .resolved(
+                saved
+                    .resolved(dict.get(b"AP").unwrap())
+                    .unwrap()
+                    .as_dict()
+                    .unwrap()
+                    .get(b"N")
+                    .unwrap(),
+            )
+            .unwrap()
+            .as_stream()
+            .unwrap();
+        assert_eq!(
+            normal.content,
+            source
+                .get_object(appearance)
+                .unwrap()
+                .as_stream()
+                .unwrap()
+                .content
+        );
+        assert!(run_request(&request(OP_SAVE_MUTATIONS, &current_bytes, &payload, None)).is_err());
     }
 }

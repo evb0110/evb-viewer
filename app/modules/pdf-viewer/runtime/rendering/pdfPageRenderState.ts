@@ -137,8 +137,19 @@ const EMPTY_RENDER_SLOT: IPdfPageRenderSlot = {
     pendingContainer: null,
 };
 
+const IDLE_RENDER_PATCH = {
+    job: 'idle' as const,
+    version: null,
+    requestId: null,
+    pendingDocumentToken: null,
+    pendingTargetScale: null,
+    pendingTargetOutputScale: null,
+    pendingTargetViewRotation: null,
+    pendingContainer: null,
+};
+
 export function createPdfPageRenderState() {
-    const slots = new Map<TPageNumber, IPdfPageRenderSlot>();
+    const slots = shallowReactive(new Map<TPageNumber, IPdfPageRenderSlot>());
 
     function getSlot(pageNumber: TPageNumber) {
         return slots.get(pageNumber) ?? EMPTY_RENDER_SLOT;
@@ -295,15 +306,8 @@ export function createPdfPageRenderState() {
             version,
         }),
         remove: pageNumber => updateSlot(pageNumber, {
-            job: 'idle',
-            version: null,
-            requestId: null,
+            ...IDLE_RENDER_PATCH,
             hydrationRequestId: null,
-            pendingDocumentToken: null,
-            pendingTargetScale: null,
-            pendingTargetOutputScale: null,
-            pendingTargetViewRotation: null,
-            pendingContainer: null,
         }),
     });
     const renderingPageRequestIds = createMapView({
@@ -313,15 +317,8 @@ export function createPdfPageRenderState() {
             requestId,
         }),
         remove: pageNumber => updateSlot(pageNumber, {
-            job: 'idle',
-            version: null,
-            requestId: null,
+            ...IDLE_RENDER_PATCH,
             hydrationRequestId: null,
-            pendingDocumentToken: null,
-            pendingTargetScale: null,
-            pendingTargetOutputScale: null,
-            pendingTargetViewRotation: null,
-            pendingContainer: null,
         }),
     });
 
@@ -469,10 +466,22 @@ export function createPdfPageRenderState() {
             const input = rendered?.annotationInput;
             const output = rendered?.annotationOutput;
             const annotation = input?.annotations.find(entry => normalizePdfJsAnnotationId(entry.id) === id);
-            if (slot.canvasReadiness !== 'ready' || !id || !input || !output || input.excludedIds.has(id) || !annotation) return false;
+            if (slot.canvasReadiness !== 'ready' || !id || !input || !output || input.excludedIds.has(id) || !annotation
+                || input.nativeAnnotationAppearance?.annotations.some(entry => entry.id === id && entry.action !== 'retain')) return false;
             if (!annotation.hasOwnCanvas || !output.requestedSeparateCanvas) return true;
             const canvas = output.ownCanvases.find(([ref]) => normalizePdfJsAnnotationId(ref) === id)?.[1];
             return Boolean(canvas?.isConnected && slot.container?.contains(canvas));
+        },
+        isNativeTextBoxAppearance(pageNumber: TPageNumber, annotationId: string) {
+            const slot = getSlot(pageNumber);
+            const input = slot.committedRender?.annotationInput;
+            const entity = input?.semanticInputs.find(entry => entry.id === annotationId);
+            const id = entity?.ref ?? annotationId;
+            return slot.canvasReadiness === 'ready' && slot.committedRender?.canvas.isConnected === true
+                && slot.container?.contains(slot.committedRender.canvas) === true
+                && Boolean(entity && input?.nativeAnnotationAppearance?.annotations.some(entry => (
+                    entry.id === id && (entry.action === 'replace' || entry.action === 'append')
+                )));
         },
         isPaintedWithoutAnnotations(pageNumber: TPageNumber) {
             return getSlot(pageNumber).committedRasterQuality?.paintsAnnotations === false;
@@ -662,16 +671,7 @@ export function createPdfPageRenderState() {
             updateSlot(pageNumber, {
                 layerReadiness: outcome,
                 hydrationRequestId: null,
-                ...(current.job === 'rendering' && current.requestId === requestId ? {
-                    job: 'idle' as const,
-                    version: null,
-                    requestId: null,
-                    pendingDocumentToken: null,
-                    pendingTargetScale: null,
-                    pendingTargetOutputScale: null,
-                    pendingTargetViewRotation: null,
-                    pendingContainer: null,
-                } : {}),
+                ...(current.job === 'rendering' && current.requestId === requestId ? {...IDLE_RENDER_PATCH} : {}),
             });
             logPdfRenderTrace('renderer-layer-hydration-settled', {
                 pageNumber,
@@ -686,16 +686,7 @@ export function createPdfPageRenderState() {
             if (current.job !== 'rendering' || current.version !== version || current.requestId !== requestId) {
                 return false;
             }
-            updateSlot(pageNumber, {
-                job: 'idle',
-                version: null,
-                requestId: null,
-                pendingDocumentToken: null,
-                pendingTargetScale: null,
-                pendingTargetOutputScale: null,
-                pendingTargetViewRotation: null,
-                pendingContainer: null,
-            });
+            updateSlot(pageNumber, {...IDLE_RENDER_PATCH});
             return true;
         },
         adoptCommittedCanvasVersion(
@@ -714,14 +705,7 @@ export function createPdfPageRenderState() {
                     ? 'canvas-only'
                     : current.layerReadiness,
                 hydrationRequestId: null,
-                job: 'idle',
-                version: null,
-                requestId: null,
-                pendingDocumentToken: null,
-                pendingTargetScale: null,
-                pendingTargetOutputScale: null,
-                pendingTargetViewRotation: null,
-                pendingContainer: null,
+                ...IDLE_RENDER_PATCH,
             });
             return true;
         },

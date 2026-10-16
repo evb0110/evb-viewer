@@ -94,17 +94,11 @@ function createInteractionMethods(
         clientX: number;
         clientY: number
     } | null>(null);
-    const selectionMoveDelta = ref<{
-        x: number;
-        y: number
-    } | null>(null);
+    const selectionMoveDelta = ref<IAnnotationEditorSurface['selectionMoveDelta']['value']>(null);
     return {
         ...defaults,
         selectionMoveDelta,
-        setSelectionMoveDelta: (delta: {
-            x: number;
-            y: number
-        } | null) => {selectionMoveDelta.value = delta;},
+        setSelectionMoveDelta: (delta: IAnnotationEditorSurface['selectionMoveDelta']['value']) => {selectionMoveDelta.value = delta;},
         editingId,
         textEditPoint,
         registerPageInteraction: register ?? defaults.registerPageInteraction,
@@ -148,7 +142,7 @@ export function createCreationSurface() {
     const clearTextBoxDraftPending = vi.fn((id: ITextBoxEntity['identity']['id']) => {
         pendingDraftIds.delete(id);
     });
-    const hasPendingTextBoxDrafts = vi.fn(() => pendingDraftIds.size > 0);
+    const hasTextBoxDraftPending = vi.fn((id: ITextBoxEntity['identity']['id']) => pendingDraftIds.has(id));
     const createTextBoxAt = vi.fn((..._args: Parameters<IAnnotationEditorSurface['createTextBoxAt']>) => {
         entities.value = [createdTextBox];
         return createdTextBox;
@@ -171,10 +165,11 @@ export function createCreationSurface() {
             ? createdTextBox
             : null),
         commitPendingTextBoxDraftsForSave,
+        getPendingTextCompletion: () => undefined,
         setTextBoxDraftPending,
         clearTextBoxDraftPending,
         endTextEditing: vi.fn((id) => {interaction.endTextEditing(); clearTextBoxDraftPending(id);}),
-        hasPendingTextBoxDrafts,
+        hasTextBoxDraftPending,
         updateSelectedTextBoxProperties: vi.fn(() => true),
         discardUnsavedAnnotation: vi.fn(() => true),
         deleteAnnotation: vi.fn(() => true),
@@ -216,7 +211,7 @@ export function createCreationSurface() {
         commitPendingTextBoxDraftsForSave,
         setTextBoxDraftPending,
         clearTextBoxDraftPending,
-        hasPendingTextBoxDrafts,
+        hasTextBoxDraftPending,
     };
 }
 
@@ -247,9 +242,9 @@ export function createSurface() {
         clearSelection: vi.fn(() => { selectedIds.value = new Set(); }),
         getSelectedTextBox: vi.fn(() => null),
         commitPendingTextBoxDraftsForSave: vi.fn(),
+        getPendingTextCompletion: () => undefined,
         setTextBoxDraftPending: vi.fn(),
         clearTextBoxDraftPending: vi.fn(),
-        hasPendingTextBoxDrafts: vi.fn(() => false),
         updateSelectedTextBoxProperties: vi.fn(() => true),
         discardUnsavedAnnotation: vi.fn(() => true),
         deleteAnnotation: vi.fn(() => true),

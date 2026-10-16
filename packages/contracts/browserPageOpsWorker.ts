@@ -1,4 +1,9 @@
-import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
+import {
+    normalizePdfNativeMutationSet,
+    normalizePdfNativeTextBoxAppearanceRequest,
+    normalizePdfNativeTextBoxAppearanceMetadata,
+    PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS,
+} from '@contracts/nativePdfMutations';
 import {PDF_DECRYPT_PASSWORD_SCHEMA} from '@contracts/pdfDecryptSchemas';
 import {isPdfDateString} from '@contracts/pdfDateString';
 import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
@@ -57,6 +62,7 @@ const cropMarginsSchema = v.object({
 });
 
 const workerRequestPayloadSchemas = {
+    textBoxAppearance: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeTextBoxAppearanceRequest(value))),
     deletePages: v.object({
         data: pdfBytesSchema,
         pages: v.array(positiveIntegerSchema),
@@ -101,6 +107,7 @@ const workerRequestPayloadSchemas = {
     conformance: v.object({data: pdfBytesSchema}),
     saveMutations: v.object({
         data: pdfBytesSchema,
+        originalAppearanceSourceData: v.optional(pdfBytesSchema),
         mutations: v.pipe(v.unknown(), v.transform(value => normalizePdfNativeMutationSet(value, 'Browser PDF save mutations'))),
         modifiedAt: v.custom<string>(isPdfDateString),
     }),
@@ -126,6 +133,11 @@ const workerRequestPayloadSchemas = {
 };
 
 const workerRequestSchema = v.union([
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('textBoxAppearance'),
+        payload: workerRequestPayloadSchemas.textBoxAppearance,
+    }),
     v.object({
         id: workerRequestIdSchema,
         type: v.literal('printLayout'),
@@ -242,6 +254,20 @@ export const BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA = v.object({
 });
 
 const workerResultSchemas = {
+    textBoxAppearance: v.nullable(v.union([
+        v.pipe(
+            v.object({
+                data: v.pipe(pdfBytesSchema, v.check(value => value.byteLength > 0
+                && value.byteLength <= PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.outputBytes)),
+                textBoxes: v.unknown(),
+            }),
+            v.transform(value => ({
+                ...normalizePdfNativeTextBoxAppearanceMetadata({textBoxes: value.textBoxes}),
+                data: value.data,
+            })),
+        ),
+        BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
+    ])),
     saveMutations: v.nullable(v.union([
         BROWSER_PAGE_OPS_SAVE_MUTATIONS_RESULT_SCHEMA,
         BROWSER_PAGE_OPS_WASM_FAILURE_SCHEMA,
@@ -269,6 +295,12 @@ const workerResultSchemas = {
 };
 
 const workerSuccessResponseSchema = v.union([
+    v.object({
+        id: workerRequestIdSchema,
+        type: v.literal('textBoxAppearance'),
+        ok: v.literal(true),
+        data: workerResultSchemas.textBoxAppearance,
+    }),
     v.object({
         id: workerRequestIdSchema,
         type: v.literal('printLayout'),

@@ -1,8 +1,34 @@
 import type {
     IPdfPage,
+    IPdfDocument,
+    IPdfAnnotation,
     IPdfRenderTask,
 } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type { TPdfRenderContinuationPriority } from '@app/modules/pdf-viewer/engine/pdf-render-continuation-scheduler/pdfRenderContinuationScheduler';
+import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
+import type {NativeAnnotationAppearance} from 'pdfjs-dist';
+
+/** Immutable inputs of the actual render, retained by its committed page slot. */
+export interface IPdfAnnotationRenderInput {
+    readonly document: IPdfDocument;
+    readonly original: IPdfAnnotationParseResult | null;
+    readonly annotations: readonly IPdfAnnotation[];
+    readonly semanticInputs: ReadonlyArray<Readonly<{
+        id?: string;
+        ref: string | null;
+        fingerprint: string
+    }>>;
+    readonly excludedIds: ReadonlySet<string>;
+    readonly signature: string;
+    readonly nativeAnnotationAppearance?: NativeAnnotationAppearance;
+    readonly nativeTextBoxInputs?: ReadonlyArray<Readonly<{
+        id: string;
+        key: string;
+        appearanceIndex: number;
+        appearanceDocument: number
+    }>>;
+}
+
 export type TPdfPageRenderContentIntent =
     | 'full-visible'
     | 'canvas-only-buffer'
@@ -10,6 +36,12 @@ export type TPdfPageRenderContentIntent =
     | 'layers-only-promotion';
 
 export interface IRenderVisiblePagesOptions {
+    annotationCommit?: {
+        signature: string;
+        prepare(signal: AbortSignal, reserveAppearanceBytes: (bytes: number) => void): Promise<IPdfAnnotationRenderInput>;
+        isCurrent(): boolean;
+        commit(input: IPdfAnnotationRenderInput): IPdfAnnotationRenderInput;
+    };
     authoritativeRaster?: boolean;
     openSurfaceGeneration?: number;
     openSurfaceRevision?: string;

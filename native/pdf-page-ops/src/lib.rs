@@ -28,7 +28,6 @@ mod annotation_streams;
 mod annotation_threads;
 mod annotations;
 mod catalog;
-mod cli;
 mod conformance;
 mod decrypt;
 mod dispatcher;
@@ -62,6 +61,7 @@ mod split_output;
 mod split_pages;
 mod synthesized_appearance;
 mod terminal_xref;
+mod text_box_appearance;
 mod text_box_font;
 mod text_layer;
 mod types;
@@ -93,7 +93,6 @@ pub(crate) use annotation_recovery::*;
 pub(crate) use annotation_streams::*;
 pub(crate) use annotations::*;
 pub(crate) use catalog::*;
-pub(crate) use cli::*;
 pub(crate) use conformance::*;
 pub(crate) use decrypt::*;
 pub(crate) use dispatcher::*;
@@ -124,15 +123,14 @@ pub(crate) use split_navigation::*;
 pub(crate) use split_pages::*;
 pub(crate) use synthesized_appearance::*;
 pub(crate) use terminal_xref::*;
+pub(crate) use text_box_appearance::*;
 pub(crate) use text_layer::*;
 pub(crate) use types::*;
 
 pub use incremental::{fuzz_parse_incremental_xref_stream, fuzz_parse_incremental_xref_table};
 pub use types::Result;
 
-pub fn run_cli_entry(args: Vec<String>) -> Result<()> {
-    run(args)
-}
+pub use dispatcher::run_cli_entry;
 
 // Fake tools are POSIX shell scripts, so the tests that use them run on Unix.
 // What they feed (qpdf's output parsing) is platform-independent, and Windows

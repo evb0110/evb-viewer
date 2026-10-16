@@ -723,6 +723,10 @@ pub(crate) enum Operation {
         append: bool,
         append_in_place: bool,
         identity_bindings_file: Option<PathBuf>,
+        source_path: Option<PathBuf>,
+    },
+    TextBoxAppearance {
+        metadata_file: PathBuf,
     },
     ParseAnnotations {
         modified_at: String,
@@ -962,26 +966,6 @@ pub(crate) struct TextNote {
 /// Legacy mutation callers still send `freeTextNotes`. Keep the old Rust name
 /// as an alias while `/Text` is now the only note representation written.
 pub(crate) type FreeTextNote = TextNote;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct TextBoxMutation {
-    pub(crate) page_index: u32,
-    pub(crate) stable_key: String,
-    #[serde(default)]
-    pub(crate) annotation_id: Option<String>,
-    pub(crate) text: String,
-    pub(crate) rect: [f64; 4],
-    pub(crate) rotation: u16,
-    pub(crate) font_size: f64,
-    pub(crate) color: [u8; 3],
-    #[serde(default)]
-    pub(crate) author: Option<String>,
-    #[serde(default)]
-    pub(crate) created_at: Option<u64>,
-    #[serde(default)]
-    pub(crate) modified_at: Option<u64>,
-}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -1,11 +1,8 @@
 use super::*;
-use crate::free_text_frame::{free_text_frame, FreeTextFrame};
-use crate::text_box_font::{
-    self, baseline_from_top, layout, Geometry, Line, FONTS, LINE_HEIGHT, PADDING_X, PADDING_Y,
+pub(crate) use crate::text_box_appearance::{
+    build_text_box_appearance, fit_text_box, line_origin, text_box_content,
 };
 use lopdf::dictionary;
-use skrifa::instance::{LocationRef, Size};
-use skrifa::{FontRef, MetadataProvider};
 
 /// PDF's standard sticky-note icon is a 20 point square. The mutation
 /// protocol still carries the marker's normalized anchor, so the writer
@@ -647,6 +644,33 @@ pub(crate) fn upsert_text_boxes_with_counter(
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
         });
+        if let Some(original) = &editor.original_appearance {
+            let annotation_ref = target.unwrap_or_else(|| document.new_object_id());
+            let current = target
+                .map(|id| document.get_dictionary(id).cloned())
+                .transpose()?;
+            restore_text_box_recovery(
+                document,
+                original,
+                annotation_ref,
+                page_id,
+                current.as_ref(),
+                editor,
+                modified_at,
+            )?;
+            if target.is_none() {
+                report_annotation_identity_binding(
+                    identity_bindings,
+                    &editor.stable_key,
+                    annotation_ref,
+                );
+                annotation_indexes
+                    .get_mut(&page_id)
+                    .expect("Text box page is indexed")
+                    .append_free_text_without_popup(&name, annotation_ref);
+            }
+            continue;
+        }
         let existing = target
             .map(|id| existing_text_box_values(document, id, editor, &mut rect))
             .transpose()?;
@@ -725,6 +749,33 @@ pub(crate) fn upsert_text_boxes_incremental_with_counter(
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
         });
+        if let Some(original) = &editor.original_appearance {
+            let current = target
+                .map(|id| revision.dictionary(id).cloned())
+                .transpose()?;
+            let annotation_ref = target.unwrap_or_else(|| incremental.new_document.new_object_id());
+            restore_text_box_recovery(
+                &mut incremental.new_document,
+                original,
+                annotation_ref,
+                page_id,
+                current.as_ref(),
+                editor,
+                modified_at,
+            )?;
+            if target.is_none() {
+                report_annotation_identity_binding(
+                    identity_bindings,
+                    &editor.stable_key,
+                    annotation_ref,
+                );
+                annotation_indexes
+                    .get_mut(&page_id)
+                    .expect("Text box page is indexed")
+                    .append_free_text_without_popup(&name, annotation_ref);
+            }
+            continue;
+        }
         let existing = target
             .map(|id| existing_text_box_values(&revision, id, editor, &mut rect))
             .transpose()?;
@@ -917,160 +968,6 @@ pub(crate) fn validate_text_box_rect(
     Ok(rect)
 }
 
-/// Where a fitted line starts and sits in its box. RTL lines align right, and
-/// the spaces that hang at their end fall off the start side.
-pub(crate) fn line_origin(geometry: &Geometry, line: &Line, index: usize, size: f64) -> (f64, f64) {
-    let rest = (geometry.width - 2.0 * PADDING_X * size).max(0.0) - line.width;
-    let left = PADDING_X * size + if line.rtl { rest } else { 0.0 };
-    let baseline = geometry.height - baseline_from_top(size) - index as f64 * LINE_HEIGHT * size;
-    (left, baseline)
-}
-
-/// The editor grows a box to its lines. They fit when the box holds their
-/// count and every positioned glyph's ink, marks below the baseline and above
-/// the cap height included, stays inside the box, which clips the appearance.
-/// Where it does not, the size shrinks until it does. The appearance and the
-/// DA, which the reopened editor reads, both use that size. Printing fits a
-/// box without an appearance the same way, with its own programs and layout.
-pub(crate) fn fit_text_box(
-    font_size: f64,
-    geometry: &Geometry,
-    programs: &[&[u8]],
-    lay_out: impl Fn(f64, f64) -> Vec<Line>,
-) -> (f64, Vec<Line>) {
-    let faces: Vec<_> = programs
-        .iter()
-        .map(|p| FontRef::from_index(p, 0).expect("font"))
-        .collect();
-    let lines = |size: f64| lay_out(geometry.width - 2.0 * PADDING_X * size, size);
-    let fit = |size: f64| {
-        let lines = lines(size);
-        let (width, height) = (geometry.width, geometry.height);
-        let inside = |(index, line): (usize, &Line)| {
-            let (left, baseline) = line_origin(geometry, line, index, size);
-            // A simple font's line has measured advances, not outlines.
-            let measured = !line.glyphs.is_empty() || left + line.width <= width;
-            measured
-                && line.glyphs.iter().all(|glyph| {
-                    let ink =
-                        faces[glyph.font].glyph_metrics(Size::new(1.0), LocationRef::default());
-                    let ink = ink.bounds(glyph.id.into()).unwrap_or_default();
-                    let [x1, y1, x2, y2] =
-                        [ink.x_min, ink.y_min, ink.x_max, ink.y_max].map(|em| f64::from(em) * size);
-                    let (x, y) = (left + glyph.x, baseline + glyph.y);
-                    x1 == x2 || (x + x1).min(y + y1) >= 0.0 && x + x2 <= width && y + y2 <= height
-                })
-        };
-        let height = (lines.len() as f64 * LINE_HEIGHT + PADDING_Y) * size;
-        (height <= geometry.height + 0.01 && lines.iter().enumerate().all(inside)).then_some(lines)
-    };
-    if let Some(lines) = fit(font_size) {
-        return (font_size, lines);
-    }
-    let mut range = (0.0, font_size);
-    while range.1 - range.0 > 0.01 {
-        let middle = (range.0 + range.1) / 2.0;
-        range = if fit(middle).is_some() {
-            (middle, range.1)
-        } else {
-            (range.0, middle)
-        };
-    }
-    let size = ((range.0 * 100.0).floor() / 100.0).max(0.01);
-    (size, lines(size))
-}
-
-/// Fitted lines clipped to their box. Text state lasts through BT, so each
-/// font is selected only where it changes.
-pub(crate) fn text_box_content(
-    geometry: &Geometry,
-    color: &str,
-    lines: &[Line],
-    size: f64,
-) -> String {
-    let mut content = format!(
-        "q\n{} cm\n0 0 {} {} re W n\nBT\n{color}\n0 Tc\n",
-        format_operands(&geometry.matrix),
-        number_to_content(geometry.width),
-        number_to_content(geometry.height),
-    );
-    let mut font = None;
-    for (index, line) in lines.iter().enumerate() {
-        let (left, baseline) = line_origin(geometry, line, index, size);
-        content.push_str(&format!(
-            "/Span << /ActualText <{}> >> BDC\n",
-            text_box_font::unicode_hex(&line.text, true)
-        ));
-        for run in line.glyphs.chunk_by(|a, b| a.font == b.font) {
-            if font.replace(run[0].font) != Some(run[0].font) {
-                let size = number_to_content(size);
-                content.push_str(&format!("/TextFont{} {size} Tf\n", run[0].font));
-            }
-            for glyph in run {
-                content.push_str(&format!(
-                    "1 0 0 1 {} {} Tm <{:04X}> Tj\n",
-                    number_to_content(left + glyph.x),
-                    number_to_content(baseline + glyph.y),
-                    glyph.id,
-                ));
-            }
-        }
-        content.push_str("EMC\n");
-    }
-    content + "ET\nQ"
-}
-
-pub(crate) fn build_text_box_appearance(
-    document: &mut Document,
-    editor: &TextBoxMutation,
-    rect: PdfRect,
-    page_rotation: i64,
-    shared: &mut crate::text_box_font::SharedFonts,
-    existing: Option<&ExistingTextBox>,
-) -> Result<(ObjectId, f64)> {
-    let [x1, y1, x2, y2] = editor.rect;
-    let source = PdfRect { x1, y1, x2, y2 };
-    // A framed box fits its text inside the frame, which it draws first.
-    let frame = existing.and_then(|existing| existing.2.as_ref());
-    let geometry = text_box_font::geometry(source, i64::from(editor.rotation), page_rotation)?;
-    let geometry = FreeTextFrame::fit(frame, geometry);
-    let color = editor.color.map(|component| f64::from(component) / 255.0);
-    let text = |width, size| layout(&editor.text, width, size);
-    let (size, lines) = fit_text_box(editor.font_size, &geometry, &FONTS, text);
-    let fonts = shared.resources(document, &lines);
-    let color = format!("{} rg", format_operands(&color));
-    let frame = frame.map_or("", |frame| &frame.content);
-    let content = frame.to_string() + &text_box_content(&geometry, &color, &lines, size);
-    Ok((document.add_object(Stream::new(lopdf::dictionary! {
-        "Type" => "XObject", "Subtype" => "Form", "FormType" => 1,
-        "BBox" => rect_object(rect), "Resources" => lopdf::dictionary! {"Font" => fonts},
-        "Matrix" => vec![number_object(1.0), number_object(0.0), number_object(0.0), number_object(1.0), number_object(-rect.x1), number_object(-rect.y1)],
-    }, content.into_bytes())), size))
-}
-
-/// An edited box keeps its appearance dictionary, its DA and the frame its
-/// producer gave it; an unmoved box keeps its written geometry.
-type ExistingTextBox = (Option<Dictionary>, Option<Vec<u8>>, Option<FreeTextFrame>);
-
-fn existing_text_box_values(
-    document: &impl PdfObjectSource,
-    annotation_ref: ObjectId,
-    editor: &TextBoxMutation,
-    rect: &mut PdfRect,
-) -> Result<ExistingTextBox> {
-    let dict = document.dictionary(annotation_ref)?;
-    let [x1, y1, x2, y2] = editor.rect;
-    let source = crate::text_box_font::settled(dict, PdfRect { x1, y1, x2, y2 });
-    *rect = crate::text_box_font::geometry(source, i64::from(editor.rotation), 0)?.bounds;
-    let value = |key: &[u8]| document.resolved(dict.get(key).ok()?).ok();
-    let appearance = value(b"AP").and_then(|object| object.as_dict().ok().cloned());
-    Ok((
-        appearance,
-        value(b"DA").and_then(|object| object.as_str().ok().map(ToOwned::to_owned)),
-        Some(free_text_frame(document, dict, *rect)),
-    ))
-}
-
 pub(crate) fn tokenize_default_appearance(bytes: &[u8]) -> Vec<(usize, usize)> {
     let mut tokens = Vec::new();
     let mut index = 0usize;
@@ -1177,16 +1074,21 @@ fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64
 }
 
 #[allow(clippy::too_many_arguments)]
-fn set_text_box_fields(
+pub(crate) fn set_text_box_fields(
     dict: &mut Dictionary,
     editor: &TextBoxMutation,
     name: &str,
     rect: PdfRect,
     modified_at: &str,
-    (appearance_ref, font_size): (ObjectId, f64),
+    appearance: TextBoxAppearance,
     page_rotation: i64,
     existing: Option<ExistingTextBox>,
 ) {
+    let TextBoxAppearance {
+        object_id: appearance_ref,
+        font_size,
+        ..
+    } = appearance;
     let is_new = existing.is_none();
     let (existing_appearance, existing_default_appearance, frame) = existing.unwrap_or_default();
     crate::text_box_font::write_editor_geometry(
@@ -1313,7 +1215,7 @@ fn place_note_target(
     update: &NoteGeometryUpdate,
 ) -> PdfRect {
     // A note that did not move keeps its written numbers, as a text box does.
-    let pdf_rect = crate::text_box_font::settled(dict, pdf_rect);
+    let pdf_rect = settled(dict, pdf_rect);
     if marker_form {
         convert_free_text_marker_to_text(dict, pdf_rect, modified_at);
     }
@@ -2156,7 +2058,7 @@ pub(crate) fn pdf_string_to_text(object: &Object) -> Option<String> {
 }
 
 /// A PDF text string in UTF-16BE, written as hexadecimal.
-fn text_object(text: &str) -> Object {
+pub(crate) fn text_object(text: &str) -> Object {
     Object::String(encode_pdf_text_string(text), StringFormat::Hexadecimal)
 }
 
@@ -2278,6 +2180,20 @@ pub(crate) fn set_rgb_color(dict: &mut Dictionary, key: &str, color: Option<&str
         return;
     }
     dict.remove(key.as_bytes());
+}
+
+pub(crate) fn annotation_numbers(
+    document: &impl PdfObjectSource,
+    object: &Object,
+) -> Option<Vec<f64>> {
+    document
+        .resolved(object)
+        .ok()?
+        .as_array()
+        .ok()?
+        .iter()
+        .map(|value| object_to_f64(document.resolved(value).ok()?).ok())
+        .collect()
 }
 
 #[cfg(test)]

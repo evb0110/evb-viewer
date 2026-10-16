@@ -140,6 +140,7 @@ async function handleRequest(
     request: TBrowserPageOpsWorkerRequest,
 ) {
     switch (request.type) {
+        case 'textBoxAppearance':
         case 'saveMutations':
         case 'decrypt':
         case 'printLayout':
@@ -187,7 +188,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
 
     try {
         const data = await handleRequest(request);
-        if (request.type === 'saveMutations' || request.type === 'decrypt' || request.type === 'printLayout') {
+        if (request.type === 'textBoxAppearance' || request.type === 'saveMutations' || request.type === 'decrypt' || request.type === 'printLayout') {
             const response = {
                 id: request.id,
                 type: request.type,
@@ -197,7 +198,7 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             if (data === null || isBrowserPageOpsWasmFailure(data)) {
                 self.postMessage(response);
             } else {
-                const result = data as Exclude<IBrowserPageOpsWorkerResultMap['saveMutations' | 'decrypt' | 'printLayout'], null | {status: 'failed'}>;
+                const result = data as Exclude<IBrowserPageOpsWorkerResultMap['textBoxAppearance' | 'saveMutations' | 'decrypt' | 'printLayout'], null | {status: 'failed'}>;
                 const transferableData = toTransferableUint8Array(result.data);
                 self.postMessage({
                     ...response,

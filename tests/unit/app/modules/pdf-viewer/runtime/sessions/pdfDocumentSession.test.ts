@@ -1,4 +1,13 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {existsSync} from 'node:fs';
+import {
+    mkdtemp, readFile, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {
+    requirePageNumber, requirePageIndex,
+} from '@contracts/pageNumbers';
+import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import { requireDocumentRef } from '@contracts/documentRef';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import {
@@ -84,6 +93,54 @@ const {createDocumentOpenSurfaceSession} = await import('@app/modules/document-v
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {PDF_PAGE_METRICS_DENSE_LIMIT} = await import('@app/modules/document-viewer/public');
 const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
+const {
+    recordPdfDocumentLoadedRevision, recordPdfDocumentOriginalAnnotations,
+} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision');
+
+function originalAnnotations(revision: IPdfAnnotationParseResult['documentRevisionToken']): IPdfAnnotationParseResult {
+    return {
+        documentRevisionToken: revision,
+        pageCount: 1,
+        foreign: [],
+        entities: [{
+            kind: 'text-box',
+            pageIndex: requirePageIndex(0),
+            objectNumber: 6,
+            generationNumber: 0,
+            name: 'large-original-appearance',
+            author: null,
+            createdAt: null,
+            modifiedAt: null,
+            text: 'Original text',
+            rect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.1,
+            },
+            rotation: 0,
+            fontSize: 12,
+            color: '#000000',
+        }],
+    };
+}
+
+function originalSourceDocumentTask(destroy: () => Promise<void> = async () => {}) {
+    return {
+        promise: Promise.resolve({
+            numPages: 1,
+            getPage: vi.fn(async () => ({
+                cleanup: vi.fn(),
+                getViewport: () => ({
+                    width: 100,
+                    height: 200,
+                }),
+            })),
+            loadingTask: {destroy},
+        }),
+        destroy: vi.fn(),
+    };
+}
 
 // This test copies two 1 MiB ranges and runs alongside the complete six-project
 // unit matrix. Keep the behavioral assertions strict without making host load
@@ -168,6 +225,79 @@ describe('PdfDocumentSession range loading', () => {
         } finally {
             scope.stop();
             await documentState?.dispose();
+        }
+    });
+
+    it('keeps original annotation bytes until the last linked view and its PDF teardown settle', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'pdf-original-source-'));
+        const snapshot = requireDocumentRef(join(directory, 'original.pdf'));
+        const bytes = Buffer.from('immutable original annotation appearance');
+        await writeFile(snapshot, bytes);
+        const revision = requireDocumentRevisionToken('drt1:original-source');
+        const destroyStarted = Promise.withResolvers<undefined>();
+        const destruction = Promise.withResolvers<undefined>();
+        pdfjsState.getDocument.mockReturnValue(originalSourceDocumentTask(() => {
+            destroyStarted.resolve(undefined);
+            return destruction.promise;
+        }));
+        const documentState = createPdfDocumentSession();
+        const left = documentState.attachView();
+        const right = documentState.attachView();
+        try {
+            await documentState.loadPdf(new Blob(['pdf']));
+            const document = documentState.pdfDocument.value!;
+            recordPdfDocumentLoadedRevision(document, revision);
+            await recordPdfDocumentOriginalAnnotations(document, originalAnnotations(revision), async () => ({
+                ref: snapshot,
+                release: () => rm(snapshot),
+            }));
+            await left.dispose();
+            expect(await readFile(snapshot)).toEqual(bytes);
+            expect(documentState.pdfDocument.value).toBe(document);
+            await right.dispose();
+            await destroyStarted.promise;
+            expect(await readFile(snapshot)).toEqual(bytes);
+            destruction.resolve(undefined);
+            await vi.waitFor(() => expect(existsSync(snapshot), 'retired PDF source no longer occupies disk').toBe(false));
+        } finally {
+            destruction.resolve(undefined);
+            await documentState.dispose();
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('does not accumulate original annotation copies across settled PDF replacements', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'pdf-original-reloads-'));
+        const documentState = createPdfDocumentSession();
+        pdfjsState.getDocument.mockImplementation(() => originalSourceDocumentTask());
+        const snapshots: string[] = [];
+        try {
+            for (let index = 0; index < 4; index += 1) {
+                await documentState.loadPdf(new Blob([`revision ${index}`]));
+                const document = documentState.pdfDocument.value!;
+                const revision = requireDocumentRevisionToken(`drt1:source-${index}`);
+                const snapshot = requireDocumentRef(join(directory, `${index}.pdf`));
+                snapshots.push(snapshot);
+                await writeFile(snapshot, `original revision ${index}`);
+                recordPdfDocumentLoadedRevision(document, revision);
+                await recordPdfDocumentOriginalAnnotations(document, originalAnnotations(revision), async () => ({
+                    ref: snapshot,
+                    release: () => rm(snapshot),
+                }));
+                expect(await readFile(snapshot, 'utf8')).toBe(`original revision ${index}`);
+                expect(snapshots.filter(existsSync)).toEqual([snapshot]);
+            }
+            documentState.cleanup();
+            await vi.waitFor(() => expect(snapshots.filter(existsSync)).toEqual([]));
+        } finally {
+            await documentState.dispose();
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
         }
     });
 

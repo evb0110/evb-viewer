@@ -2,7 +2,7 @@ use super::*;
 use evb_native_support::output::AtomicOutput;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     io::Write,
     path::Path,
 };
@@ -35,6 +35,10 @@ pub(crate) struct PdfAnnotationParseTextBox {
     pub(crate) color: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) frame: Option<crate::free_text_frame::TextBoxFrame>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) source: Option<TextBoxSourceDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) recovery_data: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) read_only: bool,
     #[serde(default)]
@@ -234,13 +238,28 @@ where
         Ok(())
     })?;
     page_index = 0;
+    // One document scan shares the existing raw graph cap (hex output is twice that size).
+    let mut remaining_recovery_bytes = MAX_RECOVERY_BYTES;
+    let mut emit = |mut entry| {
+        if let PdfAnnotationParseEntry::TextBox(parent) = &mut entry {
+            if !parent.read_only {
+                parent.recovery_data = capture_text_box_recovery(
+                    document,
+                    (parent.object_number as u32, parent.generation_number as u16),
+                    &mut remaining_recovery_bytes,
+                )
+                .ok();
+            }
+        }
+        on_entry(entry)
+    };
     scan.page_count = resolver.for_each_page_id_with_count(document, |page_id| {
         let current_page_index = page_index;
         scan_page_annotations(
             document,
             page_id,
             current_page_index,
-            &mut on_entry,
+            &mut emit,
             &mut scan.entry_count,
             &mut existing_names,
             &reply_children,
@@ -361,12 +380,10 @@ pub(crate) fn write_annotation_parse_path(
     Ok(())
 }
 
-/// Parsing reads dictionaries, except that a note's recovery data serializes
-/// the note's objects and a stamp reads its appearance and image streams.
-/// qpdf's structural view keeps neither the original object bytes nor the
-/// stream bytes. So a scanned file that the dictionary load reads
-/// structurally below the eager-load ceiling is loaded eagerly after all when
-/// a page holds a note, a legacy note-marker candidate or a stamp.
+/// Notes and FreeText recovery serialize original objects; stamps read appearance
+/// and image streams. qpdf's structural view retains neither original object
+/// encoding nor stream bytes, so these annotations use the admitted eager loader
+/// below its existing byte ceiling.
 fn load_annotation_parse_pdf_path(
     input_path: &Path,
     qpdf_path: Option<&Path>,
@@ -382,7 +399,7 @@ fn load_annotation_parse_pdf_path(
     Ok(incremental)
 }
 
-/// A page annotation that is a note, a legacy note-marker candidate or a stamp,
+/// A page annotation with recovery objects or stamp streams,
 /// or a page tree or /Annots the scan cannot read, which the eager parse
 /// reports as it always has.
 fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
@@ -403,10 +420,10 @@ fn needs_eager_parse(document: &impl PdfObjectSource) -> bool {
                 continue;
             };
             let subtype = annotation_subtype_name(document, dict);
-            if subtype.eq_ignore_ascii_case("Text")
-                || subtype.eq_ignore_ascii_case("Stamp")
-                || is_free_text_note_marker_candidate(document, dict)
-            {
+            if matches!(
+                subtype.to_ascii_lowercase().as_str(),
+                "text" | "freetext" | "stamp"
+            ) {
                 found = true;
                 break;
             }
@@ -572,11 +589,13 @@ where
             _ => Err(format!("Unsupported annotation subtype /{subtype}")),
         };
 
+        let mut reply_refs = Vec::new();
         let replies = if entry.is_ok() && object_id != (0, 0) {
             parse_replies(
                 document,
                 object_id,
                 reply_children,
+                &mut reply_refs,
                 |reply_id, page_index, reason| {
                     let dict = document.dictionary(reply_id)?;
                     let subtype = annotation_subtype_name(document, dict);
@@ -599,10 +618,6 @@ where
                 PdfAnnotationParseEntry::Stamp(parent) => &mut parent.replies,
                 PdfAnnotationParseEntry::Shape(parent) => &mut parent.replies,
                 PdfAnnotationParseEntry::Note(parent) => {
-                    let reply_refs = replies
-                        .iter()
-                        .map(|reply| (reply.object_number as u32, reply.generation_number as u16))
-                        .collect::<Vec<_>>();
                     parent.recovery_data = Some(
                         capture_note_recovery(document, object_id, &reply_refs)
                             .map_err(|error| error.to_string())?,
@@ -645,57 +660,7 @@ fn foreign_entry(
     })
 }
 
-pub(crate) fn parse_text_box_entry(
-    document: &impl PdfObjectSource,
-    dict: &Dictionary,
-    object_id: ObjectId,
-    page_index: u64,
-    page_view: PdfRect,
-    page_rotation: i64,
-    name: &str,
-) -> std::result::Result<PdfAnnotationParseTextBox, String> {
-    let rect = read_annotation_rect(document, dict)?;
-    // Admit the visible rectangle once before recovering private layout
-    // coordinates, which may cross the page edge for rotated text.
-    pdf_rect_to_marker_rect(rect, page_view, page_rotation).map_err(|error| error.to_string())?;
-    if dict.get(b"Contents").is_err() && dict.get(b"RC").is_ok() {
-        return Err("FreeText has rich text without plain text contents".to_string());
-    }
-    let text = read_optional_annotation_text(document, dict, b"Contents")?.unwrap_or_default();
-    let (font_size, color) = parse_default_appearance(document, dict)?;
-    // The editor draws a solid border; another style keeps its producer's
-    // appearance, and the label is selectable and copyable but not editable.
-    let read_only = !crate::free_text_frame::border_is_editable(document, dict);
-    let frame = crate::free_text_frame::free_text_frame(document, dict, rect);
-    let rotation = read_optional(document, dict, b"Rotate", Object::as_i64)?.unwrap_or(0);
-    let rotation = rotation.rem_euclid(360);
-    if !matches!(rotation, 0 | 90 | 180 | 270) {
-        return Err("Imported FreeText rotation is not a quarter turn".to_string());
-    }
-    let (rect, rotation) =
-        crate::text_box_font::stored_editor_geometry(document, dict, rect, rotation, page_rotation)
-            .map_err(|error| error.to_string())?;
-    let rect = pdf_rect_to_marker_rect_unbounded(rect, page_view, page_rotation)
-        .map_err(|error| error.to_string())?;
-    Ok(PdfAnnotationParseTextBox {
-        replies: Vec::new(),
-        page_index,
-        object_number: u64::from(object_id.0),
-        generation_number: u64::from(object_id.1),
-        name: name.to_string(),
-        author: read_optional_annotation_author(document, dict)?,
-        created_at: read_annotation_date(document, dict, b"CreationDate"),
-        modified_at: read_annotation_date(document, dict, b"M"),
-        text,
-        rect,
-        rotation,
-        font_size,
-        color,
-        // On the page's upright sides: the editor turns them with the box.
-        frame: frame.editor(page_rotation),
-        read_only,
-    })
-}
+pub(crate) use crate::text_box_appearance::parse_text_box_entry;
 
 /// Parse one of the four text-markup subtypes. The four corner orders found in
 /// real files (PDF spec order, lower-left first, and their rotations) all
@@ -1139,16 +1104,12 @@ fn parse_replies(
     document: &impl PdfObjectSource,
     parent_id: ObjectId,
     reply_children: &HashMap<ObjectId, Vec<(ObjectId, u64)>>,
+    reply_refs: &mut Vec<ObjectId>,
     mut on_unreadable: impl FnMut(ObjectId, u64, &str) -> Result<()>,
 ) -> Result<std::result::Result<Vec<PdfAnnotationParseReply>, String>> {
     let mut replies = Vec::new();
-    let mut pending = reply_children
-        .get(&parent_id)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<VecDeque<_>>();
-    let mut seen = HashSet::new();
+    let mut pending = VecDeque::from(reply_children.get(&parent_id).cloned().unwrap_or_default());
+    let mut seen = BTreeSet::new();
     while let Some((reply_id, page_index)) = pending.pop_front() {
         if !seen.insert(reply_id) {
             continue;
@@ -1180,10 +1141,14 @@ fn parse_replies(
             pending.extend(children.iter().copied());
         }
     }
+    reply_refs.extend(seen);
     Ok(Ok(replies))
 }
 
-fn annotation_subtype_name(document: &impl PdfObjectSource, dict: &Dictionary) -> String {
+pub(crate) fn annotation_subtype_name(
+    document: &impl PdfObjectSource,
+    dict: &Dictionary,
+) -> String {
     dict.get(b"Subtype")
         .ok()
         .and_then(|object| document.resolved(object).ok())
@@ -1192,7 +1157,7 @@ fn annotation_subtype_name(document: &impl PdfObjectSource, dict: &Dictionary) -
         .unwrap_or_default()
 }
 
-fn read_annotation_rect(
+pub(crate) fn read_annotation_rect(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
 ) -> std::result::Result<PdfRect, String> {
@@ -1203,7 +1168,7 @@ fn read_annotation_rect(
     parse_rect(resolved).map_err(|error| error.to_string())
 }
 
-fn read_optional_annotation_text(
+pub(crate) fn read_optional_annotation_text(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
     key: &[u8],
@@ -1230,7 +1195,7 @@ fn read_optional_annotation_text(
     }))
 }
 
-fn read_optional_annotation_author(
+pub(crate) fn read_optional_annotation_author(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
 ) -> std::result::Result<Option<String>, String> {
@@ -1238,7 +1203,7 @@ fn read_optional_annotation_author(
 }
 
 /// An optional entry read by `read`, such as `Object::as_i64`.
-fn read_optional<T>(
+pub(crate) fn read_optional<T>(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
     key: &[u8],
@@ -1256,7 +1221,7 @@ fn read_optional<T>(
         .map_err(|error| format!("/{key}: {error}"))
 }
 
-fn read_annotation_date(
+pub(crate) fn read_annotation_date(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
     key: &[u8],
@@ -1284,21 +1249,6 @@ fn read_annotation_color(document: &impl PdfObjectSource, dict: &Dictionary) -> 
         components.push(number);
     }
     Some(pdf_color_to_hex(Some(&components), "#000000"))
-}
-
-fn parse_default_appearance(
-    document: &impl PdfObjectSource,
-    dict: &Dictionary,
-) -> std::result::Result<(f64, String), String> {
-    let da = crate::free_text_frame::default_appearance(document, dict)
-        .ok_or_else(|| "FreeText /DA must be a PDF string".to_string())?;
-    let font_size = da
-        .font_size()
-        .ok_or_else(|| "FreeText /DA has no supported font size".to_string())?;
-    let color = da
-        .fill
-        .ok_or_else(|| "FreeText /DA has no supported color".to_string())?;
-    Ok((font_size, pdf_color_to_hex(Some(&color), "#000000")))
 }
 
 /// The page-independent part of the legacy FreeText note-marker test: a

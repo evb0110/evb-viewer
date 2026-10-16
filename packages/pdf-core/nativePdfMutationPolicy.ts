@@ -436,7 +436,13 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
 
     appendFamilyChunks('notes', noteChunks, (chunk, value) => Object.assign(chunk, value));
 
-    appendFamilyChunks('textBoxes', textBoxes.length ? textBoxChunks : [], (chunk, value) => {chunk.textBoxes = value;});
+    appendFamilyChunks('textBoxes', textBoxes.length ? textBoxChunks : [], (chunk, value) => {
+        chunk.textBoxes = value;
+        if (value.some(box => box.originalAppearance?.sourceAnnotationId !== undefined)) {
+            if (mutations.originalAppearanceSource === undefined) fail('Original appearance restore requires its immutable document source');
+            chunk.originalAppearanceSource = mutations.originalAppearanceSource;
+        }
+    });
     appendFamilyChunks('pageLabels', pageLabelChunks, (chunk, value) => {chunk.pageLabels = value;});
     appendFamilyChunks(
         'bookmarks',

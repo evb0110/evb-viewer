@@ -53,6 +53,7 @@ import type {
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequestType,
 } from '@contracts/browserPageOpsWorker';
+import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
 
@@ -820,6 +821,17 @@ export function createBrowserPageOpsCapability(
                     'Removing page crops',
                 );
             });
+        },
+        async renderTextBoxAppearance(_workingCopyPath, request, options) {
+            const result = await runBrowserPageOpsWorkerRequest('textBoxAppearance', request, options);
+            if (result === null || isBrowserPageOpsWasmFailure(result)) {
+                throw new PdfPageOpsCapabilityError(
+                    result?.error.code === 'too-large' ? 'too-large' : 'native-unavailable',
+                    result?.error.message ?? 'Text appearance generation is unavailable',
+                    {operation: 'text-box appearance'},
+                );
+            }
+            return result;
         },
         async getPageGeometry(workingCopyPath, pageNumber): Promise<IPageGeometry> {
             return runWorkerBackedPdfOperation({

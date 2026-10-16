@@ -540,10 +540,44 @@ describe('Electron E2E - text interaction contract', () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-text-interaction-'));
         const path = join(directory, 'document.pdf');
         copyFileSync(source ?? process.env.EVB_TEXT_INTERACTION_FIXTURE ?? generated, path);
-        onTestFinished(() => {rmSync(generated, {force: true}); rmSync(directory, {
-            recursive: true,
-            force: true,
-        });});
+        onTestFinished(async () => {
+            try {
+                await sessions.getSession().page.evaluate(async () => {
+                    interface IViewerVNode {
+                        component?: {
+                            subTree?: IViewerVNode;
+                            exposed?: {commitPdfEditorsForSave?: () => Promise<void>} | null;
+                        };
+                        children?: IViewerVNode[] | string;
+                        ssContent?: IViewerVNode;
+                        ssFallback?: IViewerVNode;
+                    }
+                    let complete: (() => Promise<void>) | undefined;
+                    const seen = new Set<IViewerVNode>();
+                    const visit = (vnode: IViewerVNode | undefined) => {
+                        if (!vnode || seen.has(vnode) || complete) return;
+                        seen.add(vnode);
+                        const owner = vnode.component;
+                        if (owner) {
+                            complete = owner.exposed?.commitPdfEditorsForSave;
+                            visit(owner.subTree);
+                        }
+                        if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                        visit(vnode.ssContent);
+                        visit(vnode.ssFallback);
+                    };
+                    visit(document.querySelector<HTMLElement & {_vnode?: IViewerVNode}>('#__nuxt')?._vnode);
+                    if (!complete) throw new Error('The loaded viewer must settle its editors before fixture cleanup');
+                    await complete();
+                });
+            } finally {
+                rmSync(generated, {force: true});
+                rmSync(directory, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+        });
         await openPdfInApp(session.page, path);
         await waitForPdfLoaded(session.page);
         await waitForViewerInteractive(session.page);
@@ -1294,6 +1328,7 @@ describe('Electron E2E - text interaction contract', () => {
         await startText(page);
         await page.keyboard.type('Resize');
         await modifiedKey(page, 'Enter');
+        await waitForTextControlsLayout(page);
         const before = await frame(page);
         const enlarged = await resize(page, 'se', before.width * 0.5, before.height * 0.5);
         expect.soft(enlarged.preview.fontSize).toBeGreaterThan(before.fontSize * 1.2);

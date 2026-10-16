@@ -222,25 +222,6 @@ fn centred(x: f64, y: f64, width: f64, height: f64) -> PdfRect {
     PdfRect { x1, y1, x2, y2 }
 }
 
-/// The layout rectangle `annotation` was written with, EVB's or else its
-/// /Rect, when `rect` lies within a thousandth of a point of it, so a box or
-/// note that did not move keeps its numbers and never drifts.
-pub(crate) fn settled(annotation: &Dictionary, rect: PdfRect) -> PdfRect {
-    let stored = editor_geometry(annotation).and_then(|g| g.as_dict().ok()?.get(b"Rect").ok());
-    let written = stored.or(annotation.get(b"Rect").ok());
-    written
-        .and_then(|written| parse_rect(written).ok())
-        .filter(|written| near(*written, rect, 1e-3))
-        .unwrap_or(rect)
-}
-
-/// Whether two rectangles agree within `tolerance` points on every side.
-fn near(a: PdfRect, b: PdfRect, tolerance: f64) -> bool {
-    [a.x1 - b.x1, a.y1 - b.y1, a.x2 - b.x2, a.y2 - b.y2]
-        .iter()
-        .all(|d| d.abs() <= tolerance)
-}
-
 /// EVB's private layout geometry. PDF reads a key whose value is null as absent.
 pub(crate) fn editor_geometry(annotation: &Dictionary) -> Option<&Object> {
     (annotation.get(b"EVBTextGeometry").ok()).filter(|value| !matches!(value, Object::Null))
@@ -392,6 +373,7 @@ mod tests {
                     };
                     let source = centred(340.0, 440.0, width, height);
                     let mut editor = TextBoxMutation {
+                        original_appearance: None,
                         page_index: 0,
                         stable_key: "page-rotated-text".to_string(),
                         annotation_id: None,

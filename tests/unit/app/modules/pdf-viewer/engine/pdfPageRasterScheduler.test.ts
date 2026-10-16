@@ -189,6 +189,34 @@ describe('PdfPageRasterScheduler', () => {
         } finally {finish(); await harness.scheduler.dispose();}
     });
 
+    it('acknowledges published pixels while subsequent page layers are still hydrating', async () => {
+        const harness = createHarness();
+        let finishLayers!: () => void;
+        const layers = new Promise<void>(resolve => {finishLayers = resolve;});
+        const receipts: string[] = [];
+        harness.target.commit = async (prepared, _demand, publishRaster) => {
+            harness.committed.push(prepared.pageNumber);
+            if (!publishRaster()) return false;
+            await layers;
+            return true;
+        };
+        const requested = harness.scheduler.request({
+            sourceId: 'accepted-page',
+            demand: createDemand(1, 'viewport-visible'),
+            target: harness.target,
+        }).then(outcome => {receipts.push(outcome.status); return outcome;});
+        try {
+            await vi.waitFor(() => expect(harness.committed).toEqual([1]));
+            expect(receipts).toEqual(['committed']);
+            const cancelled = harness.scheduler.cancelSource('accepted-page');
+            await flush();
+            expect(receipts).toEqual(['committed']);
+            finishLayers();
+            await cancelled;
+            expect((await requested).status).toBe('committed');
+        } finally {finishLayers(); await harness.scheduler.dispose();}
+    });
+
     it('orders navigation and viewport demand ahead of thumbnails and prefetch', async () => {
         const harness = createHarness();
         const demands = [
@@ -1769,4 +1797,113 @@ describe('PdfPageRasterScheduler', () => {
         expect(releaseA).toHaveBeenCalledOnce();
         await schedulerB.dispose();
     });
+    it('keeps a published raster reservation through cancelled layer hydration and releases it once', async () => {
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        const hydration = Promise.withResolvers<undefined>();
+        const published = Promise.withResolvers<undefined>();
+        const painted = new Set<number>();
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            surfaceBudget: budget,
+            leasePage: async pageNumber => ({
+                page: cast<IPdfPage>({pageNumber}),
+                release() {},
+            }),
+        });
+        const target: IPdfRasterRenderTarget<{pageNumber: number}> = {
+            id: 'atomic-annotation',
+            prepare: async demand => ({pageNumber: demand.pageNumber}),
+            start: () => createTask(),
+            async commit(prepared, _demand, commitRaster) {
+                painted.add(prepared.pageNumber);
+                if (!commitRaster()) return false;
+                published.resolve(undefined);
+                await hydration.promise;
+                return false;
+            },
+            discard() {},
+            release: page => {painted.delete(page);},
+        };
+        scheduler.setDemand({
+            sourceId: 'view',
+            input: [createDemand(1, 'viewport-visible')],
+            policy: {
+                expand: input => input,
+                compareWithinLane: () => 0,
+            },
+            target,
+        });
+        await published.promise;
+        expect(painted.has(1)).toBe(true);
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+        const cancelling = scheduler.cancelSource('view');
+        expect(scheduler.snapshot().residentPages).toHaveLength(1);
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+        const releasing = scheduler.releaseSource('view');
+        expect(painted.size).toBe(0);
+        expect(budget.getSnapshot().reservedBytes).toBe(0);
+        hydration.resolve(undefined);
+        await Promise.all([
+            cancelling,
+            releasing,
+        ]);
+        expect(scheduler.snapshot().residentPages).toHaveLength(0);
+        expect(budget.getSnapshot()).toMatchObject({
+            reservedBytes: 0,
+            leaseCount: 0,
+        });
+        await scheduler.dispose();
+    });
+
+    it('refuses encoded appearance batches beyond the shared lease while retaining committed paint', async () => {
+        vi.useFakeTimers();
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        const painted = new Map<number, number>();
+        const scheduler = createPdfPageRasterScheduler({
+            documentFence,
+            surfaceBudget: budget,
+            leasePage: async pageNumber => ({
+                page: cast<IPdfPage>({pageNumber}),
+                release() {},
+            }),
+        });
+        const target: IPdfRasterRenderTarget<{
+            pageNumber: number;
+            generation: number
+        }> = {
+            id: 'bounded-annotation',
+            async prepare(demand, _page, _signal, _settlement, reserveAdditionalBytes) {
+                if (demand.consumerGeneration === 2) reserveAdditionalBytes(900);
+                return {
+                    pageNumber: demand.pageNumber,
+                    generation: demand.consumerGeneration,
+                };
+            },
+            start: () => createTask(),
+            commit(prepared) {painted.set(prepared.pageNumber, prepared.generation); return true;},
+            discard() {},
+            release() {},
+        };
+        await scheduler.request({
+            sourceId: 'view',
+            demand: createDemand(1, 'viewport-visible'),
+            target,
+        });
+        const replacement = scheduler.request({
+            sourceId: 'view',
+            demand: createDemand(1, 'viewport-visible', 2),
+            target,
+        });
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(await replacement).toMatchObject({status: 'failed'});
+        expect(painted.get(1)).toBe(1);
+        expect(budget.getSnapshot().reservedBytes).toBe(400);
+        await scheduler.releaseSource('view');
+        expect(budget.getSnapshot()).toMatchObject({
+            reservedBytes: 0,
+            leaseCount: 0,
+        });
+        await scheduler.dispose();
+    });
+
 });

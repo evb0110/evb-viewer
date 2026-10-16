@@ -1,6 +1,11 @@
 //! EPPO binary frame definitions, shared by the Rust codec and generated TS.
 //! The worker-message envelope is a separate contract.
 
+use crate::{CropMargins, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES};
+use evb_native_support::NativeErrorCode;
+
+pub(crate) const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
+
 pub(crate) const REQUEST_MAGIC: &[u8; 4] = b"EPPO";
 
 // Derive offsets and frame sizes from field widths, then emit the same values
@@ -44,6 +49,7 @@ macro_rules! abi {
                 $(writeln!(output, "    {}: {},", camel_case(stringify!($field)), $layout.$field).unwrap();)+
                 writeln!(output, "    bytes: {},\n}} as const;", $layout.bytes).unwrap();
             )*
+            writeln!(output, "\nexport const REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER = {{\n    sourceDataLength: {},\n    bytes: {},\n}} as const;", REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.source_data_length, REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes).unwrap();
             output
         }
     };
@@ -54,6 +60,7 @@ abi! {
         // Version 2 includes the trailing password length for decrypt.
         REQUEST_VERSION: u32 = 2;
         REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
+        REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE: u32 = 4;
         U32_BYTES: usize = std::mem::size_of::<u32>();
         F64_BYTES: usize = std::mem::size_of::<f64>();
         MAX_DOCUMENTS: usize = 500;
@@ -62,6 +69,7 @@ abi! {
         RESPONSE_ANNOTATION_PARSE: u32 = 3;
         RESPONSE_NATIVE_MUTATIONS: u32 = 4;
         RESPONSE_JSON: u32 = 5;
+        RESPONSE_TEXT_BOX_APPEARANCE: u32 = 6;
         NATIVE_MUTATION_POSTCONDITIONS_VERIFIED: u32 = 1;
     }
     operations {
@@ -82,6 +90,7 @@ abi! {
         // Selected pages use the page list; insertion data is UTF-8
         // "<view mode> <orientation>".
         OP_PRINT_LAYOUT = 15 => "printLayout";
+        OP_TEXT_BOX_APPEARANCE = 16 => "textBoxAppearance";
     }
     layouts {
         REQUEST_HEADER: RequestHeader {
@@ -108,12 +117,25 @@ abi! {
         BYTES_HEADER: BytesHeader {
             kind: U32_BYTES, data_length: U32_BYTES,
         }
+        TEXT_BOX_APPEARANCE_HEADER: TextBoxAppearanceHeader {
+            kind: U32_BYTES, data_length: U32_BYTES, metadata_length: U32_BYTES,
+        }
         NATIVE_MUTATION_HEADER: NativeMutationHeader {
             kind: U32_BYTES, page_count: U32_BYTES, data_length: U32_BYTES,
             identity_bindings_length: U32_BYTES, postconditions_verified: U32_BYTES,
         }
     }
 }
+
+pub(crate) struct OriginalAppearanceSourceHeader {
+    pub(crate) source_data_length: usize,
+    pub(crate) bytes: usize,
+}
+pub(crate) const REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER: OriginalAppearanceSourceHeader =
+    OriginalAppearanceSourceHeader {
+        source_data_length: REQUEST_HEADER.bytes,
+        bytes: REQUEST_HEADER.bytes + U32_BYTES,
+    };
 
 #[cfg(test)]
 fn camel_case(name: &str) -> String {
@@ -148,4 +170,189 @@ fn generated_typescript_is_current() {
         "{} is stale; regenerate it with EVB_UPDATE_GENERATED=1 cargo test --manifest-path native/Cargo.toml -p evb-pdf-page-ops generated_typescript",
         path.display()
     );
+}
+
+pub(crate) struct ParsedRequest<'a> {
+    pub(crate) operation: u32,
+    pub(crate) pages: Vec<u32>,
+    pub(crate) page_number: u32,
+    pub(crate) after_page: u32,
+    pub(crate) angle: i64,
+    pub(crate) margins: CropMargins,
+    pub(crate) data: &'a [u8],
+    pub(crate) insertion_data: &'a [u8],
+    pub(crate) password: &'a [u8],
+    pub(crate) original_appearance_source: &'a [u8],
+}
+
+pub(crate) fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
+    let mut offset = REQUEST_HEADER.magic;
+    let magic = take_bytes(request, &mut offset, REQUEST_MAGIC.len())?;
+    if magic != REQUEST_MAGIC {
+        return Err("Invalid page-op WASM request magic".into());
+    }
+    let version = read_u32_at(request, REQUEST_HEADER.version)?;
+    if version != REQUEST_VERSION && version != REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE {
+        return Err(format!("Unsupported page-op WASM request version: {version}").into());
+    }
+
+    let operation = read_u32_at(request, REQUEST_HEADER.operation)?;
+    if version == REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE && operation != OP_SAVE_MUTATIONS {
+        return Err("Original appearance source framing is reserved for Save".into());
+    }
+    let page_count = read_usize_at(request, REQUEST_HEADER.page_count, "page_count")?;
+    let page_number = read_u32_at(request, REQUEST_HEADER.page_number)?;
+    let after_page = read_u32_at(request, REQUEST_HEADER.after_page)?;
+    let angle = i64::from(read_u32_at(request, REQUEST_HEADER.angle)?);
+    let margins = CropMargins {
+        top: read_f64_at(request, REQUEST_HEADER.top)?,
+        bottom: read_f64_at(request, REQUEST_HEADER.bottom)?,
+        left: read_f64_at(request, REQUEST_HEADER.left)?,
+        right: read_f64_at(request, REQUEST_HEADER.right)?,
+    };
+    let data_len = read_usize_at(request, REQUEST_HEADER.data_length, "data_len")?;
+    let insertion_data_len = read_usize_at(
+        request,
+        REQUEST_HEADER.insertion_data_length,
+        "insertion_data_len",
+    )?;
+    let password_len = read_usize_at(request, REQUEST_HEADER.password_length, "password_len")?;
+    let (mut offset, source_len) = if version == REQUEST_VERSION_ORIGINAL_APPEARANCE_SOURCE {
+        (
+            REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.bytes,
+            read_usize_at(
+                request,
+                REQUEST_ORIGINAL_APPEARANCE_SOURCE_HEADER.source_data_length,
+                "original appearance source length",
+            )?,
+        )
+    } else {
+        (REQUEST_HEADER.bytes, 0)
+    };
+    if password_len > MAX_WASM_PASSWORD_BYTES {
+        return Err(format!(
+            "Page-op WASM password exceeds the {MAX_WASM_PASSWORD_BYTES}-byte ceiling"
+        )
+        .into());
+    }
+
+    let page_bytes_len = page_count
+        .checked_mul(U32_BYTES)
+        .ok_or("Invalid page-op WASM page count")?;
+    let required_remaining = page_bytes_len
+        .checked_add(data_len)
+        .and_then(|length| length.checked_add(insertion_data_len))
+        .and_then(|length| length.checked_add(password_len))
+        .and_then(|length| length.checked_add(source_len))
+        .ok_or("Invalid page-op WASM request length")?;
+    let actual_remaining = request
+        .len()
+        .checked_sub(offset)
+        .ok_or("Invalid page-op WASM request length")?;
+    if required_remaining != actual_remaining {
+        return Err(if required_remaining > actual_remaining {
+            "Truncated page-op WASM request"
+        } else {
+            "Trailing bytes in page-op WASM request"
+        }
+        .into());
+    }
+
+    let mut pages = Vec::new();
+    pages
+        .try_reserve_exact(page_count)
+        .map_err(|_| "Page-op WASM page list is too large")?;
+    for _ in 0..page_count {
+        pages.push(read_u32_le(request, &mut offset)?);
+    }
+
+    let data = take_bytes(request, &mut offset, data_len)?;
+    let insertion_data = take_bytes(request, &mut offset, insertion_data_len)?;
+    let password = take_bytes(request, &mut offset, password_len)?;
+    let original_appearance_source = take_bytes(request, &mut offset, source_len)?;
+    if offset != request.len() {
+        return Err("Trailing bytes in page-op WASM request".into());
+    }
+
+    Ok(ParsedRequest {
+        operation,
+        pages,
+        page_number,
+        after_page,
+        angle,
+        margins,
+        data,
+        insertion_data,
+        password,
+        original_appearance_source,
+    })
+}
+
+pub(crate) fn read_u32_at(request: &[u8], mut offset: usize) -> Result<u32> {
+    read_u32_le(request, &mut offset)
+}
+
+pub(crate) fn read_usize_at(request: &[u8], mut offset: usize, label: &str) -> Result<usize> {
+    read_usize_le(request, &mut offset, label)
+}
+
+pub(crate) fn read_f64_at(request: &[u8], mut offset: usize) -> Result<f64> {
+    read_f64_le(request, &mut offset)
+}
+
+pub(crate) fn read_usize_le(request: &[u8], offset: &mut usize, label: &str) -> Result<usize> {
+    usize::try_from(read_u32_le(request, offset)?)
+        .map_err(|_| format!("Invalid page-op WASM {label}").into())
+}
+
+pub(crate) fn read_u32_le(request: &[u8], offset: &mut usize) -> Result<u32> {
+    let bytes = take_bytes(request, offset, U32_BYTES)?;
+    Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+}
+
+pub(crate) fn read_f64_le(request: &[u8], offset: &mut usize) -> Result<f64> {
+    let bytes = take_bytes(request, offset, F64_BYTES)?;
+    Ok(f64::from_le_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+    ]))
+}
+
+pub(crate) fn take_bytes<'a>(
+    request: &'a [u8],
+    offset: &mut usize,
+    len: usize,
+) -> Result<&'a [u8]> {
+    let end = offset
+        .checked_add(len)
+        .ok_or("Invalid page-op WASM request length")?;
+    let bytes = request
+        .get(*offset..end)
+        .ok_or("Truncated page-op WASM request")?;
+    *offset = end;
+    Ok(bytes)
+}
+
+pub(crate) fn page_op_output_limit() -> Box<dyn std::error::Error> {
+    Box::new(evb_native_support::NativeError::new(
+        NativeErrorCode::TooLarge,
+        "Page-op WASM output exceeds the admission ceiling",
+    ))
+}
+
+pub(crate) fn encode_bytes(kind: u32, bytes: Vec<u8>) -> Result<Vec<u8>> {
+    let data_len = u32::try_from(bytes.len()).map_err(|_| page_op_output_limit())?;
+    let framed_len = BYTES_HEADER
+        .bytes
+        .checked_add(bytes.len())
+        .ok_or_else(page_op_output_limit)?;
+    if framed_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+        return Err(page_op_output_limit());
+    }
+    let mut output = Vec::with_capacity(framed_len);
+    output.resize(BYTES_HEADER.bytes, 0);
+    output[BYTES_HEADER.kind..BYTES_HEADER.kind + U32_BYTES].copy_from_slice(&kind.to_le_bytes());
+    output[BYTES_HEADER.data_length..BYTES_HEADER.data_length + U32_BYTES]
+        .copy_from_slice(&data_len.to_le_bytes());
+    output.extend_from_slice(&bytes);
+    Ok(output)
 }

@@ -9,6 +9,7 @@ import {
     PDFName,
     PDFNumber,
     PDFRef,
+    PDFRawStream,
     PDFString,
 } from 'pdf-lib';
 
@@ -26,6 +27,7 @@ import type {IPageMutationWorkerResult} from '@contracts/browserPageOpsWorker';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const NativeWebAssembly = WebAssembly;
 const loggerWarn = vi.hoisted(() => vi.fn());
@@ -350,6 +352,151 @@ describe('browser page-ops WASM fast path', () => {
         vi.clearAllMocks();
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
+    });
+
+    it('returns a reopenable source-free text appearance and its native fit', async () => {
+        const {run} = await loadWasmRunner();
+        const result = await run('textBoxAppearance', {
+            page: {
+                view: [
+                    0,
+                    0,
+                    200,
+                    100,
+                ],
+                rotation: 0,
+                userUnit: 1,
+            },
+            textBoxes: [{
+                textBox: {
+                    pageIndex: requirePageIndex(0),
+                    stableKey: 'browser-appearance',
+                    text: 'Browser café',
+                    rect: [
+                        10,
+                        10,
+                        90,
+                        40,
+                    ],
+                    rotation: 0,
+                    fontSize: 18,
+                    color: [
+                        17,
+                        24,
+                        39,
+                    ],
+                },
+                source: {
+                    version: 1,
+                    rawRD: [
+                        1,
+                        2,
+                        7,
+                        12,
+                    ],
+                    borderWidth: 0,
+                    staleFill: false,
+                },
+            }],
+        });
+        if (!result || 'status' in result) throw new Error(`Expected source-free appearance: ${JSON.stringify(result)}`);
+        expect(result.textBoxes).toHaveLength(1);
+        expect(result.textBoxes[0]).toMatchObject({stableKey: 'browser-appearance'});
+        expect(result.textBoxes[0]!.fittedFontSize).toBeGreaterThan(0);
+        const pdf = await PDFDocument.load(result.data);
+        const annotation = pdf.getPage(0).node.Annots()!.lookup(0, PDFDict);
+        expect(annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Browser café');
+        expect(annotation.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'))).toBeInstanceOf(PDFRawStream);
+    });
+
+    it('restores the original appearance from separate source bytes after an intervening save', async () => {
+        const original = await PDFDocument.create();
+        const page = original.addPage([
+            200,
+            100,
+        ]);
+        const font = original.context.register(original.context.obj({
+            Type: 'Font',
+            Subtype: 'Type1',
+            BaseFont: 'Times-Italic',
+        }));
+        const appearance = original.context.register(original.context.flateStream('BT /F1 12 Tf 0 0 0 rg 2 10 Td (Original) Tj ET', {
+            Type: 'XObject',
+            Subtype: 'Form',
+            BBox: [
+                0,
+                0,
+                120,
+                30,
+            ],
+            Resources: {Font: {F1: font}},
+        }));
+        const annotation = original.context.register(original.context.obj({
+            Type: 'Annot',
+            Subtype: 'FreeText',
+            Rect: [
+                10,
+                40,
+                130,
+                70,
+            ],
+            NM: PDFString.of('original-box'),
+            Contents: PDFString.of('Original'),
+            DA: PDFString.of('/F1 12 Tf 0 0 0 rg'),
+            AP: {N: appearance},
+            F: 4,
+        }));
+        page.node.set(PDFName.of('Annots'), original.context.obj([annotation]));
+        const source = new Uint8Array(await original.save());
+        const mutation = {
+            stableKey: 'original-box',
+            annotationId: annotation.toString(),
+            pageIndex: 0,
+            text: 'Changed',
+            rect: [
+                10,
+                40,
+                130,
+                70,
+            ],
+            rotation: 0,
+            fontSize: 12,
+            color: [
+                0,
+                0,
+                0,
+            ],
+        };
+        const wasm = await loadWasmRunner();
+        const edited = await wasm.run('saveMutations', {
+            data: source,
+            mutations: normalizePdfNativeMutationSet({textBoxes: [mutation]}, 'Browser appearance edit'),
+            modifiedAt: 'D:20261016000000Z',
+        });
+        if (!edited || 'status' in edited) throw new Error('Expected the text edit to save');
+        const restored = await wasm.run('saveMutations', {
+            data: edited.data,
+            originalAppearanceSourceData: source,
+            mutations: normalizePdfNativeMutationSet({
+                originalAppearanceSource: 'browser://documents/original-appearance',
+                textBoxes: [{
+                    ...mutation,
+                    text: 'Original',
+                    originalAppearance: {sourceAnnotationId: annotation.toString()},
+                }],
+            }, 'Browser original appearance restore'),
+            modifiedAt: 'D:20261016000001Z',
+        });
+        if (!restored || 'status' in restored) throw new Error(`Expected the original appearance to restore: ${JSON.stringify(restored)}`);
+        const restoredDocument = await PDFDocument.load(restored.data);
+        const restoredAnnotation = restoredDocument.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).lookup(0, PDFDict);
+        const restoredAppearance = restoredDocument.context.lookup(restoredAnnotation.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')));
+        const originalAppearance = original.context.lookup(appearance);
+        if (!(restoredAppearance instanceof PDFRawStream) || !(originalAppearance instanceof PDFRawStream)) throw new Error('Expected saved appearance streams');
+        expect(restoredAppearance.contents).toEqual(originalAppearance.contents);
+        expect(restoredAnnotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Original');
+        const restoredFont = restoredAppearance.dict.lookup(PDFName.of('Resources'), PDFDict).lookup(PDFName.of('Font'), PDFDict).lookup(PDFName.of('F1'), PDFDict);
+        expect(restoredFont.get(PDFName.of('BaseFont'))).toBe(PDFName.of('Times-Italic'));
     });
 
     it.each([

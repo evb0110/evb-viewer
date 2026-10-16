@@ -1,6 +1,6 @@
 use super::*;
 
-const MAX_RECOVERY_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_RECOVERY_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_RECOVERY_OBJECTS: usize = 1024;
 
 /// A bounded, native-owned snapshot lives in annotation undo history. No
@@ -10,6 +10,62 @@ pub(crate) fn capture_note_recovery(
     root: ObjectId,
     related_notes: &[ObjectId],
 ) -> Result<String> {
+    capture_annotation_recovery(source, root, related_notes, false, MAX_RECOVERY_BYTES)
+}
+
+pub(crate) fn capture_text_box_recovery(
+    source: &impl PdfObjectSource,
+    root: ObjectId,
+    remaining_bytes: &mut usize,
+) -> Result<String> {
+    if *remaining_bytes == 0 {
+        return Err("Text box inline recovery budget is exhausted".into());
+    }
+    let data = capture_annotation_recovery(
+        source,
+        root,
+        &[],
+        true,
+        (*remaining_bytes).min(MAX_RECOVERY_BYTES),
+    )?;
+    *remaining_bytes -= data.len() / 2;
+    Ok(data)
+}
+
+fn capture_annotation_recovery(
+    source: &impl PdfObjectSource,
+    root: ObjectId,
+    related_notes: &[ObjectId],
+    appearance_only: bool,
+    max_bytes: usize,
+) -> Result<String> {
+    let mut graph = capture_annotation_graph(
+        source,
+        root,
+        related_notes,
+        appearance_only,
+        max_bytes,
+        MAX_RECOVERY_OBJECTS,
+        false,
+    )?;
+    graph.renumber_objects();
+    let mut bytes = Vec::new();
+    graph.save_to(&mut bytes)?;
+    if bytes.len() > max_bytes {
+        return Err("Note recovery graph exceeds the byte ceiling".into());
+    }
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn capture_annotation_graph(
+    source: &impl PdfObjectSource,
+    root: ObjectId,
+    related_notes: &[ObjectId],
+    appearance_only: bool,
+    max_bytes: usize,
+    max_objects: usize,
+    allow_unavailable: bool,
+) -> Result<Document> {
     // The parser already owns the page-local reply index. Visit only this
     // note's descendants instead of rescanning every annotation per note.
     let mut annotation_refs = Vec::new();
@@ -18,7 +74,10 @@ pub(crate) fn capture_note_recovery(
         if annotation_seen.insert(id) {
             annotation_refs.push(id);
         }
-        if let Some(popup) = annotation_related_ref(source.dictionary(id)?, b"Popup") {
+        if let Some(popup) = (!appearance_only)
+            .then(|| annotation_related_ref(source.dictionary(id).ok()?, b"Popup"))
+            .flatten()
+        {
             if annotation_seen.insert(popup) {
                 annotation_refs.push(popup);
             }
@@ -31,19 +90,20 @@ pub(crate) fn capture_note_recovery(
         if graph.objects.contains_key(&reference) {
             continue;
         }
-        if graph.objects.len() >= MAX_RECOVERY_OBJECTS {
+        if graph.objects.len() >= max_objects {
             return Err("Note recovery graph exceeds the object ceiling".into());
         }
         let source_object = source.object(reference)?;
-        if source_object
-            .as_stream()
-            .is_ok_and(|stream| is_unread_base_stream(source, stream))
+        if !allow_unavailable
+            && source_object
+                .as_stream()
+                .is_ok_and(|stream| is_unread_base_stream(source, stream))
         {
             return Err("Note recovery requires unavailable source stream bytes".into());
         }
         if source_object
             .as_stream()
-            .is_ok_and(|stream| stream.content.len() > MAX_RECOVERY_BYTES)
+            .is_ok_and(|stream| stream.content.len() > max_bytes)
         {
             return Err("Note recovery stream exceeds the byte ceiling".into());
         }
@@ -57,9 +117,18 @@ pub(crate) fn capture_note_recovery(
             ) {
                 return Err("Note recovery graph crosses into the page tree".into());
             }
-            dict.remove(b"P");
+            if annotation_refs.contains(&reference) {
+                dict.remove(b"P");
+            }
+            if appearance_only && reference == root {
+                for key in TEXT_BOX_METADATA_FIELDS {
+                    dict.remove(key);
+                }
+            }
         }
-        inspect_recovery_object(&object, 0, &mut budget, &mut |id| pending.push(id))?;
+        inspect_recovery_object_with_limit(&object, 0, &mut budget, max_bytes, &mut |id| {
+            pending.push(id)
+        })?;
         graph.set_object(reference, object);
     }
     graph.trailer.set("Root", Object::Reference(root));
@@ -72,21 +141,225 @@ pub(crate) fn capture_note_recovery(
                 .collect(),
         ),
     );
-    // History graphs use compact private references. Sparse source object
-    // numbers must not inflate their xref table or consume the object budget.
-    graph.renumber_objects();
-    let mut bytes = Vec::new();
-    graph.save_to(&mut bytes)?;
-    if bytes.len() > MAX_RECOVERY_BYTES {
-        return Err("Note recovery graph exceeds the byte ceiling".into());
+    Ok(graph)
+}
+
+/// Source extraction is used only at Save, from the parent's immutable lease.
+/// Its graph admission matches the existing retained native document budgets;
+/// ordinary inline undo snapshots keep their smaller 1 MiB/1024-object limits.
+pub(crate) fn hydrate_text_box_original_appearances(
+    mutations: &mut NativeMutationsFile,
+    source: &impl PdfObjectSource,
+) -> Result<()> {
+    let mut remaining = MAX_SIDECAR_BYTES;
+    for editor in &mut mutations.text_boxes {
+        let Some(original) = &mut editor.original_appearance else {
+            continue;
+        };
+        let Some(id) = original.source_annotation_id.as_deref() else {
+            continue;
+        };
+        let root = parse_pdfjs_annotation_object_id(id)
+            .ok_or("Invalid original appearance source annotation id")?;
+        if annotation_subtype(source.dictionary(root)?) != "freetext" {
+            return Err("Original appearance source is not FreeText".into());
+        }
+        let graph = capture_annotation_graph(
+            source,
+            root,
+            &[],
+            true,
+            remaining,
+            MAX_COLLECTION_ITEMS,
+            false,
+        )?;
+        let mut bytes = 0;
+        for object in graph.objects.values() {
+            inspect_recovery_object_with_limit(object, 0, &mut bytes, remaining, &mut |_| {})?;
+        }
+        remaining = remaining.saturating_sub(bytes);
+        original.source_graph = Some(graph);
     }
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    Ok(())
+}
+
+pub(crate) fn hydrate_text_box_original_appearances_path(
+    mutations: &mut NativeMutationsFile,
+    path: &Path,
+    qpdf_path: Option<&Path>,
+) -> Result<()> {
+    let mut source = load_dictionary_incremental_pdf_path(path, qpdf_path)?;
+    let mut pending = HashSet::new();
+    for editor in &mutations.text_boxes {
+        let Some(id) = editor
+            .original_appearance
+            .as_ref()
+            .and_then(|a| a.source_annotation_id.as_deref())
+        else {
+            continue;
+        };
+        let root = parse_pdfjs_annotation_object_id(id)
+            .ok_or("Invalid original appearance source annotation id")?;
+        let graph = capture_annotation_graph(
+            &AppendedRevision::new(&source),
+            root,
+            &[],
+            true,
+            MAX_SIDECAR_BYTES,
+            MAX_COLLECTION_ITEMS,
+            true,
+        )?;
+        pending.extend(
+            graph
+                .objects
+                .keys()
+                .copied()
+                .filter(|id| source.unavailable_base_streams.contains(id)),
+        );
+    }
+    let mut remaining = MAX_SIDECAR_BYTES;
+    for id in pending {
+        source.materialize_base_stream(
+            path,
+            qpdf_path.ok_or("Original appearance source requires qpdf stream access")?,
+            id,
+            remaining.min(MAX_DECOMPRESSED_PDF_STREAM_BYTES),
+        )?;
+        let stream = source.get_prev_documents().get_object(id)?.as_stream()?;
+        remaining = remaining
+            .checked_sub(stream.content.len())
+            .ok_or("Original appearance source streams exceed their byte ceiling")?;
+    }
+    hydrate_text_box_original_appearances(mutations, &AppendedRevision::new(&source))
+}
+
+fn original_text_box_graph(
+    original: &TextBoxOriginalAppearance,
+) -> Result<std::borrow::Cow<'_, Document>> {
+    if let Some(graph) = &original.source_graph {
+        return Ok(std::borrow::Cow::Borrowed(graph));
+    }
+    if let Some(data) = &original.recovery_data {
+        return Ok(std::borrow::Cow::Owned(decode_note_recovery(data)?));
+    }
+    Err("Original appearance requires its retained immutable source".into())
+}
+
+// Appearance restoration owns the original painting/geometry wrapper and text
+// encoding. Identity, thread links and descriptive metadata belong to Save.
+const TEXT_BOX_METADATA_FIELDS: &[&[u8]] = &[
+    b"NM",
+    b"T",
+    b"CreationDate",
+    b"M",
+    b"Subj",
+    b"Popup",
+    b"IRT",
+    b"RT",
+    b"State",
+    b"StateModel",
+    b"ExData",
+];
+
+pub(crate) fn restore_text_box_recovery(
+    document: &mut Document,
+    original: &TextBoxOriginalAppearance,
+    root: ObjectId,
+    page: ObjectId,
+    current: Option<&Dictionary>,
+    editor: &TextBoxMutation,
+    modified_at: &str,
+) -> Result<()> {
+    let popup = document.new_object_id();
+    let graph = original_text_box_graph(original)?;
+    restore_recovery_graph(document, &graph, root, popup, page)?;
+    let contents = document
+        .get_dictionary(root)?
+        .get(b"Contents")
+        .ok()
+        .and_then(|value| document.resolved(value).ok())
+        .filter(|value| pdf_string_to_text(value).as_deref() == Some(editor.text.as_str()))
+        .cloned()
+        .unwrap_or_else(|| text_object(&editor.text));
+    let dict = document.get_dictionary_mut(root)?;
+    if annotation_subtype(dict) != "freetext" {
+        return Err("Original appearance root is not FreeText".into());
+    }
+    for key in TEXT_BOX_METADATA_FIELDS {
+        dict.remove(key);
+        if let Some(value) = current.and_then(|dict| dict.get(key).ok()) {
+            dict.set(key.to_vec(), value.clone());
+        }
+    }
+    dict.set("Contents", contents);
+    if read_annotation_name(dict).is_none() {
+        write_annotation_name(dict, &text_box_name(editor));
+    }
+    dict.set(
+        "M",
+        Object::string_literal(shape_pdf_date(editor.modified_at, modified_at)),
+    );
+    if let Some(author) = &editor.author {
+        dict.set("T", text_object(author));
+    }
+    if let Some(created) = editor.created_at {
+        dict.set(
+            "CreationDate",
+            Object::string_literal(shape_pdf_date(Some(created), modified_at)),
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_text_box_recovery(
+    source: &impl PdfObjectSource,
+    original: &TextBoxOriginalAppearance,
+    root: ObjectId,
+) -> Result<()> {
+    let expected = original_text_box_graph(original)?;
+    let expected_root = expected.trailer.get(b"Root")?.as_reference()?;
+    let without_metadata = |dict: &Dictionary| {
+        let mut dict = dict.clone();
+        dict.remove(b"Contents");
+        for key in TEXT_BOX_METADATA_FIELDS {
+            dict.remove(key);
+        }
+        Object::Dictionary(dict)
+    };
+    let a = recovery_semantic_object(
+        expected.as_ref(),
+        &without_metadata(expected.get_dictionary(expected_root)?),
+        &mut HashSet::new(),
+        0,
+    )?;
+    let b = recovery_semantic_object(
+        source,
+        &without_metadata(source.dictionary(root)?),
+        &mut HashSet::new(),
+        0,
+    )?;
+    if a != b {
+        return Err(
+            "Restored text box appearance differs from its original wrapper/resources".into(),
+        );
+    }
+    Ok(())
 }
 
 pub(crate) fn inspect_recovery_object(
     object: &Object,
     depth: usize,
     budget: &mut usize,
+    on_ref: &mut impl FnMut(ObjectId),
+) -> Result<()> {
+    inspect_recovery_object_with_limit(object, depth, budget, MAX_RECOVERY_BYTES, on_ref)
+}
+
+fn inspect_recovery_object_with_limit(
+    object: &Object,
+    depth: usize,
+    budget: &mut usize,
+    max_bytes: usize,
     on_ref: &mut impl FnMut(ObjectId),
 ) -> Result<()> {
     if depth > 64 {
@@ -97,21 +370,22 @@ pub(crate) fn inspect_recovery_object(
         Object::Reference(id) => on_ref(*id),
         Object::Array(values) => {
             for value in values {
-                inspect_recovery_object(value, depth + 1, budget, on_ref)?;
+                inspect_recovery_object_with_limit(value, depth + 1, budget, max_bytes, on_ref)?;
             }
         }
         Object::Dictionary(dict) => {
             for (key, value) in dict.iter() {
                 *budget = budget.saturating_add(key.len());
-                inspect_recovery_object(value, depth + 1, budget, on_ref)?;
+                inspect_recovery_object_with_limit(value, depth + 1, budget, max_bytes, on_ref)?;
             }
         }
         Object::Stream(stream) => {
             *budget = budget.saturating_add(stream.content.len());
-            inspect_recovery_object(
+            inspect_recovery_object_with_limit(
                 &Object::Dictionary(stream.dict.clone()),
                 depth + 1,
                 budget,
+                max_bytes,
                 on_ref,
             )?;
         }
@@ -120,7 +394,7 @@ pub(crate) fn inspect_recovery_object(
         }
         _ => {}
     }
-    if *budget > MAX_RECOVERY_BYTES {
+    if *budget > max_bytes {
         return Err("Note recovery graph exceeds the byte ceiling".into());
     }
     Ok(())
@@ -157,8 +431,15 @@ pub(crate) fn decode_note_recovery(data: &str) -> Result<Document> {
     ) {
         return Err("Note recovery root is not a note".into());
     }
+    let annotation_refs = graph
+        .trailer
+        .get(b"EVBAnnots")?
+        .as_array()?
+        .iter()
+        .map(Object::as_reference)
+        .collect::<std::result::Result<HashSet<_>, _>>()?;
     let mut budget = 0;
-    for object in graph.objects.values() {
+    for (id, object) in &graph.objects {
         let mut missing = false;
         inspect_recovery_object(object, 0, &mut budget, &mut |id| {
             missing |= !graph.objects.contains_key(&id);
@@ -167,7 +448,7 @@ pub(crate) fn decode_note_recovery(data: &str) -> Result<Document> {
             return Err("Note recovery graph has an external reference".into());
         }
         if let Object::Dictionary(dict) = object {
-            if dict.has(b"P")
+            if (annotation_refs.contains(id) && dict.has(b"P"))
                 || matches!(
                     dict.get(b"Type")
                         .ok()
@@ -220,6 +501,16 @@ pub(crate) fn restore_note_recovery(
     page: ObjectId,
 ) -> Result<Vec<ObjectId>> {
     let graph = decode_note_recovery(data)?;
+    restore_recovery_graph(document, &graph, root, popup, page)
+}
+
+fn restore_recovery_graph(
+    document: &mut Document,
+    graph: &Document,
+    root: ObjectId,
+    popup: ObjectId,
+    page: ObjectId,
+) -> Result<Vec<ObjectId>> {
     let old_root = graph.trailer.get(b"Root")?.as_reference()?;
     let old_popup = annotation_related_ref(graph.get_dictionary(old_root)?, b"Popup");
     let mut refs = HashMap::new();
@@ -237,12 +528,13 @@ pub(crate) fn restore_note_recovery(
         .iter()
         .map(|object| object.as_reference().map(|id| refs[&id]))
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    for (id, mut object) in graph.objects {
+    for (id, source_object) in &graph.objects {
+        let mut object = source_object.clone();
         remap_recovery_object(&mut object, &refs);
-        if annots.contains(&refs[&id]) {
+        if annots.contains(&refs[id]) {
             object.as_dict_mut()?.set("P", Object::Reference(page));
         }
-        document.set_object(refs[&id], object);
+        document.set_object(refs[id], object);
     }
     Ok(annots)
 }
@@ -322,7 +614,15 @@ fn recovery_semantic_object(
         Object::Dictionary(dict) => {
             let mut result = Dictionary::new();
             for (key, value) in dict.iter() {
-                if matches!(key.as_slice(), b"P" | b"IRT" | b"Parent" | b"Length") {
+                let annotation = dict.get(b"Type").ok().and_then(|v| v.as_name().ok())
+                    == Some(b"Annot")
+                    || matches!(
+                        annotation_subtype(dict).as_str(),
+                        "text" | "freetext" | "popup"
+                    );
+                if key.as_slice() == b"Length"
+                    || (annotation && matches!(key.as_slice(), b"P" | b"IRT" | b"Parent"))
+                {
                     continue;
                 }
                 result.set(

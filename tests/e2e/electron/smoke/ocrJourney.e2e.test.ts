@@ -62,7 +62,10 @@ import {
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import {wheelPdfViewportAndWaitForSettlement} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
+import {
+    waitForVisibleMountedPdfCanvases,
+    wheelPdfViewportAndWaitForSettlement,
+} from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
 import {
     callWorkspaceCommand,
     getWorkspaceToolbarSnapshot,
@@ -1074,6 +1077,7 @@ if (process.versions.electron && process.type === 'browser') {
             currentPage: 6,
             effectiveZoom: 2.5,
         });
+        await waitForVisibleMountedPdfCanvases(page, 90_000);
         const readCentre = () => page.evaluate((host: string) => {
             const viewport = document.querySelector<HTMLElement>(`${host} #pdf-viewer`);
             if (!viewport) {

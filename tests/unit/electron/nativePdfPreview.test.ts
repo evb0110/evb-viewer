@@ -4,8 +4,23 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    mkdtemp, readFile, readdir, rm,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {
+    dirname, join,
+} from 'node:path';
+import {webContents} from 'electron';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
+import {
+    setWorkingCopyOriginalPath, forgetWorkingCopyOriginalPath,
+} from '@electron/file-access/workingCopyStore';
+import type * as TAppTempDir from '@electron/utils/appTempDir';
+import {
+    requirePageIndex, requirePageNumber,
+} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
-import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     answerPdfPageShape,
     handlePdfOpeningGeometry,
@@ -19,8 +34,18 @@ const mocks = vi.hoisted(() => ({
     resolveExistingReadablePdfPath: vi.fn(),
     resolveOriginalBackedReadTransport: vi.fn(),
     runNativeToolCommand: vi.fn(),
+    appTempDir: '',
 }));
 
+vi.mock('@electron/utils/appTempDir', async importOriginal => ({
+    ...(await importOriginal<typeof TAppTempDir>()),
+    getAppTempDir: () => mocks.appTempDir,
+}));
+vi.mock('electron', () => ({
+    app: {getPath: () => mocks.appTempDir},
+    webContents: {fromId: () => ({id: 7})},
+}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/tools/evb-pdf-page-ops'}));
 vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadablePdfPath: mocks.resolveExistingReadablePdfPath}));
 vi.mock('@electron/features/documents/main/documentFileReadHandlers', () => ({resolveOriginalBackedReadTransport: mocks.resolveOriginalBackedReadTransport}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
@@ -352,5 +377,78 @@ describe('PDF opening geometry of an encrypted PDF before its password', () => {
 
         await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/broken.pdf'))
             .rejects.toBeInstanceOf(NativeProcessError);
+    });
+});
+
+
+describe('native text-box appearance scratch ownership', () => {
+    const request = {
+        page: {
+            view: [
+                0,
+                0,
+                200,
+                100,
+            ] as [number, number, number, number],
+            rotation: 0 as const,
+            userUnit: 1,
+        },
+        textBoxes: [{textBox: {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'preview',
+            text: 'Text',
+            rect: [
+                10,
+                20,
+                100,
+                60,
+            ] as [number, number, number, number],
+            rotation: 0 as const,
+            fontSize: 18,
+            color: [
+                0,
+                0,
+                0,
+            ] as [number, number, number],
+        }}],
+    };
+
+    it.each([
+        false,
+        true,
+    ])('keeps bytes only while native termination is unproven: %s', async (unproven) => {
+        mocks.appTempDir = await mkdtemp(join(tmpdir(), 'appearance-scratch-test-'));
+        const workingPath = join(mocks.appTempDir, 'managed-copy.pdf');
+        await setWorkingCopyOriginalPath(workingPath, '/original.pdf', 7, {
+            backingState: 'lazy-original',
+            deferOriginalFileExpectation: true,
+        });
+        let input = '';
+        const failure = new Error('Native appearance failed');
+        if (unproven) markUnprovenNativeTermination(failure, 'writer remains unconfirmed');
+        mocks.runNativeToolCommand.mockImplementationOnce(async (_binary: string, args: string[]) => {
+            input = args[args.indexOf('--input') + 1]!;
+            throw failure;
+        });
+        try {
+            const {pageOpsMainBindings} = await import('@electron/features/page-ops/main/pageOpsMainBindings');
+            await expect(pageOpsMainBindings.renderTextBoxAppearance({
+                senderId: 7,
+                sender: webContents.fromId(7)!,
+            }, workingPath, request)).rejects.toBe(failure);
+            expect(dirname(dirname(input))).toBe(mocks.appTempDir);
+            const directories = await readdir(mocks.appTempDir);
+            expect(directories.length).toBe(unproven ? 1 : 0);
+            if (unproven) {
+                expect(JSON.parse(await readFile(input, 'utf8'))).toEqual(request);
+                expect(JSON.parse(await readFile(join(dirname(input), '.evb-managed-scratch.json'), 'utf8'))).toMatchObject({prefix: 'pdf-page-ops-'});
+            }
+        } finally {
+            forgetWorkingCopyOriginalPath(workingPath);
+            await rm(mocks.appTempDir, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });

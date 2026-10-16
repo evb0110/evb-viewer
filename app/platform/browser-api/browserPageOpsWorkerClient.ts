@@ -78,6 +78,10 @@ async function buildWorkerRequestWithTransfers(
         return copy;
     };
     const transfer: Transferable[] = [];
+    if (request.type === 'textBoxAppearance') return {
+        request,
+        transfer,
+    };
     if (request.type === 'insertPages') {
         const transferableData = await toTransferableRequestData(request.payload.data);
         const transferableInsertionData = await toTransferableRequestData(request.payload.insertionData);
@@ -119,15 +123,23 @@ async function buildWorkerRequestWithTransfers(
     }
 
     const transferableData = await toTransferableRequestData(request.payload.data);
+    transfer.push(transferableData.buffer);
+    let originalAppearanceSourceData: Uint8Array<ArrayBuffer> | undefined;
+    if (request.type === 'saveMutations' && request.payload.originalAppearanceSourceData) {
+        originalAppearanceSourceData = await toTransferableRequestData(request.payload.originalAppearanceSourceData);
+        if (originalAppearanceSourceData.buffer === transferableData.buffer) originalAppearanceSourceData = originalAppearanceSourceData.slice();
+        transfer.push(originalAppearanceSourceData.buffer);
+    }
     return {
         request: {
             ...request,
             payload: {
                 ...request.payload,
                 data: transferableData,
+                ...(originalAppearanceSourceData ? {originalAppearanceSourceData} : {}),
             },
         },
-        transfer: [transferableData.buffer] satisfies Transferable[],
+        transfer,
     };
 }
 
@@ -318,7 +330,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
 }
 
 function isCpuPageOperation(type: TBrowserPageOpsWorkerRequestType) {
-    return type === 'saveMutations' || type === 'decrypt' || type === 'printLayout';
+    return type === 'textBoxAppearance' || type === 'saveMutations' || type === 'decrypt' || type === 'printLayout';
 }
 
 async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerRequestType>(
@@ -326,6 +338,9 @@ async function runBrowserPageOpsWithoutWorker<K extends TBrowserPageOpsWorkerReq
     payload: IBrowserPageOpsWorkerRequestMap[K],
     signal?: AbortSignal,
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
+    if (type === 'textBoxAppearance') {
+        throw new BrowserPageOpsWorkerUnavailableError('Text appearance generation requires a worker');
+    }
     const data = (payload as IBrowserPageOpsWorkerRequestMap['decrypt']).data;
     if (signal?.aborted) {
         throw abortErrorFromSignal(signal);

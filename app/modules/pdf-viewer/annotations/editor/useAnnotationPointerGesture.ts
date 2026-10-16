@@ -1,12 +1,5 @@
 import type { ComputedRef } from 'vue';
-import type {
-    AnnotationId,
-    INoteEntity,
-    ITextBoxEntity,
-    IShapeEntity,
-    IPlacedImageEntity,
-    ITextMarkupEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IAnnotationGesture,
     IAnnotationEditorSurface,
@@ -38,14 +31,17 @@ type TAnnotationPointerGestureMode = 'create' | 'move' | 'resize';
 interface IActiveAnnotationPointerGesture {
     mode: TAnnotationPointerGestureMode;
     pageIndex: number;
-    pointerId: number;
+    pointerId: number | null;
     start: IAnnotationEditorPoint;
     current: IAnnotationEditorPoint;
     startClient: IAnnotationPointerEvent;
     hasMoved: boolean;
     gesture?: IAnnotationGesture;
     handle?: TAnnotationResizeHandle;
-    moveBounds?: readonly IAnnotationMarkerRect[];
+    moveBounds?: ReadonlyArray<{
+        id: AnnotationId;
+        bounds: IAnnotationMarkerRect
+    }>;
 }
 
 export interface IAnnotationPointerGestureCompletion {
@@ -74,6 +70,8 @@ export interface IAnnotationPointerGesture {
     readonly current: ComputedRef<IAnnotationEditorPoint | null>;
     readonly hasMoved: ComputedRef<boolean>;
     readonly previewRect: ComputedRef<IAnnotationMarkerRect | null>;
+    readonly movingIds: ComputedRef<ReadonlySet<AnnotationId>>;
+    readonly entity: IAnnotationGesture['entity'] | null;
     beginCreate(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
     beginMove(annotationId: AnnotationId, point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
     beginResize(
@@ -88,7 +86,7 @@ export interface IAnnotationPointerGesture {
     update(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
     isActiveForPointer(pointerId: number): boolean;
     finish(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): IAnnotationPointerGestureCompletion | null;
-    cancel(): void;
+    cancel(gesture?: IAnnotationGesture): boolean;
 }
 
 interface IUseAnnotationPointerGestureOptions {
@@ -96,26 +94,7 @@ interface IUseAnnotationPointerGestureOptions {
     pageIndex: number;
 }
 
-function isMovableEntity(
-    entity: IAnnotationGesture['entity'],
-): entity is ITextBoxEntity | INoteEntity | IShapeEntity | IPlacedImageEntity | ITextMarkupEntity {
-    return entity.kind === 'text-box' || entity.kind === 'note' || entity.kind === 'shape'
-        || entity.kind === 'placed-image' || entity.kind === 'text-markup';
-}
-
 export function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnnotationMarkerRect | null {
-    if (entity.kind === 'text-box') {
-        return entity.rect;
-    }
-    if (entity.kind === 'note') {
-        return entity.position;
-    }
-    if (entity.kind === 'shape') {
-        return entity.rect;
-    }
-    if (entity.kind === 'placed-image') {
-        return entity.rect;
-    }
     if (entity.kind === 'text-markup') {
         const left = Math.min(...entity.quadPoints.map(rect => rect.left));
         const top = Math.min(...entity.quadPoints.map(rect => rect.top));
@@ -128,7 +107,7 @@ export function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnn
             height: bottom - top,
         };
     }
-    return null;
+    return entity.kind === 'note' ? entity.position : entity.rect;
 }
 
 export const useAnnotationPointerGesture = (
@@ -149,12 +128,13 @@ export const useAnnotationPointerGesture = (
     const textSelectionTouchAction = computed(() => options.surface.activeTool.value === 'none'
         ? isVerticalText.value ? 'pan-x pinch-zoom' : 'pan-y pinch-zoom'
         : 'auto');
-    const isActive = computed(() => active.value !== null);
+    const isActive = computed(() => active.value?.pointerId != null);
     const mode = computed(() => active.value?.mode ?? null);
     const resizeHandle = computed(() => active.value?.handle ?? null);
     const start = computed(() => active.value?.start ?? null);
     const current = computed(() => active.value?.current ?? null);
     const hasMoved = computed(() => active.value?.hasMoved ?? false);
+    const movingIds = computed(() => new Set(active.value?.moveBounds?.map(entry => entry.id)));
     function pageDimensions(pageIndex = options.pageIndex) {
         const geometry = options.surface.getPageGeometry(pageIndex);
         return annotationPageDimensions(geometry?.pageView, geometry?.rotation ?? 0);
@@ -167,14 +147,14 @@ export const useAnnotationPointerGesture = (
         if (interaction.mode === 'create') {
             return createAnnotationRectFromPoints(interaction.start, interaction.current);
         }
-        const rect = interaction.gesture && isMovableEntity(interaction.gesture.entity)
+        const rect = interaction.gesture
             ? rectForMovableEntity(interaction.gesture.entity)
             : null;
         if (!rect) {
             return null;
         }
         if (interaction.mode === 'move') {
-            const delta = clampAnnotationMoveDelta(interaction.moveBounds ?? [rect], {
+            const delta = clampAnnotationMoveDelta(interaction.moveBounds?.map(entry => entry.bounds) ?? [rect], {
                 x: interaction.current.x - interaction.start.x,
                 y: interaction.current.y - interaction.start.y,
             });
@@ -195,7 +175,7 @@ export const useAnnotationPointerGesture = (
     }
 
     function beginCreate(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent) {
-        if (active.value) {
+        if (isActive.value) {
             return false;
         }
         active.value = {
@@ -211,17 +191,20 @@ export const useAnnotationPointerGesture = (
     }
 
     function beginMove(annotationId: AnnotationId, point: IAnnotationEditorPoint, event: IAnnotationPointerEvent) {
-        if (active.value) {
+        if (isActive.value) {
             return false;
         }
         const gesture = options.surface.beginMove(annotationId);
-        if (!gesture || !isMovableEntity(gesture.entity)) {
+        if (!gesture) {
             return false;
         }
         active.value = {
             moveBounds: [...options.surface.entitiesByPage.value.values()].flat().filter(entity => options.surface.movingIds.value.has(entity.identity.id) || entity.identity.id === annotationId).flatMap(entity => {
-                const bounds = rectForMovableEntity(entity);
-                return bounds ? [rotatedAnnotationBounds(bounds, 'rotation' in entity ? entity.rotation : 0, pageDimensions(entity.pageIndex))] : [];
+                const bounds = rectForMovableEntity(options.surface.beginMove(entity.identity.id)?.entity ?? entity);
+                return bounds ? [{
+                    id: entity.identity.id,
+                    bounds: rotatedAnnotationBounds(bounds, 'rotation' in entity ? entity.rotation : 0, pageDimensions(entity.pageIndex)),
+                }] : [];
             }),
             mode: 'move',
             pageIndex: options.pageIndex,
@@ -241,11 +224,11 @@ export const useAnnotationPointerGesture = (
         point: IAnnotationEditorPoint,
         event: IAnnotationPointerEvent,
     ) {
-        if (active.value) {
+        if (isActive.value) {
             return false;
         }
         const gesture = options.surface.beginResize(annotationId);
-        if (!gesture || !isMovableEntity(gesture.entity)) {
+        if (!gesture) {
             return false;
         }
         active.value = {
@@ -275,7 +258,7 @@ export const useAnnotationPointerGesture = (
     }
 
     function beginTextSelection(event: IAnnotationPointerEvent) {
-        if (active.value || textSelection.value) {
+        if (isActive.value || textSelection.value) {
             return false;
         }
         textSelection.value = {
@@ -311,10 +294,7 @@ export const useAnnotationPointerGesture = (
             return null;
         }
         update(point, event);
-        const interaction = active.value;
-        if (!interaction) {
-            return null;
-        }
+        const interaction = active.value!;
         const rect = previewRect.value;
         if (!rect) {
             active.value = null;
@@ -323,20 +303,25 @@ export const useAnnotationPointerGesture = (
         const completion: IAnnotationPointerGestureCompletion = {
             mode: interaction.mode,
             pageIndex: interaction.pageIndex,
-            pointerId: interaction.pointerId,
+            pointerId: event.pointerId,
             start: interaction.start,
             current: interaction.current,
             rect,
             hasMoved: interaction.hasMoved,
             ...(interaction.gesture ? {gesture: interaction.gesture} : {}),
         };
-        active.value = null;
+        active.value = interaction.gesture ? {
+            ...interaction,
+            pointerId: null,
+        } : null;
         return completion;
     }
 
-    function cancel() {
+    function cancel(gesture?: IAnnotationGesture) {
+        if (gesture && active.value?.gesture !== gesture) return false;
         active.value = null;
-        textSelection.value = null;
+        if (!gesture) textSelection.value = null;
+        return true;
     }
 
     onScopeDispose(cancel);
@@ -351,6 +336,8 @@ export const useAnnotationPointerGesture = (
         current,
         hasMoved,
         previewRect,
+        movingIds,
+        get entity() {return active.value?.gesture?.entity ?? null;},
         beginCreate,
         beginMove,
         beginResize,
