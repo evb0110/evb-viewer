@@ -187,6 +187,68 @@ describe('browser document lifecycle UI', () => {
         }
     }, 90_000);
 
+    it('preserves a text-box replacement while the initial PDF text layer finishes publishing', async () => {
+        const context = await lifecycle.browser.newContext();
+        const page = await context.newPage();
+        const problems = collectConsoleProblems(page);
+        try {
+            await page.addInitScript(() => {
+                Reflect.set(window, '__heldTextLayerPublication', new Promise<void>(resolvePublication => {
+                    Reflect.set(window, '__releaseTextLayerPublication', resolvePublication);
+                }));
+            });
+            await page.route('**/*usePdfRendererTextLayerController.ts*', async route => {
+                const response = await route.fetch();
+                const source = await response.text();
+                const publication = 'const outgoing = container.querySelector(".text-layer");';
+                const completed = 'if (!isTextLayerRendered) return false;';
+                if (!source.includes(publication) || !source.includes(completed)) {
+                    throw new Error('Initial text-layer publication seam was not found');
+                }
+                await route.fulfill({
+                    response,
+                    body: source.replace(publication,
+                        `document.body.dataset.textLayerPublication = 'held';
+                        await Reflect.get(window, '__heldTextLayerPublication'); ${publication}`)
+                        .replace(completed, `${completed} document.body.dataset.textLayerPublication = 'published';`),
+                });
+            });
+            await openPdfFromChooser(page, resolve(process.cwd(), 'tests/fixtures/electron/interop/synthetic-annotation-interoperability.pdf'));
+            const original = 'Editable interoperability text';
+            const replacement = 'Replacement survives text-layer publication';
+            const textBox = page.locator('.pdf-annotation-editor-text-box').filter({hasText: original}).first();
+            await textBox.waitFor({
+                state: 'visible',
+                timeout: 30_000,
+            });
+            await textBox.dblclick();
+            const editor = page.locator('.pdf-annotation-editor-text-box__editor').last();
+            await page.waitForFunction(() => document.body.dataset.textLayerPublication === 'held');
+            await editor.press('ControlOrMeta+A');
+            expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(original);
+            await page.evaluate(() => Reflect.get(window, '__releaseTextLayerPublication')());
+            await page.waitForFunction(() => document.body.dataset.textLayerPublication === 'published');
+            const selectedAfterPublication = await page.evaluate(() => window.getSelection()?.toString());
+            await page.keyboard.insertText(replacement);
+            const download = page.waitForEvent('download');
+            await page.getByRole('button', {
+                name: 'Save options',
+                exact: true,
+            }).click();
+            await page.getByRole('menuitem', {name: /^Save As/u}).click();
+            const saved = await PDFDocument.load(readFileSync(await (await download).path()));
+            const annots = saved.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+            const contents = Array.from({length: annots.size()}, (_, index) => annots.lookup(index, PDFDict)
+                .lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText());
+            expect.soft(selectedAfterPublication).toBe(original);
+            expect(contents, `Saved /Contents: ${JSON.stringify(contents)}`).toContain(replacement);
+            expect(problems).toEqual([]);
+        } finally {
+            await page.evaluate(() => Reflect.get(window, '__releaseTextLayerPublication')?.()).catch(() => undefined);
+            await context.close();
+        }
+    }, 90_000);
+
     it.each([
         'canvas-only',
         'hydrating',

@@ -3,6 +3,7 @@ import type { TPageNumber } from '@contracts/pageNumbers';
 import type { Ref } from 'vue';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
+import { pdfViewerDomSelectors } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomSelectors';
 
 interface ICreatePdfRendererPageDomOptions {
     container: Ref<HTMLElement | null>;
@@ -24,9 +25,9 @@ export function createPdfRendererPageDom(options: ICreatePdfRendererPageDomOptio
 
     function clearSelectionBeforePageLayerTeardown(pageNumber: TPageNumber): boolean {
         const containerRoot = container.value;
-        const pageContainer = getMountedPageContainer(pageNumber, containerRoot);
         return clearPdfSelectionForLayerTeardown({
-            target: pageContainer,
+            target: getMountedPageContainer(pageNumber, containerRoot)
+                ?.querySelector<HTMLElement>(pdfViewerDomSelectors.textLayerAny) ?? null,
             root: containerRoot,
             includeDetached: true,
             includeAnyPdfTextSelection: pageNumber === currentPage.value,
