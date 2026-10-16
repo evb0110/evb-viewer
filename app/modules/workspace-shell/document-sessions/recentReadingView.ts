@@ -1,7 +1,4 @@
-import type {
-    IPdfSemanticAnchor,
-    IRecentReadingView,
-} from '@contracts/recentReadingView';
+import type { IRecentReadingView } from '@contracts/recentReadingView';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import {
@@ -22,8 +19,8 @@ export interface IWorkspaceReaderFollow {
     moved(): boolean;
     /** Sets the open's admitted reading seed, which stands in for that source's defaults while the open runs. */
     seed(state: Parameters<IWorkspaceExpose['restoreViewState']>[0], source: TDocumentRef | null): void;
-    /** Once the open settles, stops following and brings `anchor` to the view's center unless the reader moved. */
-    finish(anchor: IPdfSemanticAnchor | null): Promise<void>;
+    /** Stops following the reader and withdraws the open's unused view seed. */
+    finish(): void;
 }
 
 // The tab of the view in use is the document context's knowledge
@@ -177,9 +174,9 @@ export async function seedOpeningSource(
 }
 
 /** Ends the open's following. */
-export async function finishOpeningReader(controller: IWorkspaceDocumentController, opening: IOpeningReader) {
+export function finishOpeningReader(controller: IWorkspaceDocumentController, opening: IOpeningReader) {
     if (openingReaders.get(controller) === opening) {
         openingReaders.delete(controller);
     }
-    await opening.reader.finish(null);
+    opening.reader.finish();
 }

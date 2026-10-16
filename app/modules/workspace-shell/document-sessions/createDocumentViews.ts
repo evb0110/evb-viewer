@@ -115,7 +115,7 @@ export const createDocumentViews = (controller: IWorkspaceDocumentController) =>
             return await port.runDocumentOpen(request, run);
         } finally {
             if (opening) {
-                await finishOpeningReader(controller, opening);
+                finishOpeningReader(controller, opening);
             }
         }
     }

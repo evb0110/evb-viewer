@@ -158,8 +158,6 @@ export const usePdfViewerPublicApiController = (
             );
         },
         captureReadingAnchor: () => viewportSession.singlePageScroll.captureRelayoutAnchor(),
-        // A relayout without a change: the anchor is placed as zoom and resize place theirs.
-        restoreReadingAnchor: anchor => viewportSession.singlePageScroll.relayout(undefined, anchor),
         cancelProgrammaticNavigation: () => {
             options.cancelPendingSearchScroll();
             viewportSession.singlePageScroll.cancelProgrammaticNavigation('public-api');

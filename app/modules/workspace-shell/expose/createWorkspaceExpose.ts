@@ -390,15 +390,9 @@ export function createWorkspaceExpose(
                 seed: (state, source) => {
                     withdrawSeed = viewerDefaults.seedViewForSource(state, source);
                 },
-                finish: async (anchor) => {
-                    if (anchor) {
-                        await owners.waitForDocumentOpenSettled();
-                    }
+                finish: () => {
                     stop();
                     withdrawSeed();
-                    if (anchor && !readerMoved()) {
-                        view.documentViewerRef.value?.restoreReadingAnchor?.(anchor);
-                    }
                 },
             };
         },

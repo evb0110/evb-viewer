@@ -43,7 +43,7 @@ const anchor: IPdfSemanticAnchor = {
 };
 
 // An opening view: its open surface, claimed at page 1 as an open claims it,
-// and the view settings and placed point a workspace shows for it.
+// and the view settings a workspace shows for it.
 function createOpeningView(readerMoved = () => false) {
     const openSurface = createDocumentOpenSurfaceSession();
     openSurface.begin({
@@ -55,7 +55,6 @@ function createOpeningView(readerMoved = () => false) {
         zoom: 1,
         zoomMode: 'fit-width' as string,
         viewMode: 'facing' as string,
-        placedAnchor: null as IPdfSemanticAnchor | null,
         seededSource: null as string | null,
     };
     const workspace: Pick<IWorkspaceExpose, 'followReader'> = {followReader: () => ({
@@ -66,9 +65,7 @@ function createOpeningView(readerMoved = () => false) {
             view.viewMode = state.viewMode ?? view.viewMode;
             view.seededSource = seededSource;
         },
-        finish: async (placed) => {
-            view.placedAnchor = placed;
-        },
+        finish: () => {},
     })};
     const controller = createWorkspaceDocumentController({tabId: 'tab-a'});
     return {
@@ -166,7 +163,7 @@ describe('seeding a normal open from its reading view', () => {
         });
         const opening = createOpeningView();
         await seedOpeningSource(opening.controller, source, Promise.resolve(40));
-        await finishOpeningReader(opening.controller, opening.opening);
+        finishOpeningReader(opening.controller, opening.opening);
 
         expect(opening.readTarget()).toEqual({
             source: 'restore',
@@ -176,6 +173,5 @@ describe('seeding a normal open from its reading view', () => {
                 anchor,
             },
         });
-        expect(opening.view.placedAnchor).toBeNull();
     });
 });

@@ -31,6 +31,7 @@ export interface IWorkspaceDocumentView {
 export interface IWorkspaceDocumentViewSeed {
     toolbarSnapshot: IWorkspaceToolbarSnapshot;
     viewState: ITabViewSessionState;
+    readingAnchor?: IPdfSemanticAnchor | null;
 }
 
 /** The controller's handle on a view: mounting and settling its waiters. */
@@ -51,7 +52,7 @@ export function createWorkspaceDocumentView(tabId: string, options: {
 }): IWorkspaceDocumentViewRecord {
     const toolbarSnapshot = shallowRef(options.seed?.toolbarSnapshot ?? createDefaultWorkspaceToolbarSnapshot());
     const viewState = shallowRef(options.seed?.viewState ?? createTabViewSessionState(toolbarSnapshot.value));
-    const readingAnchor = shallowRef<IPdfSemanticAnchor | null>(null);
+    const readingAnchor = shallowRef<IPdfSemanticAnchor | null>(options.seed?.readingAnchor ?? null);
     const mountedWorkspace = shallowRef<IWorkspaceExpose | null>(null);
     const mountWaiters = new Set<(workspace: IWorkspaceExpose | null) => void>();
     let retired = false;

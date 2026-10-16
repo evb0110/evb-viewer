@@ -1,12 +1,7 @@
 import type { Ref } from 'vue';
 import type { ITab } from '@app/types/tabs';
-import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/public';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { useFailureToast } from '@app/composables/useFailureToast';
-import type {
-    IWorkspaceDocumentView,
-    IWorkspaceDocumentViewSeed,
-} from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
+import type { IWorkspaceDocumentViewSeed } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
 import {
     createWorkspaceDocumentController,
     identityHasDocument,
@@ -106,12 +101,6 @@ export const useWorkspaceDocumentSessions = (options: {
         triggerRef(sessionsByTabId);
     }
 
-    // The new view opens at the source's page, then takes the source's place on it.
-    async function placeAtReadingAnchor(view: IWorkspaceDocumentView, anchor: IPdfSemanticAnchor) {
-        const workspace = await view.whenMounted();
-        await workspace?.followReader?.().finish(anchor);
-    }
-
     /**
      * Shows the source tab's PDF in the target tab too: a second view of one
      * document that starts where the source view is (behavior contract T4),
@@ -137,20 +126,15 @@ export const useWorkspaceDocumentSessions = (options: {
             return false;
         }
         const sourceView = source.getView(sourceTabId);
-        const readingAnchor = seed || opening ? null : sourceView?.mountedWorkspace.value?.captureReadingAnchor?.() ?? null;
         // The reader's place and panels, not a scan-cleanup surface.
-        const view = source.addView(targetTabId, seed ?? (sourceView
+        source.addView(targetTabId, seed ?? (sourceView
             ? {
                 toolbarSnapshot: sourceView.toolbarSnapshot.value,
                 viewState: createTabViewSessionState(sourceView.toolbarSnapshot.value),
+                readingAnchor: opening ? null : sourceView.captureReadingAnchor(),
             }
             : undefined));
         replaceSession(targetTabId, source);
-        if (readingAnchor) {
-            placeAtReadingAnchor(view, readingAnchor).catch((error: unknown) => {
-                BrowserLogger.warn('workspace', 'A linked view could not take its source view\'s place', error);
-            });
-        }
         return true;
     }
 
