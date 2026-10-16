@@ -207,7 +207,6 @@ const planeStyle = computed(() => {
         '--annotation-view-rotation': `${viewRotation.value}deg`,
     };
 });
-const isCreating = ref(false);
 const creatingTool = ref<Extract<TAnnotationTool, 'text' | 'note' | 'draw' | 'rectangle' | 'circle' | 'line' | 'arrow'> | null>(null);
 const shapeDraft = ref<IShapeAnnotation | null>(null);
 const newTextBoxIds = new Set<AnnotationId>();
@@ -251,6 +250,7 @@ const pointerGesture = useAnnotationPointerGesture({
     surface,
     pageIndex: props.pageIndex,
 });
+const isCreating = computed(() => pointerGesture.isActive.value && pointerGesture.mode.value === 'create');
 const draggedAnnotationId = computed(() => pointerGesture.entity?.identity.id ?? null);
 watch(viewRotation, cancelPointerGesture);
 const creationTools = useAnnotationCreationTools({surface});
@@ -808,7 +808,6 @@ function handleSurfacePointerDown(event: PointerEvent) {
         return;
     }
     surface.beginPointerInteraction(props.pageIndex);
-    isCreating.value = true;
     creatingTool.value = tool;
     shapeDraft.value = draft;
     event.preventDefault();
@@ -866,11 +865,12 @@ async function handlePointerUp(event: PointerEvent) {
     if (point) pointerGesture.update(point, event);
     const selection = pointerGesture.mode.value === 'move' ? pointerGesture.movingIds.value : surface.selectedIds.value;
     if (point && (pointerGesture.hasMoved.value || pointerGesture.mode.value === 'create')) markClickSuppressed();
-    if (point && draggedAnnotationId.value === editingId.value) void prepareTextBoxGeometryChange();
+    const pending = point && draggedAnnotationId.value === editingId.value ? prepareTextBoxGeometryChange()
+        : point && isCreating.value && editingId.value !== null ? textBoxRefs.get(editingId.value)?.pendingCompletion : undefined;
+    if (pending) focusLayer();
     const completion = point ? pointerGesture.finish(point, event) : null;
     releasePointer(event);
     surface.endPointerInteraction(props.pageIndex);
-    isCreating.value = false;
     const draft = shapeDraft.value;
     shapeDraft.value = null;
     const tool = creatingTool.value;
@@ -962,7 +962,6 @@ function cancelPointerGesture() {
     capturedPointerId = null;
     pointerGesture.cancel();
     surface.endPointerInteraction(props.pageIndex);
-    isCreating.value = false;
     creatingTool.value = null;
     shapeDraft.value = null;
 }

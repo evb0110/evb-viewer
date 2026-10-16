@@ -242,6 +242,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
     ] as const)('commits %s preview when released mouse loses capture before pointerup exactly once', async (kind) => {
         const gesture = await startCapturedGesture(kind, kind === 'grip');
         gesture.layer.dispatchEvent(gesture.pointer('lostpointercapture'));
+        if (kind === 'grip') expect(document.activeElement).toBe(gesture.layer);
         if (kind === 'grip') await vi.waitFor(() => expect(entityRect(gesture.surface.getEntitiesForPage(0)[0])?.left).toBeCloseTo(gesture.preview.left, 12));
         else await nextTick();
         const completed = gesture.surface.getEntitiesForPage(0)[0]!;

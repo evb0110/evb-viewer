@@ -1328,6 +1328,7 @@ describe('Electron E2E - text interaction contract', () => {
         await startText(page);
         await page.keyboard.type('Resize');
         await modifiedKey(page, 'Enter');
+        await waitForTextControlsLayout(page);
         const before = await frame(page);
         const enlarged = await resize(page, 'se', before.width * 0.5, before.height * 0.5);
         expect.soft(enlarged.preview.fontSize).toBeGreaterThan(before.fontSize * 1.2);
