@@ -60,6 +60,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
     async function startCapturedGesture(
         kind: 'grip' | 'body' | 'resize' | 'create' | 'note' | 'shape-move' | 'shape-resize' | 'image-move' | 'image-resize' | 'markup' | 'draw',
         editing = false,
+        publication?: Promise<void>,
     ) {
         const creating = kind === 'create' || kind === 'draw';
         const resizing = kind === 'resize' || kind.endsWith('-resize');
@@ -72,6 +73,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             annotationApplication: application,
             activeTool: computed(() => kind === 'create' ? 'text' : kind === 'draw' ? 'draw' : 'select'),
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+            ...(publication ? {publishTextBoxAppearance: async (_entity: ITextBoxEntity, handoff: () => void) => {await publication; handoff();}} : {}),
             getPageGeometry: () => ({
                 pageView: [
                     0,
@@ -215,6 +217,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             await nextTick();
         }
         return {
+            app,
             surface,
             layer,
             pointer,
@@ -271,6 +274,42 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             await gesture.surface.redo();
             expect(entityRect(gesture.surface.getEntitiesForPage(0)[0])).toEqual(gesture.preview);
         }
+    });
+
+    it.each([
+        'pointerup',
+        'lostpointercapture',
+    ] as const)('retains the draft and clears a refused released gesture without an app error after %s', async (event) => {
+        const publication = Promise.withResolvers<undefined>();
+        const gesture = await startCapturedGesture('grip', true, publication.promise);
+        const errors: unknown[] = [];
+        gesture.app.config.errorHandler = error => {errors.push(error);};
+        const id = gesture.original!.identity.id;
+        const editor = gesture.layer.querySelector<HTMLElement>('[contenteditable="true"]')!;
+        const draftRect = gesture.surface.getTextBoxDraftRect(id);
+        gesture.layer.dispatchEvent(gesture.pointer(event));
+        const refusedSave = expect(gesture.surface.commitPendingTextBoxDraftsForSave()).rejects.toThrow('Native appearance unavailable');
+        publication.reject(new Error('Native appearance unavailable'));
+        await refusedSave;
+        await vi.waitFor(() => expect(document.activeElement).toBe(editor));
+        expect(gesture.surface.getEntitiesForPage(0)[0]).toEqual(gesture.original);
+        expect(editor.textContent).toBe('Текст после правки');
+        expect(gesture.surface.hasTextBoxDraftPending(id)).toBe(true);
+        expect(gesture.surface.getTextBoxDraftRect(id)).toEqual(draftRect);
+        expect(gesture.rect()).toEqual(draftRect);
+        await gesture.finishAfterCaptureLoss();
+        expect(gesture.surface.getEntitiesForPage(0)[0]).toEqual(gesture.original);
+        gesture.layer.querySelector('[data-pdf-annotation-move-handle]')!.dispatchEvent(gesture.pointer('pointerdown', {
+            x: 500,
+            y: 300,
+        }));
+        gesture.layer.dispatchEvent(gesture.pointer('pointermove'));
+        await nextTick();
+        expect(gesture.rect()).not.toEqual(draftRect);
+        gesture.layer.dispatchEvent(gesture.pointer('pointercancel'));
+        await nextTick();
+        expect(gesture.rect()).toEqual(draftRect);
+        expect(errors).toEqual([]);
     });
 
     it.each([

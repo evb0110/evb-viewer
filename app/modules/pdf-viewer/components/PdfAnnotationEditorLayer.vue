@@ -446,10 +446,6 @@ function setTextBoxRef(
     textBoxRefs.delete(annotationId);
 }
 
-function entityIdFromEvent(event: MouseEvent | PointerEvent) {
-    return annotationIdFromEditorEvent(event);
-}
-
 function pointFromEvent(event: Pick<PointerEvent, 'clientX' | 'clientY'>): IAnnotationEditorPoint | null {
     const layerRect = layerRef.value?.getBoundingClientRect();
     if (!layerRect || layerRect.width <= 0 || layerRect.height <= 0) {
@@ -761,7 +757,7 @@ function handleSurfacePointerDown(event: PointerEvent) {
     const acceptedCompletion = editingId.value === null ? null : textBoxRefs.get(editingId.value)?.pendingCompletion;
     focusLayer();
     const tool = surface.activeTool.value;
-    const id = entityIdFromEvent(event);
+    const id = annotationIdFromEditorEvent(event);
     capturedClickAnnotationId = id;
     if (id && !createsOverEntity(tool, entities.value.find(candidate => candidate.identity.id === id))) {
         const wasSelected = surface.selectedIds.value.has(id);
@@ -932,6 +928,8 @@ async function handlePointerUp(event: PointerEvent) {
                 surface.commitGesture(gesture, patch);
             }
         });
+    } catch (error) {
+        BrowserLogger.debug('annotations', 'Pointer command refused', error);
     } finally {
         if (gesture) pointerGesture.cancel(gesture);
     }
@@ -972,7 +970,7 @@ function handleSurfaceClick(event: MouseEvent) {
         capturedClickAnnotationId = null;
         return;
     }
-    const id = entityIdFromEvent(event) ?? capturedClickAnnotationId ?? textBoxIdAtPoint(event);
+    const id = annotationIdFromEditorEvent(event) ?? capturedClickAnnotationId ?? textBoxIdAtPoint(event);
     if (!id) {
         capturedClickAnnotationId = null;
         surface.clearSelection();
@@ -990,7 +988,7 @@ function handleSurfaceClick(event: MouseEvent) {
 }
 
 function handleSurfaceContextMenu(event: MouseEvent) {
-    const id = entityIdFromEvent(event);
+    const id = annotationIdFromEditorEvent(event);
     if (!id) {
         return;
     }
@@ -1011,7 +1009,7 @@ function handleSurfaceContextMenu(event: MouseEvent) {
 }
 
 function handleSurfaceDblClick(event: MouseEvent) {
-    const id = entityIdFromEvent(event) ?? textBoxIdAtPoint(event);
+    const id = annotationIdFromEditorEvent(event) ?? textBoxIdAtPoint(event);
     const resolvedId = id ?? capturedClickAnnotationId;
     capturedClickAnnotationId = null;
     if (resolvedId) {

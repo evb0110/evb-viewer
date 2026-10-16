@@ -14,7 +14,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries,
+    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, readRecoveries, openPdfFromChooser,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -142,6 +142,175 @@ describe('browser document lifecycle UI', () => {
             writeFileSync(resolve(evidenceDir, 'observations.json'), JSON.stringify(observations, null, 2));
             writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
             try {await page.context().close();} finally {await Promise.all(lifecycle.browser.contexts().map(context => context.close()));}
+        }
+    }, 90_000);
+
+    it('retains an editable text draft when native appearance fails after a pointer move', async () => {
+        const evidenceDir = resolve(process.cwd(), `.devkit/browser-refused-text-pointer-${process.pid}`);
+        mkdirSync(evidenceDir, {recursive: true});
+        const fixture = resolve(process.cwd(), 'tests/fixtures/electron/semtext/unfilled-black-c.pdf');
+        const originalText = 'Foreign bordered label';
+        const draft = 'Recoverable refused move café';
+        const refusal = 'Controlled text appearance refusal';
+        const page = await lifecycle.browser.newPage({viewport: {
+            width: 1_200,
+            height: 900,
+        }});
+        const problems = collectConsoleProblems(page);
+        try {
+            // Hold one real appearance request, then deliver the worker's normal
+            // failure envelope after trusted pointerup has joined its completion.
+            await page.addInitScript((message: string) => {
+                const held: Array<() => void> = [];
+                const responses: Array<{
+                    id: unknown;
+                    type: unknown;
+                    ok: unknown
+                }> = [];
+                const state = {
+                    armed: false,
+                    appearances: 0,
+                    failures: 0,
+                    held,
+                    responses,
+                };
+                Reflect.set(window, '__refusedTextPointerAppearance', state);
+                const NativeWorker = window.Worker;
+                window.Worker = new Proxy(NativeWorker, {construct(Target, args) {
+                    const worker: Worker = Reflect.construct(Target, args);
+                    if (!String(args[0]).includes('browserPageOps')) return worker;
+                    worker.addEventListener('message', (event) => {
+                        const response: unknown = event.data;
+                        if (typeof response !== 'object' || response === null) return;
+                        responses.push({
+                            id: Reflect.get(response, 'id'),
+                            type: Reflect.get(response, 'type'),
+                            ok: Reflect.get(response, 'ok'),
+                        });
+                    });
+                    const post = worker.postMessage.bind(worker);
+                    worker.postMessage = (request: unknown, transfer?: Transferable[] | StructuredSerializeOptions) => {
+                        if (typeof request === 'object' && request !== null
+                            && Reflect.get(request, 'type') === 'textBoxAppearance') {
+                            state.appearances += 1;
+                            if (state.armed) {
+                                state.armed = false;
+                                held.push(() => {
+                                    state.failures += 1;
+                                    worker.dispatchEvent(new MessageEvent('message', {data: {
+                                        id: Reflect.get(request, 'id'),
+                                        ok: false,
+                                        error: message,
+                                    }}));
+                                });
+                                return;
+                            }
+                        }
+                        if (Array.isArray(transfer)) post(request, transfer);
+                        else post(request, transfer);
+                    };
+                    return worker;
+                }});
+            }, refusal);
+            await openPdfFromChooser(page, fixture);
+            const box = page.locator('.editor-pane.is-active .pdf-annotation-editor-text-box');
+            await box.waitFor({state: 'visible'});
+            expect(await box.getAttribute('aria-label')).toBe(originalText);
+            await box.dblclick();
+            const editor = box.locator('[contenteditable="true"]');
+            await editor.waitFor({state: 'visible'});
+            await editor.press('Control+A');
+            await page.keyboard.type(draft);
+            await page.evaluate(async () => {
+                await document.fonts.ready;
+                await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+            });
+            await page.waitForFunction(() => {
+                const state = Reflect.get(window, '__refusedTextPointerAppearance');
+                return state.appearances === state.responses.filter((response: {type: unknown}) => response.type === 'textBoxAppearance').length;
+            });
+            await page.evaluate(() => { Reflect.get(window, '__refusedTextPointerAppearance').armed = true; });
+            await page.keyboard.press('Control+Enter');
+            await page.waitForFunction(() => Reflect.get(window, '__refusedTextPointerAppearance').held.length === 1);
+            const before = await box.boundingBox();
+            if (!before) throw new Error('The pending text frame is not visible');
+            const grip = page.locator('.editor-pane.is-active [data-pdf-annotation-move-handle]');
+            const start = await grip.evaluate(element => {
+                const rect = element.getBoundingClientRect();
+                const x = rect.x + rect.width / 2;
+                const y = rect.y + rect.height / 2;
+                if (!element.contains(document.elementFromPoint(x, y))) throw new Error('The move grip is obstructed');
+                return {
+                    x,
+                    y,
+                };
+            });
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(start.x + 34, start.y + 22, {steps: 6});
+            const preview = await box.boundingBox();
+            expect(preview!.x - before.x).toBeCloseTo(34, 1);
+            expect(preview!.y - before.y).toBeCloseTo(22, 1);
+            await page.mouse.up();
+            expect(await box.getAttribute('aria-label')).toBe(originalText);
+            await page.screenshot({path: resolve(evidenceDir, 'pointerup-held.png')});
+            await page.evaluate(() => {
+                Reflect.get(window, '__refusedTextPointerAppearance').held.splice(0).forEach((fail: () => void) => fail());
+            });
+            await page.waitForFunction(() => Reflect.get(window, '__refusedTextPointerAppearance').responses.some(
+                (response: {ok: unknown}) => response.ok === false,
+            ));
+            await page.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+            await page.screenshot({path: resolve(evidenceDir, 'appearance-refused.png')});
+            expect(await page.getByRole('alert').filter({hasText: 'Unable to load the document workspace'}).count(),
+                'Native appearance refusal must not escape into the workspace crash boundary').toBe(0);
+            expect(await editor.textContent()).toBe(draft);
+            expect(await box.getAttribute('class')).toContain('is-editing');
+            expect(await box.getAttribute('aria-label')).toBe(originalText);
+            const refused = await box.boundingBox();
+            expect(refused!.x).toBeCloseTo(before.x, 1);
+            expect(refused!.y).toBeCloseTo(before.y, 1);
+            expect(problems.filter(problem => !problem.includes('[pdf-renderer] Failed to render canvas for page 1'))).toEqual([]);
+            expect(problems.filter(problem => problem.includes('[pdf-renderer] Failed to render canvas for page 1'))).toHaveLength(1);
+
+            await editor.click();
+            await editor.press('End');
+            await page.keyboard.type('!');
+            expect(await editor.textContent()).toBe(`${draft}!`);
+            const download = page.waitForEvent('download');
+            await page.locator('.save-split-primary:visible').first().click();
+            const savedPath = resolve(evidenceDir, 'recovered.pdf');
+            await (await download).saveAs(savedPath);
+            const readTextBox = async (path: string) => {
+                const pdf = await PDFDocument.load(readFileSync(path));
+                const annotation = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).asArray()
+                    .map(ref => pdf.context.lookup(ref, PDFDict))
+                    .find(value => value.get(PDFName.of('Subtype'))?.toString() === '/FreeText')!;
+                return {
+                    text: annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText(),
+                    rect: annotation.lookup(PDFName.of('Rect'), PDFArray).asArray().map(value => Number(value.toString())),
+                };
+            };
+            const source = await readTextBox(fixture);
+            const saved = await readTextBox(savedPath);
+            expect(saved.text).toBe(`${draft}!`);
+            expect(saved.rect[0]).toBe(source.rect[0]);
+            expect(saved.rect[3]).toBe(source.rect[3]);
+            const reopened = await lifecycle.browser.newPage({viewport: {
+                width: 1_200,
+                height: 900,
+            }});
+            const reopenedProblems = collectConsoleProblems(reopened);
+            await openPdfFromChooser(reopened, savedPath);
+            const reopenedBox = reopened.locator('.pdf-annotation-editor-text-box');
+            await reopenedBox.waitFor({state: 'visible'});
+            expect(await reopenedBox.getAttribute('aria-label')).toBe(`${draft}!`);
+            await reopened.screenshot({path: resolve(evidenceDir, 'reopened.png')});
+            expect(reopenedProblems).toEqual([]);
+            expect(problems.filter(problem => !problem.includes('[pdf-renderer] Failed to render canvas for page 1'))).toEqual([]);
+        } finally {
+            writeFileSync(resolve(evidenceDir, 'console.json'), JSON.stringify(problems, null, 2));
+            await Promise.all(lifecycle.browser.contexts().map(context => context.close()));
         }
     }, 90_000);
 
