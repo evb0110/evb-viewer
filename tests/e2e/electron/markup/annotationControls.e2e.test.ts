@@ -12,10 +12,10 @@ import {
 import type {Page} from 'puppeteer-core';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
-    decodePDFRawStream, PageSizes, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString, rgb,
+    decodePDFRawStream, PageSizes, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFRef, PDFString, rgb,
 } from 'pdf-lib';
 import type {
-    PDFNumber, PDFRef,
+    PDFNumber, PDFObject,
 } from 'pdf-lib';
 import {createPdfjsNodeDocumentOptions} from '@electron/features/search/pdfjsPageTexts';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
@@ -782,15 +782,41 @@ describe('Electron E2E - annotation controls', () => {
                 finally { await gripPaint.dispose(); }
             }
         }
-        const normalAppearance = async (bytes: Uint8Array) => {
+        const normalAppearance = async (bytes: Uint8Array, resolveResources = false) => {
             const pdf = await PDFDocument.load(bytes);
             const annotation = (pdf.getPage(0).node.Annots()?.asArray() ?? []).map(ref => pdf.context.lookup(ref, PDFDict))
                 .find(object => object.get(PDFName.of('Subtype'))?.toString() === '/FreeText')!;
             const normal = annotation.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'));
             if (!(normal instanceof PDFRawStream)) throw new Error('Saved normal appearance is not a stream');
+            // Recovery can remap object numbers. Compare the saved resource graph's
+            // actual dictionaries and stream bytes, rather than those local numbers.
+            const resource = (object: PDFObject | undefined, path = new Set<string>()): unknown => {
+                if (!object) throw new Error('Saved appearance resource graph has a dangling reference');
+                if (object instanceof PDFRef) {
+                    const key = object.toString();
+                    if (path.has(key)) throw new Error('Saved appearance resource graph has a reference cycle');
+                    return resource(pdf.context.lookup(object), new Set(path).add(key));
+                }
+                if (object instanceof PDFArray) return object.asArray().map(value => resource(value, path));
+                if (object instanceof PDFRawStream) return {
+                    dictionary: resource(object.dict, path),
+                    bytes: Buffer.from(object.contents),
+                };
+                if (object instanceof PDFDict) return Object.fromEntries(object.entries()
+                    .sort(([a], [b]) => a.toString().localeCompare(b.toString()))
+                    .map(([
+                        key,
+                        value,
+                    ]) => [
+                        key.toString(),
+                        resource(value, path),
+                    ]));
+                return object.toString();
+            };
+            const resources = normal.dict.lookup(PDFName.of('Resources'), PDFDict);
             return {
                 stream: Buffer.from(normal.contents),
-                resources: normal.dict.lookup(PDFName.of('Resources'), PDFDict).toString(),
+                resources: resolveResources ? resource(resources) : resources.toString(),
                 rect: annotation.lookup(PDFName.of('Rect'), PDFArray).toString(),
                 contents: annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).asBytes(),
             };
@@ -863,7 +889,27 @@ describe('Electron E2E - annotation controls', () => {
                 && box.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === 'Fill probe';
         }, {}, selector, originalAnnotationId);
         await originalPaint('text-undo-after-save');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const undoneBytes = readFileSync(saved);
+        expect(await normalAppearance(undoneBytes, true), 'Save while undone preserves the original AP, resource graph, Rect and Contents bytes')
+            .toEqual(await normalAppearance(original, true));
+        await originalPaint('text-undo-saved-stale-proxy', undoneBytes);
+        // Open the saved bytes as a distinct document so this actual reopen does
+        // not discard the first document's Redo history.
+        const historyTabId = await page.$eval('.editor-pane.is-active .tab.is-active[data-tab-id]', element => element.getAttribute('data-tab-id'));
+        const undoneReopen = join(evidence, 'undone-reopen.pdf');
+        writeFileSync(undoneReopen, undoneBytes);
+        await openPdfInApp(page, undoneReopen);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await originalPaint('text-undo-saved-reopened', undoneBytes);
+        await clickAsUser(page, `.tab[data-tab-id="${historyTabId}"]`);
+        await waitForViewerInteractive(page);
         await clickVisibleAnnotationControl(page, '.toolbar button[aria-label="Redo"]');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const redone = await PDFDocument.load(readFileSync(saved));
+        const redoneAnnotation = redone.context.lookup(redone.getPage(0).node.Annots()!.get(0), PDFDict);
+        expect(redoneAnnotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Core61 edited text');
         await originalPaint('text-redo-after-save', readFileSync(saved));
         const restarted = await sessionFixture.restart({hard: true});
         page = restarted.page;
@@ -1024,6 +1070,136 @@ describe('Electron E2E - annotation controls', () => {
                 }]).promise;
                 const screenshot = createCanvas(full.width, full.height);
                 screenshot.getContext('2d').drawImage(full, 0, 0);
+
+                const rawCanvas = await page.evaluate(({
+                    positions, pageScale, pageBounds, dpr,
+                }) => {
+                    const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container[data-page="1"] .page_canvas canvas');
+                    if (!canvas?.isConnected || !canvas.width || !canvas.height) throw new Error('Current connected page canvas unavailable');
+                    const bounds = canvas.getBoundingClientRect();
+                    const ancestors = [];
+                    for (let element: Element | null = canvas; element; element = element.parentElement) {
+                        const style = getComputedStyle(element);
+                        ancestors.push({
+                            tag: element.tagName,
+                            className: element.className,
+                            opacity: style.opacity,
+                            filter: style.filter,
+                            mixBlendMode: style.mixBlendMode,
+                        });
+                    }
+                    return {
+                        ancestors,
+                        samples: positions.map(([
+                            x,
+                            y,
+                        ]) => {
+                            const screenX = pageBounds.left + x! * pageScale / dpr;
+                            const screenY = pageBounds.top + (800 - y!) * pageScale / dpr;
+                            const px = Math.round((screenX - bounds.left) * canvas.width / bounds.width);
+                            const py = Math.round((screenY - bounds.top) * canvas.height / bounds.height);
+                            return {
+                                x,
+                                y,
+                                rgba: [...canvas.getContext('2d')!.getImageData(px, py, 1, 1).data],
+                            };
+                        }),
+                    };
+                }, {
+                    positions: [
+                        [
+                            120,
+                            605,
+                        ],
+                        [
+                            160,
+                            605,
+                        ],
+                        [
+                            250,
+                            605,
+                        ],
+                        [
+                            95,
+                            645,
+                        ],
+                    ],
+                    pageScale: viewport.scale,
+                    pageBounds: bounds,
+                    dpr,
+                });
+                for (const sample of rawCanvas.samples) {
+                    const [
+                        px,
+                        py,
+                    ] = viewport.convertToViewportPoint(sample.x!, sample.y!);
+                    const expected = reference.getContext('2d').getImageData(Math.round(px!), Math.round(py!), 1, 1).data;
+                    expect(sample.rgba, `${mode} raw canvas PDF order/backdrop at ${sample.x},${sample.y}`).toEqual([...expected]);
+                }
+                for (const ancestor of rawCanvas.ancestors) {
+                    expect(ancestor.opacity, `${mode} canvas ancestor opacity`).toBe('1');
+                    expect(ancestor.filter, `${mode} canvas ancestor filter`).toBe('none');
+                    expect(ancestor.mixBlendMode, `${mode} canvas ancestor blend`).toBe('normal');
+                }
+                writeFileSync(join(evidence, `${mode}-raw-canvas-check.json`), JSON.stringify(rawCanvas, null, 2));
+                // Compare two screenshots through the same compositor, at the same canvas position.
+                // Direct raw Node pixels differ from Mac compositor output even on the baseline.
+                // The reference never detaches or changes the product canvas.
+                const referenceCanvas = await page.evaluateHandle(async (png) => {
+                    const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container[data-page="1"] .page_canvas canvas');
+                    if (!canvas?.isConnected || !canvas.width || !canvas.height) throw new Error('Current connected page canvas unavailable');
+                    const image = new Image();
+                    image.src = png;
+                    await image.decode();
+                    const replacement = canvas.cloneNode(false) as HTMLCanvasElement;
+                    const context = replacement.getContext('2d', canvas.getContext('2d')!.getContextAttributes())!;
+                    context.drawImage(image, 0, 0);
+                    const parent = canvas.parentNode!;
+                    const state = {
+                        canvas,
+                        replacement,
+                        parent,
+                        outerHTML: canvas.outerHTML,
+                        png: canvas.toDataURL(),
+                        next: canvas.nextSibling,
+                        rect: canvas.getBoundingClientRect().toJSON(),
+                    };
+                    const bounds = canvas.getBoundingClientRect();
+                    replacement.style.cssText = `all:initial;position:fixed;left:${bounds.left}px;top:${bounds.top}px;width:${bounds.width}px;height:${bounds.height}px;z-index:2147483647;pointer-events:none;`;
+                    document.body.appendChild(replacement);
+                    return state;
+                }, `data:image/png;base64,${reference.toBuffer('image/png').toString('base64')}`);
+                let compositedReferenceBytes: Uint8Array;
+                try {
+                    await referenceCanvas.evaluate(() => new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+                    compositedReferenceBytes = await page.screenshot();
+                }
+                finally {
+                    const restored = await referenceCanvas.evaluate(state => {
+                        state.replacement.remove();
+                        const restored = {
+                            sameNode: state.parent.contains(state.canvas),
+                            sameOuterHTML: state.canvas.outerHTML === state.outerHTML,
+                            samePixels: state.canvas.toDataURL() === state.png,
+                            sameNextSibling: state.canvas.nextSibling === state.next,
+                            sameRect: JSON.stringify(state.canvas.getBoundingClientRect().toJSON()) === JSON.stringify(state.rect),
+                        };
+                        return restored;
+                    });
+                    await referenceCanvas.dispose();
+                    expect(restored).toEqual({
+                        sameNode: true,
+                        sameOuterHTML: true,
+                        samePixels: true,
+                        sameNextSibling: true,
+                        sameRect: true,
+                    });
+                }
+                writeFileSync(join(evidence, `${mode}-composited-reference.png`), compositedReferenceBytes);
+                const expectedImage = await loadImage(Buffer.from(compositedReferenceBytes));
+                const expectedViewport = createCanvas(expectedImage.width, expectedImage.height);
+                expectedViewport.getContext('2d').drawImage(expectedImage, 0, 0);
+
                 for (const [
                     x,
                     y,
@@ -1049,7 +1225,7 @@ describe('Electron E2E - annotation controls', () => {
                         px,
                         py,
                     ] = viewport.convertToViewportPoint(x!, y!);
-                    const expected = reference.getContext('2d').getImageData(Math.round(px!), Math.round(py!), 1, 1).data;
+                    const expected = expectedViewport.getContext('2d').getImageData(Math.round(bounds.left * dpr + px!), Math.round(bounds.top * dpr + py!), 1, 1).data;
                     const actual = screenshot.getContext('2d').getImageData(Math.round(bounds.left * dpr + px!), Math.round(bounds.top * dpr + py!), 1, 1).data;
                     expect([...actual], `${mode} PDF order/backdrop at ${x},${y}`).toEqual([...expected]);
                 }
@@ -2054,6 +2230,51 @@ describe('Electron E2E - annotation controls', () => {
             Number((element as HTMLInputElement).value)
         ));
         expect(size, 'the size control shows the size the label draws').toBe(22);
+    });
+
+    it('commits completed IME text without a following ordinary input through Save and reopen', async () => {
+        const evidence = mkdtempSync(join(tmpdir(), 'evb-completed-composition-'));
+        onTestFinished(() => rmSync(evidence, {
+            force: true,
+            recursive: true,
+        }));
+        const saved = join(evidence, 'saved.pdf');
+        copyFileSync(resolve('tests/fixtures/electron/semtext/asymmetric-frame.pdf'), saved);
+        const box = '.editor-pane.is-active .pdf-annotation-editor-text-box';
+        const {page} = sessionFixture.getSession();
+        await openPdfInApp(page, saved);
+        await waitForViewerInteractive(page);
+        await openAnnotationsTab(page);
+        await clickAnnotationTool(page, 'Select');
+        await clickAsUser(page, box, {count: 2});
+        await page.waitForSelector(`${box}.is-editing [contenteditable="true"]`, {visible: true});
+        await selectAllFocusedAnnotationText(page);
+        const cdp = await page.createCDPSession();
+        try {
+            // Chromium's final input is composing; compositionend has no later input.
+            await cdp.send('Input.imeSetComposition', {
+                text: 'café',
+                selectionStart: 4,
+                selectionEnd: 4,
+            });
+            await cdp.send('Input.insertText', {text: 'café'});
+        } finally {await cdp.detach();}
+        await expect.poll(() => page.$eval(`${box} [contenteditable]`, element => element.textContent)).toBe('café');
+        const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+        await page.keyboard.down(modifier);
+        try {await page.keyboard.press('Enter');}
+        finally {await page.keyboard.up(modifier);}
+        await page.waitForFunction(selector => !document.querySelector(selector)?.classList.contains('is-editing'), {}, box);
+        expect(await page.$eval(box, element => element.getAttribute('aria-label'))).toBe('café');
+        await saveViaVisibleToolbar(page, 12_000, saved);
+        const pdf = await PDFDocument.load(readFileSync(saved));
+        const annotation = pdf.getPage(0).node.Annots()!.asArray().map(ref => pdf.context.lookup(ref, PDFDict))
+            .find(value => value.get(PDFName.of('Subtype'))?.toString() === '/FreeText')!;
+        expect(annotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('café');
+        const restarted = await sessionFixture.restart({hard: true});
+        await openPdfInApp(restarted.page, saved);
+        await waitForViewerInteractive(restarted.page);
+        await expect.poll(() => restarted.page.$eval(box, element => element.getAttribute('aria-label'))).toBe('café');
     });
 
     it('retains a visible typing box and places the caret through delayed pointer input', async () => {

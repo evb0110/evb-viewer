@@ -1,7 +1,6 @@
 import type {
     IDocumentMutationRevisionOptions,
     IDocumentsFileCapability,
-    IPdfNativeMutationSet,
     IPdfNativeSaveResult,
 } from '@contracts/electronApiDocuments';
 import { readBrowserPdfCatalogPart } from '@contracts/browserPdfCatalog';
@@ -86,6 +85,11 @@ export async function createBrowserCombinedPdfFromPaths(
     return module.createCombinedPdfFromPaths(paths, progressOptions);
 }
 
+interface IBrowserNativeMutationLease {
+    path: TDocumentRef;
+    identityBindings: IPdfNativeSaveResult['identityBindings'];
+}
+
 interface ICreateBrowserDocumentsFileCapabilityOptions {
     clearSearchCaches: (pdfPath?: string) => void | Promise<void>;
     errorMessageProvider?: {
@@ -96,11 +100,9 @@ interface ICreateBrowserDocumentsFileCapabilityOptions {
 type TCanonicalDocumentsFileCapability = IDocumentsFileCapability;
 
 async function sha256Hex(bytes: Uint8Array) {
-    const ownedBytes = new Uint8Array(bytes.byteLength);
-    ownedBytes.set(bytes);
     const digest = new Uint8Array(await crypto.subtle.digest(
         'SHA-256',
-        ownedBytes,
+        bytes.slice(),
     ));
     return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -117,8 +119,7 @@ export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
 ): IDocumentsFileCapability {
     const { clearSearchCaches } = options;
-    const browserNativeMutationBindings = new Map<string, IPdfNativeSaveResult['identityBindings']>();
-    const browserNativeMutationLeases = new Map<string, TDocumentRef>();
+    const browserNativeMutationLeases = new Map<string, IBrowserNativeMutationLease>();
     const browserUseNativeAppMessageProvider = options.errorMessageProvider?.useNativeApp
         ?? (() => 'Use the native app for files this large.');
 
@@ -298,7 +299,7 @@ export function createBrowserDocumentsFileCapability(
         },
         async applyPdfNativeMutationsToWorkingCopy(
             path,
-            mutations: IPdfNativeMutationSet,
+            mutations,
             modifiedAt,
             options: IDocumentMutationRevisionOptions,
         ) {
@@ -312,8 +313,12 @@ export function createBrowserDocumentsFileCapability(
                 options.expectedDocumentRevisionToken,
             );
             const input = await browserDocumentStore.read(path);
+            const originalAppearanceSource = mutations.originalAppearanceSource;
+            if (originalAppearanceSource) await assertBrowserPathWithinFullReadBudget(originalAppearanceSource, 'Restoring text appearances', `. ${browserUseNativeAppMessageProvider()}`);
+            const originalAppearanceSourceData = originalAppearanceSource ? await browserDocumentStore.read(originalAppearanceSource) : undefined;
             const wasmResult = await runBrowserPageOpsWorkerRequest('saveMutations', {
                 data: input,
+                ...(originalAppearanceSourceData ? {originalAppearanceSourceData} : {}),
                 mutations,
                 modifiedAt,
             });
@@ -364,11 +369,10 @@ export function createBrowserDocumentsFileCapability(
                         },
                     },
                 );
-                browserNativeMutationBindings.set(
-                    stagedOutput.path,
-                    wasmResult.identityBindings,
-                );
-                browserNativeMutationLeases.set(stagedOutput.leaseId, stagedOutput.path);
+                browserNativeMutationLeases.set(stagedOutput.leaseId, {
+                    path: stagedOutput.path,
+                    identityBindings: wasmResult.identityBindings,
+                });
                 return {
                     applied: true,
                     validation: {
@@ -388,12 +392,11 @@ export function createBrowserDocumentsFileCapability(
             }
         },
         async releaseManagedTempFileHandle(leaseId) {
-            const stagedPath = browserNativeMutationLeases.get(leaseId);
+            const stagedPath = browserNativeMutationLeases.get(leaseId)?.path;
             if (!stagedPath) {
                 return false;
             }
             browserNativeMutationLeases.delete(leaseId);
-            browserNativeMutationBindings.delete(stagedPath);
             await retireBrowserDocumentWorkingCopy(stagedPath);
             await browserDocumentStore.remove(stagedPath).catch(() => undefined);
             return true;
@@ -412,7 +415,6 @@ export function createBrowserDocumentsFileCapability(
                 ...(originalPath ? {sourceRef: originalPath} : {}),
             });
             browserNativeMutationLeases.delete(stagedOutput.leaseId);
-            browserNativeMutationBindings.delete(stagedOutput.path);
             await retireBrowserDocumentWorkingCopy(stagedOutput.path);
             await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
             return clonePath;
@@ -429,14 +431,12 @@ export function createBrowserDocumentsFileCapability(
             try {
                 committed = await saveWorkingBytesToSource(path, browserUseNativeAppMessageProvider, options, stagedOutput);
             } catch (error) {
-                browserNativeMutationBindings.delete(stagedOutput.path);
                 browserNativeMutationLeases.delete(stagedOutput.leaseId);
                 await retireBrowserDocumentWorkingCopy(stagedOutput.path);
                 await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
                 throw error;
             }
             if (!committed) {
-                browserNativeMutationBindings.delete(stagedOutput.path);
                 browserNativeMutationLeases.delete(stagedOutput.leaseId);
                 await retireBrowserDocumentWorkingCopy(stagedOutput.path);
                 await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
@@ -445,8 +445,7 @@ export function createBrowserDocumentsFileCapability(
                     validation: null,
                 } satisfies IPdfNativeSaveResult;
             }
-            const identityBindings = browserNativeMutationBindings.get(stagedOutput.path);
-            browserNativeMutationBindings.delete(stagedOutput.path);
+            const identityBindings = browserNativeMutationLeases.get(stagedOutput.leaseId)?.identityBindings;
             browserNativeMutationLeases.delete(stagedOutput.leaseId);
             await retireBrowserDocumentWorkingCopy(stagedOutput.path);
             await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);

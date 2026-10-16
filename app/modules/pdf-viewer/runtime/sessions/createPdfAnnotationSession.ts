@@ -3,6 +3,7 @@ import type {
     Ref,
 } from 'vue';
 import {normalizePdfJsAnnotationId} from '@app/utils/pdfAnnotationRefs';
+import {readPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 import type { usePdfAppAnnotationHistory } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import {
     annotationDocumentKey,
@@ -44,9 +45,8 @@ import type {
 import {
     asAnnotationId,
     isReadOnlyAnnotation,
-    normalizeAnnotationText,
-    semanticEntityFingerprint,
     type AnnotationEntity,
+    type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { groupBy } from 'es-toolkit/array';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
@@ -76,9 +76,15 @@ import {
     sameStringSet,
 } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSessionHelpers';
 import { createPdfAnnotationStampImageResolver } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver';
-import {readPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
-import {mapPdfAnnotationParseEntity} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
-import type {IPdfAnnotationRenderInput} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import type {
+    IPdfPage, IPdfAnnotation,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {
+    fitNativeTextBox,
+    nativeAnnotationPaintSignature,
+    originalAnnotationPaintRef,
+    prepareNativeTextBoxPagePaint,
+} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import { resolvePdfAnnotationSelectionGeometry } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry';
 import {resolvePdfAnnotationPreviewTextFromMarkerRects} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
@@ -347,6 +353,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         currentPage: viewport.currentPage,
         allowCrossPage: true,
     });
+    function textBoxAppearanceOperation<T>(proposal: ITextBoxEntity, operation: () => Promise<T>) {
+        return operation().catch((error: unknown) => {
+            rendering.presentPageRenderFailure(requirePageNumber(proposal.pageIndex + 1), error);
+            throw error;
+        });
+    }
     const annotationEditorSurface = usePdfAnnotationEditorSurface({
         annotationApplication,
         isActive: options.isActive,
@@ -359,7 +371,42 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         },
         getTextBoxDraftText: annotationId => textBoxDrafts.get(annotationId) ?? null,
         isOriginalAppearance: entity => isReadOnlyAnnotation(entity)
-            || rendering.isOriginalAppearance(requirePageNumber(entity.pageIndex + 1), entity.identity.pdfRef),
+            || rendering.isOriginalAppearance(requirePageNumber(entity.pageIndex + 1), originalAnnotationPaintRef(documentSession.pdfDocument.value, entity)),
+        isNativeTextBoxAppearance: entity => rendering.isNativeTextBoxAppearance(requirePageNumber(entity.pageIndex + 1), entity.identity.id),
+        fitTextBox: (_entity, proposal) => textBoxAppearanceOperation(proposal, async () => {
+            await ensureAnnotationProjectionReady();
+            const document = documentSession.pdfDocument.value;
+            if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
+            return fitNativeTextBox(proposal, await document.getPage(proposal.pageIndex + 1), documentAnnotations.getWriterParseResult() ?? readPdfDocumentOriginalAnnotations(document), options.workingCopyPath.value);
+        }),
+        publishTextBoxAppearance: (proposal, handoff) => textBoxAppearanceOperation(proposal, async () => {
+            const signature = paintSignature.value;
+            const fence = documentSession.captureFence();
+            const document = documentSession.pdfDocument.value;
+            const entities = paintEntities.value;
+            if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
+            const pageNumber = requirePageNumber(proposal.pageIndex + 1);
+            const isCurrent = () => documentSession.isCurrent(fence) && paintSignature.value === signature;
+            const accept = () => {if (!isCurrent()) throw new DOMException('Text appearance input changed', 'AbortError'); handoff();};
+            const published = await rendering.publishAnnotationPaint(pageNumber, {
+                signature: nativeAnnotationPaintSignature(entities.map(entity => entity.identity.id === proposal.identity.id ? proposal : entity), retiredPdfAnnotationIds.value, null, options.documentRevisionToken.value),
+                async prepare(signal, reserveAppearanceBytes) {
+                    const page = await document.getPage(pageNumber);
+                    const input = await preparePagePaint(page, await page.getAnnotations({intent: 'display'}), signal, reserveAppearanceBytes, proposal, entities);
+                    if (!input) throw new DOMException('Text appearance document closed', 'AbortError');
+                    return input;
+                },
+                isCurrent,
+                commit: input => {
+                    accept();
+                    return Object.freeze({
+                        ...input,
+                        signature: paintSignature.value,
+                    });
+                },
+            });
+            if (!published) accept();
+        }),
         textBoxDraftRects: documentAnnotations.textBoxDraftRects,
         getTextBoxDraftGeneration: annotationId => textBoxDraftGenerations.get(annotationId),
         beforeTextBoxEdit: annotationId => documentAnnotations.commitDraftIfOpen(annotationId, documentAnnotationsView),
@@ -644,12 +691,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         commentSelection: () => highlightSelectionInternal(true).then(outcome => outcome.status === 'created'),
         createTextMarkupFromText,
         commentAtPoint,
-        maybeApplySelectionMarkup,
-        buildAnnotationContextMenuPayload,
-        resolvePagePointTarget: pagePointResolver.resolvePagePointTarget,
-        findPageContainerFromClientPoint: pagePointResolver.findPageContainerFromClientPoint,
-        clearSelectionCache: textSelectionCache.clearSelectionCache,
-        highlightSelectionInternal,
     };
     const disposeSelectionInteraction = createAnnotationSelectionInteractionController({
         viewerContainer: options.viewerContainer,
@@ -677,7 +718,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }
     const crud = {
         findEditorForComment: (_comment: IAnnotationCommentSummary) => null,
-        findEditorByAnnotationElementId: (_pageIndex: number, _annotationId: string) => null,
         focusAnnotationComment: async (comment: IAnnotationCommentSummary) => {
             const id = annotationApplication.value.annotationIdForSummary(comment);
             if (id) {
@@ -713,30 +753,20 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             if (!id || !entity) {
                 return false;
             }
-            const normalizedText = normalizeAnnotationText(text);
-            if (entity.kind === 'text-box') {
-                return Boolean(annotationApplication.value.store.updateTextBox(id, {text: normalizedText}));
-            }
-            if (entity.kind === 'note') {
-                return Boolean(annotationApplication.value.store.updateNote(id, {contents: normalizedText}));
-            }
-            if (entity.kind === 'text-markup') {
-                return Boolean(annotationApplication.value.store.updateTextMarkup(id, {contents: normalizedText}));
-            }
-            return false;
+            if (entity.kind === 'shape' || entity.kind === 'placed-image') return false;
+            annotationApplication.value.store.setNoteText(id, text);
+            return true;
         },
-        deleteAnnotationComment: async (comment: IAnnotationCommentSummary) => {
-            await Promise.resolve();
+        deleteAnnotationComment: (comment: IAnnotationCommentSummary) => {
             const id = annotationApplication.value.annotationIdForSummary(comment);
             if (!id || !annotationApplication.value.store.get(id)) {
-                return false;
+                return Promise.resolve(false);
             }
             annotationApplication.value.store.delete(id);
             options.emitAnnotationModified();
-            return true;
+            return Promise.resolve(true);
         },
-        handleAnnotationCommentClick: async (event: MouseEvent) => {
-            await Promise.resolve();
+        handleAnnotationCommentClick: (event: MouseEvent) => {
             const comment = summaryFromTarget(event.target);
             if (!comment) {
                 return;
@@ -769,16 +799,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             setActiveSummary(comment);
             options.emitAnnotationContextMenu(buildAnnotationContextMenuPayload(comment, event.clientX, event.clientY));
         },
-        findEditorFromTarget: (_target: EventTarget | null) => null,
-        findEditorSummaryFromTarget: summaryFromTarget,
-        findAnnotationSummaryFromTarget: summaryFromTarget,
-        findAnnotationSummaryFromPoint: (_target: EventTarget | null, clientX: number, clientY: number) => {
-            const element = document.elementFromPoint(clientX, clientY);
-            return summaryFromTarget(element);
-        },
-        ensureEditorInteractionModeFromTarget: async () => {},
-        resolveCommentFromIndicatorClickTarget: (target: EventTarget | null) => summaryFromTarget(target),
-        clearSelection: annotationEditorSurface.clearSelection,
     };
     const annotations = {
         editor,
@@ -822,14 +842,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             if (!entity || entity.kind === 'shape' || entity.kind === 'placed-image') {
                 return;
             }
-            const normalizedText = normalizeAnnotationText(text);
-            if (entity.kind === 'text-box' && entity.text !== normalizedText) {
-                annotationApplication.value.store.updateTextBox(id, {text: normalizedText});
-            } else if (entity.kind === 'note' && entity.contents !== normalizedText) {
-                annotationApplication.value.store.updateNote(id, {contents: normalizedText});
-            } else if (entity.kind === 'text-markup' && entity.contents !== normalizedText) {
-                annotationApplication.value.store.updateTextMarkup(id, {contents: normalizedText});
-            }
+            annotationApplication.value.store.setNoteText(id, text);
         },
         deleteCanonicalAnnotation: id => {
             if (!annotationApplication.value.store.get(id)?.deleted) {
@@ -870,10 +883,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         ...annotationApplication.value.store
             .list({includeDeleted: true})
             .filter(entity => entity.deleted)
-            .flatMap(entity => [
-                entity.identity.id,
-                entity.identity.pdfRef,
-            ].filter((value): value is string => Boolean(value))),
+            .flatMap(entity => entity.identity.pdfRef ?? []),
     ]));
     const thumbnailHiddenAnnotationIds = computed(() => {
         void annotationProjection.value;
@@ -881,13 +891,29 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     });
     const annotationProjectionReady = ref(!(options.workingCopyPath.value && options.documentRevisionToken.value && documentSession.pdfDocument.value));
     const paintEntities = computed(() => [...annotationEditorSurface.entitiesByPage.value.values()].flat().map(annotationEditorSurface.getPaintInput));
-    const paintSignature = computed(() => JSON.stringify([
-        paintEntities.value.map(entity => [
-            entity.identity.pdfRef,
-            semanticEntityFingerprint(entity),
-        ]),
-        [...retiredPdfAnnotationIds.value],
-    ]));
+    const editingDraft = computed(() => annotationEditorSurface.editingId.value !== null && annotationEditorSurface.hasTextBoxDraftPending(annotationEditorSurface.editingId.value));
+    const paintSignature = computed(() => nativeAnnotationPaintSignature(paintEntities.value, retiredPdfAnnotationIds.value, annotationEditorSurface.editingId.value, options.documentRevisionToken.value, editingDraft.value));
+    async function preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, acceptedProposal?: ITextBoxEntity, entities = paintEntities.value) {
+        await ensureAnnotationProjectionReady();
+        const document = documentSession.pdfDocument.value;
+        if (!document) return;
+        return prepareNativeTextBoxPagePaint({
+            document,
+            page,
+            annotations,
+            entities,
+            excludedIds: hiddenPdfAnnotationIds.value,
+            editingId: annotationEditorSurface.editingId.value,
+            editingDraft: editingDraft.value,
+            acceptedProposal,
+            writerParse: documentAnnotations.getWriterParseResult(),
+            workingCopyPath: options.workingCopyPath.value,
+            currentInput: rendering.getCommittedAnnotationInput(requirePageNumber(page.pageNumber)),
+            signature: paintSignature.value,
+            signal,
+            reserveAppearanceBytes,
+        });
+    }
     const detachProjection = rendering.attachAnnotationProjection({
         hiddenAnnotationIds: hiddenPdfAnnotationIds,
         annotationProjectionReady,
@@ -895,42 +921,14 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         canvasHiddenAnnotationIds: hiddenPdfAnnotationIds,
         thumbnailHiddenAnnotationIds,
         paintSignature,
-        preparePagePaint(page, annotations): IPdfAnnotationRenderInput | undefined {
-            const document = documentSession.pdfDocument.value;
-            if (!document) return;
-            const original = readPdfDocumentOriginalAnnotations(document);
-            const entities = paintEntities.value.filter(entity => entity.pageIndex + 1 === page.pageNumber);
-            const unchanged = entities.filter(entity => {
-                const pdfRef = normalizePdfJsAnnotationId(entity.identity.pdfRef);
-                const native = original?.entities.find(entry => normalizePdfJsAnnotationId(`${entry.objectNumber} ${entry.generationNumber} R`) === pdfRef);
-                return entity.kind !== 'note' && pdfRef && native
-                    && semanticEntityFingerprint(entity) === semanticEntityFingerprint(mapPdfAnnotationParseEntity(native));
-            });
-            const retained = unchanged.some(entity => entity.kind === 'text-box') ? unchanged : [];
-            const excludedIds = new Set(hiddenPdfAnnotationIds.value);
-            retained.forEach(entity => excludedIds.delete(normalizePdfJsAnnotationId(entity.identity.pdfRef)!));
-            return Object.freeze({
-                document,
-                original,
-                annotations: Object.freeze([...annotations]),
-                excludedIds,
-                semanticInputs: Object.freeze(entities.map(entity => Object.freeze({
-                    ref: entity.identity.pdfRef ?? null,
-                    fingerprint: semanticEntityFingerprint(entity),
-                }))),
-                signature: paintSignature.value,
-            });
-        },
+        preparePagePaint,
     });
-    async function feedStoreFromWriterParse(isCurrent: () => boolean) {
+    async function ensureAnnotationProjectionReady(isCurrent?: () => boolean) {
+        const fence = documentSession.captureFence();
         await documentAnnotations.feedStoreFromWriterParse(documentSession, options.originalPath);
-        if (isCurrent()) {
+        if (isCurrent ? isCurrent() : documentSession.isCurrent(fence)) {
             annotationProjectionReady.value = true;
         }
-    }
-    function ensureAnnotationProjectionReady() {
-        const fence = documentSession.captureFence();
-        return feedStoreFromWriterParse(() => documentSession.isCurrent(fence));
     }
     const unsubscribeDocumentTransitions = documentSession.subscribe((transition) => {
         if (!transition.isCurrent()) {
@@ -938,7 +936,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
         if (transition.phase === 'invalidated') {
             annotationProjectionReady.value = true;
-            annotations.highlight.clearSelectionCache();
+            textSelectionCache.clearSelectionCache();
             if (transition.reason === 'source-cleared' || transition.reason === 'empty-source') {
                 annotationCommentModel.clearProjection();
                 activeCommentStableKey.value = null;
@@ -953,7 +951,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             // A rotation changes the native parser's projected annotation
             // geometry, so refresh it once, but do not hold the new page raster
             // behind a document-wide annotation index pass.
-            void feedStoreFromWriterParse(() => transition.isCurrent());
+            void ensureAnnotationProjectionReady(() => transition.isCurrent());
             return;
         }
         if (transition.phase === 'settled') {
@@ -999,7 +997,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     documentSession.registerDisposable(() => {
         unsubscribeDocumentTransitions();
         detachProjection();
-        annotations.highlight.clearSelectionCache();
+        textSelectionCache.clearSelectionCache();
         // The document's comments list outlives this view; its other views show it.
     });
     const saveTransaction = usePdfViewerSaveTransaction({

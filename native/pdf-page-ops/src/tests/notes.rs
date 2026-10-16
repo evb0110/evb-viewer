@@ -1752,6 +1752,7 @@ fn appends_and_updates_visible_free_text_editor_as_incremental_revision() {
             &pdf_path,
             &NativeMutationsFile {
                 text_boxes: vec![TextBoxMutation {
+                    original_appearance: None,
                     page_index: 0,
                     stable_key: "pdfjs_internal_editor_0".to_string(),
                     annotation_id: None,
@@ -1835,6 +1836,7 @@ fn text_box_create_round_trips_canonical_properties_and_metadata() {
         &pdf_path,
         &NativeMutationsFile {
             text_boxes: vec![TextBoxMutation {
+                    original_appearance: None,
                 page_index: 0,
                 stable_key: "text-box-create".to_string(),
                 annotation_id: None,
@@ -1943,6 +1945,7 @@ fn combined_note_geometry_and_text_box_save_preserves_entity_modified_at() {
         &pdf_path,
         &NativeMutationsFile {
             text_boxes: vec![TextBoxMutation {
+                    original_appearance: None,
                 page_index: 0,
                 stable_key: "combined-text-box".to_string(),
                 annotation_id: None,
@@ -1996,6 +1999,7 @@ fn combined_note_geometry_and_text_box_save_preserves_entity_modified_at() {
                 open: None,
             }],
             text_boxes: vec![TextBoxMutation {
+                    original_appearance: None,
                 page_index: 0,
                 stable_key: "combined-text-box".to_string(),
                 annotation_id: Some(format_pdfjs_annotation_ref(text_box_id)),
@@ -2130,6 +2134,7 @@ fn refuses_foreign_freetext_targets_before_rewrite_or_append() {
                             append,
                             append_in_place: false,
                             identity_bindings_file: None,
+            source_path: None,
                         },
                         input_path: paths.0[0].clone(),
                         output_path: Some(paths.0[1].clone()),
@@ -2233,6 +2238,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
         &output_path,
         &NativeMutationsFile {
             text_boxes: vec![TextBoxMutation {
+                    original_appearance: None,
                 page_index: 0,
                 stable_key: "foreign-text-box".to_string(),
                 annotation_id: Some(format!("{} {} R", foreign_id.0, foreign_id.1)),
@@ -2296,6 +2302,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     let mut legacy = loaded.clone();
     legacy.get_dictionary_mut(foreign_id).unwrap().set("C", vec![0.0667.into(), 0.0941.into(), 0.1529.into()]);
     let edit = TextBoxMutation {
+                    original_appearance: None,
         page_index: 0, stable_key: "foreign-text-box".to_string(),
         annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: "edited foreign text".to_string(),
         rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 18.0, color: [200, 0, 0],
@@ -2336,6 +2343,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     assert_eq!(frame_of(&unfilled), (2.0, Some("#000000".to_string()), None));
     for (text, color) in [("edited once", [245, 158, 11]), ("edited twice", [34, 197, 94])] {
         let edit = TextBoxMutation {
+                    original_appearance: None,
             page_index: 0, stable_key: "foreign-text-box".to_string(),
             annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: text.to_string(),
             rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 12.0, color,
@@ -2366,6 +2374,7 @@ fn updates_foreign_text_box_in_place_and_preserves_unowned_keys_and_popup() {
     label.get_mut(b"AP").unwrap().as_dict_mut().unwrap().set("N", painted);
     assert_eq!(frame_of(&inline).2.as_deref(), Some("#000000"), "the inline image is the label's fill");
     let edit = TextBoxMutation {
+                    original_appearance: None,
         page_index: 0, stable_key: "foreign-text-box".to_string(),
         annotation_id: Some(format_pdfjs_annotation_ref(foreign_id)), text: "Fill probe".to_string(),
         rect: [20.0, 25.0, 160.0, 80.0], rotation: 0, font_size: 12.0, color: [245, 158, 11],
@@ -2466,6 +2475,7 @@ fn updates_imported_free_text_editor_by_pdf_reference_without_duplication() {
         &pdf_path,
         &NativeMutationsFile {
             text_boxes: vec![TextBoxMutation {
+                    original_appearance: None,
                 page_index: 0,
                 stable_key: "pdf-ref-imported".to_string(),
                 annotation_id: Some(format_pdfjs_annotation_ref(imported_ref)),
@@ -2531,6 +2541,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
             }],
             text_boxes: vec![
                 TextBoxMutation {
+                    original_appearance: None,
                     page_index: 0,
                     stable_key: "freetext-first".to_string(),
                     annotation_id: None,
@@ -2544,6 +2555,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
                     modified_at: None,
                 },
                 TextBoxMutation {
+                    original_appearance: None,
                     page_index: 0,
                     stable_key: "freetext-second".to_string(),
                     annotation_id: None,
@@ -2597,6 +2609,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
 #[test]
 fn accepts_pdfjs_free_text_border_rounding_past_the_page_edge() {
     let editor = TextBoxMutation {
+                    original_appearance: None,
         page_index: 0,
         stable_key: "pdfjs_internal_editor_0".to_string(),
         annotation_id: None,
@@ -2623,6 +2636,7 @@ fn accepts_pdfjs_free_text_border_rounding_past_the_page_edge() {
     assert_approximately(accepted.y2, 60.0);
 
     let outside = TextBoxMutation {
+                    original_appearance: None,
         rect: [20.0, 30.0, 205.0, 60.0],
         ..editor
     };
@@ -3024,6 +3038,7 @@ fn reports_an_unreadable_append_payload_as_an_invalid_request() {
             append: true,
             append_in_place: false,
             identity_bindings_file: None,
+            source_path: None,
         },
         input_path: pdf_path.clone(),
         output_path: Some(pdf_path.clone()),
@@ -3050,6 +3065,7 @@ fn unicode_text_boxes_append_reopen_with_verified_font_subsets() {
     for (index, text) in ["Cafe\u{301} Привет שָׁלוֹם", "العَرَبِيَّة Latin 123\nשלום", "ܫܠܵܡܵܐ", "בְּרֵאשִׁ֖ית", "بَسْمِ لَا بــِسْمِ"].iter().enumerate() {
         let before = fs::read(&pdf_path).unwrap();
         let editor = TextBoxMutation {
+                    original_appearance: None,
                 page_index: 0,
                 stable_key: format!("unicode-{index}"),
                 annotation_id: None,
@@ -3098,6 +3114,7 @@ fn text_box_appearance_shrinks_text_that_needs_more_lines_than_its_box() {
         let width = line.width * scale + 2.0 * PADDING_X * 16.0;
         let height = (LINE_HEIGHT + 2.0 * PADDING_Y) * 16.0;
         let editor = TextBoxMutation {
+                    original_appearance: None,
             page_index: 0, stable_key: "fit".to_string(), annotation_id: None, text: text.to_string(),
             rect: [10.0, 10.0, 10.0 + width, 10.0 + height], rotation: 0, font_size: 16.0,
             color: [0, 0, 0], author: None, created_at: None, modified_at: None,
@@ -3105,7 +3122,8 @@ fn text_box_appearance_shrinks_text_that_needs_more_lines_than_its_box() {
         let rect = PdfRect { x1: 10.0, y1: 10.0, x2: 10.0 + width, y2: 10.0 + height };
         let mut document = Document::with_version("1.7");
         let mut fonts = crate::text_box_font::SharedFonts::default();
-        let (id, size) = crate::annotations::build_text_box_appearance(&mut document, &editor, rect, 0, &mut fonts, None).unwrap();
+        let appearance = crate::annotations::build_text_box_appearance(&mut document, &editor, rect, 0, &mut fonts, None).unwrap();
+        let (id, size) = (appearance.object_id, appearance.font_size);
         assert_eq!(size < 16.0, shrinks, "the DA records the size the appearance draws");
         let content = String::from_utf8(document.get_object(id).unwrap().as_stream().unwrap().content.clone()).unwrap();
         let numbers = |suffix| content.lines().filter(move |op: &&str| op.ends_with(suffix))
@@ -3124,6 +3142,7 @@ fn narrow_text_box_keeps_its_size_when_lines_end_in_spaces() {
     // review-b6ys: the editor sized this margin box for 15 lines at 22 pt. The
     // spaces that hang at line ends must not make the saved text shrink.
     let editor = TextBoxMutation {
+                    original_appearance: None,
         page_index: 0, stable_key: "narrow".to_string(), annotation_id: None,
         text: "A word. A phrase. A word. A phrase. A word. A phrase.".to_string(),
         rect: [540.0, 220.0, 600.6584, 671.7922], rotation: 0, font_size: 22.0,
@@ -3168,6 +3187,7 @@ fn edited_foreign_text_boxes_reopen_at_the_size_they_draw_whole() {
         let PdfAnnotationParseEntry::TextBox(untouched) = &entries[0] else { panic!("{:?}", entries[0]) };
         assert_eq!(untouched.font_size, 22.0, "{da}");
         let editor = TextBoxMutation {
+                    original_appearance: None,
             page_index: 0, stable_key: "foreign".to_string(),
             annotation_id: Some(format!("{} {} R", foreign_id.0, foreign_id.1)), text: text.to_string(), rect: rect.map(|v| v + 1e-5),
             rotation: 0, font_size: 22.0, color: [245, 158, 11], author: None, created_at: None, modified_at: None,
@@ -3205,6 +3225,7 @@ fn text_boxes_of_one_save_share_one_font_subset() {
         document.save_to(&mut original).unwrap();
         write(&pdf_path, &original).unwrap();
         let text_boxes = (0..count).map(|index| TextBoxMutation {
+                    original_appearance: None,
             page_index: 0, stable_key: format!("latin-{index}"), annotation_id: None,
             text: format!("Box {index}: AV office ffi, pp. 12-15"),
             rect: [5.0, 5.0 + f64::from(index % 4) * 22.0, 195.0, 25.0 + f64::from(index % 4) * 22.0],
@@ -3234,6 +3255,7 @@ fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
             let (mut document, page_id) = create_test_document();
             document.get_dictionary_mut(page_id).unwrap().set("Rotate", page_rotation);
             let editor = TextBoxMutation {
+                    original_appearance: None,
                 page_index: 0, stable_key: "rotated-text".to_string(), annotation_id: None,
                 text: "Привет שלום".to_string(), rect: [60.0, 25.0, 140.0, 75.0], rotation,
                 font_size: 10.0, color: [0, 0, 0], author: None, created_at: None, modified_at: None,
@@ -3264,6 +3286,7 @@ fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
             let geometry = |dict: &Dictionary| (dict.get(b"Rect").unwrap().clone(), dict.get(b"EVBTextGeometry").unwrap().clone());
             let written = geometry(dict);
             let recolour = TextBoxMutation {
+                    original_appearance: None,
                 page_index: 0, stable_key: "rotated-text".to_string(), annotation_id: None,
                 text: "Привет שלום".to_string(), rect: [60.00001, 25.0, 139.99998, 75.0], rotation,
                 font_size: 10.0, color: [200, 0, 0], author: None, created_at: None, modified_at: None,
@@ -3316,6 +3339,7 @@ fn text_box_rotation_preserves_canonical_rect_for_every_page_rotation() {
 fn rotated_text_box_accepts_canonical_rect_outside_page_when_visible_bounds_fit() {
     let (mut document, _) = create_test_document();
     let editor = TextBoxMutation {
+                    original_appearance: None,
         page_index: 0, stable_key: "rotated-edge-text".to_string(), annotation_id: None,
         text: "Edge".to_string(), rect: [-15.0, 40.0, 65.0, 60.0], rotation: 90,
         font_size: 10.0, color: [0, 0, 0], author: None, created_at: None, modified_at: None,
@@ -3411,4 +3435,91 @@ fn print_layout_draws_a_text_note_without_appearance_for_any_standard_icon() {
             "/{icon} note was not drawn"
         );
     }
+}
+
+#[test]
+fn appearance_projection_matches_both_saved_writers_with_source_settlement_and_raw_rd() {
+    let fixture = Document::load_mem(include_bytes!("../../../../tests/fixtures/electron/semtext/asymmetric-frame.pdf")).unwrap();
+    let fixture = collect_parsed_annotations(&fixture, "").unwrap();
+    let fixture = serde_json::to_value(&fixture[0]).unwrap();
+    assert_eq!(fixture["source"]["rawRD"], serde_json::json!([1.0,2.0,7.0,12.0]));
+    for append in [false, true] {
+        for page_rotation in [0, 90, 180, 270] {
+            for (rect, rd) in [([60.00001,25.0,139.99999,75.0], [1.0,2.0,3.0,4.0]), ([30.0,25.0,170.0,75.0], [60.0,0.0,60.0,0.0])] {
+                let (mut document, page) = create_test_document();
+                document.get_dictionary_mut(page).unwrap().set("Rotate", page_rotation);
+                document.get_dictionary_mut(page).unwrap().set("UserUnit", 2);
+                let source_ap = document.add_object(Stream::new(dictionary! {"Type" => "XObject", "Subtype" => "Form", "BBox" => vec![60.into(),25.into(),140.into(),75.into()]}, b"q 0.8 g 60 25 80 50 re f Q".to_vec()));
+                let id = document.add_object(dictionary! {
+                    "Type" => "Annot", "Subtype" => "FreeText", "NM" => Object::string_literal("projection"), "P" => page,
+                    "Rect" => vec![60.into(),25.into(),140.into(),75.into()], "Contents" => Object::string_literal("Original"),
+                    "DA" => Object::string_literal("/Helv 18 Tf 0.2 g 0.1 0.2 0.3 0.4 K"), "C" => vec![0.8.into()],
+                    "BS" => dictionary! {"W" => 1.5}, "RD" => rd.map(number_object).to_vec(), "AP" => dictionary! {"N" => source_ap},
+                });
+                crate::text_box_font::write_editor_geometry(document.get_dictionary_mut(id).unwrap(), [60.0,25.0,140.0,75.0], 0, page_rotation, PdfRect {x1:60.0,y1:25.0,x2:140.0,y2:75.0});
+                document.get_dictionary_mut(page).unwrap().set("Annots", vec![Object::Reference(id)]);
+                let parsed = collect_parsed_annotations(&document, "").unwrap();
+                let PdfAnnotationParseEntry::TextBox(source) = &parsed[0] else { panic!("{:?}", parsed[0]) };
+                let descriptor = serde_json::to_value(&source.source).unwrap();
+                assert_eq!(descriptor["rawRD"], serde_json::json!(rd));
+                let mutation_json = serde_json::json!({"pageIndex":0,"stableKey":"projection","annotationId":format!("{}R{}",id.0,id.1),"text":"AV office ffi שלום العربية\nSecond line", "rect":rect,"rotation":if rd[0] > 50.0 {0} else {90},"fontSize":18,"color":[17,24,39]});
+                let request_json = serde_json::json!({"page":{"view":[0,0,200,100],"rotation":page_rotation,"userUnit":2},"textBoxes":[{"textBox":mutation_json,"source":descriptor}]});
+                let request = parse_text_box_appearance_request(&serde_json::to_vec(&request_json).unwrap()).unwrap();
+                let projection = build_text_box_appearance_pdf(request).unwrap();
+                let second = build_text_box_appearance_pdf(parse_text_box_appearance_request(&serde_json::to_vec(&request_json).unwrap()).unwrap()).unwrap();
+                assert_eq!(projection.data, second.data, "immutable inputs produce immutable bytes");
+                let saved = recovery_save(document, &NativeMutationsFile {text_boxes: vec![serde_json::from_value(mutation_json.clone()).unwrap()], ..Default::default()}, append);
+                let projected = Document::load_mem(&projection.data).unwrap();
+                let entry = &projection.metadata.text_boxes[0];
+                let projected_id = parse_pdfjs_annotation_object_id(&entry.annotation_id).unwrap();
+                let ap = |doc: &Document, id| {
+                    let annotation = doc.get_dictionary(id).unwrap();
+                    doc.resolved(doc.resolved(annotation.get(b"AP").unwrap()).unwrap().as_dict().unwrap().get(b"N").unwrap()).unwrap().as_stream().unwrap().clone()
+                };
+                let actual = ap(&projected, projected_id);
+                let expected = ap(&saved, id);
+                assert_eq!(actual.content, expected.content, "page rotation {page_rotation}, append {append}, RD {rd:?}");
+                for key in [b"BBox".as_slice(), b"Matrix"] { assert_eq!(actual.dict.get(key).unwrap(), expected.dict.get(key).unwrap()); }
+                let reopened = collect_parsed_annotations(&saved, "").unwrap();
+                let PdfAnnotationParseEntry::TextBox(reopened) = &reopened[0] else { panic!("{:?}", reopened[0]) };
+                assert_eq!(entry.fitted_font_size, reopened.font_size);
+                let programs = |doc: &Document| {
+                    let mut programs = doc.objects.values().filter_map(|o| o.as_dict().ok()?.get(b"FontFile2").ok()?.as_reference().ok())
+                        .map(|id| doc.get_object(id).unwrap().as_stream().unwrap().content.clone()).collect::<Vec<_>>();
+                    programs.sort(); programs
+                };
+                assert_eq!(programs(&projected), programs(&saved));
+                let mut exact = mutation_json.clone();
+                exact["fontSize"] = serde_json::json!(reopened.font_size);
+                exact["originalAppearance"] = serde_json::json!({"recoveryData":reopened.recovery_data});
+                let exact = serde_json::json!({"page":{"view":[0,0,200,100],"rotation":page_rotation,"userUnit":2},"textBoxes":[{"textBox":exact}]});
+                let exact = build_text_box_appearance_pdf(parse_text_box_appearance_request(&serde_json::to_vec(&exact).unwrap()).unwrap()).unwrap();
+                let exact_document = Document::load_mem(&exact.data).unwrap();
+                let exact_id = parse_pdfjs_annotation_object_id(&exact.metadata.text_boxes[0].annotation_id).unwrap();
+                assert_eq!(ap(&exact_document, exact_id).content, expected.content, "current committed AP is reused byte-for-byte");
+                assert_eq!(programs(&exact_document), programs(&saved));
+                assert_eq!(exact.metadata.text_boxes[0].line_count, None);
+                assert_eq!(exact.metadata.text_boxes[0].text_bounds, None);
+            }
+        }
+    }
+}
+
+#[test]
+fn appearance_projection_shares_font_subsets_and_preserves_fit_normalization() {
+    let json = serde_json::json!({"page":{"view":[0,0,200,100],"rotation":0,"userUnit":1},"textBoxes":[
+        {"textBox":{"pageIndex":0,"stableKey":"a","text":"Small AV office", "rect":[10,10,35,30],"rotation":0,"fontSize":18,"color":[0,0,0]}},
+        {"textBox":{"pageIndex":0,"stableKey":"b","text":"Other Latin", "rect":[40,10,190,60],"rotation":0,"fontSize":18,"color":[0,0,0]}}
+    ]});
+    let bytes = serde_json::to_vec(&json).unwrap();
+    let projected = build_text_box_appearance_pdf(parse_text_box_appearance_request(&bytes).unwrap()).unwrap();
+    assert!(projected.metadata.text_boxes[0].fitted_font_size < 18.0);
+    let document = Document::load_mem(&projected.data).unwrap();
+    assert_eq!(document.objects.values().filter(|o| o.as_dict().is_ok_and(|dict| dict.has(b"FontFile2"))).count(), 1);
+    let mut normalized = json;
+    for (input, fitted) in normalized["textBoxes"].as_array_mut().unwrap().iter_mut().zip(projected.metadata.text_boxes) {
+        input["textBox"]["fontSize"] = serde_json::json!(fitted.fitted_font_size);
+    }
+    let normalized = build_text_box_appearance_pdf(parse_text_box_appearance_request(&serde_json::to_vec(&normalized).unwrap()).unwrap()).unwrap();
+    assert_eq!(projected.data, normalized.data);
 }

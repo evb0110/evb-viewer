@@ -15,6 +15,7 @@ fn save_mutations_preserves_geometry_updates_in_both_dispatch_modes() {
             append,
             append_in_place: false,
             identity_bindings_file: None,
+            source_path: None,
         };
         let (mutations, _) = if append {
             read_append_mutations(&operation).unwrap().unwrap()
@@ -27,7 +28,7 @@ fn save_mutations_preserves_geometry_updates_in_both_dispatch_modes() {
 
 #[test]
 fn rejects_page_selection_for_print_layout() {
-    let result = crate::cli::parse_args(
+    let result = crate::parse_args(
         [
             "print-layout",
             "--input",
@@ -69,4 +70,18 @@ fn deepest_bookmark_keeps_a_nested_action_through_byte_and_file_admission() {
     fs::remove_file(path).unwrap();
     assert!(bytes.is_ok(), "{}", bytes.err().unwrap());
     assert!(file.is_ok(), "{}", file.err().unwrap());
+}
+
+#[test]
+fn text_box_appearance_cli_writes_a_pdf_and_fit_metadata_without_a_source_pdf() {
+    let request = temp_pdf_path("appearance-request").with_extension("json");
+    let pdf = temp_pdf_path("appearance-output");
+    let metadata = temp_pdf_path("appearance-metadata").with_extension("json");
+    let _cleanup = RemovePdfFilesOnDrop([request.clone(), pdf.clone(), metadata.clone()]);
+    write(&request, br#"{"page":{"view":[0,0,200,100],"rotation":0,"userUnit":1},"textBoxes":[{"textBox":{"pageIndex":0,"stableKey":"cli-appearance","text":"Small office","rect":[10,10,35,30],"rotation":0,"fontSize":18,"color":[17,24,39]}}]}"#).unwrap();
+    run_cli_entry(vec!["text-box-appearance".to_string(), "--input".to_string(), request.to_str().unwrap().to_string(), "--output".to_string(), pdf.to_str().unwrap().to_string(), "--metadata-file".to_string(), metadata.to_str().unwrap().to_string()]).unwrap();
+    let metadata: serde_json::Value = serde_json::from_slice(&read(metadata).unwrap()).unwrap();
+    assert!(metadata["textBoxes"][0]["fittedFontSize"].as_f64().unwrap() < 18.0);
+    let document = Document::load(pdf).unwrap();
+    assert!(matches!(&collect_parsed_annotations(&document, "").unwrap()[0], PdfAnnotationParseEntry::TextBox(value) if value.text == "Small office"));
 }

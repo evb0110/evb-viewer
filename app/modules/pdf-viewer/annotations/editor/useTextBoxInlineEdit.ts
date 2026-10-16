@@ -14,7 +14,7 @@ interface ITextBoxInlineEditOptions {
     recoveredDraftText?: Readonly<Ref<string | null>>;
     caretPoint?: Readonly<Ref<IAnnotationTextEditPoint | null>>;
     onCommit: (text: string, options?: {restoreFocus: boolean}) => void | Promise<void>;
-    onCancel: () => void;
+    onCancel: () => void | Promise<void>;
 }
 
 interface ITextBoxInputEvent {
@@ -114,12 +114,12 @@ export const useTextBoxInlineEdit = (
         draftText.value = readEditorText(target);
     }
 
-    function commit(restoreFocus = false) {
+    function complete(action: () => void | Promise<void>) {
         if (!options.editing.value) {
             return;
         }
         if (completion) return completion;
-        const pending = (async () => { await options.onCommit(draftText.value, {restoreFocus}); })();
+        const pending = (async () => { await action(); })();
         completion = pending;
         void pending.catch(() => {
             if (completion === pending) {
@@ -130,13 +130,7 @@ export const useTextBoxInlineEdit = (
         return pending;
     }
 
-    function cancel() {
-        if (!options.editing.value || completion) {
-            return;
-        }
-        completion = Promise.resolve();
-        options.onCancel();
-    }
+    const commit = (restoreFocus = false) => complete(() => options.onCommit(draftText.value, {restoreFocus}));
 
     function handleKeydown(event: ITextBoxKeydownEvent) {
         if (event.isComposing || !options.editing.value) {
@@ -144,7 +138,7 @@ export const useTextBoxInlineEdit = (
         }
         if (event.key === 'Escape') {
             event.preventDefault();
-            cancel();
+            void complete(options.onCancel);
             return;
         }
         if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {

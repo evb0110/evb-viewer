@@ -347,4 +347,34 @@ describe('workspace surface budget controller', () => {
         expect(evicted).toEqual(['pdf-page-canvas']);
         expect(controller.getSnapshot().reservedBytes).toBe(450);
     });
+    it('resizes an owned lease without losing accounting or reviving released resources', () => {
+        const budget = createWorkspaceSurfaceBudgetController(1_000);
+        const current = budget.reserve({
+            scopeId: 'current',
+            category: 'pdf-page-canvas',
+            bytes: 400,
+            canEvict: () => false,
+        });
+        const pending = budget.reserve({
+            scopeId: 'pending',
+            category: 'pdf-page-canvas',
+            bytes: 200,
+            canEvict: () => false,
+        });
+        expect(pending.resize(700)).toBe(false);
+        expect(pending.bytes).toBe(200);
+        expect(budget.getSnapshot().reservedBytes).toBe(600);
+        expect(pending.resize(600)).toBe(true);
+        expect(pending.bytes).toBe(600);
+        expect(budget.getSnapshot().reservedBytes).toBe(1_000);
+        expect(pending.resize(100)).toBe(true);
+        pending.release();
+        expect(pending.resize(300)).toBe(false);
+        current.release();
+        expect(budget.getSnapshot()).toMatchObject({
+            reservedBytes: 0,
+            leaseCount: 0,
+        });
+    });
+
 });

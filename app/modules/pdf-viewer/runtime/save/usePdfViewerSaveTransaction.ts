@@ -31,6 +31,9 @@ import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDo
 import type { TPdfDocumentView } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import { collectNativeTextBoxMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
+import {
+    readPdfDocumentOriginalAnnotations, readPdfDocumentOriginalAnnotationSource,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 
 const SLOW_SAVE_PREPARATION_STEP_MS = 250;
 const AVAILABLE_SERIALIZATION_BACKENDS = ['native-append'] as const;
@@ -257,7 +260,8 @@ export const usePdfViewerSaveTransaction = (
         request.annotationSerializationPlan = globalSerializationPlan;
         const nativeTextBoxes = await measurePreparationStep(
             'collect-native-text-box-mutations',
-            () => collectNativeTextBoxMutationsForSave(getPdfDocument(), globalSerializationPlan),
+            () => collectNativeTextBoxMutationsForSave(capturedTarget.pdfDocument, globalSerializationPlan,
+                capturedTarget.pdfDocument && readPdfDocumentOriginalAnnotations(capturedTarget.pdfDocument)),
         );
         assertSaveTargetCurrent();
         const canonicalSaveCallbacks = {
@@ -349,6 +353,12 @@ export const usePdfViewerSaveTransaction = (
             };
         }
         const nativeMutationProjection = decision.nativeMutationProjection;
+        if (nativeTextBoxes?.some(textBox => textBox.originalAppearance && 'sourceAnnotationId' in textBox.originalAppearance)) {
+            const originalSource = capturedTarget.pdfDocument && await readPdfDocumentOriginalAnnotationSource(capturedTarget.pdfDocument);
+            assertSaveTargetCurrent();
+            if (!originalSource) throw new Error('The original text appearance source is unavailable');
+            nativeMutationProjection.mutations.originalAppearanceSource = originalSource;
+        }
         if (decision.replayableAnnotationMutationsAllowed && decision.annotationRoute.route !== 'loaded-source') {
             throw new Error(`Native annotation replay was granted on the ${decision.annotationRoute.route} route`);
         }

@@ -381,6 +381,14 @@ export interface IPdfNativeFreeTextNote {
 }
 
 export interface IPdfNativeTextBoxMutation {
+    /** Explicit original-paint restoration, authorized by loaded-source provenance. */
+    originalAppearance?: {
+        recoveryData: string;
+        sourceAnnotationId?: never
+    } | {
+        sourceAnnotationId: string;
+        recoveryData?: never
+    };
     pageIndex: TPageIndex;
     stableKey: string;
     /** Existing PDF object ref when this mutation updates imported FreeText. */
@@ -394,6 +402,40 @@ export interface IPdfNativeTextBoxMutation {
     createdAt?: number | null;
     modifiedAt?: number | null;
 }
+/** Exact source primitives from the current native writer parse revision. */
+export interface IPdfNativeTextBoxSourceDescriptor {
+    version: 1;
+    settlementRect?: [number, number, number, number];
+    rawRD?: [number, number, number, number];
+    borderWidth: number;
+    borderColor?: number[];
+    background?: number[];
+    staleFill: boolean;
+}
+export interface IPdfNativeTextBoxAppearanceRequest {
+    page: {
+        view: [number, number, number, number];
+        rotation: 0 | 90 | 180 | 270;
+        userUnit: number;
+    };
+    textBoxes: Array<{
+        textBox: IPdfNativeTextBoxMutation;
+        source?: IPdfNativeTextBoxSourceDescriptor;
+    }>;
+}
+export interface IPdfNativeTextBoxAppearanceMetadata {textBoxes: Array<{
+    stableKey: string;
+    /** Reference in the returned one-page appearance PDF. */
+    annotationId: string;
+    /** Settled appearance bounds. Canonical request geometry is unchanged. */
+    rect: [number, number, number, number];
+    fittedFontSize: number;
+    /** Null when preserving an original producer appearance. */
+    lineCount: number | null;
+    /** Page-space text clip after frame insets, unknown for original paint. */
+    textBounds: [number, number, number, number] | null;
+}>;}
+export interface IPdfNativeTextBoxAppearanceResult extends IPdfNativeTextBoxAppearanceMetadata {data: Uint8Array;}
 export type IPdfNativeFreeTextEditor = IPdfNativeTextBoxMutation;
 export interface IPdfNativeAnnotationDelete {
     pageIndex: TPageIndex;
@@ -506,6 +548,8 @@ export interface IPdfNativePlacedImageGeometryUpdate extends IPdfBox {
 }
 
 export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
+    /** Immutable managed source, leased by the platform for original appearance restoration. */
+    originalAppearanceSource?: TDocumentRef;
     textBoxes?: IPdfNativeTextBoxMutation[];
     freeTextEditors?: IPdfNativeFreeTextEditor[];
     pageLabels?: IPdfNativePageLabelsMutation;

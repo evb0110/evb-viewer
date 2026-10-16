@@ -203,14 +203,3 @@ fn colour_operands(components: &[f64], fill: bool) -> String {
     };
     format!("{} {operator}", format_operands(components))
 }
-
-fn annotation_numbers(document: &impl PdfObjectSource, object: &Object) -> Option<Vec<f64>> {
-    document
-        .resolved(object)
-        .ok()?
-        .as_array()
-        .ok()?
-        .iter()
-        .map(|value| object_to_f64(document.resolved(value).ok()?).ok())
-        .collect()
-}

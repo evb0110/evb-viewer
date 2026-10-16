@@ -130,6 +130,18 @@ describe('native PDF text-box mutation contracts', () => {
         },
     );
 
+    it('bounds annotation identities by UTF-8 bytes at the shared identity limit', () => {
+        const annotationId = 'Я'.repeat(1_024);
+        expect(normalizePdfNativeMutationSet({textBoxes: [{
+            ...textBox,
+            annotationId,
+        }]}, 'mutations').textBoxes?.[0]?.annotationId).toBe(annotationId);
+        expect(() => normalizePdfNativeMutationSet({textBoxes: [{
+            ...textBox,
+            annotationId: `${annotationId}x`,
+        }]}, 'mutations')).toThrow('2048 UTF-8 bytes');
+    });
+
     it('rejects a payload that supplies both text-box keys', () => {
         expect(() => normalizePdfNativeMutationSet({
             textBoxes: [textBox],
@@ -192,4 +204,120 @@ describe('native PDF text-box mutation contracts', () => {
         expect(chunks[0]?.textBoxes).toEqual([textBox]);
         expect(normalizePdfNativeMutationSet(chunks[0], 'mutations').textBoxes).toEqual([textBox]);
     });
+});
+
+it('keeps exact source primitives and separates appearance batch limits from Save admission', async () => {
+    const {
+        normalizePdfNativeTextBoxAppearanceRequest, PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS,
+    } = await import('@contracts/nativePdfMutations');
+    const source = {
+        version: 1,
+        settlementRect: [
+            10,
+            20,
+            100,
+            60,
+        ],
+        rawRD: [
+            60,
+            0,
+            60,
+            0,
+        ],
+        borderWidth: 1.5,
+        borderColor: [
+            0.1,
+            0.2,
+            0.3,
+            0.4,
+        ],
+        background: [0.8],
+        staleFill: false,
+    };
+    const request = {
+        page: {
+            view: [
+                0,
+                0,
+                200,
+                100,
+            ],
+            rotation: 0,
+            userUnit: 2,
+        },
+        textBoxes: [{
+            textBox,
+            source,
+        }],
+    };
+    expect(normalizePdfNativeTextBoxAppearanceRequest(request).textBoxes[0]?.source).toEqual(source);
+    expect(() => normalizePdfNativeTextBoxAppearanceRequest({
+        ...request,
+        textBoxes: [{
+            textBox,
+            source: {
+                ...source,
+                rawRD: [
+                    -1,
+                    0,
+                    0,
+                    0,
+                ],
+            },
+        }],
+    })).toThrow(TypeError);
+    const large = 'W'.repeat(PDF_NATIVE_MUTATION_LIMITS.textBoxTextBytes);
+    const boxes = Array.from({length: PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.totalTextBytes / large.length + 1}, (_, index) => ({
+        ...textBox,
+        stableKey: `large-${index}`,
+        text: large,
+    }));
+    expect(normalizePdfNativeMutationSet({textBoxes: boxes}, 'mutations').textBoxes).toHaveLength(boxes.length);
+    expect(() => normalizePdfNativeTextBoxAppearanceRequest({
+        ...request,
+        textBoxes: boxes.map(textBox => ({textBox})),
+    })).toThrow('1 MiB');
+});
+
+it('retains explicit original paint provenance transport without changing text', () => {
+    const source = '/managed/original.pdf';
+    const mutations = normalizePdfNativeMutationSet({
+        originalAppearanceSource: source,
+        textBoxes: [{
+            ...textBox,
+            originalAppearance: {sourceAnnotationId: '17R0'},
+        }],
+    }, 'mutations');
+    expect(mutations.originalAppearanceSource).toBe(source);
+    expect(mutations.textBoxes?.[0]?.originalAppearance).toEqual({sourceAnnotationId: '17R0'});
+    expect(() => normalizePdfNativeMutationSet({textBoxes: [{
+        ...textBox,
+        originalAppearance: {
+            sourceAnnotationId: '17R0',
+            recoveryData: '00',
+        },
+    }]}, 'mutations')).toThrow('one bounded recovery graph');
+    expect(() => normalizePdfNativeMutationSet({textBoxes: [{
+        ...textBox,
+        originalAppearance: {sourceAnnotationId: 'not-a-ref'},
+    }]}, 'mutations')).toThrow('retained source annotation');
+});
+
+it('carries the immutable source only on chunks that restore original source graphs', () => {
+    const textBoxes = Array.from({length: PDF_NATIVE_MUTATION_LIMITS.textBoxes + 1}, (_, index) => ({
+        ...textBox,
+        stableKey: `source-box-${index}`,
+        ...(index === PDF_NATIVE_MUTATION_LIMITS.textBoxes ? {originalAppearance: {sourceAnnotationId: '17R'}} : {}),
+    }));
+    const source = '/managed/original.pdf';
+    const mutations = normalizePdfNativeMutationSet({
+        originalAppearanceSource: source,
+        textBoxes,
+    }, 'mutations');
+    const chunks = splitPdfNativeMutationSetIntoBoundedChunks(mutations);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]?.originalAppearanceSource).toBeUndefined();
+    expect(chunks[1]?.originalAppearanceSource).toBe(source);
+    expect(chunks[1]?.textBoxes?.[0]?.originalAppearance).toEqual({sourceAnnotationId: '17R'});
+    expect(() => splitPdfNativeMutationSetIntoBoundedChunks({textBoxes: [mutations.textBoxes!.at(-1)!]})).toThrow('immutable document source');
 });

@@ -168,7 +168,13 @@ fn note_appearance_streams(document: &impl PdfObjectSource) -> Result<Vec<(Objec
             continue;
         };
         // Parsing lists a reply under its parent, never as a note of its own.
-        if !is_text_annotation(document, note) || note.get(b"IRT").is_ok() {
+        if !matches!(
+            annotation_subtype_name(document, note)
+                .to_ascii_lowercase()
+                .as_str(),
+            "text" | "freetext"
+        ) || note.get(b"IRT").is_ok()
+        {
             continue;
         }
         let mut thread = vec![*note_id];
@@ -326,15 +332,6 @@ fn note_appearance_stream_refs(
         .into_iter()
         .filter(|object_id| matches!(document.object(*object_id), Ok(Object::Stream(_))))
         .collect()
-}
-
-fn is_text_annotation(document: &impl PdfObjectSource, dictionary: &Dictionary) -> bool {
-    dictionary
-        .get(b"Subtype")
-        .ok()
-        .and_then(|subtype| document.resolved(subtype).ok())
-        .and_then(|subtype| subtype.as_name().ok())
-        .is_some_and(|name| name.eq_ignore_ascii_case(b"Text"))
 }
 
 /// Each run's stream bytes stay well under the structural reader's object

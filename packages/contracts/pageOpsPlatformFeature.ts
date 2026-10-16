@@ -1,5 +1,4 @@
 import {
-    decodeBookmarkSourceIntent,
     PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA,
     PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
 } from '@contracts/pdfBookmarkEntry';
@@ -9,20 +8,17 @@ import type {
 } from '@contracts/pageNumbers';
 
 import type {
-    IPageOpsMetadataSnapshot,
     IPageOpsMutationOptions,
     TPageOpsPageSelection,
     TPageOpsRotationAngle,
 } from '@contracts/electronApiPageOps';
 import {
+    decodeMetadataSnapshot,
     PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA,
     PAGE_OPS_EXTRACT_RESULT_SCHEMA,
     PAGE_OPS_INSERT_RESULT_SCHEMA,
     PAGE_OPS_RESULT_SCHEMA,
 } from '@contracts/electronApiPageOps';
-import {requirePageIndex} from '@contracts/pageNumbers';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {
@@ -39,10 +35,13 @@ import {
     type TFeatureInvokeMap,
 } from '@contracts/platformFeature';
 import * as v from 'valibot';
+import {isRecord} from '@contracts/runtimeGuards';
+import type {IPdfNativeTextBoxAppearanceRequest} from '@contracts/electronApiDocuments';
 import {
-    isFiniteNumber,
-    isRecord,
-} from '@contracts/runtimeGuards';
+    normalizePdfNativeTextBoxAppearanceRequest,
+    normalizePdfNativeTextBoxAppearanceMetadata,
+    PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS,
+} from '@contracts/nativePdfMutations';
 
 const MAX_COLLECTION_ITEMS = 100_000;
 const MAX_PAGE_SELECTION_ITEMS = 1_000_000;
@@ -62,13 +61,7 @@ export function decodePageSourceReferences(value: unknown) {
 }
 
 const METHOD_TIMEOUT_MS = 30 * 60 * 1_000;
-const PAGE_LABEL_STYLES = [
-    'D',
-    'R',
-    'r',
-    'A',
-    'a',
-] as const;
+
 type TDeleteArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
 type TDeleteRangesArgs = [string, IPageMoveRangeSegment[], number, IPageOpsMutationOptions | undefined];
 type TExtractArgs = [string, TPageOpsPageSelection];
@@ -231,128 +224,6 @@ function decodeStringArray(args: unknown[], index: number, fieldName: string) {
     return value.filter((item): item is string => typeof item === 'string');
 }
 
-function decodeBookmarkEntries(
-    value: unknown,
-    depth = 0,
-    counter = {value: 0},
-): IPdfBookmarkEntry[] {
-    if (!Array.isArray(value) || depth > 64) {
-        throw new Error('options.metadataSnapshot.bookmarks must be a bounded bookmark array');
-    }
-    return value.map((raw): IPdfBookmarkEntry => {
-        counter.value += 1;
-        if (counter.value > MAX_COLLECTION_ITEMS) {
-            throw new Error(`options.metadataSnapshot.bookmarks exceeds the item limit (${MAX_COLLECTION_ITEMS})`);
-        }
-        if (!isRecord(raw)) {
-            throw new Error('options.metadataSnapshot.bookmarks contains an invalid bookmark');
-        }
-        const pageIndex = raw.pageIndex;
-        const pageYRatio = raw.pageYRatio;
-        if (
-            pageIndex !== null
-            && (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0)
-        ) {
-            throw new Error('bookmark.pageIndex must be a non-negative integer or null');
-        }
-        if (
-            typeof raw.title !== 'string'
-            || raw.title.length > 4_096
-            || (raw.namedDest !== null && typeof raw.namedDest !== 'string')
-            || typeof raw.bold !== 'boolean'
-            || typeof raw.italic !== 'boolean'
-            || (raw.color !== null && typeof raw.color !== 'string')
-        ) {
-            throw new Error('options.metadataSnapshot.bookmarks contains invalid fields');
-        }
-        if (pageYRatio !== undefined && pageYRatio !== null && !isFiniteNumber(pageYRatio)) {
-            throw new Error('bookmark.pageYRatio must be finite or null');
-        }
-        return {
-            title: raw.title,
-            pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
-            ...(pageYRatio === undefined ? {} : {pageYRatio}),
-            ...decodeBookmarkSourceIntent(raw),
-            namedDest: raw.namedDest,
-            bold: raw.bold,
-            italic: raw.italic,
-            color: raw.color,
-            items: decodeBookmarkEntries(raw.items, depth + 1, counter),
-        };
-    });
-}
-
-export function decodeMetadataSnapshot(value: unknown): IPageOpsMetadataSnapshot {
-    if (!isRecord(value)) {
-        throw new Error('options.metadataSnapshot must be an object');
-    }
-    const pageLabels = value.pageLabels;
-    if (
-        pageLabels !== undefined
-        && pageLabels !== null
-        && (
-            !Array.isArray(pageLabels)
-            || pageLabels.length > 1_000_000
-            || !pageLabels.every(label => typeof label === 'string' && label.length <= 4_096)
-        )
-    ) {
-        throw new Error('options.metadataSnapshot.pageLabels must be a string array, null, or omitted');
-    }
-    const rawPageLabelRanges = value.pageLabelRanges;
-    let pageLabelRanges: IPdfPageLabelRange[] | undefined;
-    if (rawPageLabelRanges !== undefined) {
-        if (!Array.isArray(rawPageLabelRanges) || rawPageLabelRanges.length > 100_000) {
-            throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
-        }
-        let previousStartPage = 0;
-        pageLabelRanges = rawPageLabelRanges.map((rawRange, index) => {
-            if (!isRecord(rawRange)) {
-                throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
-            }
-            const startPage = rawRange.startPage;
-            const style = rawRange.style;
-            const prefix = rawRange.prefix;
-            const startNumber = rawRange.startNumber;
-            if (
-                typeof startPage !== 'number'
-                || !Number.isSafeInteger(startPage)
-                || startPage < 1
-                || index > 0 && startPage <= previousStartPage
-                || style !== null && !PAGE_LABEL_STYLES.some(candidate => candidate === style)
-                || typeof prefix !== 'string'
-                || prefix.length > 4_096
-                || typeof startNumber !== 'number'
-                || !Number.isSafeInteger(startNumber)
-                || startNumber < 1
-            ) {
-                throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
-            }
-            const normalizedStyle = style === null
-                ? null
-                : PAGE_LABEL_STYLES.find(candidate => candidate === style);
-            if (normalizedStyle === undefined) {
-                throw new Error('options.metadataSnapshot.pageLabelRanges must be a compact page-label range array or omitted');
-            }
-            previousStartPage = startPage;
-            return {
-                startPage,
-                style: normalizedStyle,
-                prefix,
-                startNumber,
-            };
-        });
-    }
-    if (typeof value.untitledBookmarkLabel !== 'string') {
-        throw new Error('options.metadataSnapshot.untitledBookmarkLabel must be a string');
-    }
-    return {
-        ...(pageLabels === undefined ? {} : {pageLabels}),
-        ...(pageLabelRanges === undefined ? {} : {pageLabelRanges}),
-        ...(value.bookmarks === undefined ? {} : {bookmarks: decodeBookmarkEntries(value.bookmarks)}),
-        untitledBookmarkLabel: value.untitledBookmarkLabel,
-    };
-}
-
 function decodeMutationOptions(value: unknown): IPageOpsMutationOptions | undefined {
     if (value === undefined || value === null) {
         return undefined;
@@ -458,6 +329,29 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
         electron: true,
     },
     methods: {
+        renderTextBoxAppearance: method(
+            'renderTextBoxAppearance',
+            'page-ops:text-box-appearance',
+            v.strictTuple([
+                v.nullable(v.string()),
+                v.pipe(v.unknown(), v.transform(value => normalizePdfNativeTextBoxAppearanceRequest(value))),
+            ]),
+            v.pipe(
+                v.object({
+                    data: v.pipe(v.custom<Uint8Array>(value => value instanceof Uint8Array), v.check(value => value.byteLength > 0
+                    && value.byteLength <= PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.outputBytes)),
+                    textBoxes: v.unknown(),
+                }),
+                v.transform(value => ({
+                    ...normalizePdfNativeTextBoxAppearanceMetadata(value),
+                    data: value.data,
+                })),
+            ),
+            (workingCopyPath: string | null, request: IPdfNativeTextBoxAppearanceRequest, _options?: {signal?: AbortSignal}) => [
+                workingCopyPath,
+                request,
+            ] as [string | null, IPdfNativeTextBoxAppearanceRequest],
+        ),
         delete: method(
             'delete',
             'page-ops:delete',
@@ -768,3 +662,5 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
 
 export type IPageOpsCapability = TFeatureCapability<typeof PAGE_OPS_PLATFORM_FEATURE>;
 export type IPageOpsInvokeMap = TFeatureInvokeMap<typeof PAGE_OPS_PLATFORM_FEATURE>;
+
+export {decodeMetadataSnapshot} from '@contracts/electronApiPageOps';

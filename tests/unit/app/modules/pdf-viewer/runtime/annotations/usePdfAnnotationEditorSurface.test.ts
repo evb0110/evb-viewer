@@ -8,6 +8,7 @@ import {
 import {
     computed,
     effectScope,
+    shallowReactive,
     shallowRef,
 } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
@@ -45,8 +46,8 @@ function baseEntity(id: string, pageIndex = 0) {
     };
 }
 
-function createSurfaceHarness() {
-    const annotationApplication = shallowRef(new AnnotationApplication('surface-test'));
+function createSurfaceHarness(options: Partial<Parameters<typeof usePdfAnnotationEditorSurface>[0]> = {}) {
+    const annotationApplication = options.annotationApplication ?? shallowRef(new AnnotationApplication('surface-test'));
     const isActive = shallowRef(true);
     const emitAnnotationModified = vi.fn();
     const emitShapeContextMenu = vi.fn();
@@ -63,6 +64,7 @@ function createSurfaceHarness() {
         emitShapeContextMenu,
         onCreationCompleted,
         onTextBoxDraftChanged,
+        ...options,
     }))!;
     const stop = () => {
         if (!activeScopes.delete(scope)) {
@@ -248,6 +250,30 @@ describe('usePdfAnnotationEditorSurface', () => {
         emitAnnotationModified.mockClear();
         expect(surface.updateSelectedAnnotationProperties({fontSize: box.fontSize})).toBe(false);
         expect(emitAnnotationModified).not.toHaveBeenCalled();
+    });
+
+    it('keeps the requested input size while a text editor owns layout and fits completed styles natively', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness({fitTextBox: async (_entity, proposal) => ({
+            rect: proposal.rect,
+            fontSize: 12.12,
+        })});
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        surface.select([box.identity.id]);
+        await surface.updateSelectedAnnotationProperties({fontSize: 18});
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({fontSize: 12.12});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Typing continues');
+        await surface.updateSelectedAnnotationProperties({fontSize: 18});
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            fontSize: 18,
+            text: 'Original',
+            rect,
+        });
+        expect(surface.editingId.value).toBe(box.identity.id);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
+        expect(surface.settings.value).toEqual(DEFAULT_ANNOTATION_SETTINGS);
     });
 
     it('rejects font and geometry together when text cannot fit the page', () => {
@@ -719,6 +745,61 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.surface.endTextEditing(entity.identity.id, {cancelled: true});
         expect(harness.onTextBoxDraftChanged).toHaveBeenLastCalledWith(entity.identity.id, null);
         expect(harness.surface.hasPendingTextBoxDrafts()).toBe(false);
+    });
+
+    it('keeps browser input out of its own raster while peer paint follows draft text and geometry', async () => {
+        const drafts = shallowReactive(new Map<string, string>());
+        const draftRects = shallowReactive(new Map<string, IAnnotationMarkerRect>());
+        const shared = {
+            getTextBoxDraftText: (id: string) => drafts.get(id) ?? null,
+            textBoxDraftRects: draftRects,
+            onTextBoxDraftChanged: (id: string, text: string | null) => {if (text === null) drafts.delete(id); else drafts.set(id, text);},
+        };
+        const owner = createSurfaceHarness(shared);
+        const peer = createSurfaceHarness({
+            ...shared,
+            annotationApplication: owner.annotationApplication,
+        });
+        const box = owner.surface.createTextBoxAt(0, rect, {text: 'Original'});
+        const measured = {
+            ...rect,
+            height: 0.12,
+        };
+        owner.surface.registerPageInteraction(0, {
+            commitTextDraft: () => {},
+            cancelTextDraft: () => {},
+            cancelPointerGesture: () => {},
+            focus: () => {},
+            getTextBoxDraftRect: () => measured,
+        });
+        await owner.surface.beginTextEditing(box.identity.id);
+        owner.surface.setTextBoxDraftPending(box.identity.id, 'First');
+        expect(owner.surface.getPaintInput(box)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
+        expect(peer.surface.getPaintInput(box)).toMatchObject({
+            text: 'First',
+            rect: measured,
+        });
+        owner.surface.setTextBoxDraftPending(box.identity.id, 'Second');
+        expect(owner.surface.getPaintInput(box)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
+        expect(peer.surface.getPaintInput(box)).toMatchObject({
+            text: 'Second',
+            rect: measured,
+        });
+        expect(owner.annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
+        owner.surface.endTextEditing(box.identity.id, {cancelled: true});
+        expect(peer.surface.getPaintInput(box)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
     });
 
     it.each([

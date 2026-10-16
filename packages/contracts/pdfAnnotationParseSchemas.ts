@@ -13,6 +13,7 @@ import {parseDocumentRevisionToken} from '@contracts/documentRevision';
 import {parseDocumentRef} from '@contracts/documentRef';
 import {isPdfNativeNormalizedRectInsidePageBounds} from '@contracts/nativePdfPageBounds';
 import {isRecord} from '@contracts/runtimeGuards';
+import {PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA} from '@contracts/nativePdfTextBoxAppearance';
 import * as v from 'valibot';
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/iu;
@@ -26,11 +27,11 @@ function finiteNumber(fieldName: string, min?: number, max?: number) {
     );
 }
 
-function nonNegativeInteger(fieldName: string) {
+function nonNegativeInteger(fieldName: string, message = `${fieldName} must be a non-negative safe integer`) {
     return v.pipe(
-        v.number(`${fieldName} must be a non-negative safe integer`),
-        v.safeInteger(`${fieldName} must be a non-negative safe integer`),
-        v.minValue(0, `${fieldName} must be a non-negative safe integer`),
+        v.number(message),
+        v.safeInteger(message),
+        v.minValue(0, message),
     );
 }
 
@@ -44,11 +45,7 @@ function nullableString(fieldName: string, allowEmpty = true) {
 }
 
 function nullableTimestamp(fieldName: string) {
-    return v.optional(v.nullable(v.pipe(
-        v.number(`${fieldName} must be a safe integer timestamp or null`),
-        v.safeInteger(`${fieldName} must be a safe integer timestamp or null`),
-        v.minValue(0, `${fieldName} must be a safe integer timestamp or null`),
-    )), null);
+    return v.optional(v.nullable(nonNegativeInteger(fieldName, `${fieldName} must be a safe integer timestamp or null`)), null);
 }
 
 const pageIndexSchema = v.pipe(nonNegativeInteger('pageIndex'), v.transform(value => value as TPageIndex));
@@ -145,6 +142,8 @@ const frameInset = finiteNumber('annotation parse text-box.frame.insets', 0);
 const textBoxSchema = v.pipe(
     v.strictObject({
         kind: v.literal('text-box'),
+        source: v.optional(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA),
+        recoveryData: v.optional(v.pipe(v.string(), v.check(value => value.length <= 2 * 1024 * 1024 && value.length % 2 === 0 && /^[0-9a-f]+$/u.test(value), 'must be a bounded native recovery graph'))),
         ...parseIdentity,
         text: nonEmptyString('annotation parse text-box.text', true),
         rect: baseRectSchema,

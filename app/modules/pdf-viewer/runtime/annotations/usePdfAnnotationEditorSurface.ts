@@ -15,7 +15,6 @@ import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/
 import type {
     AnnotationEntity,
     AnnotationId,
-    IAnnotationIdentity,
     IPlacedImageEntity,
     INoteEntity,
     IShapeEntity,
@@ -30,6 +29,7 @@ import {
     annotationRectsEqual,
     rotateAnnotationPointAround,
     rotatedAnnotationBounds,
+    transformShapeToRect,
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import {createEpochMs} from '@contracts/timestamps';
 import { requirePageIndex } from '@contracts/pageNumbers';
@@ -111,7 +111,7 @@ export interface IAnnotationEditorSurface {
     readonly selectedAnnotations: ComputedRef<readonly AnnotationEntity[]>;
     readonly selectedTextBox: ComputedRef<ITextBoxEntity | null>;
     canRotateSelectedAnnotations(delta: -90 | 90): boolean;
-    updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate): boolean;
+    updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate): boolean | Promise<boolean>;
     readonly entitiesByPage: Readonly<Ref<ReadonlyMap<number, readonly AnnotationEntity[]>>>;
     readonly selectedIds: Readonly<Ref<ReadonlySet<AnnotationId>>>;
     /** What a move carries: the selection less what no command may change. */
@@ -121,6 +121,9 @@ export interface IAnnotationEditorSurface {
     getEntitiesForPage(pageIndex: number): readonly AnnotationEntity[];
     getPaintInput(entity: AnnotationEntity): AnnotationEntity;
     isOriginalAppearance(entity: AnnotationEntity): boolean;
+    isNativeTextBoxAppearance(entity: ITextBoxEntity): boolean;
+    fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity): Pick<ITextBoxEntity, 'rect' | 'fontSize'> | Promise<Pick<ITextBoxEntity, 'rect' | 'fontSize'>>;
+    publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void): void | Promise<void>;
     select(ids: readonly AnnotationId[], options?: { additive?: boolean }): void;
     clearSelection(): void;
     getSelectedTextBox(): ITextBoxEntity | null;
@@ -135,7 +138,7 @@ export interface IAnnotationEditorSurface {
     getTextBoxDraftRect(annotationId: AnnotationId): IAnnotationMarkerRect | null;
     updateSelectedTextBoxProperties(
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
-    ): boolean;
+    ): boolean | Promise<boolean>;
     discardUnsavedAnnotation(annotationId: AnnotationId): boolean;
     deleteAnnotation(annotationId: AnnotationId): boolean;
     deleteSelection(): void;
@@ -220,6 +223,9 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     getTextBoxDraftText?: (annotationId: AnnotationId) => string | null;
     textBoxDraftRects?: Map<string, IAnnotationMarkerRect>;
     isOriginalAppearance?: (entity: AnnotationEntity) => boolean;
+    isNativeTextBoxAppearance?: (entity: ITextBoxEntity) => boolean;
+    fitTextBox?: (entity: ITextBoxEntity, proposal: ITextBoxEntity) => Promise<Pick<ITextBoxEntity, 'rect' | 'fontSize'>>;
+    publishTextBoxAppearance?: (entity: ITextBoxEntity, handoff: () => void) => Promise<void>;
     getTextBoxDraftGeneration?: (annotationId: AnnotationId) => number | undefined;
     beforeTextBoxEdit?: (annotationId: AnnotationId) => void | Promise<void>;
     protectTextBoxDraft?: ((assertCurrent: () => void) => Promise<void>) | undefined;
@@ -242,17 +248,10 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     } | null;
 }
 
-function timestamp() {
-    return createEpochMs();
-}
-
-function newIdentity(): IAnnotationIdentity {
-    return {id: mintAnnotationId()};
-}
-
 function baseEntityFields(author: string | null) {
-    const now = timestamp();
+    const now = createEpochMs();
     return {
+        identity: {id: mintAnnotationId()},
         revision: 0,
         persistedRevision: -1,
         deleted: false as const,
@@ -607,23 +606,50 @@ export const usePdfAnnotationEditorSurface = (
         if (!planned?.length) {
             return false;
         }
-        (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
-            for (const {
-                id,
-                patch,
-                imageRotation,
-            } of planned) {
-                if (imageRotation === undefined) commitGesture(id, patch);
-                else {
-                    store().updatePlacedImage(id, {
-                        ...patch,
-                        rotation: imageRotation,
-                    });
-                    options.emitAnnotationModified?.();
+        const commit = () => {
+            (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
+                for (const {
+                    id, patch, imageRotation,
+                } of planned) {
+                    if (imageRotation === undefined) commitGesture(id, patch);
+                    else {
+                        store().updatePlacedImage(id, {
+                            ...patch,
+                            rotation: imageRotation,
+                        });
+                        options.emitAnnotationModified?.();
+                    }
                 }
-            }
+            });
+            return true;
+        };
+        if (!options.fitTextBox || !planned.some(entry => {
+            const entity = store().get(entry.id);
+            return entity?.kind === 'text-box' && entry.id !== editingId.value && ('fontSize' in entry.patch || 'rect' in entry.patch || 'rotation' in entry.patch);
+        })) return commit();
+        const application = options.annotationApplication.value;
+        const selection = selectedIds.value;
+        const assertions = planned.map(entry => captureTextBoxInput(entry.id));
+        return Promise.all(planned.map(async entry => {
+            const entity = store().get(entry.id);
+            if (entity?.kind !== 'text-box' || entry.id === editingId.value || !('fontSize' in entry.patch || 'rect' in entry.patch || 'rotation' in entry.patch)) return;
+            const fitted = await fitTextBox(entity, {
+                ...entity,
+                ...entry.patch,
+                text: getTextBoxDraftText(entry.id) ?? entity.text,
+            });
+            entry.patch = {
+                ...entry.patch,
+                ...fitted,
+            };
+        })).then(() => {
+            if (options.annotationApplication.value !== application || selectedIds.value !== selection) throw new DOMException('The annotation style command was superseded', 'AbortError');
+            assertions.forEach(assertCurrent => assertCurrent());
+            return commit();
+        }).catch(error => {
+            BrowserLogger.debug('annotations', 'Annotation style command refused', error);
+            return false;
         });
-        return true;
     }
 
     function prunePendingTextBoxDrafts(entities: readonly AnnotationEntity[]) {
@@ -668,23 +694,46 @@ export const usePdfAnnotationEditorSurface = (
         subscribedApplication = null;
     });
 
-    function protectTextBoxDraft(annotationId: AnnotationId) {
-        if (!options.protectTextBoxDraft) return;
+    function captureTextBoxInput(annotationId: AnnotationId) {
         const application = options.annotationApplication.value;
         const entity = store().get(annotationId);
+        const editor = editingId.value;
         const generation = options.getTextBoxDraftGeneration?.(annotationId);
         const text = getTextBoxDraftText(annotationId);
         const geometry = getTextBoxDraftRect(annotationId);
-        if (geometry) restoredTextBoxDraftRects.set(annotationId, geometry);
-        const assertCurrent = () => {
-            if (options.annotationApplication.value !== application || editingId.value !== annotationId
+        return () => {
+            const currentGeometry = getTextBoxDraftRect(annotationId);
+            if (options.annotationApplication.value !== application || editingId.value !== editor
                 || store().get(annotationId)?.revision !== entity?.revision
                 || options.getTextBoxDraftGeneration?.(annotationId) !== generation
-                || getTextBoxDraftText(annotationId) !== text) {
-                throw new DOMException('The text draft changed while recovery protection was pending', 'AbortError');
+                || getTextBoxDraftText(annotationId) !== text
+                || (geometry ? !currentGeometry || !annotationRectsEqual(currentGeometry, geometry) : currentGeometry !== null)) {
+                throw new DOMException('The text draft changed while completion was pending', 'AbortError');
             }
         };
+    }
+
+    function protectTextBoxDraft(annotationId: AnnotationId) {
+        if (!options.protectTextBoxDraft) return;
+        const assertCurrent = captureTextBoxInput(annotationId);
+        const geometry = getTextBoxDraftRect(annotationId);
+        if (geometry) restoredTextBoxDraftRects.set(annotationId, geometry);
         return options.protectTextBoxDraft(assertCurrent).then(assertCurrent);
+    }
+
+    function fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity) {
+        if (!options.fitTextBox) return {
+            rect: proposal.rect,
+            fontSize: proposal.fontSize,
+        };
+        const assertCurrent = captureTextBoxInput(entity.identity.id);
+        return options.fitTextBox(entity, proposal).then(fitted => {assertCurrent(); return fitted;});
+    }
+
+    function publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void) {
+        if (!options.publishTextBoxAppearance) return handoff();
+        const assertCurrent = captureTextBoxInput(entity.identity.id);
+        return options.publishTextBoxAppearance(entity, () => {assertCurrent(); handoff();}).catch(error => {assertCurrent(); throw error;});
     }
 
     function setTextBoxDraftPending(annotationId: AnnotationId, text?: string) {
@@ -814,65 +863,30 @@ export const usePdfAnnotationEditorSurface = (
         };
     }
 
-    function moveSelection(deltaX: number, deltaY: number) {
-        let changed = false;
-        const ids = [...selectedIds.value];
-        (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => ids.forEach((id) => {
-            const entity = editable(id);
-            if (!entity) {
-                return;
-            }
-            switch (entity.kind) {
-                case 'text-box':
-                    store().updateTextBox(id, {rect: translateRect(entity.rect, deltaX, deltaY)});
-                    changed = true;
-                    break;
-                case 'note':
-                    store().updateNote(id, {position: translateRect(entity.position, deltaX, deltaY)});
-                    changed = true;
-                    break;
-                case 'text-markup':
-                    store().updateTextMarkup(id, {quadPoints: entity.quadPoints.map(rect => translateRect(rect, deltaX, deltaY))});
-                    changed = true;
-                    break;
-                case 'placed-image':
-                    store().updatePlacedImage(id, {rect: translateRect(entity.rect, deltaX, deltaY)});
-                    changed = true;
-                    break;
-                case 'shape':
-                    {
-                        const patch: {
-                            rect: IAnnotationMarkerRect;
-                            points?: ReadonlyArray<{
-                                x: number;
-                                y: number
-                            }>;
-                            strokes?: ReadonlyArray<ReadonlyArray<{
-                                x: number;
-                                y: number
-                            }>>;
-                        } = {rect: translateRect(entity.rect, deltaX, deltaY)};
-                        if (entity.points !== undefined) {
-                            patch.points = entity.points.map(point => ({
-                                x: point.x + deltaX,
-                                y: point.y + deltaY,
-                            }));
-                        }
-                        if (entity.strokes !== undefined) {
-                            patch.strokes = entity.strokes.map(stroke => stroke.map(point => ({
-                                x: point.x + deltaX,
-                                y: point.y + deltaY,
-                            })));
-                        }
-                        store().updateShape(id, patch);
-                        changed = true;
-                    }
-                    break;
-            }
-        }));
-        if (changed) {
-            options.emitAnnotationModified?.();
+    function translateEntity(entity: AnnotationEntity, deltaX: number, deltaY: number) {
+        const moveRect = (rect: IAnnotationMarkerRect) => translateRect(rect, deltaX, deltaY);
+        if (entity.kind === 'shape') {
+            const moved = transformShapeToRect(entity, moveRect(entity.rect), 'move');
+            commitGesture(entity.identity.id, {
+                rect: moved.rect,
+                ...(moved.points === undefined ? {} : {points: moved.points}),
+                ...(moved.strokes === undefined ? {} : {strokes: moved.strokes}),
+            });
+            return;
         }
+        const patch = entity.kind === 'text-markup' ? {quadPoints: entity.quadPoints.map(moveRect)}
+            : entity.kind === 'note' ? {position: moveRect(entity.position)}
+                : {rect: moveRect(entity.rect)};
+        commitGesture(entity.identity.id, patch);
+    }
+
+    function moveSelection(deltaX: number, deltaY: number) {
+        (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
+            for (const id of selectedIds.value) {
+                const entity = editable(id);
+                if (entity) translateEntity(entity, deltaX, deltaY);
+            }
+        });
     }
 
     function nudgeSelectionByPdfPoints(
@@ -924,33 +938,14 @@ export const usePdfAnnotationEditorSurface = (
         }
         (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
             for (const {
-                id,
                 entity,
                 delta,
             } of entries) {
                 const dx = delta.x * fraction;
                 const dy = delta.y * fraction;
-                const moveRect = (rect: IAnnotationMarkerRect) => translateRect(rect, dx, dy);
-                switch (entity.kind) {
-                    case 'text-box': store().updateTextBox(id, {rect: moveRect(entity.rect)}); break;
-                    case 'note': store().updateNote(id, {position: moveRect(entity.position)}); break;
-                    case 'text-markup': store().updateTextMarkup(id, {quadPoints: entity.quadPoints.map(moveRect)}); break;
-                    case 'placed-image': store().updatePlacedImage(id, {rect: moveRect(entity.rect)}); break;
-                    case 'shape': store().updateShape(id, {
-                        rect: moveRect(entity.rect),
-                        ...(entity.points ? {points: entity.points.map(point => ({
-                            x: point.x + dx,
-                            y: point.y + dy,
-                        }))} : {}),
-                        ...(entity.strokes ? {strokes: entity.strokes.map(stroke => stroke.map(point => ({
-                            x: point.x + dx,
-                            y: point.y + dy,
-                        })))} : {}),
-                    }); break;
-                }
+                translateEntity(entity, dx, dy);
             }
         });
-        options.emitAnnotationModified?.();
     }
 
     function beginGesture(annotationId: AnnotationId, kind: IAnnotationGesture['kind']) {
@@ -1010,7 +1005,6 @@ export const usePdfAnnotationEditorSurface = (
     ) {
         const created = store().createTextBox({
             kind: 'text-box',
-            identity: newIdentity(),
             pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(annotationAuthor()),
             text: '',
@@ -1034,7 +1028,6 @@ export const usePdfAnnotationEditorSurface = (
         } = overrides;
         const entity: Omit<INoteEntity, 'replies'> = {
             kind: 'note',
-            identity: newIdentity(),
             pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(annotationAuthor()),
             contents: '',
@@ -1057,7 +1050,6 @@ export const usePdfAnnotationEditorSurface = (
     ) {
         return store().createPlacedImage({
             kind: 'placed-image',
-            identity: newIdentity(),
             pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(annotationAuthor()),
             rect,
@@ -1081,7 +1073,6 @@ export const usePdfAnnotationEditorSurface = (
         } = overrides;
         const entity: Omit<ITextMarkupEntity, 'selectedText'> = {
             kind: 'text-markup',
-            identity: newIdentity(),
             pageIndex: requirePageIndex(pageIndex),
             ...baseEntityFields(annotationAuthor()),
             subtype,
@@ -1146,14 +1137,18 @@ export const usePdfAnnotationEditorSurface = (
         settings: options.settings,
         getEntitiesForPage: pageIndex => entitiesByPage.value.get(pageIndex) ?? [],
         getPaintInput(entity) {
+            if (entity.kind === 'text-box' && editingId.value === entity.identity.id) return entity;
             const preview = pageInteractions.get(entity.pageIndex)?.getPaintInput?.(entity) ?? entity;
             return preview.kind === 'text-box' ? {
                 ...preview,
                 text: getTextBoxDraftText(preview.identity.id) ?? preview.text,
-                rect: editingId.value === preview.identity.id ? preview.rect : restoredTextBoxDraftRects.get(preview.identity.id) ?? preview.rect,
+                rect: restoredTextBoxDraftRects.get(preview.identity.id) ?? preview.rect,
             } : preview;
         },
         isOriginalAppearance: entity => options.isOriginalAppearance?.(entity) ?? false,
+        isNativeTextBoxAppearance: entity => options.isNativeTextBoxAppearance?.(entity) ?? false,
+        fitTextBox,
+        publishTextBoxAppearance,
         select,
         clearSelection,
         getSelectedTextBox: () => getSelectedAnnotations().find((entity): entity is ITextBoxEntity => entity.kind === 'text-box') ?? null,

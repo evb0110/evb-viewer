@@ -4,6 +4,7 @@
 //! it is drawn.
 
 use super::*;
+pub(crate) use crate::text_box_appearance::default_appearance;
 use crate::text_box_font::Geometry;
 
 /// A colour's fill or stroke operator, by its component count.
@@ -13,64 +14,12 @@ pub(crate) fn colour(components: &[f64], fill: bool) -> String {
 }
 
 /// A dictionary entry, resolved.
-fn entry<'a>(
+pub(crate) fn entry<'a>(
     document: &'a impl PdfObjectSource,
     dict: &'a Dictionary,
     key: &[u8],
 ) -> Option<&'a Object> {
     document.resolved(dict.get(key).ok()?).ok()
-}
-
-/// What a DA says, read token by token as the writer patches it: the font and
-/// size before each Tf, keeping the last well-formed size when one is
-/// malformed, and the components before the last fill and stroke operators.
-#[derive(Default)]
-pub(crate) struct DefaultAppearance {
-    pub(crate) font: Option<Vec<u8>>,
-    pub(crate) size: Option<f64>,
-    pub(crate) fill: Option<Vec<f64>>,
-    pub(crate) stroke: Option<Vec<f64>>,
-}
-
-impl DefaultAppearance {
-    /// The size, where EVB can draw text at it.
-    pub(crate) fn font_size(&self) -> Option<f64> {
-        self.size
-            .filter(|v| v.is_finite() && *v > 0.0 && *v <= 512.0)
-    }
-}
-
-pub(crate) fn default_appearance(
-    document: &impl PdfObjectSource,
-    annotation: &Dictionary,
-) -> Option<DefaultAppearance> {
-    let da = String::from_utf8_lossy(entry(document, annotation, b"DA")?.as_str().ok()?);
-    let tokens: Vec<&str> = da.split_whitespace().collect();
-    let mut found = DefaultAppearance::default();
-    for (index, token) in tokens.iter().enumerate() {
-        // Its index is one less than the operator's component count.
-        let count = ["g", "", "rg", "k"]
-            .iter()
-            .position(|o| token.eq_ignore_ascii_case(o));
-        let components = count.and_then(|count| {
-            let operands = tokens.get(index.checked_sub(count + 1)?..index)?;
-            let values: Option<Vec<f64>> = operands.iter().map(|t| t.parse().ok()).collect();
-            values.filter(|v| v.iter().all(|c| (0.0..=1.0).contains(c)))
-        });
-        match *token {
-            "Tf" => {
-                found.size = tokens[index.saturating_sub(1)].parse().ok().or(found.size);
-                let name = tokens
-                    .get(index.wrapping_sub(2))
-                    .and_then(|t| t.strip_prefix('/'));
-                found.font = name.map(|name| name.as_bytes().to_vec()).or(found.font);
-            }
-            "g" | "rg" | "k" => found.fill = components.or(found.fill),
-            "G" | "RG" | "K" => found.stroke = components.or(found.stroke),
-            _ => {}
-        }
-    }
-    Some(found)
 }
 
 /// The editor draws a solid border: one in another style, dashed or cloudy
@@ -113,8 +62,8 @@ pub(crate) struct FreeTextFrame {
     pub(crate) stale_fill: bool,
     /// /RD's left, bottom, right and top in page space, and the border width.
     rd: [f64; 4],
-    width: f64,
-    background: Option<Vec<f64>>,
+    pub(crate) width: f64,
+    pub(crate) background: Option<Vec<f64>>,
 }
 
 /// Page-space left, bottom, right and top values on the sides of a box turned

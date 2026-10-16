@@ -77,6 +77,7 @@
                 :selected="isSelected(entity.identity.id)"
                 :editing="editingId === entity.identity.id"
                 :original-appearance="surface.isOriginalAppearance(entity)"
+                :native-appearance="surface.isNativeTextBoxAppearance(entity)"
                 :recovered-draft-text="surface.getTextBoxDraftText(entity.identity.id)"
                 :recovered-draft-rect="surface.getTextBoxDraftRect(entity.identity.id)"
                 :caret-point="surface.textEditPoint.value"
@@ -87,7 +88,6 @@
                 @pointer-down="handleEntityPointerDown(entity, $event)"
                 @edit="beginTextBoxEdit(entity.identity.id, $event)"
                 @draft-change="surface.setTextBoxDraftPending(entity.identity.id, $event)"
-                @cancel="cancelTextBox(entity.identity.id)"
             />
             <PdfNoteAnnotation
                 v-for="entity in htmlEntities.notes"
@@ -229,7 +229,7 @@ onMounted(() => {
     editorReady.value = true;
     unregisterPageInteraction = surface.registerPageInteraction(props.pageIndex, {
         commitTextDraft: commitActiveTextBoxDraftForSave,
-        cancelTextDraft: () => { if (editingId.value !== null) { cancelTextBox(editingId.value); } },
+        cancelTextDraft: () => { if (editingId.value !== null) void commitTextBox(editingId.value).catch(error => BrowserLogger.debug('annotations', 'Text draft cancellation refused', error)); },
         cancelPointerGesture: cancelPointerGesture,
         focus: focusLayer,
         getTextBoxDraftRect: annotationId => textBoxRefs.get(annotationId)?.getDraftRect() ?? null,
@@ -566,10 +566,12 @@ function rectStyle(rect: {
     };
 }
 
-function textResizeProposal(entity: ITextBoxEntity, rect: IAnnotationMarkerRect, handle = pointerGesture.resizeHandle.value, point = pointerGesture.current.value) {
+function textResizeProposal(entity: ITextBoxEntity, handle = pointerGesture.resizeHandle.value, point = pointerGesture.current.value) {
+    const captured = pointerGesture.entity;
+    if (captured?.kind === 'text-box' && captured.identity.id === entity.identity.id) entity = captured;
     if (!handle || !point) {
         return {
-            rect,
+            rect: entity.rect,
             fontSize: entity.fontSize,
         };
     }
@@ -589,7 +591,7 @@ function textResizeProposal(entity: ITextBoxEntity, rect: IAnnotationMarkerRect,
 
 function displayFontSizeFor(entity: ITextBoxEntity) {
     return draggedAnnotationId.value === entity.identity.id && pointerGesture.mode.value === 'resize'
-        ? textResizeProposal(entity, entity.rect).fontSize
+        ? textResizeProposal(entity).fontSize
         : undefined;
 }
 
@@ -622,7 +624,7 @@ const textPlacementPreview = computed(() => {
 function displayRectFor(entity: ITextBoxEntity | INoteEntity | IPlacedImageEntity | IShapeEntity) {
     if (entity.kind === 'text-box' && editingId.value === entity.identity.id && draggedAnnotationId.value !== entity.identity.id) return textBoxRefs.get(entity.identity.id)?.getDraftRect();
     const rect = draggedAnnotationId.value === entity.identity.id ? pointerGesture.previewRect.value : null;
-    if (rect) return entity.kind === 'text-box' && pointerGesture.mode.value === 'resize' ? textResizeProposal(entity, rect).rect : rect;
+    if (rect) return entity.kind === 'text-box' && pointerGesture.mode.value === 'resize' ? textResizeProposal(entity).rect : rect;
     const delta = moveDelta.value;
     return delta && surface.movingIds.value.has(entity.identity.id)
         ? translateRect(entity.kind === 'note' ? entity.position : entity.rect, delta.x, delta.y) : undefined;
@@ -969,7 +971,7 @@ async function handlePointerUp(event: PointerEvent) {
         }))});
     } else {
         const patch = completion.gesture.entity.kind === 'text-box' && completion.mode === 'resize'
-            ? textResizeProposal(completion.gesture.entity, completion.rect, resizeHandle, completion.current)
+            ? textResizeProposal(completion.gesture.entity, resizeHandle, completion.current)
             : {rect: completion.rect};
         if (
             completion.gesture.entity.kind === 'text-box'
@@ -1075,65 +1077,61 @@ function handleSurfaceDblClick(event: MouseEvent) {
 }
 
 function currentTextBox(annotationId: AnnotationId) {
-    return entities.value.find((entity): entity is ITextBoxEntity => (
-        entity.kind === 'text-box' && entity.identity.id === annotationId
-    )) ?? null;
+    return htmlEntities.value.textBoxes.find(entity => entity.identity.id === annotationId) ?? null;
 }
 
 async function commitTextBox(
     annotationId: AnnotationId,
-    draft: {
+    draft?: {
         text: string;
         rect?: IAnnotationMarkerRect;
-        restoreFocus?: boolean;
+        restoreFocus?: boolean
     },
 ) {
-    if (editingId.value !== annotationId) {
-        return;
-    }
+    if (editingId.value !== annotationId) return;
     const entity = currentTextBox(annotationId);
-    if (!entity) {
+    const created = newTextBoxIds.has(annotationId) && Boolean(draft?.text.trim());
+    const finish = () => {
         newTextBoxIds.delete(annotationId);
         autoSizeTextBoxIds.delete(annotationId);
-        surface.endTextEditing(annotationId, {restoreFocus: false});
+        surface.endTextEditing(annotationId, {
+            created,
+            restoreFocus: draft ? draft.restoreFocus ?? false : true,
+            cancelled: !draft,
+        });
+    };
+    if (!entity || !draft || newTextBoxIds.has(annotationId) && !created
+        || entity.text === draft.text && (!draft.rect || annotationRectsEqual(entity.rect, draft.rect))) {
+        if (entity && newTextBoxIds.has(annotationId) && !created) {
+            surface.discardUnsavedAnnotation(annotationId);
+            finish();
+        } else if (entity && surface.hasTextBoxDraftPending(annotationId)) await Promise.resolve(surface.publishTextBoxAppearance(entity, finish)).catch(error => {
+            if (draft || error instanceof Error && error.name === 'AbortError') throw error;
+            finish();
+        });
+        else finish();
         return;
     }
-    if (newTextBoxIds.has(annotationId) && draft.text.trim().length === 0) {
-        surface.discardUnsavedAnnotation(annotationId);
-    } else {
-        const rect = draft.rect;
-        const textChanged = entity.text !== draft.text;
-        const rectChanged = rect !== undefined && !annotationRectsEqual(entity.rect, rect);
-        if (textChanged || rectChanged) {
-            surface.setTextBoxDraftPending(annotationId, draft.text);
-            const protection = surface.protectTextBoxDraft(annotationId);
-            if (protection) await protection;
-            surface.commitGesture(annotationId, {
-                ...(textChanged ? {text: draft.text} : {}),
-                ...(rectChanged ? {rect} : {}),
-            });
-        }
-    }
-    const created = newTextBoxIds.has(annotationId) && draft.text.trim().length > 0;
-    newTextBoxIds.delete(annotationId);
-    autoSizeTextBoxIds.delete(annotationId);
-    surface.endTextEditing(annotationId, {
-        created,
-        restoreFocus: draft.restoreFocus ?? false,
+    surface.setTextBoxDraftPending(annotationId, draft.text);
+    const protection = surface.protectTextBoxDraft(annotationId);
+    if (protection) await protection;
+    const proposal = {
+        ...entity,
+        text: draft.text,
+        rect: draft.rect ?? entity.rect,
+    };
+    const fitting = surface.fitTextBox(entity, proposal);
+    const fitted = fitting instanceof Promise ? await fitting : fitting;
+    await surface.publishTextBoxAppearance({
+        ...proposal,
+        ...fitted,
+    }, () => {
+        surface.commitGesture(annotationId, {
+            text: draft.text,
+            ...fitted,
+        });
+        finish();
     });
-}
-
-function cancelTextBox(annotationId: AnnotationId) {
-    if (editingId.value !== annotationId) {
-        return;
-    }
-    const entity = currentTextBox(annotationId);
-    if (entity && newTextBoxIds.has(annotationId)) {
-        surface.discardUnsavedAnnotation(annotationId);
-    }
-    newTextBoxIds.delete(annotationId);
-    autoSizeTextBoxIds.delete(annotationId);
-    surface.endTextEditing(annotationId, {cancelled: true});
 }
 
 onBeforeUnmount(() => {

@@ -74,6 +74,7 @@ export interface IAnnotationPointerGesture {
     readonly current: ComputedRef<IAnnotationEditorPoint | null>;
     readonly hasMoved: ComputedRef<boolean>;
     readonly previewRect: ComputedRef<IAnnotationMarkerRect | null>;
+    readonly entity: IAnnotationGesture['entity'] | null;
     beginCreate(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
     beginMove(annotationId: AnnotationId, point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
     beginResize(
@@ -311,10 +312,7 @@ export const useAnnotationPointerGesture = (
             return null;
         }
         update(point, event);
-        const interaction = active.value;
-        if (!interaction) {
-            return null;
-        }
+        const interaction = active.value!;
         const rect = previewRect.value;
         if (!rect) {
             active.value = null;
@@ -351,6 +349,7 @@ export const useAnnotationPointerGesture = (
         current,
         hasMoved,
         previewRect,
+        get entity() {return active.value?.gesture?.entity ?? null;},
         beginCreate,
         beginMove,
         beginResize,

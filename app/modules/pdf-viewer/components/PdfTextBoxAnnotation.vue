@@ -16,9 +16,8 @@
         @dblclick.stop="!editing && emit('edit', $event)"
     >
         <span
-            v-if="frameStyle"
-            class="pdf-annotation-editor-text-box__frame"
-            :style="frameStyle"
+            v-if="editing && !paintsOriginal && !nativeAppearance"
+            :style="inputFrameStyle"
             aria-hidden="true"
         ></span>
         <div
@@ -30,6 +29,8 @@
             role="textbox"
             :aria-label="entity.text || t('annotations.text')"
             spellcheck="false"
+            @compositionstart="emit('draft-change', inlineEdit.draftText.value)"
+            @compositionend="handleInputEvent"
             @input="handleInputEvent"
             @keydown="handleKeydown"
             @blur="handleBlur"
@@ -63,6 +64,7 @@ const props = defineProps<{
     selected: boolean;
     editing?: boolean;
     originalAppearance?: boolean;
+    nativeAppearance?: boolean;
     recoveredDraftText?: string | null;
     recoveredDraftRect?: IAnnotationMarkerRect | null;
     autoSizeDraft?: boolean;
@@ -72,7 +74,7 @@ const props = defineProps<{
     } | null;
     displayRect?: IAnnotationMarkerRect | undefined;
     displayFontSize?: number | undefined;
-    commitDraft?: (draft: ITextBoxCommitDraft) => void | Promise<void>;
+    commitDraft?: (draft?: ITextBoxCommitDraft) => void | Promise<void>;
 }>();
 const emit = defineEmits<{
     'pointer-down': [event: PointerEvent];
@@ -81,7 +83,6 @@ const emit = defineEmits<{
         clientY: number
     }];
     'draft-change': [text: string];
-    cancel: [];
 }>();
 const { t } = useTypedI18n();
 const editing = computed(() => props.editing ?? false);
@@ -102,7 +103,7 @@ const inlineEdit = useTextBoxInlineEdit({
             ...(rect ? {rect: {...rect}} : {}),
         });
     },
-    onCancel: () => emit('cancel'),
+    onCancel: () => props.commitDraft?.(),
 });
 const {
     commit,
@@ -248,6 +249,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
 }
 
 function handleInputEvent(event: Event) {
+    if (event instanceof InputEvent && event.isComposing) return;
     handleInput(event);
     draftRectForContent();
 }
@@ -313,31 +315,19 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
     } finally { measurement.remove(); }
 }
 
-// A foreign label's frame: its border and background inset by /RD, behind
-// the text, which sits inside both as it does on the saved page. /RD is on
-// the page's upright top, right, bottom and left; a box turned clockwise by a
-// quarter faces the next side, as Save draws it.
+// Keep the browser editor's content inset; the page renderer owns frame ink.
 const frameInsets = computed(() => {
     const insets = props.entity.readOnly ? undefined : props.entity.frame?.insets;
     return insets?.map((_, side) => insets[(side + props.entity.rotation / 90) % 4]!);
 });
-const frameStyle = computed(() => {
-    const frame = props.entity.frame;
-    if (!frame || !frameInsets.value) {
-        return null;
-    }
-    return {
-        position: 'absolute' as const,
-        visibility: paintsOriginal.value ? 'hidden' as const : undefined,
-        inset: frameInsets.value.map(inset => toPdfScaledCssLength(inset)).join(' '),
-        // An inset shadow keeps the stroke's exact width; a CSS border snaps to device pixels.
-        boxShadow: frame.borderColor ? `inset 0 0 0 ${toPdfScaledCssLength(frame.borderWidth)} ${frame.borderColor}` : 'none',
-        background: frame.background ?? 'transparent',
-        zIndex: -1,
-        pointerEvents: 'none' as const,
-    };
-});
-
+const inputFrameStyle = computed(() => props.entity.frame && frameInsets.value ? {
+    position: 'absolute' as const,
+    inset: frameInsets.value.map(inset => toPdfScaledCssLength(inset)).join(' '),
+    boxShadow: props.entity.frame.borderColor ? `inset 0 0 0 ${toPdfScaledCssLength(props.entity.frame.borderWidth)} ${props.entity.frame.borderColor}` : 'none',
+    background: props.entity.frame.background ?? 'transparent',
+    zIndex: -1,
+    pointerEvents: 'none' as const,
+} : undefined);
 const framePadding = computed(() => {
     const frame = props.entity.frame;
     return frame && frameInsets.value
@@ -352,8 +342,8 @@ const rectStyle = computed(() => ({
     top: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).top * 100}%`,
     width: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).width * 100}%`,
     height: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).height * 100}%`,
-    // pdf.js draws a read-only label: its box only takes the pointer.
-    color: paintsOriginal.value ? 'transparent' : props.entity.color ?? 'var(--ui-text)',
+    // Resting text stays selectable and accessible; only the real editor paints DOM glyphs.
+    color: !editing.value || paintsOriginal.value || props.nativeAppearance ? 'transparent' : props.entity.color ?? 'var(--ui-text)',
     caretColor: props.entity.color ?? 'var(--ui-text)',
     cursor: props.entity.readOnly ? 'default' : undefined,
     fontSize: toPdfScaledCssLength(props.displayFontSize ?? props.entity.fontSize),
@@ -368,3 +358,10 @@ defineExpose({
     fitRectToContent,
 });
 </script>
+
+<style scoped>
+.pdf-annotation-editor-text-box:not(.is-editing)::selection {
+    color: transparent;
+    background: var(--app-pdf-text-selection-bg);
+}
+</style>

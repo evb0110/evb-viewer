@@ -1,4 +1,10 @@
 import {cast} from '@tests/helpers/cast';
+import {existsSync} from 'node:fs';
+import {
+    mkdtemp, readFile, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
@@ -20,9 +26,26 @@ import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { IPdfDocumentAnnotationsView } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import { createPdfDocumentAnnotations } from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import { requireDocumentRef } from '@contracts/documentRef';
+import {
+    recordPdfDocumentLoadedRevision, readPdfDocumentOriginalAnnotationSource, releasePdfDocumentOriginalAnnotations,
+} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
 
-const {parsePdfAnnotations} = vi.hoisted(() => ({parsePdfAnnotations: vi.fn()}));
-vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => ({parsePdfAnnotations})}));
+const {
+    parsePdfAnnotations, createWorkingCopyFromPath, cleanupFile, getDocumentRevision,
+} = vi.hoisted(() => ({
+    parsePdfAnnotations: vi.fn(),
+    createWorkingCopyFromPath: vi.fn(),
+    cleanupFile: vi.fn(),
+    getDocumentRevision: vi.fn(),
+}));
+vi.mock('@app/utils/platformDocuments', () => ({
+    getDocumentWorkingCopyCapability: () => ({
+        parsePdfAnnotations,
+        createWorkingCopyFromPath,
+        cleanupFile,
+    }),
+    getDocumentFilesCapability: () => ({getDocumentRevision}),
+}));
 
 /** A view whose editor holds at most one open text-box draft. */
 function createEditorView() {
@@ -141,9 +164,14 @@ describe('text-box drafts of a document shown in two views', () => {
 });
 
 describe('writer annotations shared by linked views', () => {
-    beforeEach(() => parsePdfAnnotations.mockReset());
     const initialRevision = requireDocumentRevisionToken('drt1:shared-writer-1');
     const nextRevision = requireDocumentRevisionToken('drt1:shared-writer-2');
+    beforeEach(() => {
+        parsePdfAnnotations.mockReset();
+        createWorkingCopyFromPath.mockReset();
+        cleanupFile.mockReset();
+        getDocumentRevision.mockReset().mockResolvedValue({token: initialRevision});
+    });
     function parsed(text: string, revision = initialRevision): IPdfAnnotationParseResult {
         return {
             documentRevisionToken: revision,
@@ -196,10 +224,94 @@ describe('writer annotations shared by linked views', () => {
             workingCopyPath,
             revision,
             resource,
+            document,
             replaceVersion: () => {version += 1;},
             detach: () => {loadToken += 1;},
         };
     }
+
+    async function captureOriginalSource() {
+        const directory = await mkdtemp(join(tmpdir(), 'annotation-source-capture-'));
+        const snapshot = requireDocumentRef(join(directory, 'original.pdf'));
+        const started = Promise.withResolvers<undefined>();
+        const capture = Promise.withResolvers<typeof snapshot>();
+        createWorkingCopyFromPath.mockImplementationOnce(async () => {
+            await writeFile(snapshot, 'Immutable original appearance');
+            started.resolve(undefined);
+            return capture.promise;
+        });
+        cleanupFile.mockImplementation((path: string) => rm(path));
+        const state = setup();
+        const proxy = state.document.value!;
+        recordPdfDocumentLoadedRevision(proxy, initialRevision);
+        parsePdfAnnotations.mockResolvedValueOnce(parsed('Original text'));
+        const loading = state.annotations.feedStoreFromWriterParse(state.resource, shallowRef(null));
+        await started.promise;
+        return {
+            ...state,
+            proxy,
+            loading,
+            snapshot,
+            finish: () => capture.resolve(snapshot),
+            dispose: async () => {
+                capture.resolve(snapshot);
+                await loading;
+                await releasePdfDocumentOriginalAnnotations(proxy);
+                await rm(directory, {
+                    recursive: true,
+                    force: true,
+                });
+            },
+        };
+    }
+
+    it('waits for immutable original bytes before publishing the parsed Save baseline', async () => {
+        const capture = await captureOriginalSource();
+        try {
+            expect(capture.annotations.application.value.listCommentSummaries()).toEqual([]);
+            expect(await readFile(capture.snapshot, 'utf8')).toBe('Immutable original appearance');
+            capture.finish();
+            await capture.loading;
+            expect(capture.annotations.application.value.listCommentSummaries().map(comment => comment.text)).toEqual(['Original text']);
+            expect(await readPdfDocumentOriginalAnnotationSource(capture.proxy)).toBe(capture.snapshot);
+        } finally {
+            await capture.dispose();
+        }
+        expect(existsSync(capture.snapshot)).toBe(false);
+    });
+
+    it('releases a late original copy after its PDF proxy retired during capture', async () => {
+        const capture = await captureOriginalSource();
+        try {
+            capture.document.value = null;
+            capture.revision.value = nextRevision;
+            const retirement = releasePdfDocumentOriginalAnnotations(capture.proxy);
+            expect(await readFile(capture.snapshot, 'utf8')).toBe('Immutable original appearance');
+            capture.finish();
+            await Promise.all([
+                capture.loading,
+                retirement,
+            ]);
+            expect(existsSync(capture.snapshot)).toBe(false);
+            expect(capture.annotations.application.value.listCommentSummaries()).toEqual([]);
+            expect(await readPdfDocumentOriginalAnnotationSource(capture.proxy)).toBeNull();
+        } finally {
+            await capture.dispose();
+        }
+    });
+
+    it('removes the copied bytes when their source revision cannot be verified', async () => {
+        const capture = await captureOriginalSource();
+        try {
+            getDocumentRevision.mockRejectedValueOnce(new Error('Source revision unavailable'));
+            capture.finish();
+            await capture.loading;
+            expect(existsSync(capture.snapshot)).toBe(false);
+            expect(capture.annotations.application.value.listCommentSummaries()).toEqual([]);
+        } finally {
+            await capture.dispose();
+        }
+    });
     it.each([
         false,
         true,

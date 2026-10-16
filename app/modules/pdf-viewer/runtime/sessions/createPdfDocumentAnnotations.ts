@@ -1,6 +1,7 @@
 import {parseDocumentRef} from '@contracts/documentRef';
 import type {TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {recordPdfDocumentOriginalAnnotations} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentLoadedRevision';
+import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import {
     applyParsedHighlightTextToStore, commitPdfAnnotationParseToStore,
 } from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
@@ -108,7 +109,6 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     const textBoxDrafts = shallowReactive(new Map<string, string>());
     const textBoxDraftGenerations = new Map<string, number>();
     const textBoxDraftRects = shallowReactive(new Map<string, IAnnotationMarkerRect>());
-
     let writerParseTask: {
         document: NonNullable<TPdfDocumentView['pdfDocument']['value']>;
         version: number;
@@ -116,6 +116,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         path: string;
         abortController: AbortController;
         promise: Promise<boolean>;
+        result?: IPdfAnnotationParseResult;
     } | null = null;
     function cancelWriterParse(controller = writerParseTask?.abortController) {
         if (writerParseTask?.abortController !== controller) return;
@@ -176,7 +177,22 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                     expectedDocumentRevisionToken: expectedRevisionToken,
                     signal: abortController.signal,
                 });
-                if (isCurrent()) recordPdfDocumentOriginalAnnotations(document, result);
+                if (isCurrent()) await recordPdfDocumentOriginalAnnotations(document, result, async () => {
+                    const snapshot = await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(parsePath);
+                    try {
+                        const capturedRevision = await getDocumentFilesCapability().getDocumentRevision(parsePath);
+                        if (!isCurrent() || capturedRevision.token !== result.documentRevisionToken) {
+                            throw new DOMException('Original annotation source changed during capture', 'AbortError');
+                        }
+                        return {
+                            ref: snapshot,
+                            release: () => getDocumentWorkingCopyCapability().cleanupFile(snapshot),
+                        };
+                    } catch (error) {
+                        await getDocumentWorkingCopyCapability().cleanupFile(snapshot);
+                        throw error;
+                    }
+                });
                 const committed = commitPdfAnnotationParseToStore({
                     result,
                     isTransitionCurrent: isCurrent,
@@ -189,6 +205,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 if (!committed) {
                     return false;
                 }
+                if (writerParseTask) writerParseTask.result = result;
                 void deriveSelectedTextForParsedHighlights({
                     documentSession,
                     result,
@@ -312,6 +329,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         replaceLoadedDocument,
         adoptCurrentRevision,
         feedStoreFromWriterParse,
+        getWriterParseResult: () => writerParseTask?.result ?? null,
         /** The rectangle of a draft in the viewer whose editor holds it open. */
         getTextBoxDraftRect(annotationId: string) {
             return [...views].map(view => view.getTextBoxDraftRect(annotationId)).find(rect => rect !== null)

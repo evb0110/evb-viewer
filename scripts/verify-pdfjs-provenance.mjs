@@ -23,17 +23,17 @@ import {
 import { minifyPdfjsWorker } from './copy-pdfjs-assets.mjs';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
-const archiveName = 'pdfjs-dist-6.3.313-f9ed28c5.tgz';
+const archiveName = 'pdfjs-dist-6.3.314-f88c766a.tgz';
 const dependencyKey = `file:vendor/pdfjs-dist/${archiveName}`;
 const expectedPackage = {
     name: 'pdfjs-dist',
-    version: '6.3.313',
+    version: '6.3.314',
 };
 const expectedFork = {
     repository: 'https://github.com/evb0110/pdf.js.git',
-    branch: 'evb-927-annotation-suppression',
-    commit: 'f9ed28c517dc5fbbe178d64a44df27981c1b3a98',
-    tree: 'eee30b627caeea3b31cd33bc01ec6b492f20fc15',
+    branch: 'evb-1383-native-annotation-appearance',
+    commit: 'f88c766ad2701da9d29ef391ae9a9346c6891474',
+    tree: 'ab88cbc85b3dc7fa98067f468a16ef6b18e21a6a',
     sourceBaseCommit: '5e0ac85d697d41a2232045033962b3437b7e2ad1',
     sourceBaseTree: '9dbb438c9a4bce5a958ca8b37d305b79b5b74c6a',
     upstreamTag: 'v6.3.289',
@@ -50,7 +50,9 @@ const forkMarkerFiles = [
     'NOTICE',
     'gulpfile.mjs',
     'scripts/verify_fork_artifacts.mjs',
+    'src/core/annotation.js',
     'src/core/chunked_stream.js',
+    'src/core/document.js',
     'src/core/evaluator.js',
     'src/core/worker.js',
     'src/core/xref.js',
@@ -60,6 +62,7 @@ const forkMarkerFiles = [
     'src/display/editor/stamp.js',
     'src/display/text_layer.js',
     'src/display/transport_stream.js',
+    'src/pdf.js',
     'test/integration/stamp_editor_spec.mjs',
     'test/unit/api_spec.js',
     'test/unit/stream_spec.js',
@@ -73,9 +76,12 @@ const runtimeMarkerSources = {
         'webpack://pdf.js/./src/display/text_layer.js',
         'webpack://pdf.js/./src/display/api.js',
         'webpack://pdf.js/./src/display/editor/stamp.js',
+        'webpack://pdf.js/./src/pdf.js',
     ],
     worker: [
+        'webpack://pdf.js/./src/core/annotation.js',
         'webpack://pdf.js/./src/core/chunked_stream.js',
+        'webpack://pdf.js/./src/core/document.js',
         'webpack://pdf.js/./src/core/evaluator.js',
         'webpack://pdf.js/./src/core/xref.js',
         'webpack://pdf.js/./src/core/worker.js',

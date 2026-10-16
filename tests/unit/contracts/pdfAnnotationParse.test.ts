@@ -552,3 +552,73 @@ describe('PDF annotation parse IPC contracts', () => {
         })).toThrow(/more than/iu);
     });
 });
+
+it('admits exact native text-box source descriptors and bounded original appearance recovery', () => {
+    const source = {
+        version: 1,
+        settlementRect: [
+            10,
+            20,
+            100,
+            60,
+        ],
+        rawRD: [
+            15,
+            0,
+            15,
+            0,
+        ],
+        borderWidth: 1.5,
+        borderColor: [
+            0.1,
+            0.2,
+            0.3,
+            0.4,
+        ],
+        background: [0.8],
+        staleFill: false,
+    };
+    const entry = {
+        kind: 'text-box',
+        pageIndex: 0,
+        objectNumber: 17,
+        generationNumber: 0,
+        name: 'source',
+        text: 'Original',
+        rect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.4,
+        },
+        rotation: 0,
+        fontSize: 18,
+        color: '#111827',
+        source,
+        recoveryData: '0011',
+    };
+    const decode = (value: unknown) => workingCopyParseCodec.decodeResult({
+        documentRevisionToken: token,
+        pageCount: 1,
+        entities: [value],
+        foreign: [],
+    });
+    expect(decode(entry).entities[0]).toMatchObject({
+        source,
+        recoveryData: '0011',
+    });
+    expect(() => decode({
+        ...entry,
+        source: {
+            ...source,
+            borderColor: [
+                0.1,
+                0.2,
+            ],
+        },
+    })).toThrow();
+    expect(() => decode({
+        ...entry,
+        recoveryData: 'not-hex',
+    })).toThrow();
+});

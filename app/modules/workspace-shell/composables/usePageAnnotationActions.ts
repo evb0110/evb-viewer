@@ -337,7 +337,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (comment.annotationKind === 'shape' && comment.appAnnotationId) {
             // Shapes reuse the selection property command, which owns its history entry.
             if (pdfViewerRef.value?.selectAnnotationById?.(comment.appAnnotationId)) {
-                pdfViewerRef.value.updateSelectedAnnotationProperties?.({color});
+                void pdfViewerRef.value.updateSelectedAnnotationProperties?.({color});
             }
             closeAnnotationContextMenu();
             return;

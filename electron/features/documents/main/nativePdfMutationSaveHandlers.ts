@@ -1,3 +1,5 @@
+import {runWithWorkingCopyReadBacking} from '@electron/file-access/runWithWorkingCopyReadBacking';
+import {withContentReadLease} from '@electron/features/documents/main/documentFileReadHandlers';
 import {OriginalPathSaveConflictError} from '@electron/file-access/originalPathSnapshot';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {usingManagedScratchScope} from '@electron/utils/managedScratchTemp';
@@ -30,7 +32,6 @@ import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {
     normalizePdfNativeModifiedAt,
     normalizePdfNativeAnnotationIdentityBindings,
-    type TPdfNativeMutationSetNativeToolPayload,
 } from '@pdf-core';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
@@ -70,15 +71,6 @@ import {withLargePdfMutationAdmission} from '@electron/features/documents/main/w
 
 const PDF_NATIVE_MUTATION_TIMEOUT_MS = 2 * 60 * 1000;
 const log = createLogger('native-note-text-save');
-
-interface INativeNoteCommandOptions {
-    command: 'save-mutations';
-    payloadFileName: string;
-    payloadFlag: '--mutations-file';
-    payload: IPdfNativeMutationSet;
-    commandLabel: string;
-    identityBindingsFileName?: string;
-}
 
 interface INativeNotePhaseTiming {
     phase: string;
@@ -133,25 +125,19 @@ async function enterQueuedNativeNoteCommand(
 
 async function materializeNativeBinarySidecars(
     context: IDocumentsSenderIdContext,
-    payload: IPdfNativeMutationSet | unknown,
-): Promise<TPdfNativeMutationSetNativeToolPayload | unknown> {
-    if (!payload || typeof payload !== 'object' || !Array.isArray((payload as IPdfNativeMutationSet).placedImages)) {
-        return payload;
-    }
-    const mutationPayload = payload as IPdfNativeMutationSet & {placedImages: NonNullable<IPdfNativeMutationSet['placedImages']>};
+    {
+        originalAppearanceSource: _originalSource, placedImages, ...mutations
+    }: IPdfNativeMutationSet,
+) {
+    if (placedImages === undefined) return mutations;
     return {
-        ...payload,
-        placedImages: await Promise.all(mutationPayload.placedImages.map(async (image) => {
-            if (image.bytesBase64 !== undefined) {
-                return image;
-            }
-            if (!image.source) {
-                throw new Error('Placed image source is missing');
-            }
+        ...mutations,
+        placedImages: await Promise.all(placedImages.map(async (image) => {
+            if (image.bytesBase64 !== undefined) return image;
+            if (!image.source) throw new Error('Placed image source is missing');
             const source = await resolveManagedTempFileHandle(context, image.source);
             const {
-                source: _source,
-                ...metadata
+                source: _source, ...metadata
             } = image;
             return {
                 ...metadata,
@@ -264,7 +250,7 @@ async function measureNativeNotePhase<T>(
 
 async function prepareNativeNoteMutation(options: {
     binaryPath: string;
-    command: INativeNoteCommandOptions;
+    mutations: IPdfNativeMutationSet;
     context: IDocumentsSenderIdContext;
     modifiedAt: ReturnType<typeof normalizePdfNativeModifiedAt>;
     mutationOperation: IWorkingCopyMutationOperation;
@@ -273,7 +259,8 @@ async function prepareNativeNoteMutation(options: {
     sourcePath: string;
     tempPath: string;
 }) {
-    const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(options.command.payload);
+    const mutationChunks = splitPdfNativeMutationSetIntoBoundedChunks(options.mutations);
+    const needsBindings = needsNativeIdentityBindingsReport(options.mutations);
     await measureNativeNotePhase(
         options.phaseTimings,
         'clone-working-to-temp',
@@ -297,19 +284,21 @@ async function prepareNativeNoteMutation(options: {
                     const nativePayload = await materializeNativeBinarySidecars(options.context, chunk);
                     await writeFile(payloadFilePath, JSON.stringify(nativePayload));
                 });
-                const identityBindingsFileName = options.command.identityBindingsFileName
-                    ? chunkIndex === 0
-                        ? basename(options.command.identityBindingsFileName)
-                        : `${basename(options.command.identityBindingsFileName, '.json')}-${chunkIndex}.json`
+                const identityBindingsFileName = needsBindings
+                    ? chunkIndex === 0 ? 'identity-bindings.json' : `identity-bindings-${chunkIndex}.json`
                     : undefined;
-                await runNativeToolCommand(options.binaryPath, [
-                    options.command.command,
+                const run = (source?: string) => runNativeToolCommand(options.binaryPath, [
+                    'save-mutations',
                     '--input',
                     options.tempPath,
                     '--output',
                     options.tempPath,
-                    options.command.payloadFlag,
+                    '--mutations-file',
                     payloadFilePath,
+                    ...(source === undefined ? [] : [
+                        '--source',
+                        source,
+                    ]),
                     ...(identityBindingsFileName
                         ? [
                             '--identity-bindings-file',
@@ -324,10 +313,14 @@ async function prepareNativeNoteMutation(options: {
                     '--append-in-place',
                 ], {
                     timeoutMs: PDF_NATIVE_MUTATION_TIMEOUT_MS,
-                    commandLabel: options.command.commandLabel,
+                    commandLabel: 'evb-pdf-page-ops(save-mutations-working-copy)',
                     signal,
                     cancelGroup: options.mutationOperation.cancelGroup,
                 });
+                const sourceRef = chunk.originalAppearanceSource;
+                await (sourceRef === undefined ? run() : runWithWorkingCopyReadBacking(sourceRef,
+                    physicalPath => withContentReadLease(physicalPath, () => run(physicalPath), () => false, sourceRef),
+                    {ownerWebContentsId: requireSenderId(options.context)}));
                 await measureNativeNotePhase(options.phaseTimings, 'assert-output', () =>
                     assertNativeOutputReady(options.tempPath));
                 if (identityBindingsFileName) {
@@ -347,7 +340,7 @@ async function prepareNativeNoteMutation(options: {
                 }
             }
         }));
-    const normalizedIdentityBindings = options.command.identityBindingsFileName
+    const normalizedIdentityBindings = needsBindings
         ? normalizePdfNativeAnnotationIdentityBindings(identityBindings, 'native identity bindings', {errorKind: 'error'})
         : undefined;
     return {
@@ -368,7 +361,7 @@ async function runNativeWorkingCopyCommand(
     workingPath: unknown,
     rawModifiedAt: unknown,
     revisionOptions: IDocumentMutationRevisionOptions,
-    options: INativeNoteCommandOptions,
+    mutations: IPdfNativeMutationSet,
 ): Promise<IPdfNativeNoteTextSaveResult> {
     const execution = resolveNativeNoteCommandExecution(context, workingPath, rawModifiedAt, revisionOptions);
     if (!execution) {
@@ -400,10 +393,10 @@ async function runNativeWorkingCopyCommand(
         let staged = false;
         try {
             return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
-                const payloadFilePath = join(tempDir, options.payloadFileName);
+                const payloadFilePath = join(tempDir, 'mutations.json');
                 const prepared = await prepareNativeNoteMutation({
                     binaryPath,
-                    command: options,
+                    mutations,
                     context,
                     modifiedAt,
                     mutationOperation,
@@ -428,7 +421,7 @@ async function runNativeWorkingCopyCommand(
                 const totalMs = Math.round((performance.now() - operationStart) * 10) / 10;
                 const logTimings = totalMs >= 1_000 ? log.warn.bind(log) : log.debug.bind(log);
                 logTimings('Native working-copy mutation phase timings', {
-                    command: options.command,
+                    command: 'save-mutations',
                     endedAtEpochMs: Date.now(),
                     startedAtEpochMs: operationStartedAtEpochMs,
                     totalMs,
@@ -447,7 +440,7 @@ async function runNativeWorkingCopyCommand(
                 await cleanupTempPath(tempPath);
             }
             log.warn('Native working-copy mutation failed', {
-                command: options.command,
+                command: 'save-mutations',
                 endedAtEpochMs: Date.now(),
                 startedAtEpochMs: operationStartedAtEpochMs,
                 totalMs: Math.round((performance.now() - operationStart) * 10) / 10,
@@ -457,7 +450,7 @@ async function runNativeWorkingCopyCommand(
             return createNotAppliedResult(error);
         }
     }, {
-        kind: `native-pdf-mutation-working-copy:${options.command}`,
+        kind: 'native-pdf-mutation-working-copy:save-mutations',
         ownerWebContentsId: senderId,
     });
 }
@@ -564,14 +557,5 @@ export async function handleNativePdfMutationsApplyToWorkingCopy(
     rawModifiedAt: unknown,
     revisionOptions: IDocumentMutationRevisionOptions,
 ): Promise<IPdfNativeNoteTextSaveResult> {
-    return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, revisionOptions, {
-        command: 'save-mutations',
-        payloadFileName: 'mutations.json',
-        payloadFlag: '--mutations-file',
-        payload: mutations,
-        commandLabel: 'evb-pdf-page-ops(save-mutations-working-copy)',
-        ...(needsNativeIdentityBindingsReport(mutations)
-            ? {identityBindingsFileName: 'identity-bindings.json'}
-            : {}),
-    });
+    return runNativeWorkingCopyCommand(context, workingPath, rawModifiedAt, revisionOptions, mutations);
 }
