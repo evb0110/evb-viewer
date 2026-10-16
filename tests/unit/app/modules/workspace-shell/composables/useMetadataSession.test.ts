@@ -13,6 +13,9 @@ import { useMetadataSession } from '@app/modules/workspace-shell/composables/use
 import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireDocumentRef} from '@contracts/documentRef';
+import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import {cast} from '@tests/helpers/cast';
 function createBookmark(title: string): IPdfBookmarkEntry {
     return {
         title,
@@ -25,9 +28,9 @@ function createBookmark(title: string): IPdfBookmarkEntry {
     };
 }
 
-function createSession() {
+function createSession(pdfDocument = shallowRef<IPdfDocument | null>(null)) {
     return useMetadataSession({
-        pdfDocument: shallowRef<IPdfDocument | null>(null),
+        pdfDocument,
         totalPages: ref(1),
         workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
         markDirty: vi.fn(),
@@ -150,7 +153,10 @@ describe('useMetadataSession', () => {
         expect(session.bookmarkState.bookmarksDirty.value).toBe(false);
     });
 
-    it('recovers metadata against the admitted saved baseline without manufacturing undo history', async () => {
+    it.each([
+        false,
+        true,
+    ])('recovers metadata against the admitted saved baseline without manufacturing undo history (recovered labels: %s)', async (recoverLabels) => {
         const source = createSession();
         source.bookmarkState.handleBookmarksChange({
             bookmarks: [createBookmark('Base')],
@@ -160,23 +166,37 @@ describe('useMetadataSession', () => {
             bookmarks: [createBookmark('Recovered')],
             dirty: true,
         });
-        source.pageLabelState.handlePageLabelRangesUpdate([{
-            startPage: 1,
-            style: 'r',
-            prefix: 'Recovered ',
-            startNumber: 1,
-        }]);
+        if (recoverLabels) {
+            source.pageLabelState.handlePageLabelRangesUpdate([{
+                startPage: 1,
+                style: 'r',
+                prefix: 'Recovered ',
+                startNumber: 1,
+            }]);
+        }
         const recovery = source.captureRecovery();
-        const restored = createSession();
+        const labels = Promise.withResolvers<IPdfPageLabelRange[]>();
+        vi.spyOn(getDocumentFilesCapability(), 'readPdfPageLabelRanges').mockReturnValue(labels.promise);
+        const pdfDocument = shallowRef<IPdfDocument | null>(cast<IPdfDocument>({numPages: 1}));
+        const restored = createSession(pdfDocument);
         restored.bookmarkState.handleBookmarksChange({
             bookmarks: [createBookmark('Base')],
             dirty: false,
         });
+        const labelRead = restored.pageLabelState.syncPageLabelsFromDocument(pdfDocument.value);
         restored.restoreRecovery(recovery);
+        labels.resolve([{
+            startPage: 1,
+            style: 'D',
+            prefix: 'File ',
+            startNumber: 1,
+        }]);
+        await labelRead;
         expect(restored.bookmarkState.bookmarkItems.value).toEqual([createBookmark('Recovered')]);
-        expect(restored.pageLabelState.labelAt(1)).toBe('Recovered i');
+        expect(restored.pageLabelState.labelAt(1)).toBe(recoverLabels ? 'Recovered i' : 'File 1');
         expect(restored.bookmarkState.bookmarksDirty.value).toBe(true);
-        expect(restored.pageLabelState.pageLabelsDirty.value).toBe(true);
+        expect(restored.pageLabelState.pageLabelsDirty.value).toBe(recoverLabels);
+        expect(restored.captureRecovery().bookmarks?.items).toEqual([createBookmark('Recovered')]);
         expect(await restored.workspaceUndoTimeline.undoTimeline()).toBe(false);
         restored.bookmarkState.handleBookmarksChange({
             bookmarks: [createBookmark('Later')],
