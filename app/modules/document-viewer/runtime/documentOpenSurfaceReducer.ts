@@ -336,7 +336,7 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
         ...state,
         lifecycle: state.lifecycle === 'failed' ? 'opening' as const : state.lifecycle,
         committedPage: render.pageNumber,
-        observedPage: null,
+        observedPage: state.observedPage === render.pageNumber ? null : state.observedPage,
         stagedRenderFence: null,
         stagedViewportFence: null,
         committedRenderFence: render,
@@ -485,7 +485,6 @@ function navigationRequested(
         ...state,
         lifecycle: state.lifecycle === 'opening' ? 'opening' : 'transitioning',
         requestedPage: pageNumber,
-        observedPage: state.observedPage,
         visual,
         viewportIntent: {
             generation: state.generation,

@@ -9,6 +9,7 @@ import {
     collectDocumentViewportSessionInvariantViolations,
     createEmptyDocumentViewportSession,
     reduceDocumentViewportSession,
+    resolveDocumentViewportCurrentPage,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 import type {
     IDocumentViewportCommitFence,
@@ -272,9 +273,23 @@ describe('DocumentViewportSession', () => {
     });
 
     it.each([
-        'before',
-        'after',
-    ] as const)('commits same-page refinements %s visual readiness without leaving an unmatched staged fence', (timing) => {
+        [
+            'before',
+            'viewport',
+        ],
+        [
+            'before',
+            'render',
+        ],
+        [
+            'after',
+            'viewport',
+        ],
+        [
+            'after',
+            'render',
+        ],
+    ] as const)('commits same-page refinements %s visual readiness with %s first without leaving an unmatched staged fence', (timing, first) => {
         const harness = new SessionHarness();
         harness.openWithMetadata();
         harness.settleCurrentPage();
@@ -303,24 +318,34 @@ describe('DocumentViewportSession', () => {
             });
         }
         const previousRender = harness.state.committedRenderFence;
+        const previousViewport = harness.state.committedViewportFence;
         const refinementRender = renderFence(harness.state, {
             renderVersion: 2,
             requestId: 2,
         });
         const refinementViewport = viewportFence(harness.state, {geometryRevision: 2});
 
+        expect(harness.dispatch({
+            type: 'page-observed',
+            generation: harness.state.generation,
+            pageNumber: 6,
+        }).accepted).toBe(true);
+        expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(6);
         harness.dispatch({
             type: 'render-started',
             fence: refinementRender,
         });
-        expect(harness.dispatch({
-            type: 'viewport-committed',
-            fence: refinementViewport,
-        }).accepted).toBe(true);
-        expect(harness.state.lifecycle).toBe(timing === 'after' ? 'ready' : 'transitioning');
-        expect(harness.state.stagedViewportFence).toBeNull();
-        expect(harness.state.committedRenderFence).toEqual(previousRender);
-        expect(harness.state.committedViewportFence).toEqual(refinementViewport);
+        if (first === 'viewport') {
+            expect(harness.dispatch({
+                type: 'viewport-committed',
+                fence: refinementViewport,
+            }).accepted).toBe(true);
+            expect(harness.state.lifecycle).toBe(timing === 'after' ? 'ready' : 'transitioning');
+            expect(harness.state.stagedViewportFence).toBeNull();
+            expect(harness.state.committedRenderFence).toEqual(previousRender);
+            expect(harness.state.committedViewportFence).toEqual(refinementViewport);
+            expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(2);
+        }
 
         expect(harness.dispatch({
             type: 'canvas-committed',
@@ -329,6 +354,15 @@ describe('DocumentViewportSession', () => {
         expect(harness.state.stagedRenderFence).toBeNull();
         expect(harness.state.stagedViewportFence).toBeNull();
         expect(harness.state.committedRenderFence).toEqual(refinementRender);
+        expect(harness.state.committedViewportFence).toEqual(first === 'viewport' ? refinementViewport : previousViewport);
+        expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(first === 'render' ? 6 : 2);
+        if (first === 'render') {
+            expect(harness.dispatch({
+                type: 'viewport-committed',
+                fence: refinementViewport,
+            }).accepted).toBe(true);
+            expect(resolveDocumentViewportCurrentPage(harness.state)).toBe(2);
+        }
         expect(harness.state.committedViewportFence).toEqual(refinementViewport);
         if (timing === 'before') {
             expect(harness.dispatch({
