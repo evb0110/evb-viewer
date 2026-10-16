@@ -169,7 +169,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             && slot.container === target.container
             && target.canvasHost.contains(canvas) && canvas.isConnected && canvas.width > 0 && canvas.height > 0;
         if (!presentable || !requireCurrent) return presentable;
-        return slot.documentToken === getRenderDocumentToken()
+        return pageRenderer.isAnnotationInputCurrent(slot.committedRender?.annotationInput)
+            && slot.documentToken === getRenderDocumentToken()
             && slot.contentVersion === renderVersion
             && slot.targetViewRotation === (options.viewRotation?.value ?? 0)
             && slot.targetScale !== null
@@ -433,7 +434,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 pageRenderOptions.maxCanvasPixels ?? '',
                 pageRenderOptions.openSurfaceGeneration ?? '',
                 pageRenderOptions.openSurfaceRevision ?? '',
-                pageRenderOptions.annotationCommit?.signature ?? '',
+                pageRenderOptions.annotationCommit?.signature ?? pageRenderer.annotationPaintSignature.value,
             ].join(':');
             // An in-flight raster is already scale-current within tolerance.
             // Keep its key so float drift in a recomputed fit cannot orphan it.
@@ -572,7 +573,11 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             target: viewportRasterTarget,
         })));
         const failed = outcomes.find(outcome => outcome.status === 'failed');
-        if (renderOptions.annotationCommit && failed?.status === 'failed') throw failed.error;
+        if (requestedRenderOptions.annotationCommit) {
+            if (failed?.status === 'failed') throw failed.error;
+            await nextTick();
+            return outcomes;
+        }
         await promotePrioritizedTextLayers(pageRenderer, [...requestedPages].filter(page => page >= range.start && page <= range.end), renderOptions);
         // The committed canvas is mounted synchronously, but the page
         // container's rendered class controls its visibility through Vue.
@@ -644,14 +649,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         await cancellation;
     }
     let pendingRasterCancellation = Promise.resolve();
-    const stopAnnotationPaintWatch = watch(pageRenderer.annotationPaintSignature, (_signature, previous) => {
-        if (previous === '') return;
-        pendingRasterCancellation = pendingRasterCancellation.then(async () => {
-            await cancelRasterDemand();
-            bumpRenderVersion(false);
-            queueFrame();
-        });
-    }, {flush: 'post'});
+    const stopAnnotationPaintWatch = watch(pageRenderer.annotationPaintSignature, queueFrame, {flush: 'post'});
     // Persist-only revisions reauthorize pixels; replacement documents do not.
     // The load path nulls the document first, so authority tracks the last loaded document instead of the watcher's previous value.
     let canvasAuthority = {

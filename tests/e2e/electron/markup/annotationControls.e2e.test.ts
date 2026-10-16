@@ -2184,28 +2184,39 @@ describe('Electron E2E - annotation controls', () => {
                 bottom,
                 left,
             ] = insets.map((_, side) => insets[(side + 4 - turn / 90) % 4]!);
-            const x = centerX - pageWidth / 2 + left!;
-            const y = centerY - pageHeight / 2 + bottom!;
             const innerWidth = pageWidth - left! - right!;
             const innerHeight = pageHeight - top! - bottom!;
             const stroke = (label.lookup(PDFName.of('Border'), PDFArray).get(2) as PDFNumber).asNumber();
             const fill = label.lookup(PDFName.of('C'), PDFArray).asArray().map(value => (value as PDFNumber).asNumber());
-            pdfPage.node.delete(PDFName.of('Annots'));
-            pdfPage.drawRectangle({
-                x,
-                y,
-                width: innerWidth,
-                height: innerHeight,
-                color: rgb(fill[0]!, fill[1]!, fill[2]!),
-            });
-            pdfPage.drawRectangle({
-                x: x + stroke / 2,
-                y: y + stroke / 2,
-                width: innerWidth - stroke,
-                height: innerHeight - stroke,
-                borderColor: rgb(0, 0.5, 0),
-                borderWidth: stroke,
-            });
+            // Keep Form placement and clipping: page-content strokes have different
+            // edge antialiasing. The frame program below comes from expected geometry.
+            const normalRef = label.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')) as PDFRef;
+            const normal = pdf.context.lookup(normalRef) as PDFRawStream;
+            const frameDict = normal.dict.clone(pdf.context);
+            frameDict.delete(PDFName.of('Filter'));
+            frameDict.set(PDFName.of('BBox'), pdf.context.obj([
+                0,
+                0,
+                pageWidth,
+                pageHeight,
+            ]));
+            frameDict.delete(PDFName.of('Matrix'));
+            label.set(PDFName.of('Rect'), pdf.context.obj([
+                centerX - pageWidth / 2,
+                centerY - pageHeight / 2,
+                centerX + pageWidth / 2,
+                centerY + pageHeight / 2,
+            ]));
+            const frame = [
+                'q',
+                `${fill.join(' ')} rg`,
+                `${left} ${bottom} ${innerWidth} ${innerHeight} re f`,
+                '0 0.5 0 RG',
+                `${stroke} w`,
+                `${left! + stroke / 2} ${bottom! + stroke / 2} ${innerWidth - stroke} ${innerHeight - stroke} re S`,
+                'Q',
+            ].join('\n');
+            pdf.context.assign(normalRef, PDFRawStream.of(frameDict, Buffer.from(frame)));
             return pdf.save();
         };
         const openLabel = async (page: Page) => {

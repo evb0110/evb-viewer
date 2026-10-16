@@ -495,6 +495,7 @@ export function createPdfPageRasterScheduler(
             residents.set(work.key, resident);
             surfaceBudget.enforceBudget();
             committed = true;
+            settleWork(work, 'committed');
             return true;
         };
         try {
@@ -624,9 +625,7 @@ export function createPdfPageRasterScheduler(
                     status: 'discarded',
                     demand: work.demand,
                 });
-                return;
             }
-            settleWork(work, 'committed');
         } catch (error) {
             discardPrepared(work);
             releaseReservation(work);

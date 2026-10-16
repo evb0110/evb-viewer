@@ -189,6 +189,34 @@ describe('PdfPageRasterScheduler', () => {
         } finally {finish(); await harness.scheduler.dispose();}
     });
 
+    it('acknowledges published pixels while subsequent page layers are still hydrating', async () => {
+        const harness = createHarness();
+        let finishLayers!: () => void;
+        const layers = new Promise<void>(resolve => {finishLayers = resolve;});
+        const receipts: string[] = [];
+        harness.target.commit = async (prepared, _demand, publishRaster) => {
+            harness.committed.push(prepared.pageNumber);
+            if (!publishRaster()) return false;
+            await layers;
+            return true;
+        };
+        const requested = harness.scheduler.request({
+            sourceId: 'accepted-page',
+            demand: createDemand(1, 'viewport-visible'),
+            target: harness.target,
+        }).then(outcome => {receipts.push(outcome.status); return outcome;});
+        try {
+            await vi.waitFor(() => expect(harness.committed).toEqual([1]));
+            expect(receipts).toEqual(['committed']);
+            const cancelled = harness.scheduler.cancelSource('accepted-page');
+            await flush();
+            expect(receipts).toEqual(['committed']);
+            finishLayers();
+            await cancelled;
+            expect((await requested).status).toBe('committed');
+        } finally {finishLayers(); await harness.scheduler.dispose();}
+    });
+
     it('orders navigation and viewport demand ahead of thumbnails and prefetch', async () => {
         const harness = createHarness();
         const demands = [
