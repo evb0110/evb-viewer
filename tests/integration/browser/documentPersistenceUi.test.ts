@@ -13,7 +13,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, freezeWindow, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts,
+    openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, paneSelector, readPanePageWidth, zoomActivePane, readBrowserPayloadCounts,
 } from './documentLifecycleTestHelpers';
 
 describe('browser document lifecycle UI', () => {
@@ -311,12 +311,21 @@ describe('browser document lifecycle UI', () => {
             }
             const grantedId = await reportInputFailure('granted-control');
             await expect.poll(() => envelopes.some(body => body.includes(grantedId))).toBe(true);
-            // The withdrawal happens while the second window cannot run, so it
-            // must reach that window when it resumes, before its next report.
-            const resumeSecond = await freezeWindow(context, second);
-            await consent.uncheck();
-            await first.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').clientDiagnosticsPreference === 'denied');
-            await resumeSecond();
+            // Pause delivery of the committed denial, without retaining an
+            // unrelated IndexedDB transaction needed by the first window's save.
+            const session = await context.newCDPSession(second);
+            try {
+                await session.send('Debugger.enable');
+                const paused = new Promise<void>(resolvePaused => session.once('Debugger.paused', () => resolvePaused()));
+                await session.send('DOMDebugger.setEventListenerBreakpoint', {eventName: 'storage'});
+                await consent.uncheck();
+                await first.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').clientDiagnosticsPreference === 'denied');
+                await paused;
+            } finally {
+                await session.send('DOMDebugger.removeEventListenerBreakpoint', {eventName: 'storage'}).catch(() => undefined);
+                await session.send('Debugger.resume').catch(() => undefined);
+                await session.detach();
+            }
             await author.fill('After withdrawal');
             await second.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').authorName === 'After withdrawal');
             const withdrawnId = await reportInputFailure('withdrawn-control');

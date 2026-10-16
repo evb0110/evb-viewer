@@ -430,6 +430,8 @@ if(process.type==='browser'){
 
         // After the immediate-cut proof, a failed or superseded transaction stays editable until corrected.
         const savedBytes = readFileSync(sourcePath);
+        const runtimeErrors: string[] = [];
+        session.page.on('pageerror', error => runtimeErrors.push(String(error)));
         let linkedPane: string | undefined;
         if (cut === 3) {
             await splitActiveTabFromTabMenu(session.page, 'right');
@@ -559,6 +561,24 @@ if(process.type==='browser'){
             (retainedGeometry.left + retainedGeometry.width) * correctedSize.width,
             (1 - retainedGeometry.top) * correctedSize.height,
         ].map(Math.fround));
+        if (cut === 3) {
+            expect(await session.page.$$eval('.app-toast-failure', toasts => toasts.length)).toBe(0);
+            expect(runtimeErrors).toEqual([]);
+            await session.stop();
+            session = await startElectronE2ESession(sessionName, {
+                clean: false,
+                initialOpenPaths: [sourcePath],
+                extraEnv,
+            });
+            session.page.on('pageerror', error => runtimeErrors.push(String(error)));
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            await session.page.waitForFunction((text: string) => Array.from(
+                document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-annotation-kind="text-box"]'),
+            ).some(entity => entity.textContent?.trim() === text), {timeout: 30_000}, expectedText);
+            expect(await session.page.$$eval('.app-toast-failure', toasts => toasts.length)).toBe(0);
+            expect(runtimeErrors).toEqual([]);
+        }
     }, 180_000);
 
     // C1/T4/A4/C2: disposing a linked viewer or refusing its tool cannot erase protected work.

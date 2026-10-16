@@ -344,11 +344,15 @@ describe('usePdfAnnotationEditorSurface', () => {
         });
     });
 
-    it('contains a refused queued style while Save rejects and a later explicit Save commits the retained draft', async () => {
+    it.each([
+        'select',
+        'clearSelection',
+    ] as const)('contains a refused queued style and %s while Save rejects and a later Save commits the retained draft', async (selection) => {
         const {
             surface, annotationApplication,
         } = createSurfaceHarness();
         const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        const note = surface.createNoteAt(0, rect);
         await surface.beginTextEditing(box.identity.id);
         surface.setTextBoxDraftPending(box.identity.id, 'Retained latest text');
         const completion = Promise.withResolvers<undefined>();
@@ -363,6 +367,9 @@ describe('usePdfAnnotationEditorSurface', () => {
             focus: vi.fn(),
         });
         const command = surface.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        if (selection === 'select') surface.select([note.identity.id]);
+        else surface.clearSelection();
+        expect(surface.selectedIds.value).toEqual(new Set(selection === 'select' ? [note.identity.id] : []));
         const saving = surface.commitPendingTextBoxDraftsForSave();
         const refused = expect(command).resolves.toBe(false);
         const rejectedSave = expect(saving).rejects.toThrow('The accepted paint failed');
@@ -371,6 +378,7 @@ describe('usePdfAnnotationEditorSurface', () => {
             refused,
             rejectedSave,
         ]);
+        await new Promise(resolve => setImmediate(resolve));
         expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
             text: 'Original',
             color: box.color,

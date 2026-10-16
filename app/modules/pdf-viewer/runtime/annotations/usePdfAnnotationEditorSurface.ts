@@ -808,18 +808,15 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function select(ids: readonly AnnotationId[], selectionOptions: { additive?: boolean } = {}) {
-        if (editingId.value !== null && !ids.includes(editingId.value)) void commitTextSession();
-        const nextIds = selectionOptions.additive
-            ? new Set([
-                ...selectedIds.value,
-                ...ids,
-            ])
-            : new Set(ids);
-        setSelection([...nextIds]);
+        if (editingId.value !== null && !ids.includes(editingId.value)) void commitTextSession()?.catch(error => BrowserLogger.debug('annotations', 'Selection handoff refused', error));
+        setSelection(selectionOptions.additive ? [
+            ...selectedIds.value,
+            ...ids,
+        ] : ids);
     }
 
     function clearSelection() {
-        void commitTextSession();
+        void commitTextSession()?.catch(error => BrowserLogger.debug('annotations', 'Selection handoff refused', error));
         setSelection([]);
     }
 
