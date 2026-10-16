@@ -28,6 +28,12 @@ import {
 } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
 import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {
+    finishOpeningReader,
+    followOpeningReader,
+    seedOpeningSource,
+} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
@@ -59,7 +65,10 @@ const mocks = vi.hoisted(() => ({
     },
     documentPdf: {validatePdfPath: vi.fn()},
     documentPicker: { openDocumentDialog: vi.fn() },
-    documentRecentFiles: {recentFiles: {get: vi.fn()}},
+    documentRecentFiles: {recentFiles: {
+        get: vi.fn(),
+        readingView: vi.fn(),
+    }},
     performanceProfile: {
         tier: 'medium',
         lowCpu: false,
@@ -154,6 +163,7 @@ describe('createDocumentOpenFlow', () => {
             warnings: [],
         });
         mocks.documentRecentFiles.recentFiles.get.mockResolvedValue([]);
+        mocks.documentRecentFiles.recentFiles.readingView.mockResolvedValue(null);
         mocks.documentFiles.getDocumentRevision.mockImplementation(async (path: string) => ({
             version: 1,
             token: `revision:${path}`,
@@ -484,6 +494,45 @@ describe('createDocumentOpenFlow', () => {
         expect(mocks.documentOpen.forgetKeptOriginal).not.toHaveBeenCalled();
         (notice['onUpdate:open'] as (open: boolean) => void)(false);
         expect(mocks.documentOpen.forgetKeptOriginal).toHaveBeenCalledWith('/documents/book.pdf');
+    });
+
+    it('opens at defaults without waiting for a page-shape read when Recent admits no reading view', async () => {
+        const harness = createOpenFlowHarness();
+        const shapeRead = Promise.withResolvers<null>();
+        mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(shapeRead.promise);
+        const controller = createWorkspaceDocumentController({tabId: 'no-reading-open'});
+        const openSurface = createDocumentOpenSurfaceSession();
+        openSurface.begin({
+            documentId: '/documents/defaults.pdf',
+            documentRevision: 'open-intent:test',
+        }, null, 1);
+        const reader = followOpeningReader(controller, openSurface, {followReader: () => ({
+            moved: () => false,
+            seed: () => {},
+            finish: () => {},
+        })});
+        const openFlow = createDocumentOpenFlow(harness.state, {
+            ...harness.deps,
+            admitOpeningSource: (source, pageCount) => seedOpeningSource(controller, source, pageCount),
+        });
+        const opening = openFlow.openFile({
+            kind: 'pdf',
+            originalPath: requireDocumentRef('/documents/defaults.pdf'),
+            workingPath: requireDocumentRef('/tmp/defaults-working.pdf'),
+        });
+        try {
+            // The native geometry response stays unresolved throughout admission.
+            await vi.waitFor(() => expect(harness.state.pdfSrc.value).not.toBeNull());
+            await expect(opening).resolves.toMatchObject({status: 'opened'});
+            expect(openSurface.navigationTicket.value?.request.target).toEqual({
+                kind: 'page',
+                page: 1,
+            });
+        } finally {
+            shapeRead.resolve(null);
+            await opening;
+            if (reader) finishOpeningReader(controller, reader);
+        }
     });
 
     it('shows an opening working copy only once its admission ends, changing the shown source once', async () => {

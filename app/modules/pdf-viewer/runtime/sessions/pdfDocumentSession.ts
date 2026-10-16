@@ -402,13 +402,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         pageMetricsVersion.value += 1;
     }
 
-    function seedTrustedPageGeometry(input: {
-        pageNumber: TPageNumber;
-        pageCount: number;
-        width: number;
-        height: number;
-        rotation?: number;
-    }) {
+    function seedTrustedPageGeometry(input: Parameters<typeof buildTrustedPdfGeometrySeed>[0]) {
         const seed = buildTrustedPdfGeometrySeed(input);
         if (!seed) {
             return false;
@@ -418,7 +412,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         basePageHeight.value = seed.basePageHeight;
         pageMetrics.value = seed.pageMetrics;
         trustedGeometrySeedPending = true;
-        trustedGeometrySeedPageNumber = input.pageNumber;
+        trustedGeometrySeedPageNumber = input.pages ? null : input.pageNumber;
         bumpPageMetricsVersion();
         return true;
     }
@@ -653,24 +647,16 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             || geometry.documentRevisionToken !== options.documentRevisionToken?.value
         )) return false;
         if (geometry.pageCount !== totalPages || geometry.pages.length !== totalPages) return false;
-        const metrics: IPdfPageMetric[] = [];
-        for (const [
-            index,
-            page,
-        ] of geometry.pages.entries()) {
-            if (page.pageNumber !== index + 1) return false;
-            const rotated = page.rotation === 90 || page.rotation === 270;
-            const metric: IPdfPageMetric = {
-                width: (rotated ? page.heightPoints : page.widthPoints) * page.userUnit,
-                height: (rotated ? page.widthPoints : page.heightPoints) * page.userUnit,
-                rotation: page.rotation,
-                userUnit: page.userUnit,
-            };
-            if (!isValidPageMetric(metric)) return false;
-            metrics.push(metric);
-        }
-        pageMetrics.value = metrics;
-        replaceTrustedBaseMetrics();
+        const seed = buildTrustedPdfGeometrySeed({
+            pageNumber: requirePageNumber(1, totalPages),
+            pageCount: totalPages,
+            pages: geometry.pages,
+        });
+        if (!seed) return false;
+        pageMetrics.value = seed.pageMetrics;
+        basePageWidth.value = seed.basePageWidth;
+        basePageHeight.value = seed.basePageHeight;
+        trustedGeometrySeedPageNumber = null;
         bumpPageMetricsVersion();
         return true;
     }

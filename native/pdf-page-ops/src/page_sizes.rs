@@ -12,10 +12,10 @@ use std::{
 };
 
 use crate::{
-    assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect,
-    load_dictionary_incremental_pdf_path, load_pdf_path, reclassify_domain_error,
-    resolve_inherited_box, resolve_page_rotation, resolve_page_user_unit, resolve_page_view,
-    AppendedRevision, NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, Result,
+    assert_plaintext_base, classify_pdf_load_error, domain_error, intersect_rect, load_pdf_path,
+    load_readonly_metadata_pdf_path, reclassify_domain_error, resolve_inherited_box,
+    resolve_page_rotation, resolve_page_user_unit, resolve_page_view, AppendedRevision,
+    NativeErrorCode, PageTreeResolver, PdfObjectSource, PdfRect, QpdfMetadataPurpose, Result,
     MAX_DECOMPRESSED_PDF_STREAM_BYTES, MAX_ENCODED_PDF_BYTES,
 };
 
@@ -540,13 +540,14 @@ pub(crate) fn write_page_sizes_path(
         ));
     }
     let incremental =
-        load_dictionary_incremental_pdf_path(input_path, qpdf_path).map_err(|error| {
-            if eager_sized {
-                classify_pdf_load_error(error, "Failed to parse PDF structure")
-            } else {
-                error
-            }
-        })?;
+        load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Geometry)
+            .map_err(|error| {
+                if eager_sized {
+                    classify_pdf_load_error(error, "Failed to parse PDF structure")
+                } else {
+                    error
+                }
+            })?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by native page ops",

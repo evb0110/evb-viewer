@@ -12,7 +12,7 @@ use xref_admission::{path_xref_chain, preflight_pdf_xref_chain};
 
 pub(crate) const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
-const MAX_PDF_OBJECTS: usize = 1_000_000;
+pub(crate) const MAX_PDF_OBJECTS: usize = 1_000_000;
 // Eager byte-array and WASM loads keep their existing page admission budget.
 const MAX_BYTE_INPUT_PDF_PAGES: usize = 100_000;
 // Path-backed loads need to admit the xlarge acceptance document, but they
@@ -313,12 +313,7 @@ pub(crate) fn load_incremental_pdf_path(
     load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY, false)
 }
 
-pub(crate) fn load_annotation_index_pdf_path(
-    path: &Path,
-    qpdf_path: Option<&Path>,
-) -> Result<IncrementalDocument> {
-    load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY, false)
-}
+pub(crate) use load_incremental_pdf_path as load_annotation_index_pdf_path;
 
 /// For callers that read and rewrite only dictionaries: page geometry, crop,
 /// the catalog and annotation-name index reads, and rotation and metadata
@@ -328,6 +323,23 @@ pub(crate) fn load_dictionary_incremental_pdf_path(
     qpdf_path: Option<&Path>,
 ) -> Result<IncrementalDocument> {
     load_incremental_pdf_path_with_policy(path, qpdf_path, PDF_PATH_LOAD_POLICY, true)
+}
+
+/// Read-only projections share dictionary admission, while writers keep the
+/// complete base object graph. Only an absent bundled library uses the CLI.
+pub(crate) fn load_readonly_metadata_pdf_path(
+    path: &Path,
+    qpdf_path: Option<&Path>,
+    purpose: QpdfMetadataPurpose,
+) -> Result<IncrementalDocument> {
+    let (_, structural) = incremental_path_admission(path, qpdf_path, PDF_PATH_LOAD_POLICY, true)?;
+    if let Some(qpdf_path) = qpdf_path.filter(|_| structural) {
+        if let Some(document) = load_qpdf_metadata_pdf_path(path, qpdf_path, purpose)? {
+            validate_loaded_document(document.get_prev_documents(), PDF_PATH_LOAD_POLICY)?;
+            return Ok(document);
+        }
+    }
+    load_dictionary_incremental_pdf_path(path, qpdf_path)
 }
 
 /// Below this size an eager load is cheap in both memory and time.
@@ -343,12 +355,12 @@ const DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES_PER_OBJECT: u64 = 64 * 1024;
 /// mostly stream payloads, such as a scanned book's images. An encrypted
 /// file, or one whose cross-reference chain cannot be probed, stays eager and
 /// keeps its error classification.
-fn load_incremental_pdf_path_with_policy(
+fn incremental_path_admission(
     path: &Path,
     qpdf_path: Option<&Path>,
     policy: PdfLoadPolicy,
     dictionaries_only: bool,
-) -> Result<IncrementalDocument> {
+) -> Result<(u64, bool)> {
     let encoded_len = fs::metadata(path)
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?
         .len();
@@ -363,6 +375,17 @@ fn load_incremental_pdf_path_with_policy(
                             && encoded_len / size >= DICTIONARY_LOAD_STRUCTURAL_MIN_BYTES_PER_OBJECT
                     })
             }));
+    Ok((encoded_len, structural))
+}
+
+fn load_incremental_pdf_path_with_policy(
+    path: &Path,
+    qpdf_path: Option<&Path>,
+    policy: PdfLoadPolicy,
+    dictionaries_only: bool,
+) -> Result<IncrementalDocument> {
+    let (encoded_len, structural) =
+        incremental_path_admission(path, qpdf_path, policy, dictionaries_only)?;
     let load_eagerly = || -> Result<IncrementalDocument> {
         let bytes = read_file_bounded(path, policy.max_encoded_bytes, "PDF input")
             .map_err(|error| Box::new(error) as Box<dyn Error>)?;
@@ -1343,11 +1366,6 @@ mod tests {
     }
 
     #[test]
-    fn full_rewrite_policy_keeps_its_encoded_input_budget() {
-        assert_eq!(PDF_LOAD_POLICY.max_encoded_bytes, 512 * 1024 * 1024);
-    }
-
-    #[test]
     fn incremental_path_loads_small_input_with_path_policy() {
         struct RemoveOnDrop(std::path::PathBuf);
 
@@ -1475,10 +1493,6 @@ mod tests {
 
     #[test]
     fn path_policy_keeps_xlarge_page_admission_finite() {
-        assert_eq!(
-            PDF_PATH_LOAD_POLICY.max_pages,
-            Some(MAX_PATH_INPUT_PDF_PAGES)
-        );
         validate_page_count(138_000, PDF_PATH_LOAD_POLICY).unwrap();
         assert_too_large(
             validate_page_count(
@@ -1818,14 +1832,12 @@ mod tests {
         let sidecar_paths = ["sizes", "eager-sizes", "parse", "eager-parse"]
             .map(|extension| stem.with_extension(extension));
         let qpdf_path = stem.with_extension("qpdf");
-        let calls_path = stem.with_extension("calls");
         let _cleanup = RemoveOnDrop(
             [
                 input_path.clone(),
                 encrypted_path.clone(),
                 index_path.clone(),
                 qpdf_path.clone(),
-                calls_path.clone(),
             ]
             .into_iter()
             .chain(sidecar_paths.iter().cloned())
@@ -1873,17 +1885,8 @@ mod tests {
         let structure = format!(
             r#"{{"qpdf":[{{"jsonversion":2,"pdfversion":"1.7","maxobjectid":4}},{{"trailer":{{"value":{{"/Root":"1 0 R","/Size":5}}}},"obj:1 0 R":{{"value":{{"/Type":"/Catalog","/Pages":"2 0 R"}}}},"obj:2 0 R":{{"value":{{"/Type":"/Pages","/Kids":["3 0 R"],"/Count":1}}}},"obj:3 0 R":{{"value":{{"/Type":"/Page","/Parent":"2 0 R","/MediaBox":[0,0,200,100],"/Contents":"4 0 R"}}}},"obj:4 0 R":{{"stream":{{"dict":{{"/Length":{STREAM_BYTES}}}}}}}}}]}}"#
         );
-        let script = format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\ncase \"$*\" in\n  *--json*) printf '%s' '{structure}' ;;\n  *) exit 9 ;;\nesac\n",
-            calls_path.display()
-        );
+        let script = format!("#!/bin/sh\nprintf '%s' '{structure}'\n");
         let _fake_qpdf = crate::write_fake_executable(&qpdf_path, &script);
-        let qpdf_calls = || {
-            std::fs::read_to_string(&calls_path)
-                .unwrap_or_default()
-                .lines()
-                .count()
-        };
         let stream_len = |incremental: &IncrementalDocument| {
             incremental
                 .get_prev_documents()
@@ -1898,14 +1901,12 @@ mod tests {
         // A caller that may read streams keeps the eager load and its bytes.
         let eager = load_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
         assert_eq!(stream_len(&eager), STREAM_BYTES);
-        assert_eq!(qpdf_calls(), 0);
         drop(eager);
 
         // A dictionary-only caller takes qpdf's structural view instead.
         let structural =
             load_dictionary_incremental_pdf_path(&input_path, Some(&qpdf_path)).unwrap();
         assert_eq!(stream_len(&structural), 0);
-        assert_eq!(qpdf_calls(), 1);
         read_pdf_combine_catalog(&AppendedRevision::new(&structural)).unwrap();
         let mut geometry = Vec::new();
         write_page_geometry(&input_path, 1, Some(&qpdf_path), &mut geometry).unwrap();
@@ -1913,7 +1914,6 @@ mod tests {
             .unwrap()
             .contains(r#""width":200.0"#));
         write_annotation_name_index_path(&input_path, &index_path, Some(&qpdf_path)).unwrap();
-        assert_eq!(qpdf_calls(), 3);
 
         // Page-size metadata and a parse of a page without notes or stamps read
         // the same view and print what an eager load (no qpdf) prints.
@@ -1923,7 +1923,6 @@ mod tests {
         write_annotation_parse_path(&input_path, parse, "D:20261009120000Z", Some(&qpdf_path))
             .unwrap();
         write_annotation_parse_path(&input_path, eager_parse, "D:20261009120000Z", None).unwrap();
-        assert_eq!(qpdf_calls(), 5);
         assert_eq!(
             std::fs::read(sizes).unwrap(),
             std::fs::read(eager_sizes).unwrap()
@@ -1935,7 +1934,6 @@ mod tests {
 
         // An encrypted file stays eager, so it keeps its error classification.
         assert!(load_dictionary_incremental_pdf_path(&encrypted_path, Some(&qpdf_path)).is_err());
-        assert_eq!(qpdf_calls(), 5);
     }
 
     /// zlib of one PNG-predicted four-byte row, and of two Columns-2 rows

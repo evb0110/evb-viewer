@@ -1,11 +1,12 @@
 import {
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import {
-    mkdtemp, readFile, readdir, rm,
+    mkdtemp, readFile, readdir, rm, writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {
@@ -24,7 +25,6 @@ import {requireEpochMs} from '@contracts/timestamps';
 import {
     answerPdfPageShape,
     handlePdfOpeningGeometry,
-    parsePdfOpeningGeometryMetadata,
     parseNativePdfPageLabelRanges,
 } from '@electron/features/documents/main/nativePdfMetadata';
 import { NativeProcessError } from '@electron/native-tools/processResult';
@@ -34,8 +34,12 @@ const mocks = vi.hoisted(() => ({
     resolveExistingReadablePdfPath: vi.fn(),
     resolveOriginalBackedReadTransport: vi.fn(),
     runNativeToolCommand: vi.fn(),
+    readPdfNativePageGeometry: vi.fn(),
     appTempDir: '',
 }));
+
+vi.mock('@electron/pdf/pdfPageSizes', () => ({readPdfNativePageGeometry: mocks.readPdfNativePageGeometry}));
+vi.mock('@electron/recentReadingViews', () => ({readRecentReadingViewOf: async () => null}));
 
 vi.mock('@electron/utils/appTempDir', async importOriginal => ({
     ...(await importOriginal<typeof TAppTempDir>()),
@@ -54,6 +58,10 @@ vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdfinfo: '/tools/pdfinfo',
     qpdf: '/tools/qpdf',
 })}));
+
+beforeEach(() => {
+    mocks.readPdfNativePageGeometry.mockReset().mockRejectedValue(new Error('Exact native geometry unavailable'));
+});
 
 describe('native PDF metadata parsing', () => {
     it('converts bounded native catalog page-label ranges to renderer ranges', () => {
@@ -110,101 +118,6 @@ describe('native PDF metadata parsing', () => {
         ], expect.anything());
     });
 
-    it('parses normalized first-page geometry', () => {
-        expect(parsePdfOpeningGeometryMetadata(`
-Pages:           431
-Page    1 size:  612 x 792 pts (letter)
-Page    1 rot:   -90
-`, {
-            size: 28_000_000,
-            modifiedAt: requireEpochMs(1_720_000_000_000),
-        })).toEqual({
-            pageNumber: 1,
-            pageCount: 431,
-            width: 792,
-            height: 612,
-            rotation: 270,
-            widestPageWidth: 792,
-            tallestPageHeight: 612,
-            size: 28_000_000,
-            modifiedAt: 1_720_000_000_000,
-        });
-    });
-
-    it('reads the shape of the page an open starts at, keeping the document-wide widest page', () => {
-        expect(parsePdfOpeningGeometryMetadata(`
-Pages:           40
-Page    1 size:  612 x 792 pts (letter)
-Page    4 size:  500 x 700 pts
-Page    4 rot:   90
-Page    9 size:  900 x 792 pts
-`, {
-            size: 1,
-            modifiedAt: requireEpochMs(0),
-        }, 4)).toMatchObject({
-            pageNumber: 4,
-            width: 700,
-            height: 500,
-            rotation: 90,
-            widestPageWidth: 900,
-            tallestPageHeight: 792,
-        });
-    });
-
-    it('reports the widest displayed page so the opening skeleton uses the document-wide Fit Width', () => {
-        expect(parsePdfOpeningGeometryMetadata(`
-Pages:           882
-Page    1 size:  481.92 x 765.36 pts
-Page    1 rot:   0
-Page    2 size:  481.92 x 765.36 pts
-Page    2 rot:   90
-Page  135 size:  765.36 x 481.92 pts
-Page  135 rot:   0
-`, {
-            size: 722_720_719,
-            modifiedAt: requireEpochMs(1_720_000_000_000),
-        })).toMatchObject({
-            width: 481.92,
-            height: 765.36,
-            widestPageWidth: 765.36,
-            tallestPageHeight: 765.36,
-        });
-    });
-
-    it('reports the tallest displayed page from another page, after its own rotation', () => {
-        expect(parsePdfOpeningGeometryMetadata(`
-Pages:           3
-Page    1 size:  612 x 900 pts
-Page    2 size:  612 x 792 pts
-Page    2 rot:   90
-Page    3 size:  612 x 820 pts
-Page    3 rot:   0
-`, {
-            size: 1,
-            modifiedAt: requireEpochMs(0),
-        }, 3)).toMatchObject({
-            width: 612,
-            height: 820,
-            widestPageWidth: 792,
-            tallestPageHeight: 900,
-        });
-    });
-
-    it('accepts the largest safe-integer page count in opening geometry metadata', () => {
-        const pageCount = Number.MAX_SAFE_INTEGER;
-
-        expect(parsePdfOpeningGeometryMetadata(`
-Pages:           ${String(pageCount)}
-Page    1 size:  612 x 792 pts (letter)
-`, {
-            size: 1,
-            modifiedAt: requireEpochMs(0),
-        })).toMatchObject({
-            pageCount,
-            width: 612,
-            height: 792,
-        });
-    });
 });
 
 describe('PDF page-shape store', () => {
@@ -312,6 +225,115 @@ describe('PDF page-shape store', () => {
     });
 });
 
+describe('complete PDF opening geometry', () => {
+    it('leaves an original without a remembered view unshaped while admitted geometry is unavailable', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'opening-original-'));
+        const input = join(directory, 'original.pdf');
+        await writeFile(input, '%PDF-1.7\n');
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue(input);
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue(null);
+        mocks.readPdfNativePageGeometry.mockImplementation(() => new Promise(() => {}));
+        try {
+            await expect(handlePdfOpeningGeometry({senderId: 7}, input)).resolves.toBeNull();
+        } finally {
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('keeps complete geometry available to admit a materialized working copy', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'pdf-work-opening-'));
+        const input = join(directory, 'document.pdf');
+        await writeFile(input, '%PDF-1.7\n');
+        await setWorkingCopyOriginalPath(input, '/books/original.pdf', 7, {deferOriginalFileExpectation: true});
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue(input);
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue(null);
+        mocks.readPdfNativePageGeometry.mockResolvedValue(Array.from({length: 3}, (_, index) => ({
+            pageNumber: index + 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+            userUnit: 1,
+        })));
+        try {
+            const geometry = await handlePdfOpeningGeometry({senderId: 7}, input);
+            expect(geometry).toMatchObject({
+                pageCount: 3,
+                width: 612,
+            });
+            expect(geometry?.pages).toHaveLength(3);
+        } finally {
+            forgetWorkingCopyOriginalPath(input);
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
+    });
+
+    it('uses exact deep-page crop, rotation and UserUnit to size a first-open skeleton', async () => {
+        const pageCount = 21_601;
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue('/tmp/evb-working-copies/full-geometry.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue({
+            identity: {
+                size: 5_000_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read: async <T>(read: (path: string) => Promise<T>) => read('/books/full-geometry.pdf'),
+        });
+        mocks.runNativeToolCommand.mockResolvedValue({stdout: `Pages: ${String(pageCount)}
+Page 1 size: 600 x 780 pts
+Page 1 rot: 0`});
+        mocks.readPdfNativePageGeometry.mockResolvedValue(Array.from({length: pageCount}, (_, index) => ({
+            pageNumber: index + 1,
+            xPoints: 12,
+            yPoints: 24,
+            widthPoints: index === 10_800 ? 880 : index === pageCount - 1 ? 720 : 600,
+            heightPoints: index === 10_800 ? 580 : 780,
+            rotation: index === 10_800 ? 90 : 0,
+            userUnit: index === 10_800 ? 1.25 : 1,
+        })));
+
+        const geometry = await handlePdfOpeningGeometry({senderId: 7}, '/books/full-geometry.pdf');
+
+        expect(geometry).toMatchObject({
+            pageNumber: 1,
+            pageCount,
+            width: 600,
+            height: 780,
+            widestPageWidth: 725,
+            tallestPageHeight: 1100,
+        });
+        expect(geometry?.pages).toHaveLength(pageCount);
+        expect(geometry?.pages?.[10_800]).toMatchObject({
+            widthPoints: 880,
+            heightPoints: 580,
+            rotation: 90,
+            userUnit: 1.25,
+        });
+    });
+
+    it('leaves repairable native-reader failures to the loaded renderer without an uncertain shape', async () => {
+        mocks.resolveExistingReadablePdfPath.mockResolvedValue('/tmp/evb-working-copies/recovered.pdf');
+        mocks.resolveOriginalBackedReadTransport.mockReturnValue({
+            identity: {
+                size: 3_000,
+                modifiedAt: 1_720_000_000_000,
+            },
+            read: async <T>(read: (path: string) => Promise<T>) => read('/books/recovered.pdf'),
+        });
+        mocks.runNativeToolCommand.mockResolvedValue({stdout: `Pages: 3
+Page 1 size: 612 x 792 pts
+Page 1 rot: 0`});
+
+        await expect(handlePdfOpeningGeometry({senderId: 7}, '/books/recovered.pdf')).resolves.toBeNull();
+    });
+});
+
 describe('PDF opening geometry of a working copy that reads its original', () => {
     it('does not answer a changed original with the shape read before the change', async () => {
         // Opening a file that is already open resolves to that open's lazy
@@ -331,6 +353,15 @@ describe('PDF opening geometry of a working copy that reads its original', () =>
                 return reader('/books/open-twice.pdf');
             },
         });
+        mocks.readPdfNativePageGeometry.mockResolvedValue(Array.from({length: 3}, (_, index) => ({
+            pageNumber: index + 1,
+            xPoints: 0,
+            yPoints: 0,
+            widthPoints: 612,
+            heightPoints: 792,
+            rotation: 0,
+            userUnit: 1,
+        })));
         mocks.runNativeToolCommand.mockResolvedValue({stdout: `
 Pages:           3
 Page    1 size:  612 x 792 pts (letter)

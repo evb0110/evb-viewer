@@ -1,5 +1,4 @@
 import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
     ComputedRef,
@@ -10,6 +9,7 @@ import type {
     TPdfSource,
 } from '@app/types/pdfUi';
 import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/public';
+import type { buildTrustedPdfGeometrySeed } from '@app/modules/pdf-viewer/runtime/lifecycle/buildTrustedPdfGeometrySeed';
 import { commitPdfLoadedOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfLoadedOpeningPageGeometry';
 
 interface IUsePdfOpeningGeometryLifecycleOptions {
@@ -20,13 +20,7 @@ interface IUsePdfOpeningGeometryLifecycleOptions {
     numPages: Readonly<Ref<number>>;
     pageMetrics: Readonly<Ref<IPdfPageMetric[]>>;
     pageMetricsVersion: Readonly<Ref<number>>;
-    seedTrustedPageGeometry: (input: {
-        pageNumber: TPageNumber;
-        pageCount: number;
-        width: number;
-        height: number;
-        rotation?: number;
-    }) => boolean;
+    seedTrustedPageGeometry: (input: Parameters<typeof buildTrustedPdfGeometrySeed>[0]) => boolean;
     src: Readonly<Ref<TPdfSource | null>>;
 }
 
@@ -81,6 +75,7 @@ export const usePdfOpeningGeometryLifecycle = (
                     width: openingGeometry.width,
                     height: openingGeometry.height,
                     rotation: openingGeometry.rotation,
+                    pages: openingGeometry.pages ?? undefined,
                 });
             }
         },
@@ -122,7 +117,7 @@ export const usePdfOpeningGeometryLifecycle = (
                 pageNumber: requirePageNumber(pageNumber, pageCount),
                 currentPage: requirePageNumber(openingPage.value, pageCount),
                 pageCount,
-                metric,
+                pageMetrics: pageMetrics.value,
             });
         },
         { flush: 'post' },

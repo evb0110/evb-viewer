@@ -341,8 +341,19 @@ pub(crate) fn write_annotation_parse_path(
         ));
     }
 
-    let mut incremental = load_annotation_parse_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let mut incremental =
+        load_readonly_metadata_pdf_path(input_path, qpdf_path, QpdfMetadataPurpose::Annotations)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    // Notes and FreeText retain original recovery objects; stamps read streams.
+    // Keep the small-file eager fallback until those bytes are in hand.
+    if incremental.has_unavailable_base_streams()
+        && incremental.previous_len() <= MAX_ENCODED_PDF_BYTES as u64
+        && needs_eager_parse(&AppendedRevision::new(&incremental))
+    {
+        drop(incremental);
+        incremental = load_incremental_pdf_path(input_path, qpdf_path)
+            .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    }
     if incremental.get_prev_documents().is_encrypted() {
         return Err(domain_error(
             NativeErrorCode::Encrypted,
@@ -378,25 +389,6 @@ pub(crate) fn write_annotation_parse_path(
     )?;
     output.publish()?;
     Ok(())
-}
-
-/// Notes and FreeText recovery serialize original objects; stamps read appearance
-/// and image streams. qpdf's structural view retains neither original object
-/// encoding nor stream bytes, so these annotations use the admitted eager loader
-/// below its existing byte ceiling.
-fn load_annotation_parse_pdf_path(
-    input_path: &Path,
-    qpdf_path: Option<&Path>,
-) -> Result<IncrementalDocument> {
-    let incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)?;
-    if incremental.has_unavailable_base_streams()
-        && incremental.previous_len() <= MAX_ENCODED_PDF_BYTES as u64
-        && needs_eager_parse(&AppendedRevision::new(&incremental))
-    {
-        drop(incremental);
-        return load_annotation_index_pdf_path(input_path, qpdf_path);
-    }
-    Ok(incremental)
 }
 
 /// A page annotation with recovery objects or stamp streams,
@@ -497,10 +489,9 @@ where
     let page_rotation = resolve_page_rotation(document, page_id)?;
     let annots = get_page_annots(document, page_id)?;
     for object in &annots {
-        let object_id = object.as_reference().ok();
-        let dict = match object_id {
-            Some(id) => document.dictionary(id).ok(),
-            None => object.as_dict().ok(),
+        let dict = match object {
+            Object::Reference(id) => document.dictionary(*id).ok(),
+            _ => object.as_dict().ok(),
         };
         let Some(dict) = dict else { continue };
         let subtype = annotation_subtype_name(document, dict);
@@ -509,13 +500,19 @@ where
             continue;
         }
 
-        let object_id = object_id.unwrap_or((0, 0));
+        // PDF.js owns links; their source names still reserve the namespace.
+        if subtype.eq_ignore_ascii_case("Link") {
+            existing_names.extend(read_annotation_name(dict));
+            continue;
+        }
+
+        let object_id = object.as_reference().unwrap_or((0, 0));
         let name = resolve_or_mint_name(dict, existing_names, page_index, object_id, &subtype);
         existing_names.insert(name.clone());
-
-        let entry = match subtype.to_ascii_lowercase().as_str() {
-            kind if kind == "text"
-                || kind == "freetext"
+        let kind = parsed_annotation_subtype(&subtype);
+        let entry = match kind {
+            kind if kind == "Text"
+                || kind == "FreeText"
                     && is_free_text_note_marker(document, dict, page_view, page_rotation) =>
             {
                 (|| {
@@ -544,7 +541,7 @@ where
                     }))
                 })()
             }
-            "freetext" => parse_text_box_entry(
+            "FreeText" => parse_text_box_entry(
                 document,
                 dict,
                 object_id,
@@ -554,18 +551,18 @@ where
                 &name,
             )
             .map(PdfAnnotationParseEntry::TextBox),
-            "highlight" | "underline" | "strikeout" | "squiggly" => parse_highlight_entry(
+            "Highlight" | "Underline" | "StrikeOut" | "Squiggly" => parse_highlight_entry(
                 document,
                 dict,
                 object_id,
                 page_index,
                 page_view,
                 page_rotation,
-                &subtype,
+                kind,
                 &name,
             )
             .map(PdfAnnotationParseEntry::Highlight),
-            "stamp" => parse_stamp_entry(
+            "Stamp" => parse_stamp_entry(
                 document,
                 dict,
                 object_id,
@@ -575,14 +572,14 @@ where
                 &name,
             )
             .map(PdfAnnotationParseEntry::Stamp),
-            "square" | "circle" | "line" | "polyline" | "polygon" | "ink" => parse_shape_entry(
+            "Square" | "Circle" | "Line" | "PolyLine" | "Polygon" | "Ink" => parse_shape_entry(
                 document,
                 dict,
                 object_id,
                 page_index,
                 page_view,
                 page_rotation,
-                &subtype,
+                kind,
                 &name,
             )
             .map(PdfAnnotationParseEntry::Shape),
@@ -684,12 +681,6 @@ fn parse_highlight_entry(
     {
         return Err("Text markup has visibility or edit restrictions".to_string());
     }
-    let subtype = match subtype.to_ascii_lowercase().as_str() {
-        "highlight" => "Highlight",
-        "underline" => "Underline",
-        "strikeout" => "StrikeOut",
-        _ => "Squiggly",
-    };
     let quad_points = parse_highlight_quad_points(document, dict, page_view, page_rotation)?;
     let color = read_annotation_color(document, dict).unwrap_or_else(|| {
         if subtype == "Highlight" {
@@ -1040,7 +1031,7 @@ fn parse_shape_entry(
         dict,
         page_index,
         object_id,
-        canonical_shape_subtype_name(subtype),
+        subtype,
         page_view,
         page_rotation,
     )?;
@@ -1089,14 +1080,22 @@ fn parse_shape_entry(
     })
 }
 
-fn canonical_shape_subtype_name(subtype: &str) -> &'static str {
+pub(crate) fn parsed_annotation_subtype(subtype: &str) -> &'static str {
     match subtype.to_ascii_lowercase().as_str() {
+        "text" => "Text",
+        "freetext" => "FreeText",
+        "highlight" => "Highlight",
+        "underline" => "Underline",
+        "strikeout" => "StrikeOut",
+        "squiggly" => "Squiggly",
+        "stamp" => "Stamp",
         "square" => "Square",
         "circle" => "Circle",
         "line" => "Line",
         "polyline" => "PolyLine",
         "polygon" => "Polygon",
-        _ => "Ink",
+        "ink" => "Ink",
+        _ => "",
     }
 }
 
@@ -1558,7 +1557,7 @@ mod tests {
     fn parses_text_boxes_notes_and_foreign_annotations() {
         let document = test_document();
         let entries = collect_parsed_annotations(&document, "D:20260830130000Z").unwrap();
-        assert_eq!(entries.len(), 7);
+        assert_eq!(entries.len(), 6);
         assert_eq!(
             entries
                 .iter()
@@ -1578,7 +1577,7 @@ mod tests {
                 .iter()
                 .filter(|entry| matches!(entry, PdfAnnotationParseEntry::Foreign(_)))
                 .count(),
-            2
+            1
         );
         let text_box = entries
             .iter()
@@ -1799,7 +1798,7 @@ mod tests {
             .set("Annots", Object::Array(annots));
 
         let entries = collect_parsed_annotations(&document, "D:20260830130000Z").unwrap();
-        assert_eq!(entries.len(), 7);
+        assert_eq!(entries.len(), 6);
         let note = entries
             .iter()
             .find(|entry| match entry {
@@ -1876,7 +1875,7 @@ mod tests {
         );
         let chunk = serde_json::from_str::<serde_json::Value>(lines.next().unwrap()).unwrap();
         assert_eq!(chunk["chunkIndex"], 0);
-        assert_eq!(chunk["entries"].as_array().unwrap().len(), 7);
+        assert_eq!(chunk["entries"].as_array().unwrap().len(), 6);
         assert!(lines.next().is_none());
     }
 

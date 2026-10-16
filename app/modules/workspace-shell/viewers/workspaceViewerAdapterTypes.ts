@@ -39,7 +39,7 @@ export interface IWorkspaceViewerLifecycleHooks {
     ) => Promise<void> | void;
     beforeClose?: () => Promise<void> | void;
     /** An open's source is admitted, with its own page count, and its pages are not drawn yet. */
-    beforeSourcePresented?: (source: TDocumentRef, pageCount: Promise<number | null>) => Promise<void> | void;
+    beforeSourcePresented?: (source: TDocumentRef, pageCount: () => Promise<number | null>) => Promise<void> | void;
 }
 
 export interface IWorkspaceViewerAdapter {

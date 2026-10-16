@@ -150,7 +150,7 @@ export function seedOpeningPreflight(controller: IWorkspaceDocumentController, v
 export async function seedOpeningSource(
     controller: IWorkspaceDocumentController,
     sourceRef: TDocumentRef,
-    sourcePageCount: Promise<number | null>,
+    sourcePageCount: () => Promise<number | null>,
 ) {
     const opening = openingReaders.get(controller);
     if (!opening) {
@@ -162,8 +162,9 @@ export async function seedOpeningSource(
     } catch (error) {
         BrowserLogger.warn('recent-files', 'The reading view could not be read', error);
     }
-    const pageCount = await sourcePageCount;
-    if (!reading || reading.pageCount !== pageCount || opening.reader.moved() || openingReaders.get(controller) !== opening) {
+    if (!reading) return;
+    const pageCount = await sourcePageCount();
+    if (reading.pageCount !== pageCount || opening.reader.moved() || openingReaders.get(controller) !== opening) {
         return;
     }
     opening.reader.seed({

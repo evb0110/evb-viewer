@@ -1,7 +1,10 @@
 use super::*;
+#[path = "qpdf_metadata.rs"]
+mod qpdf_metadata;
 use evb_native_support::bounded_io::{
     clear_deserialization_error, record_deserialization_error, take_deserialization_error,
 };
+pub(crate) use qpdf_metadata::*;
 use serde::de::{self, MapAccess, Visitor};
 use serde_json::{value::RawValue, Value};
 use std::{
@@ -13,7 +16,7 @@ use std::{
 };
 
 const MAX_QPDF_STRUCTURE_BYTES: usize = 512 * 1024 * 1024;
-const MAX_QPDF_RETAINED_STRUCTURE_BYTES: usize = 256 * 1024 * 1024;
+pub(crate) const MAX_QPDF_RETAINED_STRUCTURE_BYTES: usize = 256 * 1024 * 1024;
 /// A ceiling breach has to abort the parse rather than be collected and reported
 /// at the end: the reason for the ceiling is that reading the rest of the object
 /// table costs the memory being refused. serde carries only the rendered message
@@ -23,11 +26,11 @@ fn resource_limit<E: de::Error>(message: impl Into<String>) -> E {
     E::custom(message.into())
 }
 
-const MAX_QPDF_OBJECT_BYTES: usize = 64 * 1024 * 1024;
-const MAX_QPDF_OBJECT_ELEMENTS: usize = 1_000_000;
-const QPDF_ESTIMATED_BYTES_PER_VALUE: usize = 64;
+pub(crate) const MAX_QPDF_OBJECT_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_QPDF_OBJECT_ELEMENTS: usize = 1_000_000;
+pub(crate) const QPDF_ESTIMATED_BYTES_PER_VALUE: usize = 64;
 const MAX_QPDF_NEW_OBJECT_HEADROOM: u32 = 1_000_000;
-const MAX_QPDF_DIAGNOSTIC_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_QPDF_DIAGNOSTIC_BYTES: usize = 1024 * 1024;
 const QPDF_STRUCTURE_TIMEOUT: Duration = Duration::from_secs(110);
 const QPDF_STALE_FILE_AGE: Duration = Duration::from_secs(10 * 60);
 const QPDF_TEMP_PREFIX: &str = "evb-qpdf-structure-";
@@ -39,10 +42,10 @@ static TEST_QPDF_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 // supported Linux packaging image. qpdf 10 rejects the newer
 // --decode-level/--json-stream-data options; the JSON object section already
 // omits stream bytes in the qpdf 10 and qpdf 12 formats we parse below.
-const QPDF_STRUCTURE_ARGS: &[&str] = &["--suppress-recovery", "--json", "--"];
+const QPDF_STRUCTURE_ARGS: &[&str] = &["--suppress-recovery", "--json"];
 // A read that appends nothing may use the cross-reference table qpdf
 // reconstructs for a damaged file, which is the view the opening check accepts.
-const QPDF_RECOVERED_STRUCTURE_ARGS: &[&str] = &["--json", "--"];
+const QPDF_RECOVERED_STRUCTURE_ARGS: &[&str] = &["--json"];
 
 #[derive(Debug, Clone)]
 pub(crate) struct IncrementalDocument {
@@ -256,78 +259,12 @@ fn read_qpdf_structure(
         ));
     }
     let temp = TempQpdfFiles::create()?;
-    let structure_output = create_private_temp_file(&temp.structure)?;
-    let diagnostic_output = create_private_temp_file(&temp.diagnostics)?;
-    let mut child = Command::new(qpdf_path)
-        .args(arguments)
-        .arg(path)
-        .stdout(Stdio::from(structure_output))
-        .stderr(Stdio::from(diagnostic_output))
-        .spawn()
-        .map_err(io_domain_error)?;
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(io_domain_error)? {
-            break status;
-        }
-        if started.elapsed() > QPDF_STRUCTURE_TIMEOUT {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(domain_error(
-                NativeErrorCode::TooLarge,
-                "qpdf structural parsing exceeded the 110-second resource limit",
-            ));
-        }
-        if fs::metadata(&temp.structure)
-            .map(|metadata| metadata.len() > MAX_QPDF_STRUCTURE_BYTES as u64)
-            .unwrap_or(false)
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(domain_error(
-                NativeErrorCode::TooLarge,
-                format!(
-                    "qpdf structural output exceeds the {MAX_QPDF_STRUCTURE_BYTES}-byte resource limit"
-                ),
-            ));
-        }
-        if fs::metadata(&temp.diagnostics)
-            .map(|metadata| metadata.len() > MAX_QPDF_DIAGNOSTIC_BYTES as u64)
-            .unwrap_or(false)
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(domain_error(
-                NativeErrorCode::TooLarge,
-                "qpdf diagnostics exceeded the 1048576-byte resource limit",
-            ));
-        }
-        thread::sleep(Duration::from_millis(25));
-    };
     // qpdf uses exit code 3 for warnings that did not prevent JSON generation.
     // Keep that output on the normal bounded parse and structural-validation
     // path. Any malformed or incomplete JSON still fails below; only a clean
     // exit or qpdf's warning-only exit may reach the structural loader.
-    if !status.success() && status.code() != Some(3) {
-        let diagnostics = read_file_bounded(
-            &temp.diagnostics,
-            MAX_QPDF_DIAGNOSTIC_BYTES,
-            "qpdf diagnostics",
-        )
-        .map(|bytes| String::from_utf8_lossy(&bytes).trim().to_string())
-        .unwrap_or_else(|error| error.to_string());
-        return Err(domain_error(
-            NativeErrorCode::CorruptXref,
-            if diagnostics.is_empty() {
-                format!("qpdf structural parsing failed with status {status}")
-            } else {
-                format!("qpdf structural parsing failed: {diagnostics}")
-            },
-        ));
-    }
-
+    let warned = run_qpdf_bounded(path, qpdf_path, arguments, &temp, MAX_QPDF_STRUCTURE_BYTES)?;
     let (document, unavailable_base_streams) = parse_qpdf_structure(&temp.structure, Some(path))?;
-    let warned = status.code() == Some(3);
     Ok((initial_metadata, document, unavailable_base_streams, warned))
 }
 
@@ -530,7 +467,7 @@ pub(crate) fn run_qpdf_bounded(
     arguments: &[&str],
     temp: &TempQpdfFiles,
     max_output_bytes: usize,
-) -> Result<()> {
+) -> Result<bool> {
     for temp_path in [&temp.structure, &temp.diagnostics] {
         match fs::remove_file(temp_path) {
             Ok(()) => {}
@@ -550,15 +487,13 @@ pub(crate) fn run_qpdf_bounded(
         .map_err(io_domain_error)?;
     let started = Instant::now();
     let status = loop {
-        if let Some(status) = child.try_wait().map_err(io_domain_error)? {
-            break status;
-        }
-        if started.elapsed() > QPDF_STRUCTURE_TIMEOUT {
+        let status = child.try_wait().map_err(io_domain_error)?;
+        if status.is_none() && started.elapsed() > QPDF_STRUCTURE_TIMEOUT {
             let _ = child.kill();
             let _ = child.wait();
             return Err(domain_error(
                 NativeErrorCode::TooLarge,
-                "qpdf page-tree parsing exceeded the 110-second resource limit",
+                "qpdf structural parsing exceeded the 110-second resource limit",
             ));
         }
         if fs::metadata(&temp.structure)
@@ -569,7 +504,9 @@ pub(crate) fn run_qpdf_bounded(
             let _ = child.wait();
             return Err(domain_error(
                 NativeErrorCode::TooLarge,
-                "qpdf page-tree output exceeded its resource limit",
+                format!(
+                    "qpdf structural output exceeds the {max_output_bytes}-byte resource limit"
+                ),
             ));
         }
         if fs::metadata(&temp.diagnostics)
@@ -580,8 +517,11 @@ pub(crate) fn run_qpdf_bounded(
             let _ = child.wait();
             return Err(domain_error(
                 NativeErrorCode::TooLarge,
-                "qpdf page-tree diagnostics exceeded its resource limit",
+                "qpdf diagnostics exceeded the 1048576-byte resource limit",
             ));
+        }
+        if let Some(status) = status {
+            break status;
         }
         thread::sleep(MAX_QPDF_COMMAND_POLL_INTERVAL);
     };
@@ -596,13 +536,13 @@ pub(crate) fn run_qpdf_bounded(
         return Err(domain_error(
             NativeErrorCode::CorruptXref,
             if diagnostics.is_empty() {
-                format!("qpdf page-tree parsing failed with status {status}")
+                format!("qpdf structural parsing failed with status {status}")
             } else {
-                format!("qpdf page-tree parsing failed: {diagnostics}")
+                format!("qpdf structural parsing failed: {diagnostics}")
             },
         ));
     }
-    Ok(())
+    Ok(status.code() == Some(3))
 }
 
 fn parse_qpdf_page_ids(output: &[u8]) -> Result<Vec<ObjectId>> {
@@ -780,7 +720,7 @@ pub(crate) fn read_qpdf_stream_bounded(
                 }
                 Ok(Err(error)) => break Err(io_domain_error(error)),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    break Err("qpdf resource reader stopped".into())
+                    break Err("qpdf resource reader stopped".into());
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
@@ -1516,14 +1456,6 @@ mod tests {
         assert!(escaped.get(b"F1").is_ok());
         assert_eq!(escaped.get(b"F1").unwrap().as_name().unwrap(), b"F1");
         assert!(escaped.get(b"X2").is_ok());
-    }
-
-    #[test]
-    fn uses_structural_qpdf_arguments_supported_by_qpdf_ten_and_newer() {
-        assert_eq!(
-            QPDF_STRUCTURE_ARGS,
-            &["--suppress-recovery", "--json", "--"]
-        );
     }
 
     #[test]

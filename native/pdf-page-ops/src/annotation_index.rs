@@ -86,8 +86,12 @@ pub(crate) fn write_annotation_name_index_path(
         ));
     }
 
-    let incremental = load_dictionary_incremental_pdf_path(input_path, qpdf_path)
-        .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
+    let incremental = load_readonly_metadata_pdf_path(
+        input_path,
+        qpdf_path,
+        QpdfMetadataPurpose::AnnotationIndex,
+    )
+    .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
     assert_plaintext_base(
         incremental.get_prev_documents(),
         "Encrypted PDFs are not supported by the annotation index operation",
@@ -135,7 +139,7 @@ fn write_annotation_name_index_with_chunk_limit(
                 .checked_sub(1)
                 .ok_or("PDF page numbering must start at one")?,
         );
-        for object in page_annotation_objects(document, page_id)? {
+        for object in get_page_annots(document, page_id)? {
             if let Ok(object_id) = object.as_reference() {
                 let Ok(annotation) = document.dictionary(object_id) else {
                     continue;
@@ -160,18 +164,6 @@ fn write_annotation_name_index_with_chunk_limit(
     }
 
     writer.finish()
-}
-
-fn page_annotation_objects(
-    document: &impl PdfObjectSource,
-    page_id: ObjectId,
-) -> Result<Vec<Object>> {
-    let page = document.dictionary(page_id)?;
-    let Ok(annots) = page.get(b"Annots") else {
-        return Ok(Vec::new());
-    };
-    let annots = document.resolved(annots)?;
-    Ok(annots.as_array().cloned().unwrap_or_default())
 }
 
 fn annotation_reference(object: &Object) -> Option<ObjectId> {

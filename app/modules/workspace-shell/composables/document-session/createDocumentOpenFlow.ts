@@ -93,7 +93,7 @@ export interface ICreateDocumentOpenFlowDeps {
     syncDirtyFromHistory: () => void;
     t: TTranslateFn;
     /** An open's admitted working copy and its page count, awaited before its pages are drawn. */
-    admitOpeningSource?: ((source: TDocumentRef, pageCount: Promise<number | null>) => Promise<void>) | undefined;
+    admitOpeningSource?: ((source: TDocumentRef, pageCount: () => Promise<number | null>) => Promise<void>) | undefined;
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
@@ -372,14 +372,11 @@ export function createDocumentOpenFlow(
                         modifiedAt,
                     };
             }, () => null);
-        // The copy is admitted once it validates, with its own page count,
-        // read by main from the start. A recovered copy reopens at its
-        // checkpoint's view instead.
+        // Admission checks the copy's page count only for a remembered view.
+        // A recovered copy reopens at its checkpoint's view instead.
         const {admitOpeningSource} = deps;
-        const pageCount = admitOpeningSource && result.recoveryDirtyBaseline !== true
-            ? readPdfPageShape(result.workingPath)?.answer.then(shape => shape?.pageCount ?? null) ?? Promise.resolve(null)
-            : null;
-        const admit = admitOpeningSource && pageCount ? () => admitOpeningSource(result.workingPath, pageCount) : undefined;
+        const admit = !admitOpeningSource || result.recoveryDirtyBaseline === true ? undefined
+            : () => admitOpeningSource(result.workingPath, () => readPdfPageShape(result.workingPath)?.answer.then(shape => shape?.pageCount ?? null) ?? Promise.resolve(null));
         try {
             await loadPdfFromPath(result.workingPath, {
                 markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,

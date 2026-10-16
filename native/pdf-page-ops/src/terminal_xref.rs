@@ -122,7 +122,7 @@ pub(crate) fn append_admission(path: &Path, qpdf_path: Option<&Path>) -> Result<
             &temp,
             QPDF_PAGE_COUNT_OUTPUT_BYTES,
         ) {
-            Ok(()) => large_base_admission(&temp),
+            Ok(_) => large_base_admission(&temp),
             Err(error) => classify_refusal(error),
         };
     }
