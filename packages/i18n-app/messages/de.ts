@@ -1684,6 +1684,7 @@ export default {
         'feedUnavailable': 'Für Version {version} gibt es keinen Update-Feed. Laden Sie diese Version manuell herunter.',
         'downloadFailed': 'Der Download des Updates ist fehlgeschlagen. Versuchen Sie den Download erneut.',
         'installFailed': 'Das Update konnte nicht installiert werden. Laden Sie die Version manuell herunter.',
+        'installPermissionDenied': 'Sie haben keine Berechtigung, diese App zu aktualisieren. Bitten Sie Ihren Administrator, das Update zu installieren, oder verwenden Sie eine Kopie in Ihrem eigenen Programme-Ordner.',
         'installPreparationFailed': 'Das Update konnte nicht für die Installation vorbereitet werden. Versuchen Sie es später erneut.',
         'storeUpdates': 'Updates für diese Version werden über Microsoft Store bereitgestellt.',
         'signedBuildRequired': 'Updates erfordern eine signierte, verpackte Anwendungsversion.',
