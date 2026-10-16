@@ -79,7 +79,6 @@ export const useTextBoxInlineEdit = (
     const editorRef = ref<HTMLElement | null>(null);
     const draftText = ref(options.entity.value.text);
     let completion: Promise<void> | null = null;
-    let ignoreBlur = false;
 
     async function focusEditor() {
         await nextTick();
@@ -94,7 +93,6 @@ export const useTextBoxInlineEdit = (
             return;
         }
         completion = null;
-        ignoreBlur = false;
         draftText.value = options.recoveredDraftText?.value ?? options.entity.value.text;
         void focusEditor();
     }, {immediate: true});
@@ -133,11 +131,10 @@ export const useTextBoxInlineEdit = (
     }
 
     function cancel() {
-        if (!options.editing.value || ignoreBlur) {
+        if (!options.editing.value || completion) {
             return;
         }
         completion = Promise.resolve();
-        ignoreBlur = true;
         options.onCancel();
     }
 
@@ -182,17 +179,12 @@ export const useTextBoxInlineEdit = (
     }, {immediate: true});
 
     function handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>) {
-        if (ignoreBlur) {
-            ignoreBlur = false;
-            return;
-        }
         if (!isInspectorTarget(event?.relatedTarget)) void commit();
     }
 
     onScopeDispose(() => {
         if (typeof document !== 'undefined') document.removeEventListener('focusout', handleContextFocusOut);
         completion = Promise.resolve();
-        ignoreBlur = true;
     });
 
     return {
