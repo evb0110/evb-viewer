@@ -707,12 +707,6 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 sessionState.value.viewport.pageCount ?? Number.MAX_SAFE_INTEGER,
             );
             const intentId = createViewportIntentId('revision-swap');
-            const ticket = makeTicket(
-                createPageNavigationRequest(normalizedPage, 'restore'),
-                current.generation,
-                identity.documentRevision,
-                intentId,
-            );
             const accepted = dispatchViewport({
                 type: 'revision-swapped',
                 generation: current.generation,
@@ -731,12 +725,8 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                         viewportIntentId: viewport.viewportIntent?.id
                             ?? visual.committedViewportPosition.viewportIntentId,
                     }),
-            }), ticket);
+            }), null);
             if (!accepted) {
-                retire(ticket, {
-                    kind: 'superseded',
-                    by: 'command',
-                });
                 return false;
             }
             revisionSwap.value = {

@@ -1563,6 +1563,7 @@ describe('document open surface session', () => {
             documentId: 'scan.pdf',
             documentRevision: 'revision-2',
         }, 1, [1])).toBe(true);
+        expect(session.navigationTicket.value).toBeNull();
         expect(session.snapshot.value).toMatchObject({
             generation,
             identity: {
