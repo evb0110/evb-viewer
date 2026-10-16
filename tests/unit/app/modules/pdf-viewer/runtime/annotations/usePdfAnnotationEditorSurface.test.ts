@@ -276,6 +276,255 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(surface.settings.value).toEqual(DEFAULT_ANNOTATION_SETTINGS);
     });
 
+    it('saves the latest text and queued styles after completion closes the editor and a native style fit settles', async () => {
+        const nativeFit = Promise.withResolvers<{
+            rect: IAnnotationMarkerRect;
+            fontSize: number
+        }>();
+        const fittingStarted = Promise.withResolvers<IAnnotationMarkerRect>();
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness({fitTextBox: async (_entity, proposal) => {
+            fittingStarted.resolve(proposal.rect);
+            return nativeFit.promise;
+        }});
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        await surface.beginTextEditing(box.identity.id);
+        const completion = Promise.withResolvers<undefined>();
+        const completedRect = {
+            ...rect,
+            width: 0.3,
+        };
+        const accepted = completion.promise.then(() => {
+            surface.commitGesture(box.identity.id, {
+                text: 'Completed text',
+                rect: completedRect,
+            });
+            surface.endTextEditing(box.identity.id, {restoreFocus: false});
+        });
+        const interaction = {
+            commitTextDraft: () => accepted,
+            get pendingTextCompletion() { return accepted; },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        };
+        surface.registerPageInteraction(0, interaction);
+        const color = surface.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        const size = surface.updateSelectedAnnotationProperties({fontSize: 18});
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            color: box.color,
+            fontSize: box.fontSize,
+            rect,
+        });
+        completion.resolve(undefined);
+        expect(await fittingStarted.promise).toEqual(completedRect);
+        expect(surface.editingId.value).toBeNull();
+        let saved: AnnotationEntity | null | undefined;
+        const saving = Promise.resolve(surface.commitPendingTextBoxDraftsForSave()).then(() => {
+            saved = annotationApplication.value.store.get(box.identity.id);
+        });
+        await Promise.resolve();
+        expect(saved).toBeUndefined();
+        nativeFit.resolve({
+            rect: completedRect,
+            fontSize: 12.12,
+        });
+        await Promise.all([
+            color,
+            size,
+            saving,
+        ]);
+        expect(saved).toMatchObject({
+            text: 'Completed text',
+            color: '#f59e0b',
+            fontSize: 12.12,
+            rect: completedRect,
+        });
+    });
+
+    it('contains a refused queued style while Save rejects and a later explicit Save commits the retained draft', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Retained latest text');
+        const completion = Promise.withResolvers<undefined>();
+        surface.registerPageInteraction(0, {
+            pendingTextCompletion: completion.promise,
+            commitTextDraft: () => {
+                surface.commitGesture(box.identity.id, {text: 'Retained latest text'});
+                surface.endTextEditing(box.identity.id, {restoreFocus: false});
+            },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        const command = surface.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        const saving = surface.commitPendingTextBoxDraftsForSave();
+        const refused = expect(command).resolves.toBe(false);
+        const rejectedSave = expect(saving).rejects.toThrow('The accepted paint failed');
+        completion.reject(new Error('The accepted paint failed'));
+        await Promise.all([
+            refused,
+            rejectedSave,
+        ]);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            color: box.color,
+        });
+        expect(surface.editingId.value).toBe(box.identity.id);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
+        await surface.commitPendingTextBoxDraftsForSave();
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Retained latest text',
+            color: box.color,
+        });
+        expect(surface.editingId.value).toBeNull();
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(false);
+    });
+
+    it('completes a live draft for Save after a queued style behind another viewer succeeds', async () => {
+        const peerCompletion = Promise.withResolvers<undefined>();
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness({getPendingTextCompletion: () => peerCompletion.promise});
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Live latest text');
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => {
+                surface.commitGesture(box.identity.id, {text: 'Live latest text'});
+                surface.endTextEditing(box.identity.id, {restoreFocus: false});
+            },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        const command = surface.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        let saved: AnnotationEntity | null | undefined;
+        const saving = Promise.resolve(surface.commitPendingTextBoxDraftsForSave()).then(() => {
+            saved = annotationApplication.value.store.get(box.identity.id);
+        });
+        expect(saved).toBeUndefined();
+        peerCompletion.resolve(undefined);
+        await Promise.all([
+            command,
+            saving,
+        ]);
+        expect(saved).toMatchObject({
+            text: 'Live latest text',
+            color: '#f59e0b',
+        });
+        expect(surface.editingId.value).toBeNull();
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(false);
+    });
+
+    it('keeps inspector commands in linked views behind accepted text and style work through Save', async () => {
+        const document = createPdfDocumentAnnotations({
+            workingCopyPath: computed(() => requireDocumentRef('/managed/linked-style.pdf')),
+            source: computed(() => null),
+            documentRevisionToken: computed(() => null),
+        });
+        const nativeFit = Promise.withResolvers<{
+            rect: IAnnotationMarkerRect;
+            fontSize: number
+        }>();
+        const fittingStarted = Promise.withResolvers<undefined>();
+        const left = createSurfaceHarness({
+            annotationApplication: document.application,
+            getPendingTextCompletion: document.getPendingTextCompletion,
+            fitTextBox: async () => {fittingStarted.resolve(undefined); return nativeFit.promise;},
+        }).surface;
+        const right = createSurfaceHarness({
+            annotationApplication: document.application,
+            getPendingTextCompletion: document.getPendingTextCompletion,
+        }).surface;
+        for (const surface of [
+            left,
+            right,
+        ]) document.attachView({
+            emitAnnotationState: () => {},
+            emitAnnotationModified: () => {},
+            onHistoryReplay: () => {},
+            commitPendingDraftsForSave: surface.commitPendingTextBoxDraftsForSave,
+            getPendingTextCompletion: surface.getPendingTextCompletion,
+            getTextBoxDraftRect: () => null,
+        });
+        const box = left.createTextBoxAt(0, rect, {text: 'Original'});
+        await left.beginTextEditing(box.identity.id);
+        right.select([box.identity.id]);
+        const completion = Promise.withResolvers<undefined>();
+        const accepted = completion.promise.then(() => {
+            left.commitGesture(box.identity.id, {text: 'Completed in left'});
+            left.endTextEditing(box.identity.id, {restoreFocus: false});
+        });
+        const interaction = {
+            commitTextDraft: () => accepted,
+            get pendingTextCompletion() { return accepted; },
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        };
+        left.registerPageInteraction(0, interaction);
+        const color = right.updateSelectedAnnotationProperties({color: '#f59e0b'});
+        const font = left.updateSelectedAnnotationProperties({fontSize: 18});
+        expect(document.application.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            color: box.color,
+            fontSize: box.fontSize,
+        });
+        completion.resolve(undefined);
+        await fittingStarted.promise;
+        expect(left.editingId.value).toBeNull();
+        let savedText: string | undefined;
+        const saving = document.commitPendingDraftsForSave().then(() => {
+            const entity = document.application.value.store.get(box.identity.id);
+            if (entity?.kind === 'text-box') savedText = entity.text;
+        });
+        await Promise.resolve();
+        expect(savedText).toBeUndefined();
+        nativeFit.resolve({
+            rect,
+            fontSize: 12.12,
+        });
+        await Promise.all([
+            color,
+            font,
+            saving,
+        ]);
+        expect(savedText).toBe('Completed in left');
+        expect(document.application.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Completed in left',
+            color: '#f59e0b',
+            fontSize: 12.12,
+        });
+    });
+
+    it('changes live text properties synchronously without completing an unaccepted editor', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        await surface.beginTextEditing(box.identity.id);
+        surface.setTextBoxDraftPending(box.identity.id, 'Typing continues');
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => {surface.endTextEditing(box.identity.id);},
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        expect(surface.updateSelectedAnnotationProperties({color: '#f59e0b'})).toBe(true);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            color: '#f59e0b',
+        });
+        expect(surface.editingId.value).toBe(box.identity.id);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
+    });
+
     it('rejects font and geometry together when text cannot fit the page', () => {
         const {
             surface,

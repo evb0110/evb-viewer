@@ -90,6 +90,10 @@ export const useTextBoxInlineEdit = (
     }
 
     watch(options.editing, (editing) => {
+        if (typeof document !== 'undefined') {
+            if (editing) document.addEventListener('focusout', handleContextFocusOut);
+            else document.removeEventListener('focusout', handleContextFocusOut);
+        }
         if (!editing) {
             return;
         }
@@ -114,7 +118,10 @@ export const useTextBoxInlineEdit = (
             return;
         }
         if (completion) return completion;
-        const pending = (async () => { await action(); })();
+        const pending = (async () => {
+            if (typeof document !== 'undefined' && document.fonts) await document.fonts.ready;
+            await action();
+        })();
         completion = pending;
         void pending.catch(() => {
             if (completion === pending) {
@@ -155,14 +162,6 @@ export const useTextBoxInlineEdit = (
             void commit();
         }
     }
-
-    watch(options.editing, (editing) => {
-        if (typeof document === 'undefined') {
-            return;
-        }
-        if (editing) document.addEventListener('focusout', handleContextFocusOut);
-        else document.removeEventListener('focusout', handleContextFocusOut);
-    }, {immediate: true});
 
     function handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>) {
         if (!isInspectorTarget(event?.relatedTarget)) void commit();

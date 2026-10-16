@@ -104,6 +104,20 @@ describe('text-box drafts of a document shown in two views', () => {
         expect(document.getTextBoxDraftRect('box-1')).toBeNull();
     });
 
+    it('does not finish live text when another view only checks for an accepted completion', () => {
+        const document = createDocument();
+        const left = createEditorView();
+        document.attachView(left.view);
+        left.open.value = {
+            annotationId: 'live-box',
+            rect: rightRect,
+        };
+        document.setTextBoxDraft('live-box', 'Still typing');
+        expect(document.getPendingTextCompletion()).toBeUndefined();
+        expect(document.getTextBoxDraftRect('live-box')).toEqual(rightRect);
+        expect(document.textBoxDrafts.get('live-box')).toBe('Still typing');
+    });
+
     it('commits the draft another view has open before a second view edits the same box', async () => {
         const document = createDocument();
         const left = createEditorView();
@@ -144,6 +158,8 @@ describe('text-box drafts of a document shown in two views', () => {
         const detach = document.attachView(left.view);
         document.attachView(right.view);
         const retiring = detach();
+        let readyForStyle = false;
+        const acceptedCompletion = Promise.resolve(document.getPendingTextCompletion()).then(() => {readyForStyle = true;});
         let saved = false;
         let handedOff = false;
         let saveFailure: unknown;
@@ -154,16 +170,19 @@ describe('text-box drafts of a document shown in two views', () => {
             await Promise.resolve();
             expect(saved).toBe(false);
             expect(handedOff).toBe(false);
+            expect(readyForStyle).toBe(false);
             expect(document.textBoxDrafts.get('retiring-box')).toBe('Accepted while moving');
             fit.resolve(undefined);
             await Promise.all([
                 retiring,
                 saving,
                 handoff,
+                acceptedCompletion,
             ]);
             expect(saved).toBe(true);
             expect(saveFailure).toBeUndefined();
             expect(handedOff).toBe(true);
+            expect(readyForStyle).toBe(true);
             expect(document.textBoxDrafts.size).toBe(0);
             expect(document.getTextBoxDraftRect('retiring-box')).toBeNull();
         } finally {fit.resolve(undefined);}

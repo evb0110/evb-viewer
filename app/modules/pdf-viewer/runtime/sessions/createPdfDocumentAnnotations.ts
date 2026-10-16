@@ -43,6 +43,7 @@ export interface IPdfDocumentAnnotationsView {
     onHistoryReplay: () => void;
     /** Commits text-box drafts open in this view's editor. */
     commitPendingDraftsForSave: () => void | Promise<void>;
+    getPendingTextCompletion?: () => undefined | Promise<unknown>;
     /** Where this view's editor shows an open draft, or null when it holds none. */
     getTextBoxDraftRect: (annotationId: string) => IAnnotationMarkerRect | null;
 }
@@ -95,10 +96,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
     const textBoxDraftGenerations = new Map<string, number>();
     const textBoxDraftRects = shallowReactive(new Map<string, IAnnotationMarkerRect>());
     let writerParseTask: {
-        document: NonNullable<TPdfDocumentView['pdfDocument']['value']>;
-        version: number;
-        revision: TDocumentRevisionToken | null;
-        path: string;
+        matches: (document: NonNullable<TPdfDocumentView['pdfDocument']['value']>, path: string, version: number) => boolean;
         abortController: AbortController;
         promise: Promise<boolean>;
         result?: IPdfAnnotationParseResult;
@@ -127,10 +125,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
                 && !fence.documentRevision?.startsWith('load:'))) {
             return Promise.resolve(false);
         }
-        if (writerParseTask?.document === document
-            && writerParseTask.version === fence.documentVersion
-            && writerParseTask.revision === revision
-            && writerParseTask.path === parsePath) {
+        if (writerParseTask?.matches(document, parsePath, fence.documentVersion)) {
             return writerParseTask.promise;
         }
         cancelWriterParse();
@@ -224,10 +219,7 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             throw error;
         });
         writerParseTask = {
-            document,
-            version: fence.documentVersion,
-            revision,
-            path: parsePath,
+            matches: (candidate, path, version) => candidate === document && path === parsePath && version === fence.documentVersion && isCurrent(),
             abortController,
             promise,
         };
@@ -326,6 +318,10 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
             const others = [...views].filter(view => view !== except && view.getTextBoxDraftRect(annotationId) !== null);
             return others.length ? Promise.all(others.map(view => Promise.resolve(view.commitPendingDraftsForSave()))).then(() => {}) : undefined;
         },
+        getPendingTextCompletion() {
+            const pending = [...views].flatMap(view => view.getPendingTextCompletion?.() ?? []);
+            return pending.length ? Promise.all(pending).then(() => {}) : undefined;
+        },
         /** Commits every viewer's open text-box drafts, so a save sees them all. */
         async commitPendingDraftsForSave() {
             await Promise.all([...views].map(view => Promise.resolve(view.commitPendingDraftsForSave())));
@@ -335,8 +331,8 @@ export const createPdfDocumentAnnotations = (options: ICreatePdfDocumentAnnotati
         attachView(view: IPdfDocumentAnnotationsView) {
             views.add(view);
             return () => {
-                const pending = view.commitPendingDraftsForSave();
-                view.commitPendingDraftsForSave = () => pending;
+                const pending = view.commitPendingDraftsForSave() ?? undefined;
+                view.commitPendingDraftsForSave = view.getPendingTextCompletion = () => pending;
                 const release = () => { views.delete(view); };
                 return Promise.resolve(pending).then(release, release);
             };

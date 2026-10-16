@@ -168,15 +168,35 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         documentRevisionToken: options.documentRevisionToken,
     });
     const appAnnotationHistory = documentAnnotations.history;
+    const commentSync = {
+        annotationEnrichmentState: shallowRef<IAnnotationEnrichmentState>({
+            status: 'enriched',
+            reason: null,
+            canRetry: false,
+        }),
+        scheduleAnnotationCommentsSync: () => {
+            annotationCommentModel.emitCommentsForSidebar(annotationProjection.value);
+        },
+        syncAnnotationComments: () => {
+            annotationCommentModel.emitCommentsForSidebar(annotationProjection.value);
+            return Promise.resolve();
+        },
+        flushEditorCommentsForSave: async () => {},
+        ensurePdfAnnotationNameReconciliation: (
+            _reason: 'annotations-ui-open' | 'existing-annotation-mutation',
+        ) => Promise.resolve('already-reconciled' as const),
+        setActiveCommentStableKey: (key: string | null) => {
+            activeCommentStableKey.value = key;
+        },
+    };
     // This viewer's part in the shared document: its emits, its re-projection
     // after an undo or redo, and the drafts open in its editor.
     const documentAnnotationsView: IPdfDocumentAnnotationsView = {
         emitAnnotationState: state => options.emitAnnotationState(state),
         emitAnnotationModified: () => options.emitAnnotationModified(),
-        onHistoryReplay: () => {
-            annotations.commentSync.scheduleAnnotationCommentsSync();
-        },
+        onHistoryReplay: commentSync.scheduleAnnotationCommentsSync,
         commitPendingDraftsForSave: () => annotationEditorSurface.commitPendingTextBoxDraftsForSave(),
+        getPendingTextCompletion: () => annotationEditorSurface.getPendingTextCompletion(),
         getTextBoxDraftRect: annotationId => annotationEditorSurface.hasTextBoxDraftPending(asAnnotationId(annotationId))
             ? annotationEditorSurface.getTextBoxDraftRect(asAnnotationId(annotationId)) : null,
     };
@@ -299,28 +319,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
         groupBy(linkAnnotations.value, link => link.pageNumber),
     );
-    const annotationEnrichmentState = shallowRef<IAnnotationEnrichmentState>({
-        status: 'enriched',
-        reason: null,
-        canRetry: false,
-    });
-    const commentSync = {
-        annotationEnrichmentState,
-        scheduleAnnotationCommentsSync: () => {
-            annotationCommentModel.emitCommentsForSidebar(annotationProjection.value);
-        },
-        syncAnnotationComments: () => {
-            annotationCommentModel.emitCommentsForSidebar(annotationProjection.value);
-            return Promise.resolve();
-        },
-        flushEditorCommentsForSave: async () => {},
-        ensurePdfAnnotationNameReconciliation: (
-            _reason: 'annotations-ui-open' | 'existing-annotation-mutation',
-        ) => Promise.resolve('already-reconciled' as const),
-        setActiveCommentStableKey: (key: string | null) => {
-            activeCommentStableKey.value = key;
-        },
-    };
     watch(
         commentSync.annotationEnrichmentState,
         state => options.emitAnnotationEnrichmentState(state),
@@ -411,6 +409,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         textBoxDraftRects: documentAnnotations.textBoxDraftRects,
         getTextBoxDraftGeneration: annotationId => textBoxDraftGenerations.get(annotationId),
         beforeTextBoxEdit: annotationId => documentAnnotations.commitDraftIfOpen(annotationId, documentAnnotationsView),
+        getPendingTextCompletion: documentAnnotations.getPendingTextCompletion,
         protectTextBoxDraft: documentAnnotations.protectTextBoxDraft,
         onToolCancel: options.emitAnnotationToolCancel,
         settings: options.annotationSettings,

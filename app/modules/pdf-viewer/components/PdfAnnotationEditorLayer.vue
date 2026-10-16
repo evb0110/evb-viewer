@@ -229,6 +229,7 @@ onMounted(() => {
     editorReady.value = true;
     unregisterPageInteraction = surface.registerPageInteraction(props.pageIndex, {
         commitTextDraft: commitActiveTextBoxDraftForSave,
+        get pendingTextCompletion() { return editingId.value === null ? null : textBoxRefs.get(editingId.value)?.pendingCompletion ?? null; },
         cancelTextDraft: () => { if (editingId.value !== null) void commitTextBox(editingId.value).catch(error => BrowserLogger.debug('annotations', 'Text draft cancellation refused', error)); },
         cancelPointerGesture: cancelPointerGesture,
         focus: focusLayer,
@@ -660,15 +661,13 @@ watch(editingId, (annotationId) => {
 
 function commitActiveTextBoxDraftForSave() {
     const annotationId = editingId.value;
-    if (annotationId === null || !currentTextBox(annotationId)) {
-        return;
-    }
-    const textBox = textBoxRefs.get(annotationId);
+    const textBox = annotationId === null ? undefined : textBoxRefs.get(annotationId);
     if (!textBox) {
-        // A live entity requires its editor's text and measured rectangle.
-        // Refuse an absent editor rather than ending its required draft;
-        // a deleted entity already returned above.
-        throw new Error('Missing required text draft editor');
+        // commitTextBox owns canonical entity admission; a live editor must exist.
+        if (annotationId !== null && currentTextBox(annotationId)) {
+            throw new Error('Missing required text draft editor');
+        }
+        return;
     }
     return textBox.commitDraft();
 }

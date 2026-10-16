@@ -171,6 +171,7 @@ export function createCreationSurface() {
             ? createdTextBox
             : null),
         commitPendingTextBoxDraftsForSave,
+        getPendingTextCompletion: () => undefined,
         setTextBoxDraftPending,
         clearTextBoxDraftPending,
         endTextEditing: vi.fn((id) => {interaction.endTextEditing(); clearTextBoxDraftPending(id);}),
@@ -247,6 +248,7 @@ export function createSurface() {
         clearSelection: vi.fn(() => { selectedIds.value = new Set(); }),
         getSelectedTextBox: vi.fn(() => null),
         commitPendingTextBoxDraftsForSave: vi.fn(),
+        getPendingTextCompletion: () => undefined,
         setTextBoxDraftPending: vi.fn(),
         clearTextBoxDraftPending: vi.fn(),
         hasPendingTextBoxDrafts: vi.fn(() => false),
