@@ -141,7 +141,7 @@ describe('usePdfCanvasRenderer', () => {
         } = await renderScenario();
 
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode?.ENABLE_FORMS ?? AnnotationMode?.ENABLE ?? 1,
+            annotationMode: AnnotationMode.ENABLE,
             annotationCanvasMap: expect.any(Map),
             canvas,
         }));
@@ -159,7 +159,7 @@ describe('usePdfCanvasRenderer', () => {
 
         expect(pdfPage.getOperatorList).not.toHaveBeenCalled();
         expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({
-            annotationMode: AnnotationMode.ENABLE_FORMS,
+            annotationMode: AnnotationMode.ENABLE,
             hiddenAnnotationIds: new Set(['hidden']),
             canvas,
         }));
@@ -185,7 +185,7 @@ describe('usePdfCanvasRenderer', () => {
             prepared.resolve(undefined);
             const result = await raster;
             expect(result?.paintsAnnotations).toBe(true);
-            expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({annotationMode: AnnotationMode.ENABLE_FORMS}));
+            expect(pdfPage.render).toHaveBeenCalledWith(expect.objectContaining({annotationMode: AnnotationMode.ENABLE}));
         } finally {prepared.resolve(undefined); await raster;}
     });
 
@@ -458,7 +458,7 @@ describe('usePdfCanvasRenderer', () => {
         expect(pdfPage.render).toHaveBeenCalledTimes(2);
         const renderContexts = cast<Array<[Record<string, unknown>]>>(pdfPage.render.mock.calls);
         expect(renderContexts[0]?.[0]).toEqual(expect.objectContaining({
-            annotationMode: AnnotationMode.ENABLE_FORMS,
+            annotationMode: AnnotationMode.ENABLE,
             hiddenAnnotationIds: new Set([
                 '12R',
                 '7R',

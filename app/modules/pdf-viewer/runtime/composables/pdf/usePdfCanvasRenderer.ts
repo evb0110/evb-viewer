@@ -203,7 +203,7 @@ export const usePdfCanvasRenderer = (deps: {
                     && input.semanticInputs.some(entity => normalizePdfJsAnnotationId(entity.ref) === normalizePdfJsAnnotationId(`${original.objectNumber} ${original.generationNumber} R`))
                     && !hiddenAnnotationIds?.has(normalizePdfJsAnnotationId(`${original.objectNumber} ${original.generationNumber} R`)!))
                 ? null : new Map<string, HTMLCanvasElement>(),
-            annotationMode: AnnotationMode.ENABLE_FORMS,
+            annotationMode: AnnotationMode.ENABLE,
             hiddenAnnotationIds,
         };
     }
