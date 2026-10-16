@@ -386,6 +386,131 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(false);
     });
 
+    it('saves accepted consecutive geometry against completed text despite a later pointer and selection', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        const note = surface.createNoteAt(0, {
+            ...rect,
+            left: 0.5,
+        });
+        await surface.beginTextEditing(box.identity.id);
+        const publication = Promise.withResolvers<undefined>();
+        const pending = publication.promise.then(() => {
+            surface.commitGesture(box.identity.id, {text: 'Accepted text'});
+            surface.endTextEditing(box.identity.id, {restoreFocus: false});
+        });
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => pending,
+            pendingTextCompletion: pending,
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        const corner = {
+            ...rect,
+            width: 0.3,
+            height: 0.075,
+        };
+        const narrowed = {
+            ...corner,
+            width: 0.18,
+            height: 0.16,
+        };
+        const first = surface.runAcceptedCommand(() => surface.commitGesture(box.identity.id, {
+            rect: corner,
+            fontSize: 33,
+        }));
+        const second = surface.runAcceptedCommand(() => surface.commitGesture(box.identity.id, {
+            rect: narrowed,
+            fontSize: 33,
+        }));
+        surface.beginPointerInteraction(0);
+        surface.select([note.identity.id]);
+        let saved: AnnotationEntity | null | undefined;
+        const saving = Promise.resolve(surface.commitPendingTextBoxDraftsForSave()).then(() => {saved = annotationApplication.value.store.get(box.identity.id);});
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Original',
+            rect,
+        });
+        expect(saved).toBeUndefined();
+        publication.resolve(undefined);
+        await Promise.all([
+            first,
+            second,
+            saving,
+        ]);
+        expect(saved).toMatchObject({
+            text: 'Accepted text',
+            rect: narrowed,
+            fontSize: 33,
+        });
+        expect(annotationApplication.value.store.get(note.identity.id)).toMatchObject({position: {
+            ...rect,
+            left: 0.5,
+        }});
+    });
+
+    it('moves the captured cohort after accepted text without retargeting a newer selection', async () => {
+        const {
+            surface, annotationApplication,
+        } = createSurfaceHarness();
+        const box = surface.createTextBoxAt(0, rect, {text: 'Original'});
+        const note = surface.createNoteAt(0, {
+            ...rect,
+            left: 0.5,
+        });
+        const other = surface.createNoteAt(0, {
+            ...rect,
+            left: 0.7,
+        });
+        const publication = Promise.withResolvers<undefined>();
+        await surface.beginTextEditing(box.identity.id);
+        const pending = publication.promise.then(() => {
+            surface.commitGesture(box.identity.id, {text: 'Accepted text'});
+            surface.endTextEditing(box.identity.id, {restoreFocus: false});
+        });
+        surface.registerPageInteraction(0, {
+            commitTextDraft: () => pending,
+            pendingTextCompletion: pending,
+            cancelTextDraft: vi.fn(),
+            cancelPointerGesture: vi.fn(),
+            focus: vi.fn(),
+        });
+        surface.select([
+            box.identity.id,
+            note.identity.id,
+        ]);
+        const cohort = surface.selectedIds.value;
+        const moving = surface.runAcceptedCommand(() => surface.moveSelection(0.1, 0.02, cohort));
+        surface.select([other.identity.id]);
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({rect});
+        expect(annotationApplication.value.store.get(note.identity.id)).toMatchObject({position: {
+            ...rect,
+            left: 0.5,
+        }});
+        publication.resolve(undefined);
+        await moving;
+        expect(annotationApplication.value.store.get(box.identity.id)).toMatchObject({
+            text: 'Accepted text',
+            rect: {
+                ...rect,
+                left: 0.2,
+                top: 0.22,
+            },
+        });
+        expect(annotationApplication.value.store.get(note.identity.id)).toMatchObject({position: {
+            ...rect,
+            left: 0.6,
+            top: 0.22,
+        }});
+        expect(annotationApplication.value.store.get(other.identity.id)).toMatchObject({position: {
+            ...rect,
+            left: 0.7,
+        }});
+    });
+
     it('completes a live draft for Save after a queued style behind another viewer succeeds', async () => {
         const peerCompletion = Promise.withResolvers<undefined>();
         const {
@@ -579,6 +704,7 @@ describe('usePdfAnnotationEditorSurface', () => {
 
     it('clears a moving page preview when its interaction host unmounts', () => {
         const {surface} = createSurfaceHarness();
+        const ids = new Set([asAnnotationId('moving-annotation')]);
         const cancelPointerGesture = vi.fn();
         const interaction = {
             commitTextDraft: vi.fn(),
@@ -595,11 +721,13 @@ describe('usePdfAnnotationEditorSurface', () => {
         surface.setSelectionMoveDelta({
             x: 0.1,
             y: 0.2,
+            ids,
         });
         unregisterOtherPage();
         expect(surface.selectionMoveDelta.value).toEqual({
             x: 0.1,
             y: 0.2,
+            ids,
         });
         expect(cancelPointerGesture).not.toHaveBeenCalled();
         unregisterMovingPage();
@@ -608,24 +736,34 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(surface.cancelActiveInteraction()).toBe(false);
     });
 
-    it('clears the shared selection preview when its pointer operation ends or cancels', () => {
+    it('retains the shared preview after physical release until its owner settles or cancels', () => {
         const {surface} = createSurfaceHarness();
+        const ids = new Set([asAnnotationId('moving-annotation')]);
         surface.beginPointerInteraction(0);
         surface.setSelectionMoveDelta({
             x: 0.1,
             y: 0.2,
+            ids,
         });
         surface.endPointerInteraction(1);
         expect(surface.selectionMoveDelta.value).toEqual({
             x: 0.1,
             y: 0.2,
+            ids,
         });
         surface.endPointerInteraction(0);
+        expect(surface.selectionMoveDelta.value).toEqual({
+            x: 0.1,
+            y: 0.2,
+            ids,
+        });
+        surface.setSelectionMoveDelta(null);
         expect(surface.selectionMoveDelta.value).toBeNull();
         surface.beginPointerInteraction(0);
         surface.setSelectionMoveDelta({
             x: 0.2,
             y: 0.1,
+            ids,
         });
         surface.cancelActiveInteraction();
         expect(surface.selectionMoveDelta.value).toBeNull();

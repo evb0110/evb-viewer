@@ -8,6 +8,7 @@ import {
 import {
     computed,
     effectScope,
+    ref,
 } from 'vue';
 import type {
     IAnnotationGesture,
@@ -100,12 +101,13 @@ function pointer(clientX: number, clientY: number, pointerId = 1) {
 function createHarness(scopes: Set<ReturnType<typeof effectScope>>) {
     const scope = effectScope();
     scopes.add(scope);
+    const selectedIds = ref(new Set([gesture.annotationId]));
     const surfaceMethods: Pick<IAnnotationEditorSurface, 'beginMove' | 'beginResize' | 'entitiesByPage' | 'movingIds' | 'getPageGeometry'> = {
         entitiesByPage: computed(() => new Map([[
             0,
             [gesture.entity],
         ]])),
-        movingIds: computed(() => new Set([gesture.annotationId])),
+        movingIds: computed(() => selectedIds.value),
         getPageGeometry: () => ({
             pageView: [
                 0,
@@ -130,6 +132,7 @@ function createHarness(scopes: Set<ReturnType<typeof effectScope>>) {
         scope,
         surface,
         interaction,
+        selectedIds,
     };
 }
 
@@ -288,5 +291,73 @@ describe('useAnnotationPointerGesture', () => {
 
         expect(harness.interaction.isActive.value).toBe(false);
         expect(harness.interaction.previewRect.value).toBeNull();
+    });
+
+    it('releases the pointer while retaining its proposal until that accepted gesture settles', () => {
+        const {interaction} = createHarness(scopes);
+        interaction.beginResize(gesture.annotationId, 'se', {
+            x: 0.6,
+            y: 0.5,
+        }, pointer(60, 50));
+        const first = interaction.finish({
+            x: 0.8,
+            y: 0.7,
+        }, pointer(80, 70))!;
+        expect(interaction.isActive.value).toBe(false);
+        expect(interaction.isActiveForPointer(1)).toBe(false);
+        expectRectClose(interaction.previewRect.value, first.rect);
+        expect(interaction.beginResize(gesture.annotationId, 'e', {
+            x: 0.8,
+            y: 0.5,
+        }, pointer(80, 50, 2))).toBe(true);
+        interaction.update({
+            x: 0.5,
+            y: 0.5,
+        }, pointer(50, 50, 2));
+        const nextPreview = interaction.previewRect.value;
+        expect(interaction.cancel(first.gesture)).toBe(false);
+        expectRectClose(interaction.previewRect.value, nextPreview!);
+        const second = interaction.finish({
+            x: 0.5,
+            y: 0.5,
+        }, pointer(50, 50, 2))!;
+        expect(interaction.cancel(second.gesture)).toBe(true);
+        expect(interaction.previewRect.value).toBeNull();
+    });
+
+    it('retains the released move cohort when later input changes the selection', () => {
+        const {
+            interaction, selectedIds,
+        } = createHarness(scopes);
+        interaction.beginMove(gesture.annotationId, {
+            x: 0.3,
+            y: 0.4,
+        }, pointer(30, 40));
+        const completed = interaction.finish({
+            x: 0.4,
+            y: 0.5,
+        }, pointer(40, 50))!;
+        selectedIds.value = new Set([noteGesture.annotationId]);
+        expect(interaction.movingIds.value).toEqual(new Set([gesture.annotationId]));
+        expectRectClose(interaction.previewRect.value, completed.rect);
+        interaction.cancel(completed.gesture);
+        expect(interaction.movingIds.value.size).toBe(0);
+    });
+
+    it('keeps a newer text selection when the previous released preview settles', () => {
+        const {interaction} = createHarness(scopes);
+        interaction.beginMove(gesture.annotationId, {
+            x: 0.3,
+            y: 0.4,
+        }, pointer(30, 40));
+        const completed = interaction.finish({
+            x: 0.4,
+            y: 0.5,
+        }, pointer(40, 50))!;
+        expect(interaction.beginTextSelection(pointer(50, 50, 2))).toBe(true);
+        interaction.cancel(completed.gesture);
+        expect(interaction.isTextSelecting.value).toBe(true);
+        expect(interaction.finishTextSelection(pointer(80, 50, 2))).toMatchObject({hasMoved: true});
+        expect(interaction.isTextSelecting.value).toBe(false);
     });
 });

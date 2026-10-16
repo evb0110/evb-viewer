@@ -184,10 +184,7 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         else expect(updated.rect.top).toBeCloseTo(0.175);
     });
 
-    it.each([
-        false,
-        true,
-    ])('checks pending text read-only and commits before rotation with geometry preparation %s', async (hasGeometryPreparation) => {
+    it('checks pending text read-only and commits before rotation', async () => {
         const {
             surface,
             annotationApplication,
@@ -216,7 +213,6 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         };
         surface.registerPageInteraction(0, {
             commitTextDraft: commitDraft,
-            ...(hasGeometryPreparation ? {prepareGeometryChange: commitDraft} : {}),
             cancelTextDraft: vi.fn(),
             cancelPointerGesture: vi.fn(),
             focus: vi.fn(),
@@ -310,7 +306,6 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
 
         surface.registerPageInteraction(0, {
             commitTextDraft: () => { throw new Error('Empty editor must remain open'); },
-            prepareGeometryChange: () => { throw new Error('Rotation must not request completion'); },
             cancelTextDraft: vi.fn(),
             cancelPointerGesture: vi.fn(),
             focus: vi.fn(),

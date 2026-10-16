@@ -45,7 +45,6 @@ export interface IAnnotationPageInteraction {
     focus(): void;
     fitTextBox?(entity: ITextBoxEntity): ITextBoxEntity['rect'] | null;
     getTextBoxDraftRect?(annotationId: AnnotationId): IAnnotationMarkerRect | null;
-    prepareGeometryChange?(): void | Promise<void>;
     getPaintInput?(entity: AnnotationEntity): AnnotationEntity;
 }
 
@@ -85,12 +84,10 @@ export interface IAnnotationEditorSurface {
     readonly editingId: Readonly<Ref<AnnotationId | null>>;
     readonly selectionMoveDelta: Readonly<Ref<{
         x: number;
-        y: number
+        y: number;
+        ids: ReadonlySet<AnnotationId>;
     } | null>>;
-    setSelectionMoveDelta(delta: {
-        x: number;
-        y: number
-    } | null): void;
+    setSelectionMoveDelta(delta: IAnnotationEditorSurface['selectionMoveDelta']['value']): void;
     readonly textEditPoint: Readonly<Ref<IAnnotationTextEditPoint | null>>;
     registerPageInteraction(pageIndex: number, interaction: IAnnotationPageInteraction): () => void;
     beginTextEditing(id: AnnotationId, point?: IAnnotationTextEditPoint): void | Promise<void>;
@@ -130,6 +127,7 @@ export interface IAnnotationEditorSurface {
     getSelectedTextBox(): ITextBoxEntity | null;
     commitPendingTextBoxDraftsForSave(): void | Promise<void>;
     getPendingTextCompletion(): undefined | Promise<unknown>;
+    runAcceptedCommand<T>(command: Promise<T> | (() => T | Promise<T>)): T | Promise<T>;
     protectTextBoxDraft(annotationId: AnnotationId): void | Promise<void>;
     setTextBoxDraftPending(annotationId: AnnotationId, text?: string): void;
     restoreTextBoxDraftPending(annotationId: AnnotationId, geometry?: IAnnotationMarkerRect): void;
@@ -143,7 +141,7 @@ export interface IAnnotationEditorSurface {
     discardUnsavedAnnotation(annotationId: AnnotationId): boolean;
     deleteAnnotation(annotationId: AnnotationId): boolean;
     deleteSelection(): void;
-    moveSelection(deltaX: number, deltaY: number): void;
+    moveSelection(deltaX: number, deltaY: number, ids?: ReadonlySet<AnnotationId>): void;
     nudgeSelection(deltaX: number, deltaY: number): void;
     nudgeSelectionByPdfPoints(deltaX: number, deltaY: number, pageView: number[], pageRotation?: 0 | 90 | 180 | 270): void;
     undo(): boolean | Promise<boolean>;
@@ -283,16 +281,15 @@ export const usePdfAnnotationEditorSurface = (
     options: IUsePdfAnnotationEditorSurfaceOptions,
 ): IAnnotationEditorSurface => {
     const editingId = ref<AnnotationId | null>(null);
-    const selectionMoveDelta = shallowRef<{
-        x: number;
-        y: number
-    } | null>(null);
+    const completeCreation = options.onCreationCompleted ?? (() => {});
+    const getTextBoxDraftText = options.getTextBoxDraftText ?? (() => null);
+    const selectionMoveDelta = shallowRef<IAnnotationEditorSurface['selectionMoveDelta']['value']>(null);
     const textEditPoint = shallowRef<IAnnotationTextEditPoint | null>(null);
     const pageInteractions = shallowReactive(new Map<number, IAnnotationPageInteraction>());
     const editingPageIndex = computed(() => editingId.value === null ? null : subscribedApplication?.store.get(editingId.value)?.pageIndex ?? null);
     let pointerPageIndex: number | null = null;
     let preparingToolChange = false;
-    let pendingPropertyCommand: Promise<boolean> | null = null;
+    let pendingAnnotationCommand: Promise<unknown> | null = null;
     const entitiesByPage = shallowRef<ReadonlyMap<number, readonly AnnotationEntity[]>>(new Map());
     const selectedIds = shallowRef<ReadonlySet<AnnotationId>>(new Set());
     const pendingTextBoxDraftIds = reactive(new Set<AnnotationId>());
@@ -307,13 +304,26 @@ export const usePdfAnnotationEditorSurface = (
         const application = options.annotationApplication.value;
         const selection = selectedIds.value;
         const commitDraft = () => editingPageIndex.value === null ? undefined : pageInteractions.get(editingPageIndex.value)?.commitTextDraft();
-        const pending = accepted ?? (pendingPropertyCommand ? pendingPropertyCommand.then(commitDraft) : commitDraft());
+        const pending = accepted ?? (pendingAnnotationCommand ? pendingAnnotationCommand.then(commitDraft) : commitDraft());
         if (!after) return pending ? pending.then(() => {}) : undefined;
         if (pending) return pending.then(() => {
             if (options.annotationApplication.value !== application || pointerPageIndex !== null || selectedIds.value.size !== selection.size || [...selection].some(id => !selectedIds.value.has(id))) throw new DOMException('The annotation command was superseded', 'AbortError');
             return after();
         });
         return after();
+    }
+
+    function runAcceptedCommand<T>(command: Promise<T> | (() => T | Promise<T>)): T | Promise<T> {
+        const application = options.annotationApplication.value;
+        const pending = command instanceof Promise ? undefined : options.getPendingTextCompletion?.() ?? getPendingTextCompletion();
+        const result = command instanceof Promise ? command : pending ? pending.then(() => {
+            if (options.annotationApplication.value !== application) throw new DOMException('The annotation document was replaced', 'AbortError');
+            return command();
+        }) : command();
+        if (!(result instanceof Promise)) return result;
+        const accepted = result.finally(() => {if (pendingAnnotationCommand === accepted) pendingAnnotationCommand = null;});
+        pendingAnnotationCommand = accepted;
+        return accepted;
     }
 
     function cancelPointerSession() {
@@ -385,7 +395,6 @@ export const usePdfAnnotationEditorSurface = (
     function endPointerInteraction(pageIndex: number) {
         if (pointerPageIndex === pageIndex) {
             pointerPageIndex = null;
-            selectionMoveDelta.value = null;
         }
     }
 
@@ -416,10 +425,6 @@ export const usePdfAnnotationEditorSurface = (
         const pending = suspendInteraction();
         if (pending) return pending.then(() => {setSelection([]);});
         setSelection([]);
-    }
-
-    function completeCreation(tool: TAnnotationTool) {
-        options.onCreationCompleted?.(tool);
     }
 
     function handleEscape() {
@@ -588,16 +593,14 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function getPendingTextCompletion() {
-        return pendingPropertyCommand ?? (editingPageIndex.value === null ? undefined : pageInteractions.get(editingPageIndex.value)?.pendingTextCompletion ?? undefined);
+        return pendingAnnotationCommand ?? (editingPageIndex.value === null ? undefined : pageInteractions.get(editingPageIndex.value)?.pendingTextCompletion ?? undefined);
     }
 
     function updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate) {
         const pending = options.getPendingTextCompletion?.() ?? getPendingTextCompletion();
         const result = pending ? commitTextSession(() => applySelectedAnnotationProperties(updates), pending) : applySelectedAnnotationProperties(updates);
         if (!(result instanceof Promise)) return result;
-        const accepted = result.finally(() => {if (pendingPropertyCommand === accepted) pendingPropertyCommand = null;});
-        pendingPropertyCommand = accepted;
-        return accepted.catch(error => {
+        return Promise.resolve(runAcceptedCommand(result)).catch(error => {
             BrowserLogger.debug('annotations', 'Annotation style command refused', error);
             return false;
         });
@@ -775,10 +778,6 @@ export const usePdfAnnotationEditorSurface = (
         return pendingTextBoxDraftIds.has(annotationId);
     }
 
-    function getTextBoxDraftText(annotationId: AnnotationId) {
-        return options.getTextBoxDraftText?.(annotationId) ?? null;
-    }
-
     function getTextBoxDraftRect(annotationId: AnnotationId) {
         const entity = hasTextBoxDraftPending(annotationId) ? store().get(annotationId) : null;
         const current = entity?.kind === 'text-box' && editingId.value === annotationId
@@ -856,24 +855,20 @@ export const usePdfAnnotationEditorSurface = (
             left: rect.left + deltaX,
             top: rect.top + deltaY,
         });
-        if (entity.kind === 'shape') {
-            const moved = transformShapeToRect(entity, moveRect(entity.rect), 'move');
-            commitGesture(entity.identity.id, {
-                rect: moved.rect,
-                ...(moved.points === undefined ? {} : {points: moved.points}),
-                ...(moved.strokes === undefined ? {} : {strokes: moved.strokes}),
-            });
-            return;
-        }
-        const patch = entity.kind === 'text-markup' ? {quadPoints: entity.quadPoints.map(moveRect)}
+        const moved = entity.kind === 'shape' ? transformShapeToRect(entity, moveRect(entity.rect), 'move') : null;
+        const patch = moved ? {
+            rect: moved.rect,
+            ...(moved.points === undefined ? {} : {points: moved.points}),
+            ...(moved.strokes === undefined ? {} : {strokes: moved.strokes}),
+        } : entity.kind === 'text-markup' ? {quadPoints: entity.quadPoints.map(moveRect)}
             : entity.kind === 'note' ? {position: moveRect(entity.position)}
                 : {rect: moveRect(entity.rect)};
         commitGesture(entity.identity.id, patch);
     }
 
-    function moveSelection(deltaX: number, deltaY: number) {
+    function moveSelection(deltaX: number, deltaY: number, ids = selectedIds.value) {
         (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
-            for (const id of selectedIds.value) {
+            for (const id of ids) {
                 const entity = editable(id);
                 if (entity) translateEntity(entity, deltaX, deltaY);
             }
@@ -905,7 +900,6 @@ export const usePdfAnnotationEditorSurface = (
             const rects = entity.kind === 'text-markup' ? entity.quadPoints : [entity.kind === 'note' ? entity.position : entity.rect];
             const bounds = rects.map(rect => rotatedAnnotationBounds(rect, 'rotation' in entity ? entity.rotation : 0, page));
             return [{
-                id,
                 entity,
                 delta,
                 bounds,
@@ -944,10 +938,7 @@ export const usePdfAnnotationEditorSurface = (
         return entity
             ? {
                 annotationId,
-                entity: entity.kind === 'text-box' && editingId.value === annotationId ? {
-                    ...entity,
-                    rect: getTextBoxDraftRect(annotationId) ?? entity.rect,
-                } : entity,
+                entity: pageInteractions.get(entity.pageIndex)?.getPaintInput?.(entity) ?? entity,
                 kind,
             }
             : null;
@@ -1145,6 +1136,7 @@ export const usePdfAnnotationEditorSurface = (
         getSelectedTextBox: () => getSelectedAnnotations().find((entity): entity is ITextBoxEntity => entity.kind === 'text-box') ?? null,
         commitPendingTextBoxDraftsForSave: commitTextSession,
         getPendingTextCompletion,
+        runAcceptedCommand,
         protectTextBoxDraft,
         setTextBoxDraftPending,
         restoreTextBoxDraftPending,

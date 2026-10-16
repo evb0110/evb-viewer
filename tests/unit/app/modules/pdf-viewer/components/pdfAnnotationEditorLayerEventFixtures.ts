@@ -94,17 +94,11 @@ function createInteractionMethods(
         clientX: number;
         clientY: number
     } | null>(null);
-    const selectionMoveDelta = ref<{
-        x: number;
-        y: number
-    } | null>(null);
+    const selectionMoveDelta = ref<IAnnotationEditorSurface['selectionMoveDelta']['value']>(null);
     return {
         ...defaults,
         selectionMoveDelta,
-        setSelectionMoveDelta: (delta: {
-            x: number;
-            y: number
-        } | null) => {selectionMoveDelta.value = delta;},
+        setSelectionMoveDelta: (delta: IAnnotationEditorSurface['selectionMoveDelta']['value']) => {selectionMoveDelta.value = delta;},
         editingId,
         textEditPoint,
         registerPageInteraction: register ?? defaults.registerPageInteraction,
