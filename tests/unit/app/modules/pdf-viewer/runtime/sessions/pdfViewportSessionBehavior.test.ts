@@ -2154,6 +2154,11 @@ describe('PdfViewportSession behavior', () => {
             ]);
             expect(fixture.viewport.scale.effectiveScale.value).toBeCloseTo(845 / 612);
             expect(currentPage.value).toBe(6);
+            expect(navigationFence.targetPage.value).toBe(6);
+            expect(surface.reportNavigation(surface.navigationTicket.value!, {
+                kind: 'arrived',
+                page: 6,
+            })).toBe(true);
             expect(navigationFence.targetPage.value).toBeNull();
         } finally {
             fixture.app.unmount();

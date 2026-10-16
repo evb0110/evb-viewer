@@ -438,6 +438,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             type: 'navigation-requested',
             pageNumber: page,
             viewportIntentId: id,
+            deferSkeleton: sessionState.value.ticket === null,
         }, page !== null && shouldRetargetOwnedOpeningPageShell(page)
             ? visual => retargetDocumentOpeningShell(visual, page) : undefined, ticket);
         if (!accepted) retire(ticket, {

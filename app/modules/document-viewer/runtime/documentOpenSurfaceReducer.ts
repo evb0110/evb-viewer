@@ -100,6 +100,7 @@ export type TDocumentViewportSessionEvent =
         readonly type: 'navigation-requested';
         readonly pageNumber: number | null;
         readonly viewportIntentId: string;
+        readonly deferSkeleton?: boolean;
     }
     | {
         readonly type: 'navigation-resolved';
@@ -347,6 +348,7 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
             pageNumber: render.pageNumber,
             presentation: 'canvas' as const,
             error: null,
+            ...(state.visual.kind === 'page' && state.visual.deferSkeleton ? {deferSkeleton: true as const} : {}),
         },
         failure: null,
     };
@@ -478,7 +480,7 @@ function navigationRequested(
         pageNumber,
         presentation: 'skeleton',
         error: null,
-        ...(state.lifecycle === 'ready' ? {deferSkeleton: true} : {}),
+        ...(state.lifecycle === 'ready' && event.deferSkeleton !== false ? {deferSkeleton: true} : {}),
     };
     const next: IDocumentViewportSessionState = {
         ...state,

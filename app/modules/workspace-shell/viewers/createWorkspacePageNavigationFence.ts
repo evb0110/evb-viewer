@@ -44,29 +44,13 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
             ?? localNavigationSource.value;
     }
 
-    function releaseSharedNavigation(
-        page: number,
-        outcome: 'arrived' | 'abandoned',
-    ) {
+    function abandonSharedNavigation() {
         const ticket = options.openSurface?.navigationTicket.value;
-        // Page feedback cannot certify text readiness or match alignment.
-        // Those requests are completed by the viewport executor.
-        if (ticket && (outcome === 'abandoned' || ticket.request.readiness !== 'text-layer')) {
-            const released = options.openSurface?.reportNavigation(ticket, outcome === 'arrived'
-                ? {
-                    kind: 'arrived',
-                    page,
-                }
-                : {
-                    kind: 'abandoned',
-                    by: 'user-input',
-                });
-            if (outcome === 'arrived' && released === false) {
-                options.openSurface?.reportNavigation(ticket, {
-                    kind: 'abandoned',
-                    by: 'user-input',
-                });
-            }
+        if (ticket) {
+            options.openSurface?.reportNavigation(ticket, {
+                kind: 'abandoned',
+                by: 'user-input',
+            });
         }
         localTargetPage.value = null;
         localNavigationSource.value = null;
@@ -88,9 +72,6 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
             viewport?.lifecycle === 'ready'
             && (viewport.observedPage ?? viewport.committedPage ?? viewport.requestedPage) === page
         ) {
-            if (options.openSurface?.navigationTicket.value) {
-                releaseSharedNavigation(page, 'arrived');
-            }
             clear('navigation-already-settled');
             return;
         }
@@ -115,7 +96,6 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
         page: number,
         reason: string,
         navigationSource: TWorkspacePageNavigationSource | null,
-        releaseNavigation = true,
     ): IWorkspacePageUpdateOutcome {
         logPdfRenderTrace('workspace-viewer-current-page-update-accepted', {
             page,
@@ -124,9 +104,8 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
             reason,
         });
         options.currentPage.value = page;
-        if (releaseNavigation && options.openSurface?.navigationTicket.value) {
-            releaseSharedNavigation(page, navigationSource === null ? 'abandoned' : 'arrived');
-        }
+        // Page feedback projects position; only the renderer can certify
+        // arrival after every required destination visual has settled.
         if (localTargetPage.value !== null) {
             localTargetPage.value = null;
             localNavigationSource.value = null;
@@ -157,7 +136,7 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
             && (viewport.observedPage ?? viewport.committedPage) === observedPage
             && observedPage !== pendingTargetPage
         ) {
-            releaseSharedNavigation(observedPage, 'abandoned');
+            abandonSharedNavigation();
             return accept(observedPage, 'navigation-superseded-by-surface', null);
         }
         if (observedPage !== pendingTargetPage) {
@@ -181,7 +160,6 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
                 viewport.stagedViewportFence?.viewportIntentId === navigationTicket.id
                 || viewport.committedViewportFence?.viewportIntentId === navigationTicket.id
             );
-        const retainNavigationUntilReady = targetHasPhysicalPlacement && viewport.lifecycle !== 'ready';
         if (viewport && viewport.lifecycle !== 'ready' && !targetHasPhysicalPlacement) {
             logPdfRenderTrace('workspace-viewer-current-page-update-rejected', {
                 page: observedPage,
@@ -197,9 +175,8 @@ export function createWorkspacePageNavigationFence(options: IWorkspacePageNaviga
         }
         return accept(
             observedPage,
-            retainNavigationUntilReady ? 'target-physically-placed' : 'target-caught-up',
+            targetHasPhysicalPlacement ? 'target-physically-placed' : 'target-caught-up',
             sharedNavigationSource(),
-            !retainNavigationUntilReady,
         );
     }
 

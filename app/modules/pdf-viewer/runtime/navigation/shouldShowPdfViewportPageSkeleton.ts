@@ -58,12 +58,6 @@ export function shouldShowPdfViewportPageSkeleton(options: {
 
     const visual = options.visual;
     const visualOwnsPage = viewportVisualOwnsPage(options);
-    if (visual.kind === 'page' && !visualOwnsPage) {
-        // A viewport generation owns one target row. Neighbouring virtualized
-        // pages may stay mounted for layout continuity, but they must not keep
-        // stale skeleton visuals after another row becomes authoritative.
-        return false;
-    }
     if (visual.kind === 'page' && visualOwnsPage) {
         if (visual.presentation === 'skeleton') {
             // During empty-to-document opening, the exact chassis frame is

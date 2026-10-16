@@ -10,7 +10,6 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
 import {createPdfPageNavigationRequest} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
 import {
     createPdfViewportGeometryFromLayout,
-    getViewportGeometryRowForPage,
     resolveAnchorFromScroll,
     resolvePageIndicatorFromScroll,
     resolveRetainedAnchorFromScroll,
@@ -54,6 +53,7 @@ import {
     resolvePagedScrollForAnchor,
 } from '@app/modules/pdf-viewer/runtime/navigation/pdfMountedPageViewportGeometry';
 import {createPdfNavigationCommitRefiner} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationCommitRefiner';
+import {resolvePdfProtectedVisibleRange} from '@app/modules/pdf-viewer/engine/pdf-visible-render-range-policy/isPdfVisibleRenderRangeCurrent';
 
 interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePageScrollOptions {
     /** Retained for source compatibility; projected page changes are not commands. */
@@ -385,13 +385,18 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         },
         awaitVisual: async (intent, signal) => {
             const page = requireIntentPage(intent, signal);
-            const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
             const container = options.viewerContainer.value;
             const readiness = intent.navigation?.readiness ?? 'page-canvas';
-            const range = {
-                start: row?.startPage ?? page,
-                end: row?.endPage ?? page,
-            };
+            const getRange = () => resolvePdfProtectedVisibleRange({
+                visibleRange: options.visibleRange.value,
+                navigationTargetPage: page,
+                viewMode: options.viewMode.value,
+                totalPages: options.numPages.value,
+            });
+            let range = getRange();
+            const isReady = (candidate: number) => container && isPdfNavigationReady(
+                container, candidate, candidate === page ? readiness : 'page-canvas', isPageFreshForNavigation,
+            );
             logPdfRenderTrace('navigation-await-visual-enter', () => ({
                 intentId: intent.id,
                 kind: intent.kind,
@@ -409,55 +414,30 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 options.onPageVisualReady?.(page);
                 return;
             }
-            const ensureTextLayerReady = async () => {
-                if (!waitForTextLayer) {
-                    return;
+            if (!Array.from({length: range.end - range.start + 1}, (_, index) => range.start + index).every(isReady)) {
+                // One mandatory demand owns all destination-visible rows, including
+                // cold neighbours of a cached target. Recompute after scale/layout
+                // changes; a failed neighbour settles with its own error feedback.
+                for (;;) {
+                    const settled = await options.renderVisiblePages(range, {
+                        authoritativeRaster: true,
+                        preserveRenderedPages: true,
+                        retainOnlyCurrentResidentRaster: true,
+                        suppressResidentRasterDemand: false,
+                        ...(readiness === 'text-layer' ? {prioritizeTextLayer: true} : {}),
+                    });
+                    requireIntentDocument(intent, signal);
+                    const currentRange = getRange();
+                    if (settled && currentRange.start >= range.start && currentRange.end <= range.end) break;
+                    range = currentRange;
                 }
-                const ready = await waitForTextLayer(page, signal);
-                requireIntentDocument(intent, signal);
-                if (!ready) {
-                    throw new DOMException('PDF navigation text layer readiness timed out', 'AbortError');
-                }
-            };
-            if (container && isPdfNavigationReady(
-                container,
-                page,
-                readiness,
-                isPageFreshForNavigation,
-            )) {
-                await ensureTextLayerReady();
-                requireIntentDocument(intent, signal);
-                options.onPageVisualReady?.(page);
-                logPdfRenderTrace('navigation-await-visual-exit', {
-                    intentId: intent.id,
-                    page,
-                    readiness,
-                    outcome: 'already-ready',
-                });
-                return;
-            }
-            // A mandatory raster settles only on painted or failed pixels. A newer pass can
-            // supersede it, and Fit Width can move the scale under its raster. The navigation
-            // still owns its target, so it requests it again at the current scale rather
-            // than reporting an unrendered page as a failed transition.
-            while (!await options.renderVisiblePages(range, {
-                authoritativeRaster: true,
-                preserveRenderedPages: true,
-                retainOnlyCurrentResidentRaster: true,
-                suppressResidentRasterDemand: false,
-                ...(readiness === 'text-layer' ? {prioritizeTextLayer: true} : {}),
-            })) {
-                requireIntentDocument(intent, signal);
             }
             requireIntentDocument(intent, signal);
-            await ensureTextLayerReady();
+            if (waitForTextLayer && !await waitForTextLayer(page, signal)) {
+                throw new DOMException('PDF navigation text layer readiness timed out', 'AbortError');
+            }
             requireIntentDocument(intent, signal);
-            if (container && !isPdfNavigationReady(
-                container,
-                page,
-                readiness,
-                isPageFreshForNavigation,
-            )) {
+            if (container && !isReady(page)) {
                 logPdfRenderTrace('navigation-await-visual-exit', {
                     intentId: intent.id,
                     page,

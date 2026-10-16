@@ -8,8 +8,14 @@ import {
 } from 'vitest';
 import {
     mkdirSync,
+    readFileSync,
     writeFileSync,
 } from 'node:fs';
+import {
+    PDFDocument,
+    PDFName,
+    PDFString,
+} from 'pdf-lib';
 import {
     dirname,
     resolve,
@@ -29,6 +35,7 @@ import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElect
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     clickVisibleToolbarButton,
+    openDocumentSidebarTab,
     openPdfInApp,
     triggerOpenPathInApp,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -203,6 +210,27 @@ interface IFlingBackdropProbe {
 interface IFlingBackdropProbeWindow extends Window { __evbFlingBackdropProbe?: IFlingBackdropProbe }
 
 interface IMainThreadThrottleWindow extends Window { __evbMainThreadThrottle?: { stopped: boolean } }
+
+interface IBookmarkViewportFrame {
+    elapsedMs: number;
+    inputElapsedMs: number | null;
+    pages: Array<{
+        page: number;
+        canvasVisible: boolean;
+        skeletonVisible: boolean;
+        skeletonContentInViewport: boolean;
+        skeletonAnimationDelay: string | null;
+        skeletonAnimationDuration: string | null;
+        visibleElapsedMs: number;
+        visibleHeight: number;
+    }>;
+}
+
+interface IBookmarkViewportProbeWindow extends Window {__evbBookmarkViewportProbe?: {
+    frames: IBookmarkViewportFrame[];
+    inputAtMs: number | null;
+    stopped: boolean;
+};}
 
 function writeTraceArtifact(payload: unknown, outputPath = TRACE_OUTPUT_PATH) {
     mkdirSync(dirname(outputPath), { recursive: true });
@@ -781,6 +809,238 @@ async function jumpToPageAndWaitForCanvas(session: IElectronE2ESession, pageNumb
 
     await delay(1_000);
 }
+
+describe('Electron E2E - bookmark destination viewport presentation', () => {
+    const sessions = createElectronE2ESessionFixture({
+        sessionName: () => `e2e-bookmark-destination-viewport-${Date.now()}`,
+        timeoutMs: 180_000,
+    });
+
+    // R2 and the owner's fast-jump report: a deliberate jump presents the whole
+    // destination viewport. A ready target must not leave its visible neighbor
+    // flashing a loading skeleton for a render that completes immediately.
+    it('does not flash the following page skeleton during fast trusted bookmark jumps', async () => {
+        const session = sessions.getSession();
+        const destinations = [
+            8,
+            16,
+            24,
+        ];
+        const pdfPath = await createLargeScannedFixturePdf(
+            `bookmark-destination-viewport-${Date.now()}.pdf`, 32, 0,
+        );
+        const pdf = await PDFDocument.load(readFileSync(pdfPath));
+        const outlines = pdf.context.nextRef();
+        const refs = destinations.map(() => pdf.context.nextRef());
+        destinations.forEach((pageNumber, index) => {
+            pdf.context.assign(refs[index]!, pdf.context.obj({
+                Title: PDFString.of(`Destination ${pageNumber}`),
+                Parent: outlines,
+                Dest: [
+                    pdf.getPage(pageNumber - 1).ref,
+                    PDFName.of('XYZ'),
+                    null,
+                    null,
+                    null,
+                ],
+                ...(index > 0 ? {Prev: refs[index - 1]} : {}),
+                ...(index + 1 < refs.length ? {Next: refs[index + 1]} : {}),
+            }));
+        });
+        pdf.context.assign(outlines, pdf.context.obj({
+            Type: PDFName.of('Outlines'),
+            First: refs[0],
+            Last: refs.at(-1),
+            Count: refs.length,
+        }));
+        pdf.catalog.set(PDFName.of('Outlines'), outlines);
+        writeFileSync(pdfPath, await pdf.save());
+
+        const originalViewport = await session.page.evaluate(() => ({
+            width: innerWidth,
+            height: innerHeight,
+        }));
+        const revealPolicy = await session.page.evaluate(() => {
+            const style = getComputedStyle(document.documentElement);
+            const milliseconds = (property: string) => {
+                const value = style.getPropertyValue(property).trim();
+                return Number.parseFloat(value) * (value.endsWith('ms') ? 1 : 1000);
+            };
+            return {
+                delayMs: milliseconds('--app-document-page-skeleton-reveal-delay'),
+                durationMs: milliseconds('--app-document-page-skeleton-reveal-duration'),
+            };
+        });
+        expect(revealPolicy.delayMs).toBeGreaterThan(0);
+        expect(revealPolicy.durationMs).toBeGreaterThan(0);
+        const jumps: Array<{
+            target: number;
+            frames: IBookmarkViewportFrame[]
+        }> = [];
+        try {
+            await session.command('windowResize', [
+                1100,
+                850,
+            ]);
+            await openPdfInApp(session.page, pdfPath);
+            await requireWorkspaceCommand(session.page, 'handleViewModeSingle');
+            if ((await getWorkspaceToolbarSnapshot(session.page))?.continuousScroll === false) {
+                await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
+            }
+            await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [0.6]);
+            await openDocumentSidebarTab(session.page, 'Bookmarks');
+            expect(await waitForVisiblePageCanvas(session, 1, 15_000)).toBe(true);
+            await waitForViewportQuiet(session.page);
+
+            for (const target of destinations) {
+                // Begin before trusted input, so the first destination frame is
+                // observed rather than only inspecting the settled canvases.
+                await session.page.evaluate(() => {
+                    const probe = {
+                        frames: [] as IBookmarkViewportFrame[],
+                        inputAtMs: null as number | null,
+                        stopped: false,
+                    };
+                    (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe = probe;
+                    document.addEventListener('pointerdown', (event) => {
+                        if (event.isTrusted) probe.inputAtMs = event.timeStamp;
+                    }, {
+                        once: true,
+                        capture: true,
+                    });
+                    const startedAt = performance.now();
+                    const firstVisibleAt = new Map<number, number>();
+                    const sample = () => {
+                        if (probe.stopped) return;
+                        const viewport = document.querySelector<HTMLElement>(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                        );
+                        const bounds = viewport?.getBoundingClientRect();
+                        if (viewport && bounds) {
+                            const intersectsViewport = (element: Element) => {
+                                const rect = element.getBoundingClientRect();
+                                return rect.width > 0 && rect.height > 0
+                                    && rect.bottom > bounds.top && rect.top < bounds.bottom
+                                    && rect.right > bounds.left && rect.left < bounds.right;
+                            };
+                            const isPainted = (element: Element) => element.checkVisibility({
+                                opacityProperty: true,
+                                visibilityProperty: true,
+                            }) && intersectsViewport(element);
+                            probe.frames.push({
+                                elapsedMs: performance.now() - startedAt,
+                                inputElapsedMs: probe.inputAtMs === null ? null : performance.now() - probe.inputAtMs,
+                                pages: Array.from(viewport.querySelectorAll<HTMLElement>(
+                                    '.page_container:not(.page_container--buffered)',
+                                )).filter(isPainted).map((page) => {
+                                    const rect = page.getBoundingClientRect();
+                                    const pageNumber = Number(page.dataset.page);
+                                    if (!firstVisibleAt.has(pageNumber)) firstVisibleAt.set(pageNumber, performance.now());
+                                    const skeletons = Array.from(page.querySelectorAll<HTMLElement>('.document-page-skeleton'));
+                                    // A white padding sliver is page paper, not
+                                    // perceived loading ink. Count actual bars,
+                                    // clipped by their skeleton's overflow box.
+                                    const skeletonBars = skeletons.flatMap((skeleton) => {
+                                        const clip = skeleton.getBoundingClientRect();
+                                        return Array.from(skeleton.querySelectorAll<HTMLElement>(
+                                            '.title-line, .subtitle-line, .line, .formula, .formula-inline',
+                                        )).filter((bar) => {
+                                            const rect = bar.getBoundingClientRect();
+                                            return Math.min(rect.bottom, clip.bottom, bounds.bottom)
+                                                > Math.max(rect.top, clip.top, bounds.top)
+                                                && Math.min(rect.right, clip.right, bounds.right)
+                                                > Math.max(rect.left, clip.left, bounds.left);
+                                        });
+                                    });
+                                    const skeletonStyle = skeletons[0] ? getComputedStyle(skeletons[0]) : null;
+                                    return {
+                                        page: pageNumber,
+                                        canvasVisible: Array.from(page.querySelectorAll<HTMLCanvasElement>(
+                                            '.page_canvas canvas',
+                                        )).some(canvas => canvas.width > 0 && canvas.height > 0 && isPainted(canvas)),
+                                        skeletonVisible: skeletonBars.some(isPainted),
+                                        skeletonContentInViewport: skeletonBars.length > 0,
+                                        skeletonAnimationDelay: skeletonStyle?.animationDelay ?? null,
+                                        skeletonAnimationDuration: skeletonStyle?.animationDuration ?? null,
+                                        visibleElapsedMs: performance.now() - firstVisibleAt.get(pageNumber)!,
+                                        visibleHeight: Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top),
+                                    };
+                                }),
+                            });
+                        }
+                        requestAnimationFrame(sample);
+                    };
+                    requestAnimationFrame(sample);
+                });
+                await clickFoundAsUser(session.page, (title: string) => Array.from(
+                    document.querySelectorAll<HTMLElement>('.document-bookmark-item__row'),
+                ).find(row => row.textContent?.trim() === title), `Destination ${target}`, {description: `Navigate to bookmark on page ${target}`});
+                await waitForToolbarCurrentPage(session, target);
+                await waitForScannedFixturePageIdentity(session.page, target);
+                await waitForScannedFixturePageIdentity(session.page, target + 1);
+                await waitForAnimationFrames(session.page, 5);
+                const frames = await session.page.evaluate(() => {
+                    const probe = (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
+                    if (!probe) throw new Error('Bookmark destination frame sampler is missing');
+                    probe.stopped = true;
+                    return probe.frames;
+                });
+                jumps.push({
+                    target,
+                    frames,
+                });
+            }
+
+            writeTraceArtifact({
+                pdfPath,
+                revealPolicy,
+                jumps,
+            }, resolve('.devkit/adjacent-skeleton/fast-bookmark-frames.json'));
+            for (const {
+                target, frames,
+            } of jumps) {
+                const destinationFrames = frames.filter(frame => frame.pages.some(page => page.page === target));
+                const visibleNeighbors = destinationFrames.flatMap(frame => frame.pages.filter(page => page.page === target + 1));
+                expect(destinationFrames.length, `No destination frames captured for page ${target}`).toBeGreaterThan(3);
+                expect(visibleNeighbors.some(page => page.visibleHeight >= 100), `Following page ${target + 1} must be on screen`).toBe(true);
+                expect(visibleNeighbors.some(page => page.canvasVisible), `Following page ${target + 1} must actually paint`).toBe(true);
+                const skeletonFrames = destinationFrames.filter(frame => frame.pages.some(page => page.skeletonVisible));
+                const prematureSkeletonFrames = skeletonFrames.filter(frame => frame.inputElapsedMs !== null
+                    && frame.inputElapsedMs < revealPolicy.delayMs);
+                expect(prematureSkeletonFrames, `Skeleton revealed before the CSS grace interval on jump to ${target}`).toEqual([]);
+                const paintedCohort = destinationFrames.find(frame => [
+                    target,
+                    target + 1,
+                ].every(
+                    pageNumber => frame.pages.some(page => page.page === pageNumber && page.canvasVisible),
+                ));
+                expect(paintedCohort, `Destination viewport ${target}/${target + 1} must actually paint`).toBeDefined();
+                expect(paintedCohort!.inputElapsedMs, 'Destination paint must follow trusted input').not.toBeNull();
+                if (paintedCohort!.inputElapsedMs! < revealPolicy.delayMs) {
+                    expect(skeletonFrames, `Visible skeleton during fast bookmark jump to ${target}`).toEqual([]);
+                }
+                // Slow CI must still exercise an outcome: once an on-screen
+                // unresolved page has exhausted both delay and fade, it gives
+                // loading feedback. First observed visibility is a conservative
+                // mount bound, so scheduler delays cannot make this early.
+                const missingSlowFeedback = destinationFrames.flatMap(frame => frame.pages.filter(page =>
+                    !page.canvasVisible && page.skeletonContentInViewport && !page.skeletonVisible
+                    && page.visibleElapsedMs >= revealPolicy.delayMs + revealPolicy.durationMs));
+                expect(missingSlowFeedback, `Unresolved viewport pages must show loading feedback on jump to ${target}`).toEqual([]);
+            }
+        } finally {
+            await session.page.evaluate(() => {
+                const probe = (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
+                if (probe) probe.stopped = true;
+                delete (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
+            }).catch(() => undefined);
+            await session.command('windowResize', [
+                originalViewport.width,
+                originalViewport.height,
+            ]);
+        }
+    }, 90_000);
+});
 
 describe('Electron E2E - paged fit-height backward wheel regression', () => {
     let pdfPath: string | null = null;

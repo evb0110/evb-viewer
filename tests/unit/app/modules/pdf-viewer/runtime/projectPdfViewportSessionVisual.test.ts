@@ -61,7 +61,7 @@ describe('PDF viewport-session visual projection', () => {
         })).toBe(true);
     });
 
-    it('retires a stale neighbouring skeleton when another row owns the viewport', () => {
+    it('keeps a pending neighbouring page eligible after the target canvas commits', () => {
         expect(shouldShowPdfViewportPageSkeleton({
             fallbackVisible: true,
             isEmptyToDocumentTransition: false,
@@ -76,7 +76,7 @@ describe('PDF viewport-session visual projection', () => {
                 pageNumber: 7,
                 presentation: 'canvas',
             },
-        })).toBe(false);
+        })).toBe(true);
     });
 
     it('keeps both pages in an authoritative facing row eligible', () => {
@@ -115,7 +115,7 @@ describe('PDF viewport-session visual projection', () => {
         })).toBe(true);
     });
 
-    it('does not assert a stale visual page against a shorter document', () => {
+    it('uses current page demand when the retained visual belongs to a longer document', () => {
         expect(shouldShowPdfViewportPageSkeleton({
             fallbackVisible: true,
             isEmptyToDocumentTransition: false,
@@ -130,6 +130,6 @@ describe('PDF viewport-session visual projection', () => {
                 pageNumber: 383,
                 presentation: 'skeleton',
             },
-        })).toBe(false);
+        })).toBe(true);
     });
 });
