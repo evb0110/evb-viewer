@@ -271,10 +271,37 @@ describe('DocumentViewportSession', () => {
         });
     });
 
-    it('commits same-page ready refinements without leaving an unmatched staged fence', () => {
+    it.each([
+        'before',
+        'after',
+    ] as const)('commits same-page refinements %s visual readiness without leaving an unmatched staged fence', (timing) => {
         const harness = new SessionHarness();
         harness.openWithMetadata();
         harness.settleCurrentPage();
+        harness.dispatch({
+            type: 'navigation-requested',
+            pageNumber: 2,
+            viewportIntentId: 'nav-refinement',
+        });
+        const initialRender = renderFence(harness.state);
+        harness.dispatch({
+            type: 'render-started',
+            fence: initialRender,
+        });
+        harness.dispatch({
+            type: 'canvas-committed',
+            fence: initialRender,
+        });
+        harness.dispatch({
+            type: 'viewport-committed',
+            fence: viewportFence(harness.state),
+        });
+        if (timing === 'after') {
+            harness.dispatch({
+                type: 'visual-ready',
+                fence: initialRender,
+            });
+        }
         const previousRender = harness.state.committedRenderFence;
         const refinementRender = renderFence(harness.state, {
             renderVersion: 2,
@@ -290,7 +317,7 @@ describe('DocumentViewportSession', () => {
             type: 'viewport-committed',
             fence: refinementViewport,
         }).accepted).toBe(true);
-        expect(harness.state.lifecycle).toBe('ready');
+        expect(harness.state.lifecycle).toBe(timing === 'after' ? 'ready' : 'transitioning');
         expect(harness.state.stagedViewportFence).toBeNull();
         expect(harness.state.committedRenderFence).toEqual(previousRender);
         expect(harness.state.committedViewportFence).toEqual(refinementViewport);
@@ -303,6 +330,15 @@ describe('DocumentViewportSession', () => {
         expect(harness.state.stagedViewportFence).toBeNull();
         expect(harness.state.committedRenderFence).toEqual(refinementRender);
         expect(harness.state.committedViewportFence).toEqual(refinementViewport);
+        if (timing === 'before') {
+            expect(harness.dispatch({
+                type: 'visual-ready',
+                fence: refinementRender,
+            }).accepted).toBe(true);
+        }
+        expect(harness.state.lifecycle).toBe('ready');
+        expect(harness.state.stagedRenderFence).toBeNull();
+        expect(harness.state.stagedViewportFence).toBeNull();
     });
 
     it('separates settled page observation from commands and lets user scroll supersede navigation', () => {

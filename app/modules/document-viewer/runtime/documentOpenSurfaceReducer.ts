@@ -322,14 +322,13 @@ function fenceTargetsCurrentIntent(
 }
 
 function settleIfComplete(state: IDocumentViewportSessionState) {
-    const render = state.stagedRenderFence;
-    const viewport = state.stagedViewportFence;
+    const render = state.stagedRenderFence ?? state.committedRenderFence;
+    const viewport = state.stagedViewportFence ?? state.committedViewportFence;
     if (
         !render
         || !viewport
         || !fenceTargetsCurrentIntent(state, render)
         || !fenceTargetsCurrentIntent(state, viewport)
-        || render.pageNumber !== viewport.pageNumber
     ) {
         return state;
     }
