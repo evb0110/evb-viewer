@@ -28,7 +28,9 @@ import type {
     TPageMoveOperation,
     TPageSelection,
 } from '@pdf-core/pdfPageSelection';
-import { usePageOperations } from '@app/modules/pdf-viewer/public';
+import {
+    usePageOperations, type IPdfViewerSaveExpose,
+} from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runDetached } from '@app/utils/asyncGuard';
 import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
@@ -57,7 +59,7 @@ export interface IPageOperationPresentation {
     rotationDelta?: TPageRotationDelta;
 }
 
-interface IPdfViewerForPageOps {
+interface IPdfViewerForPageOps extends Pick<IPdfViewerSaveExpose, 'commitPdfEditorsForSave'> {
     invalidatePages: (pages: number[]) => void;
     beginPageRotationPreview?: (input: {
         invalidatedPages: readonly number[];
@@ -557,6 +559,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
                 const invalidatedPages = Array.isArray(selection)
                     ? [...selection]
                     : materializePageSelection(selection);
+                await pdfViewerRef.value?.commitPdfEditorsForSave?.();
                 try {
                     await pdfViewerRef.value?.beginPageRotationPreview?.({
                         invalidatedPages,

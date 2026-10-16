@@ -1068,10 +1068,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             return recovery;
         },
         hasCanonicalAnnotationChanges: () => {
-            // Keep the framework dependency on the canonical projection.
             void annotationProjection.value;
             return annotationApplication.value.store.hasChangesSinceSavedBaseline()
-                || annotationEditorSurface.hasPendingTextBoxDrafts();
+                || textBoxDrafts.size > 0;
         },
         hasCanonicalShapeChanges: () => {
             // Keep the framework dependency on the canonical projection.

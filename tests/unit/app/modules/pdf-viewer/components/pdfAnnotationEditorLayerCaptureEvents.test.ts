@@ -386,14 +386,14 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
         });
         editor!.textContent = 'draft through save hook';
         editor!.dispatchEvent(new InputEvent('input', {bubbles: true}));
-        expect(surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(surface.hasTextBoxDraftPending(createdTextBox.identity.id)).toBe(true);
         await surface.commitPendingTextBoxDraftsForSave();
         await nextTick();
         expect(textBox!.textContent).toBe('draft through save hook');
         expect(textBox!.style.height).toBe('40%');
         expect(textBox!.style.width).toBe('30%');
         expect(host.querySelector('[contenteditable="true"]')).toBeNull();
-        expect(surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(surface.hasTextBoxDraftPending(createdTextBox.identity.id)).toBe(false);
     });
 
     it.each([
@@ -549,7 +549,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
         await vi.waitFor(() => expect(document.activeElement).toBe(editor));
         expect(editor.textContent).toBe(reason === 'newer typing' ? 'Newer text' : 'First text');
         expect(host.querySelector('.is-editing')).not.toBeNull();
-        expect(surface.hasPendingTextBoxDrafts()).toBe(true);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(true);
         expect(application.value.store.get(box.identity.id)).toMatchObject({text: ''});
         protection = Promise.withResolvers<undefined>();
         accept();
@@ -564,7 +564,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
                 height: 0.4,
             },
         });
-        expect(surface.hasPendingTextBoxDrafts()).toBe(false);
+        expect(surface.hasTextBoxDraftPending(box.identity.id)).toBe(false);
     });
 
     it('keeps the rejected draft geometry when its disposed viewer is replaced by the surviving editor', async () => {

@@ -135,7 +135,6 @@ export interface IAnnotationEditorSurface {
     restoreTextBoxDraftPending(annotationId: AnnotationId, geometry?: IAnnotationMarkerRect): void;
     clearTextBoxDraftPending(annotationId: AnnotationId): void;
     hasTextBoxDraftPending(annotationId: AnnotationId): boolean;
-    hasPendingTextBoxDrafts(): boolean;
     getTextBoxDraftText(annotationId: AnnotationId): string | null;
     getTextBoxDraftRect(annotationId: AnnotationId): IAnnotationMarkerRect | null;
     updateSelectedTextBoxProperties(
@@ -334,7 +333,7 @@ export const usePdfAnnotationEditorSurface = (
             if (pageInteractions.get(pageIndex) !== interaction) {
                 return;
             }
-            if (editingPageIndex.value === pageIndex) void commitTextSession();
+            if (editingPageIndex.value === pageIndex) void commitTextSession()?.catch(error => BrowserLogger.debug('annotations', 'Unmounted text draft retained after completion failed', error));
             if (pointerPageIndex === pageIndex) cancelPointerSession();
             pageInteractions.delete(pageIndex);
         };
@@ -776,10 +775,6 @@ export const usePdfAnnotationEditorSurface = (
         return pendingTextBoxDraftIds.has(annotationId);
     }
 
-    function hasPendingTextBoxDrafts() {
-        return pendingTextBoxDraftIds.size > 0;
-    }
-
     function getTextBoxDraftText(annotationId: AnnotationId) {
         return options.getTextBoxDraftText?.(annotationId) ?? null;
     }
@@ -1155,7 +1150,6 @@ export const usePdfAnnotationEditorSurface = (
         restoreTextBoxDraftPending,
         clearTextBoxDraftPending,
         hasTextBoxDraftPending,
-        hasPendingTextBoxDrafts,
         getTextBoxDraftText,
         getTextBoxDraftRect,
         updateSelectedTextBoxProperties: updateSelectedAnnotationProperties,

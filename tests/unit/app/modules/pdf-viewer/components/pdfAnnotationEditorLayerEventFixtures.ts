@@ -148,7 +148,7 @@ export function createCreationSurface() {
     const clearTextBoxDraftPending = vi.fn((id: ITextBoxEntity['identity']['id']) => {
         pendingDraftIds.delete(id);
     });
-    const hasPendingTextBoxDrafts = vi.fn(() => pendingDraftIds.size > 0);
+    const hasTextBoxDraftPending = vi.fn((id: ITextBoxEntity['identity']['id']) => pendingDraftIds.has(id));
     const createTextBoxAt = vi.fn((..._args: Parameters<IAnnotationEditorSurface['createTextBoxAt']>) => {
         entities.value = [createdTextBox];
         return createdTextBox;
@@ -175,7 +175,7 @@ export function createCreationSurface() {
         setTextBoxDraftPending,
         clearTextBoxDraftPending,
         endTextEditing: vi.fn((id) => {interaction.endTextEditing(); clearTextBoxDraftPending(id);}),
-        hasPendingTextBoxDrafts,
+        hasTextBoxDraftPending,
         updateSelectedTextBoxProperties: vi.fn(() => true),
         discardUnsavedAnnotation: vi.fn(() => true),
         deleteAnnotation: vi.fn(() => true),
@@ -217,7 +217,7 @@ export function createCreationSurface() {
         commitPendingTextBoxDraftsForSave,
         setTextBoxDraftPending,
         clearTextBoxDraftPending,
-        hasPendingTextBoxDrafts,
+        hasTextBoxDraftPending,
     };
 }
 
@@ -251,7 +251,6 @@ export function createSurface() {
         getPendingTextCompletion: () => undefined,
         setTextBoxDraftPending: vi.fn(),
         clearTextBoxDraftPending: vi.fn(),
-        hasPendingTextBoxDrafts: vi.fn(() => false),
         updateSelectedTextBoxProperties: vi.fn(() => true),
         discardUnsavedAnnotation: vi.fn(() => true),
         deleteAnnotation: vi.fn(() => true),
