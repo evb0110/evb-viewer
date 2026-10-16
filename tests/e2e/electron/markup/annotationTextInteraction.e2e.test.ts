@@ -540,10 +540,33 @@ describe('Electron E2E - text interaction contract', () => {
         const directory = mkdtempSync(join(tmpdir(), 'evb-text-interaction-'));
         const path = join(directory, 'document.pdf');
         copyFileSync(source ?? process.env.EVB_TEXT_INTERACTION_FIXTURE ?? generated, path);
-        onTestFinished(() => {rmSync(generated, {force: true}); rmSync(directory, {
-            recursive: true,
-            force: true,
-        });});
+        onTestFinished(async () => {
+            try {
+                await sessions.getSession().page.evaluate(async () => {
+                    interface IViewerComponent {
+                        parent?: IViewerComponent | null;
+                        exposed?: {commitPdfEditorsForSave?: () => Promise<void>} | null;
+                    }
+                    const element = document.querySelector<HTMLElement & {__vueParentComponent?: IViewerComponent}>('.editor-pane.is-active .page_container');
+                    let component = element?.__vueParentComponent;
+                    while (component) {
+                        const complete = component.exposed?.commitPdfEditorsForSave;
+                        if (complete) {
+                            await complete();
+                            return;
+                        }
+                        component = component.parent ?? undefined;
+                    }
+                    throw new Error('The loaded viewer must settle its editors before fixture cleanup');
+                });
+            } finally {
+                rmSync(generated, {force: true});
+                rmSync(directory, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+        });
         await openPdfInApp(session.page, path);
         await waitForPdfLoaded(session.page);
         await waitForViewerInteractive(session.page);

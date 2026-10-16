@@ -98,12 +98,6 @@ export const useTextBoxInlineEdit = (
         void focusEditor();
     }, {immediate: true});
 
-    watch(options.entity, (entity) => {
-        if (!options.editing.value) {
-            draftText.value = entity.text;
-        }
-    });
-
     function handleInput(event: ITextBoxInputEvent) {
         if (!options.editing.value || event.isComposing) {
             return;
@@ -125,7 +119,7 @@ export const useTextBoxInlineEdit = (
         void pending.catch(() => {
             if (completion === pending) {
                 completion = null;
-                void focusEditor();
+                if (editorRef.value?.ownerDocument.activeElement !== editorRef.value) void focusEditor();
             }
         });
         return pending;

@@ -106,6 +106,31 @@ describe('text box caret ownership', () => {
         expect(window.getSelection()?.isCollapsed).toBe(true);
     });
 
+    it('preserves the focused draft and selected text when completion fails', async () => {
+        const {
+            element,
+            editor,
+            commit,
+        } = await start();
+        const publication = Promise.withResolvers<undefined>();
+        commit.mockImplementation(() => publication.promise);
+        element.textContent = 'Corrected text';
+        editor.handleInput({currentTarget: element});
+        const completing = expect(editor.commit()).rejects.toThrow('Appearance unavailable');
+        const selection = window.getSelection()!;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        expect(selection.toString()).toBe('Corrected text');
+        publication.reject(new Error('Appearance unavailable'));
+        await completing;
+        await nextTick();
+        expect(document.activeElement).toBe(element);
+        expect(element.textContent).toBe('Corrected text');
+        expect(selection.toString()).toBe('Corrected text');
+    });
+
     it('restores object focus for explicit Done but preserves the destination on blur', async () => {
         const {
             editor,
