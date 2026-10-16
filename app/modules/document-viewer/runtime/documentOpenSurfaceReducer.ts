@@ -100,6 +100,7 @@ export type TDocumentViewportSessionEvent =
         readonly type: 'navigation-requested';
         readonly pageNumber: number | null;
         readonly viewportIntentId: string;
+        readonly deferSkeleton?: boolean;
     }
     | {
         readonly type: 'navigation-resolved';
@@ -321,14 +322,13 @@ function fenceTargetsCurrentIntent(
 }
 
 function settleIfComplete(state: IDocumentViewportSessionState) {
-    const render = state.stagedRenderFence;
-    const viewport = state.stagedViewportFence;
+    const render = state.stagedRenderFence ?? state.committedRenderFence;
+    const viewport = state.stagedViewportFence ?? state.committedViewportFence;
     if (
         !render
         || !viewport
         || !fenceTargetsCurrentIntent(state, render)
         || !fenceTargetsCurrentIntent(state, viewport)
-        || render.pageNumber !== viewport.pageNumber
     ) {
         return state;
     }
@@ -336,7 +336,7 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
         ...state,
         lifecycle: state.lifecycle === 'failed' ? 'opening' as const : state.lifecycle,
         committedPage: render.pageNumber,
-        observedPage: null,
+        observedPage: state.observedPage === render.pageNumber ? null : state.observedPage,
         stagedRenderFence: null,
         stagedViewportFence: null,
         committedRenderFence: render,
@@ -347,6 +347,7 @@ function settleIfComplete(state: IDocumentViewportSessionState) {
             pageNumber: render.pageNumber,
             presentation: 'canvas' as const,
             error: null,
+            ...(state.visual.kind === 'page' && state.visual.deferSkeleton ? {deferSkeleton: true as const} : {}),
         },
         failure: null,
     };
@@ -478,13 +479,12 @@ function navigationRequested(
         pageNumber,
         presentation: 'skeleton',
         error: null,
-        ...(state.lifecycle === 'ready' ? {deferSkeleton: true} : {}),
+        ...(state.lifecycle === 'ready' && event.deferSkeleton !== false ? {deferSkeleton: true} : {}),
     };
     const next: IDocumentViewportSessionState = {
         ...state,
         lifecycle: state.lifecycle === 'opening' ? 'opening' : 'transitioning',
         requestedPage: pageNumber,
-        observedPage: state.observedPage,
         visual,
         viewportIntent: {
             generation: state.generation,

@@ -195,6 +195,23 @@ describe('useWorkspaceMetadataHistory', () => {
         }];
         history.recordCurrentState();
 
+        const importedRanges: IPdfPageLabelRange[] = [{
+            startPage: 1,
+            style: 'D',
+            prefix: 'Imported ',
+            startNumber: 1,
+        }];
+        pageLabelRanges.value = importedRanges;
+        pageLabels.value = ['Imported 1'];
+        history.markCurrentStateClean('pageLabelRanges');
+        expect(bookmarksDirty.value).toBe(true);
+        expect(await history.undoMetadata()).toBe(true);
+        expect(bookmarkItems.value).toEqual([]);
+        expect(pageLabelRanges.value).toEqual(importedRanges);
+        expect(pageLabels.value).toEqual(['Imported 1']);
+        expect(await history.redoMetadata()).toBe(true);
+        expect(pageLabelRanges.value).toEqual(importedRanges);
+
         pageLabels.value = ['i'];
         pageLabelRanges.value = [{
             startPage: 1,
@@ -212,10 +229,10 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(pageLabelRanges.value).toEqual([{
             startPage: 1,
             style: 'D',
-            prefix: '',
+            prefix: 'Imported ',
             startNumber: 1,
         }]);
-        expect(pageLabels.value).toBeNull();
+        expect(pageLabels.value).toEqual(['Imported 1']);
         expect(bookmarkItems.value).toEqual([{
             title: 'Chapter 1',
             pageIndex: 0,

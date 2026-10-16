@@ -107,8 +107,6 @@ export interface IDocumentViewerExpose {
     scrollToPage: (page: number, options?: IScrollToPageOptions) => void;
     /** The point of a page at the viewport center, as a relayout keeps it. */
     captureReadingAnchor?: () => IPdfSemanticAnchor | null;
-    /** Scrolls so a captured point sits where it sat in the viewport it came from. */
-    restoreReadingAnchor?: (anchor: IPdfSemanticAnchor) => void;
     cancelProgrammaticNavigation?: () => void;
     getUserViewportInteractionEpoch?: () => number;
     /**

@@ -211,10 +211,12 @@ function shouldRenderPageSkeleton(page: TPageNumber) {
     return shouldShowSkeleton(page);
 }
 
-// While a navigation runs, only its destination row shows a skeleton.
+// The navigation ticket owns the reveal for every destination-visible page,
+// including neighbours still painting after the target canvas commits.
 const deferPageSkeleton = computed(() => {
     const visual = chassisAuthority?.openSurface.viewportSession.value.visual;
-    return visual?.kind === 'page' && visual.presentation === 'skeleton' && visual.deferSkeleton === true;
+    return chassisAuthority?.navigationTicket.value !== null
+        && visual?.kind === 'page' && visual.deferSkeleton === true;
 });
 
 function getEffectivePagePlaceholderStyle(page: TPageNumber) {

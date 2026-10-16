@@ -337,12 +337,10 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             // that the canvas callback itself commits.
             const stagedNavigationVisual = next.navigation !== undefined
                 && (next.navigationTicket === undefined || deps.shouldStageNavigationVisual?.(next) === true);
-            let visualReadyBeforePlacement = false;
             if (stagedNavigationVisual) {
                 phase.value = 'awaiting-visual';
                 try {
                     await awaitWithAbort(deps.awaitVisual(next, signal), signal);
-                    visualReadyBeforePlacement = true;
                 } catch (error) {
                     // An aborted visual wait still places; the terminal report
                     // below remains the single owner of failure.
@@ -367,7 +365,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             assertCurrent(next, signal);
             const positionCommit = commitPosition(next, commit, applied);
             assertCurrent(next, signal);
-            if (next.navigationTicket && !visualReadyBeforePlacement) {
+            if (next.navigationTicket) {
                 phase.value = 'awaiting-visual';
                 // A ticket whose raster failed cannot be reported as arrived;
                 // it receives `failed` below and a later mount can replay it.

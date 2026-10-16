@@ -60,7 +60,6 @@ const surfaceRenders = vi.hoisted(() => ({
         clearPresentedDocument: () => void;
         captureReadingAnchor: () => IPdfSemanticAnchor | null
     }>(),
-    restoreReadingAnchor: null as ((anchor: unknown) => void) | null,
     // The viewer's count of the reader's scrolls and drags.
     interactionEpoch: {value: 0},
     sidebars: [] as Array<Record<string, unknown>>,
@@ -108,7 +107,6 @@ vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () =
             scrollToPage: vi.fn(),
             ...presentation,
             getViewerContainer: () => null,
-            restoreReadingAnchor: (anchor: unknown) => surfaceRenders.restoreReadingAnchor?.(anchor),
             getReaderInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
             observeReaderCommand: () => {
                 surfaceRenders.interactionEpoch.value += 1;
@@ -195,7 +193,6 @@ afterEach(() => {
     surfaceRenders.openSurface = null;
     surfaceRenders.openSurfaces.clear();
     surfaceRenders.presentations.clear();
-    surfaceRenders.restoreReadingAnchor = null;
     surfaceRenders.interactionEpoch.value = 0;
     nuxtState.clear();
     vi.restoreAllMocks();
@@ -584,7 +581,7 @@ describe('DocumentWorkspace navigation command', () => {
 
         workspace.expose[command]();
         expect(reader.moved()).toBe(true);
-        await reader.finish(null);
+        reader.finish();
     }, 120_000);
 
     describe('following the reader of an open across the viewer routing', () => {
@@ -631,7 +628,7 @@ describe('DocumentWorkspace navigation command', () => {
 
             surfaceRenders.interactionEpoch.value = 4;
             expect(followed.reader.moved()).toBe(true);
-            await followed.reader.finish(null);
+            followed.reader.finish();
         }, 120_000);
 
         it('counts a move in a different chassis that replaced the followed one from that chassis\'s start', async () => {
@@ -644,7 +641,7 @@ describe('DocumentWorkspace navigation command', () => {
 
             replacementMoves.value = 1;
             expect(followed.reader.moved()).toBe(true);
-            await followed.reader.finish(null);
+            followed.reader.finish();
         }, 120_000);
     });
 
@@ -685,108 +682,4 @@ describe('DocumentWorkspace navigation command', () => {
         });
     }, 120_000);
 
-    describe('placing a split view at its source\'s reading point', () => {
-        const anchor = {
-            page: 3,
-            pageXFraction: 0.5,
-            pageYFraction: 0.4,
-            viewportXFraction: 0.5,
-            viewportYFraction: 0.5,
-            affinity: 'center' as const,
-        };
-
-        async function mountOpeningView() {
-            const restored: unknown[] = [];
-            surfaceRenders.restoreReadingAnchor = anchorToRestore => restored.push(anchorToRestore);
-            const workspace = await mountDocumentWorkspace({
-                pendingDocumentPath: requireDocumentRef('/tmp/shared.pdf'),
-                openSurfaceDocument: requireDocumentRef('/tmp/shared.pdf'),
-            });
-            const placing = workspace.expose.followReader!().finish(anchor);
-            return {
-                ...workspace,
-                placing,
-                restored,
-                // The view's document finishes opening.
-                settle: () => workspace.documentSession.markPresented(),
-            };
-        }
-
-        it('places the anchor once the document has opened', async () => {
-            const view = await mountOpeningView();
-            await nextTick();
-            expect(view.restored).toEqual([]);
-
-            view.settle();
-            await view.placing;
-
-            expect(view.restored).toEqual([anchor]);
-        }, 120_000);
-
-        it('places the anchor after the opening restores the view\'s own page', async () => {
-            const view = await mountOpeningView();
-
-            // What the page-session restore issues once the view has a page count.
-            surfaceRenders.openSurface!.navigate({
-                target: {
-                    kind: 'page',
-                    page: 1,
-                },
-                alignment: 'page-top',
-                readiness: 'page-canvas',
-                source: 'restore',
-                supersession: 'latest-wins',
-            });
-            await nextTick();
-            view.settle();
-            await view.placing;
-
-            expect(view.restored).toEqual([anchor]);
-        }, 120_000);
-
-        it('leaves the view where the reader sent it by going to its own first page while it opened', async () => {
-            const view = await mountOpeningView();
-
-            // The toolbar's Go to page on the page the view opens at, to see its top.
-            view.expose.handleGoToPage(1);
-            await nextTick();
-            view.settle();
-            await view.placing;
-
-            expect(view.restored).toEqual([]);
-        }, 120_000);
-
-        it('places the anchor in a viewer the reader had used before the placement began', async () => {
-            surfaceRenders.interactionEpoch.value = 3;
-            const view = await mountOpeningView();
-
-            view.settle();
-            await view.placing;
-
-            expect(view.restored).toEqual([anchor]);
-        }, 120_000);
-
-        it('leaves the view where the reader scrolled while it opened', async () => {
-            surfaceRenders.interactionEpoch.value = 3;
-            const view = await mountOpeningView();
-
-            surfaceRenders.interactionEpoch.value = 4;
-            await nextTick();
-            view.settle();
-            await view.placing;
-
-            expect(view.restored).toEqual([]);
-        }, 120_000);
-
-        it('leaves the view where the reader navigated while it opened', async () => {
-            const view = await mountOpeningView();
-
-            view.expose.handleGoToPage(5);
-            await nextTick();
-            view.settle();
-            await view.placing;
-
-            expect(view.restored).toEqual([]);
-        }, 120_000);
-    });
 });

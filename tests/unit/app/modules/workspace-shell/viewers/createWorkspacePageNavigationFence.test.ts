@@ -62,6 +62,10 @@ describe('createWorkspacePageNavigationFence', () => {
             viewportIntentId: fence!.viewportIntentId,
         })).toBe(true);
         expect(openSurface.markReady(fence!)).toBe(true);
+        expect(openSurface.reportNavigation(openSurface.navigationTicket.value!, {
+            kind: 'arrived',
+            page: 1,
+        })).toBe(true);
 
         const navigationFence = createWorkspacePageNavigationFence({
             currentPage: ref(1),
@@ -309,6 +313,23 @@ describe('createWorkspacePageNavigationFence', () => {
         expect(navigationFence.targetPage.value).toBe(1);
         expect(currentPage.value).toBe(1);
         expect(ticket!.signal.aborted).toBe(false);
+        const targetFence = openSurface.createRenderFence({
+            documentRevision: 'revision',
+            generation,
+            pageNumber: 1,
+            renderVersion: 2,
+            requestId: 2,
+        })!;
+        expect(openSurface.commitCanvas(targetFence)).toBe(true);
+        expect(openSurface.markReady(targetFence)).toBe(true);
+        expect(navigationFence.consumePageUpdate(1).accepted).toBe(true);
+        expect(ticket!.signal.aborted).toBe(false);
+        expect(navigationFence.targetPage.value).toBe(1);
+        expect(openSurface.reportNavigation(ticket!, {
+            kind: 'arrived',
+            page: 1,
+        })).toBe(true);
+        expect(navigationFence.targetPage.value).toBeNull();
     });
 
     it('retains strict stale-page rejection for a genuine target', () => {

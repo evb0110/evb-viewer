@@ -92,7 +92,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     const bookmarkState = useBookmarkState({
         markDirty,
         preservesSourceReload,
-        onBookmarksSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.resetToCurrentState(); },
+        onBookmarksSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.markCurrentStateClean('bookmarkItems'); },
         onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
         onBookmarksSaved: () => metadataHistory?.markCurrentStateClean(),
     });
@@ -116,7 +116,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
             return getDocumentFilesCapability().readPdfPageLabelRanges(path);
         },
         preservesSourceReload,
-        onPageLabelsSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.resetToCurrentState(); },
+        onPageLabelsSynchronized: () => { if (!preservesSourceReload()) metadataHistory?.markCurrentStateClean('pageLabelRanges'); },
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
         onPageLabelsSaved: () => metadataHistory?.markCurrentStateClean(),
         // The outline is re-read from new bytes, not from another view's copy of the same.
