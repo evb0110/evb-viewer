@@ -78,6 +78,42 @@ describe('checkpointed annotation recovery', () => {
         outputDirectory = null;
     });
 
+    // A4/T2: Escape cannot discard text already accepted with Ctrl/Cmd+Enter.
+    it('keeps accepted text when Escape arrives during recovery protection', async () => {
+        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-text-commit-escape-'));
+        const sourcePath = join(outputDirectory, 'accepted-text.pdf');
+        copyFileSync(await createMultiPageTextFixturePdf(`commit-escape-${Date.now()}.pdf`, 1), sourcePath);
+        const {
+            gate, hook,
+        } = writeTextProtectionHoldHook(outputDirectory, 'Text protection failed');
+        session = await startElectronE2ESession(`e2e-text-commit-escape-${Date.now()}`, {
+            clean: true,
+            initialOpenPaths: [sourcePath],
+            extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hook)}`},
+        });
+        await waitForPdfLoaded(session.page, 60_000);
+        await waitForViewerInteractive(session.page, 60_000);
+        writeFileSync(`${gate}.arm`, '');
+        const marker = 'Accepted text survives Escape';
+        const annotationId = await createCanonicalTextBoxWithPointer(session.page, marker, {
+            x: 0.4,
+            y: 0.3,
+        });
+        await expect.poll(() => existsSync(`${gate}.held`), {timeout: 30_000}).toBe(true);
+        await session.page.keyboard.press('Escape');
+        writeFileSync(`${gate}.release`, '');
+        const selector = `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"][data-annotation-id="${annotationId}"]`;
+        await expect.poll(() => session!.page.$eval(selector, entity => ({
+            text: entity.textContent?.trim(),
+            editing: entity.classList.contains('is-editing'),
+        })).catch(() => null), {timeout: 10_000}).toEqual({
+            text: marker,
+            editing: false,
+        });
+        await saveViaVisibleToolbarWithDeadline(session.page, 30_000, sourcePath);
+        expect(await readPdfTextAnnotationRecords(sourcePath)).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
+    }, 120_000);
+
     it.runIf(process.platform === 'linux' || process.platform === 'darwin').each([
         'SIGTERM',
         'SIGHUP',
